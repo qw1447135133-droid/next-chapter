@@ -243,13 +243,11 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    let result;
+    let result: Record<string, any>;
     if (useVidu) {
-      result = await viduCreate(apiKey, body);
-      result.provider = "vidu";
+      result = { ...(await viduCreate(apiKey, body)), provider: "vidu" };
     } else {
-      result = await seedanceCreate(apiKey, body);
-      result.provider = "seedance";
+      result = { ...(await seedanceCreate(apiKey, body)), provider: "seedance" };
     }
 
     return new Response(JSON.stringify(result),

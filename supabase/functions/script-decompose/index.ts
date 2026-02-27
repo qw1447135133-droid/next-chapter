@@ -299,9 +299,9 @@ serve(async (req) => {
       characters = [];
       sceneSettingsData = [];
     } else {
-      scenes = parsed.scenes || [];
-      characters = parsed.characters || [];
-      sceneSettingsData = parsed.sceneSettings || [];
+      scenes = (parsed as any).scenes || [];
+      characters = (parsed as any).characters || [];
+      sceneSettingsData = (parsed as any).sceneSettings || [];
     }
 
     // Handle nested structure: AI sometimes wraps data inside scenes[0] as an object
