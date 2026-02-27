@@ -101,6 +101,7 @@ const CharacterSettings = ({
   };
 
   const handleGenerateCharacter = async (id: string) => {
+    if (generatingCharImgIds.has(id)) return; // prevent duplicate calls
     const character = characters.find((c) => c.id === id);
     if (!character || !String(character.name || "").trim()) {
       toast({ title: "请先填写角色名称", variant: "destructive" });
@@ -175,6 +176,7 @@ const CharacterSettings = ({
   };
 
   const handleGenerateScene = async (id: string) => {
+    if (generatingSceneImgIds.has(id)) return; // prevent duplicate calls
     const scene = sceneSettings.find((s) => s.id === id);
     if (!scene || !String(scene.name || "").trim()) {
       toast({ title: "请先填写场景名称", variant: "destructive" });
