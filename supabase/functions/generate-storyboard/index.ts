@@ -1,0 +1,370 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+};
+
+const ZHANHU_BASE_URL = "http://202.90.21.53:13003/v1beta";
+
+/** Fetch an image URL and return { mimeType, base64 } */
+async function fetchImageAsBase64(url: string): Promise<{ mimeType: string; data: string } | null> {
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const buf = await resp.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    // Chunked base64 encoding to avoid stack overflow
+    let binary = "";
+    const chunkSize = 8192;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+    const base64 = btoa(binary);
+    const contentType = resp.headers.get("content-type") || "image/png";
+    return { mimeType: contentType.split(";")[0], data: base64 };
+  } catch (e) {
+    console.error("Failed to fetch image:", url, e);
+    return null;
+  }
+}
+
+/** Extract base64 from a data URL */
+function parseDataUrl(dataUrl: string): { mimeType: string; data: string } | null {
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return null;
+  return { mimeType: match[1], data: match[2] };
+}
+
+/** Get image inline data from either a data URL or a regular URL */
+async function getInlineData(imageUrl: string): Promise<{ mimeType: string; data: string } | null> {
+  if (imageUrl.startsWith("data:")) {
+    return parseDataUrl(imageUrl);
+  }
+  if (imageUrl.startsWith("http")) {
+    return fetchImageAsBase64(imageUrl);
+  }
+  return null;
+}
+
+/**
+ * Rewrite a shot description to keep only the T=0 initial state.
+ * Splits on common Chinese result/consequence connectors and drops everything after.
+ * Also removes individual result phrases that describe post-action states.
+ */
+function rewriteToFirstFrame(desc: string): string {
+  if (!desc) return desc;
+
+  // 1. Split at consequence connectors — keep only the part BEFORE the first match
+  //    These connectors signal "and then the result is…"
+  const splitPatterns = /[，,]?\s*(?:瞬间|顿时|随即|紧接着|突然间|立刻|马上|随后|接着|于是|结果|导致|使得)/;
+  const splitMatch = desc.match(splitPatterns);
+  let cleaned = splitMatch ? desc.slice(0, splitMatch.index) : desc;
+
+  // 2. Remove residual result/gore phrases that may still be in the kept portion
+  const removePatterns = [
+    /化[为成].*?(血雾|碎片|粉末|灰烬|废墟|齑粉)/g,
+    /鲜血[溅飞洒喷].*?[。，,]/g,
+    /血[溅飞洒喷花].*?[。，,]/g,
+    /[炸爆]成.*?(碎片|粉末|废墟)/g,
+    /倒[地下飞].*?[。，,]/g,
+    /身体.*?(?:碎裂|断裂|爆裂|粉碎)/g,
+    /尸体/g,
+    /惨死/g,
+  ];
+  for (const pat of removePatterns) {
+    cleaned = cleaned.replace(pat, "");
+  }
+
+  // 3. Rewrite action verbs to anticipation/pre-action form
+  //    "飞来击中X" → "飞向X"   "砍中/刺中/击中" → "朝…挥去/刺去"
+  cleaned = cleaned
+    .replace(/飞来击中/g, "飞向")
+    .replace(/飞来砸中/g, "飞向")
+    .replace(/飞来射中/g, "射向")
+    .replace(/击中/g, "朝其飞去")
+    .replace(/砍中/g, "朝其挥去")
+    .replace(/刺中/g, "朝其刺去")
+    .replace(/射中/g, "射向")
+    .replace(/撞上/g, "冲向")
+    .replace(/砸中/g, "砸向")
+    .replace(/劈中/g, "朝其劈去");
+
+  // 4. Clean up: remove trailing dangling character references and punctuation
+  cleaned = cleaned.replace(/[，,、]+\s*(\[[^\]]*\])\s*$/, "").replace(/[，,、。]+$/, "").replace(/\s+/g, " ").trim();
+
+  return cleaned || desc; // fallback to original if cleaning empties it
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const { description, characters, cameraDirection, sceneName, dialogue, style, characterDescriptions, sceneDescription, mode, characterImages, sceneImageUrl, prevStoryboardUrl, scriptExcerpt, neighborContext, aspectRatio } = await req.json();
+
+    const isPanorama = mode === "panorama";
+
+    if (!description && !isPanorama) {
+      return new Response(
+        JSON.stringify({ error: "缺少分镜描述" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const ZHANHU_API_KEY = Deno.env.get("ZHANHU_API_KEY");
+    if (!ZHANHU_API_KEY) {
+      return new Response(
+        JSON.stringify({ error: "ZHANHU_API_KEY 未配置" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const styleMap: Record<string, string> = {
+      "live-action": "Photorealistic live-action cinematography. Cinema camera look with cinematic lighting, film-grade color grading, real-world textures, shallow depth of field, anamorphic bokeh. Indistinguishable from a real film still.",
+      "hyper-cg": "Hyper-realistic CG render, AAA game cinematic quality (UE5-level). PBR materials, ray-traced global illumination, volumetric fog, ultra-detailed surfaces, HDRI environment lighting.",
+      "3d-cartoon": "3D cartoon animation, Pixar/Disney feature-film quality. Stylized proportions, smooth subsurface skin, soft volumetric AO, rich saturated colors, appealing shape language.",
+      "2.5d-stylized": "2.5D stylized illustration, Spider-Verse / Arcane aesthetic. Hand-painted textures over 3D forms, visible brushstrokes, Ben-Day dots, bold ink outlines, limited color palette, printing misregistration effect.",
+      "anime-3d": "3D cel-shaded anime, Genshin Impact / Guilty Gear Strive style. Hard-edge 2-3 step toon shading, crisp uniform outlines, anime facial features, vibrant saturated colors, sharp geometric specular highlights.",
+      "cel-animation": "Traditional 2D cel animation, Disney Renaissance / Studio Ghibli style. Crisp ink lineart, flat solid color fills, razor-sharp shadow terminator, no gradients, paper-texture grain overlay.",
+      "retro-comic": "Vintage 1960s-70s American comic book style. Bold ink brush outlines, flat CMYK color blocks, mechanical halftone Ben-Day dot patterns, ink bleed, paper yellowing, deep chiaroscuro shadows.",
+    };
+    const styleDesc = styleMap[style] || styleMap["live-action"];
+
+    let prompt: string;
+
+    if (isPanorama) {
+      const charList = (characters || []).join("、");
+      const charDescList = (characterDescriptions || [])
+        .map((c: { name: string; description: string }) => `${c.name}: ${c.description}`)
+        .join("\n");
+
+      prompt = `Create a wide panoramic establishing shot showing character positions in a scene.
+
+Scene: "${sceneName}"
+Scene description: ${sceneDescription || sceneName}
+Characters present: ${charList}
+
+Character details:
+${charDescList || "No specific character details provided."}
+
+Scene content/action: ${description}
+
+Art style: ${styleDesc}
+
+IMPORTANT REQUIREMENTS:
+- This is a WIDE PANORAMIC shot (ultra-wide 21:9 or wider aspect ratio)
+- Show ALL characters in their relative positions within the scene
+- Each character should be clearly identifiable and labeled with their position
+- Show the full environment/background
+- Characters should be full-body, showing their spatial relationships
+- This is a positioning reference chart, like a stage blocking diagram
+- Professional concept art quality, clear composition`;
+    } else {
+      const charList = (characters || []).join("、");
+      const charDescList = (characterDescriptions || [])
+        .map((c: { name: string; description: string }) => `${c.name}: ${c.description}`)
+        .join("\n");
+
+      // Build narrative context from script and neighbors
+      let narrativeContext = "";
+      if (scriptExcerpt) {
+        narrativeContext += `\n[SCRIPT CONTEXT (for tone & atmosphere reference — DO NOT copy verbatim, use to expand details consistently)]\n${scriptExcerpt}\n`;
+      }
+      if (neighborContext) {
+        const nc = neighborContext;
+        narrativeContext += `\n[SCENE CONTINUITY — Shot ${nc.currentShotIndex} of ${nc.totalShotsInScene} in this scene]`;
+        if (nc.prevDescription) {
+          narrativeContext += `\nPrevious shot: ${nc.prevDescription}${nc.prevCamera ? ` (Camera: ${nc.prevCamera})` : ""}`;
+          if (nc.prevDialogue) narrativeContext += `\n  Dialogue: ${nc.prevDialogue}`;
+        }
+        if (nc.nextDescription) {
+          narrativeContext += `\nNext shot: ${nc.nextDescription}`;
+          if (nc.nextDialogue) narrativeContext += `\n  Dialogue: ${nc.nextDialogue}`;
+        }
+        narrativeContext += "\n";
+      }
+
+      // Rewrite the shot description to keep only T=0 initial state
+      const firstFrameDesc = rewriteToFirstFrame(description);
+      console.log("Original description:", description);
+      console.log("First-frame rewrite:", firstFrameDesc);
+
+      prompt = `You are a professional cinematic storyboard artist. Create a single storyboard frame for the shot described below. Your goal is to produce a frame that feels like a natural part of a continuous film sequence — visually coherent with previous and subsequent shots.
+
+=== CURRENT SHOT ===
+Scene: "${sceneName || "Unknown"}"
+Shot description: ${firstFrameDesc}
+Characters present: ${charList || "None specified"}
+${charDescList ? `\nCharacter appearance (MUST follow strictly for visual consistency):\n${charDescList}` : ""}
+Camera: ${cameraDirection || "Medium shot"}
+${dialogue ? `Dialogue in this shot: ${dialogue}` : ""}
+Scene environment: ${sceneDescription || sceneName || "Not specified"}
+
+=== ART STYLE ===
+${styleDesc}
+${narrativeContext}
+=== CRITICAL REQUIREMENTS ===
+1. NARRATIVE EXPANSION: Based on the shot description and script context, enrich the visual details — add appropriate environmental elements, lighting mood, character micro-expressions and body language that match the narrative tone. Do NOT invent content that contradicts the script.
+2. SPATIAL CONSISTENCY: If previous/next shot context is provided, maintain consistent:
+   - Character positions and facing directions (e.g. if character A is on the left in the previous shot, keep them on the left unless the description explicitly states movement)
+   - Background elements and environment layout (doors, windows, furniture, props must stay in the same relative positions)
+   - Lighting direction and color temperature
+3. CHARACTER CONSISTENCY IS THE TOP PRIORITY: each character MUST match their description exactly — hairstyle, hair color, clothing, accessories, body type, facial features. If character reference images are provided below, the generated characters MUST look identical to those references.
+4. If a scene environment reference image is provided below, maintain the same environment style, layout, and atmosphere.
+5. ${aspectRatio || "16:9"} cinematic composition, professional storyboard quality, cinematic lighting. The image MUST be in ${aspectRatio || "16:9"} aspect ratio.${(aspectRatio === "9:16" || aspectRatio === "2:3") ? `
+6. **PORTRAIT / VERTICAL FRAME COMPOSITION (9:16 / 2:3 — TikTok / Reels / Shorts oriented):**
+   - The tall narrow frame naturally compresses horizontal space, so LEAN INTO character-centric framing: faces, upper bodies, and emotional expressions should dominate the composition.
+   - Default to TIGHTER shot scales than horizontal formats — medium close-ups and close-ups are preferred unless the shot description explicitly calls for a wide or establishing shot.
+   - Use the vertical height creatively: overhead angles looking down staircases, low-angle hero shots emphasizing power, vertically stacked layered compositions (foreground character + midground action + background environment).
+   - Embrace dramatic depth-of-field to separate subject from a blurred vertical background.
+   - Characters should be framed slightly off-center for dynamic tension (rule of thirds applied vertically).
+   - Environment context can be conveyed through vertical slices: doorframes, alleyways, corridors, tall architecture, trees, shafts of light.
+   - This does NOT mean every shot is a selfie or talking-head — vary between close-ups, cowboy shots, over-the-shoulder, Dutch angles, bird's-eye, and worm's-eye to keep visual language diverse and cinematic.` : ""}
+${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "7" : "6"}. Ultra high resolution.
+${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "8" : "7"}. Depict EXACTLY this single shot as described — show the specific action, character positions, and emotion.
+${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME PRINCIPLE (HIGHEST PRIORITY — overrides all other composition rules):**
+   This image represents the VERY FIRST FRAME of a video clip — the frame shown at time T=0 before any playback begins.
+   - Read the shot description and identify ALL verbs/actions (e.g. "flies", "hits", "falls", "explodes", "runs", "turns into").
+   - Then REWIND to the moment JUST BEFORE the FIRST action verb begins. That frozen instant is what you must depict.
+   - Characters must be completely static, in anticipation poses — NO motion blur, NO mid-swing limbs, NO objects in mid-flight trajectory.
+   - Example: "A huge axe spins toward [Old Soldier] and hits him, turning him into blood mist" → Show the axe STILL IN THE THROWER'S HAND or just leaving the hand. Old Soldier stands unaware/bracing. No axe in the air, no impact, no blood.
+   - Example: "Character jumps off the cliff" → Show character standing at cliff edge, about to jump. Both feet on ground.
+   - Example: "An explosion destroys the building" → Show the building intact, with perhaps a fuse lit or a projectile approaching from far away.
+   - NEVER depict: motion blur, impact moments, deformation, gore, splatter, mid-air objects, falling bodies, or any state that occurs AFTER T=0.
+   - If in doubt, choose the EARLIER, more static moment.`;
+    }
+
+    // Build multimodal parts: text prompt + reference images
+    const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
+    parts.push({ text: prompt });
+
+    // Add scene reference image if available (supports both data URLs and storage URLs)
+    if (sceneImageUrl && typeof sceneImageUrl === "string") {
+      const inlineData = await getInlineData(sceneImageUrl);
+      if (inlineData) {
+        parts.push({ inlineData });
+        parts.push({ text: `Above is a WIDE ESTABLISHING SHOT of this scene's environment — use it ONLY as a reference for the environment style, color palette, architecture, props, and lighting atmosphere. Do NOT replicate the same wide/panoramic framing. Instead, compose this frame according to the camera direction specified: "${cameraDirection || "Medium shot"}". Adjust the shot scale (close-up, medium, wide, etc.) to match the described action and emotion.` });
+      }
+    }
+
+    // Add character reference images if available
+    if (Array.isArray(characterImages)) {
+      for (const charImg of characterImages) {
+        if (charImg.imageUrl && typeof charImg.imageUrl === "string") {
+          const inlineData = await getInlineData(charImg.imageUrl);
+          if (inlineData) {
+            parts.push({ inlineData });
+            parts.push({ text: `Above is the reference sheet for character "${charImg.name}". Keep this character's appearance consistent.` });
+          }
+        }
+      }
+    }
+
+    // Add previous storyboard image for visual continuity within the same scene
+    if (prevStoryboardUrl && typeof prevStoryboardUrl === "string") {
+      const inlineData = await getInlineData(prevStoryboardUrl);
+      if (inlineData) {
+        parts.push({ inlineData });
+        parts.push({ text: "Above is the PREVIOUS SHOT's storyboard frame in the same scene. Maintain visual continuity: keep consistent character positions, background layout, lighting, and spatial relationships. This shot should feel like the natural next frame in the sequence." });
+      }
+    }
+
+    const response = await fetch(
+      `${ZHANHU_BASE_URL}/models/gemini-3-pro-image-preview:generateContent?key=${ZHANHU_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts }],
+          generationConfig: { responseModalities: ["IMAGE", "TEXT"], imageSize: "2K" },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error("ZhanHu API error:", response.status, errText);
+      return new Response(
+        JSON.stringify({ error: `AI 分镜图生成失败 (${response.status})` }),
+        { status: response.status >= 400 && response.status < 500 ? response.status : 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const data = await response.json();
+
+    let imageBase64 = "";
+    let mimeType = "image/png";
+    const responseParts = data.candidates?.[0]?.content?.parts;
+    if (responseParts) {
+      for (const part of responseParts) {
+        if (part.inlineData) {
+          mimeType = part.inlineData.mimeType || "image/png";
+          imageBase64 = part.inlineData.data;
+          break;
+        }
+      }
+    }
+
+    if (!imageBase64) {
+      console.error("No image in response:", JSON.stringify(data).slice(0, 500));
+      return new Response(
+        JSON.stringify({ error: "AI 未返回分镜图" }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Upload to Supabase Storage
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+
+    // Ensure bucket exists
+    await supabaseAdmin.storage.createBucket("generated-images", { public: true, fileSizeLimit: 52428800 }).catch(() => {});
+
+    const ext = mimeType.includes("png") ? "png" : "jpg";
+    const folder = isPanorama ? "panoramas" : "storyboards";
+    const fileName = `${folder}/${crypto.randomUUID()}.${ext}`;
+
+    const binaryStr = atob(imageBase64);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+
+    console.log(`Uploading storyboard image: ${fileName}, size: ${bytes.length} bytes`);
+
+    const { error: uploadError } = await supabaseAdmin.storage
+      .from("generated-images")
+      .upload(fileName, bytes, { contentType: mimeType, upsert: false });
+
+    if (uploadError) {
+      console.error("Storage upload error:", uploadError);
+      return new Response(JSON.stringify({ error: `图片上传失败: ${uploadError.message}` }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const { data: urlData } = supabaseAdmin.storage
+      .from("generated-images")
+      .getPublicUrl(fileName);
+
+    console.log("Storyboard image uploaded successfully:", urlData.publicUrl);
+
+    return new Response(
+      JSON.stringify({ imageUrl: urlData.publicUrl }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  } catch (e) {
+    console.error("generate-storyboard error:", e);
+    return new Response(
+      JSON.stringify({ error: e instanceof Error ? e.message : "未知错误" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+});
