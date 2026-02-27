@@ -247,89 +247,49 @@ const CharacterSettings = ({
   const [generatingSceneImgIds, setGeneratingSceneImgIds] = useState<Set<string>>(() => initSet("sceneImg"));
   // isAutoDetectingAll, setIsAutoDetectingAll, autoDetectAbortRef are now props from Workspace
 
-  // On FIRST mount per page load: auto-restart orphaned generation tasks.
-  // Module-level flag prevents re-triggering on step switches (component remount).
+  // On FIRST mount per page load: clean up orphaned tasks (no auto-restart).
+  // Module-level flag prevents re-clearing on step switches (component remount).
   useEffect(() => {
     if (!hasCleanedOrphansThisSession) {
       hasCleanedOrphansThisSession = true;
-      if (!isAutoDetectingAll) {
-        const tasks = readTasks();
-        const now = Date.now();
-        const validTasks = tasks.filter((t) => now - t.startedAt < TIMEOUT_MAP[t.type]);
-        if (validTasks.length > 0) {
-          console.log(`Restarting ${validTasks.length} orphaned generation tasks from previous session`);
-          // Clear old tasks from localStorage — they'll be re-added by the generation functions
-          writeTasks([]);
-          // Restart each task after a short delay to let component fully mount
-          setTimeout(() => {
-            for (const t of validTasks) {
-              if (t.type === "charImg") {
-                const c = charactersRef.current.find((ch) => ch.id === t.id);
-                if (c && !c.imageUrl && String(c.name || "").trim()) {
-                  console.log(`Auto-restarting character image: ${c.name}`);
-                  handleGenerateCharacter(t.id);
-                }
-              } else if (t.type === "sceneImg") {
-                const s = sceneSettingsRef.current.find((sc) => sc.id === t.id);
-                if (s && !s.imageUrl && String(s.name || "").trim()) {
-                  console.log(`Auto-restarting scene image: ${s.name}`);
-                  handleGenerateScene(t.id);
-                }
-              } else if (t.type === "charDesc") {
-                const c = charactersRef.current.find((ch) => ch.id === t.id);
-                if (c && !c.description && String(c.name || "").trim()) {
-                  handleAutoDescribeCharacter(t.id);
-                }
-              } else if (t.type === "sceneDesc") {
-                const s = sceneSettingsRef.current.find((sc) => sc.id === t.id);
-                if (s && !s.description && String(s.name || "").trim()) {
-                  handleAutoDescribe(t.id);
-                }
-              }
-            }
-          }, 500);
-        }
-        // Always clear stale generating states for items that already have results
-        // This prevents buttons from being stuck disabled after refresh
-        setTimeout(() => {
-          setGeneratingCharImgIds((prev) => {
-            const next = new Set(prev);
-            for (const id of prev) {
-              const c = charactersRef.current.find((ch) => ch.id === id);
-              if (c?.imageUrl) next.delete(id);
-            }
-            return next.size === prev.size ? prev : next;
-          });
-          setGeneratingSceneImgIds((prev) => {
-            const next = new Set(prev);
-            for (const id of prev) {
-              const s = sceneSettingsRef.current.find((sc) => sc.id === id);
-              if (s?.imageUrl) next.delete(id);
-            }
-            return next.size === prev.size ? prev : next;
-          });
-          setGeneratingCharDescIds((prev) => {
-            const next = new Set(prev);
-            for (const id of prev) {
-              const c = charactersRef.current.find((ch) => ch.id === id);
-              if (c?.description) next.delete(id);
-            }
-            return next.size === prev.size ? prev : next;
-          });
-          setGeneratingDescIds((prev) => {
-            const next = new Set(prev);
-            for (const id of prev) {
-              const s = sceneSettingsRef.current.find((sc) => sc.id === id);
-              if (s?.description) next.delete(id);
-            }
-            return next.size === prev.size ? prev : next;
-          });
-          // Also clean up expired tasks
-          if (tasks.length > 0 && validTasks.length === 0) {
-            writeTasks([]);
+      // Clear all localStorage tasks — we don't auto-restart after refresh
+      writeTasks([]);
+      // Clear generating states for items that already have results
+      // Keep spinners only for items still missing results (they'll time out naturally)
+      setTimeout(() => {
+        setGeneratingCharImgIds((prev) => {
+          const next = new Set(prev);
+          for (const id of prev) {
+            const c = charactersRef.current.find((ch) => ch.id === id);
+            if (c?.imageUrl) next.delete(id);
           }
-        }, 100);
-      }
+          return next.size === prev.size ? prev : next;
+        });
+        setGeneratingSceneImgIds((prev) => {
+          const next = new Set(prev);
+          for (const id of prev) {
+            const s = sceneSettingsRef.current.find((sc) => sc.id === id);
+            if (s?.imageUrl) next.delete(id);
+          }
+          return next.size === prev.size ? prev : next;
+        });
+        setGeneratingCharDescIds((prev) => {
+          const next = new Set(prev);
+          for (const id of prev) {
+            const c = charactersRef.current.find((ch) => ch.id === id);
+            if (c?.description) next.delete(id);
+          }
+          return next.size === prev.size ? prev : next;
+        });
+        setGeneratingDescIds((prev) => {
+          const next = new Set(prev);
+          for (const id of prev) {
+            const s = sceneSettingsRef.current.find((sc) => sc.id === id);
+            if (s?.description) next.delete(id);
+          }
+          return next.size === prev.size ? prev : next;
+        });
+      }, 100);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
