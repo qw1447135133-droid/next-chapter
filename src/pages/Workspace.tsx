@@ -636,16 +636,53 @@ const Workspace = () => {
     stopVideoGenRef.current = false;
     setIsAbortingVideo(false);
     setIsGeneratingVideo(true);
-    for (const scene of scenes) {
-      if (stopVideoGenRef.current) break;
-      await generateVideoForScene(scene.id);
-    }
+
+    let successCount = 0;
+    let failCount = 0;
+
+    // Semaphore for max 3 concurrent video submissions
+    let running = 0;
+    const queue: (() => void)[] = [];
+    const acquire = () => new Promise<void>((resolve) => {
+      if (running < 3) { running++; resolve(); }
+      else queue.push(() => { running++; resolve(); });
+    });
+    const release = () => { running--; if (queue.length > 0) queue.shift()!(); };
+
+    const processScene = async (sceneId: string) => {
+      if (stopVideoGenRef.current) return;
+      await acquire();
+      if (stopVideoGenRef.current) { release(); return; }
+
+      let succeeded = false;
+      const maxRetries = 2;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        if (stopVideoGenRef.current) break;
+        try {
+          await generateVideoForScene(sceneId);
+          succeeded = true;
+          break;
+        } catch {
+          if (attempt < maxRetries) {
+            console.log(`Retrying video for scene ${sceneId}, attempt ${attempt + 2}`);
+          }
+        }
+      }
+      if (succeeded) successCount++; else failCount++;
+      release();
+    };
+
+    // Launch all in parallel (concurrency controlled by semaphore)
+    const tasks = scenes.map((scene) => processScene(scene.id));
+    await Promise.all(tasks);
+
     const aborted = stopVideoGenRef.current;
     setIsGeneratingVideo(false);
     setIsAbortingVideo(false);
-    if (aborted) {
-      toast({ title: "已中止", description: "后续视频生成已取消，已提交的任务仍会继续" });
-    }
+    toast({
+      title: aborted ? "已中止" : "全部视频生成完成",
+      description: `已提交 ${successCount} 个${failCount > 0 ? `，失败 ${failCount} 个` : ""}${aborted ? "（已中止，已提交的任务仍会继续）" : ""}`,
+    });
   };
 
   const handleStopVideos = () => {
