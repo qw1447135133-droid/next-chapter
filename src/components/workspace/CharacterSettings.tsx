@@ -245,7 +245,23 @@ const CharacterSettings = ({
   const [generatingSceneImgIds, setGeneratingSceneImgIds] = useState<Set<string>>(() => initSet("sceneImg"));
   // isAutoDetectingAll, setIsAutoDetectingAll, autoDetectAbortRef are now props from Workspace
 
-  // Clean up expired tasks periodically
+  // On mount: if no batch generation is active, clear all stale tasks immediately
+  // (after a page refresh, async operations are lost but localStorage persists)
+  useEffect(() => {
+    if (!isAutoDetectingAll) {
+      const tasks = readTasks();
+      if (tasks.length > 0) {
+        console.log(`Clearing ${tasks.length} orphaned generation tasks from previous session`);
+        writeTasks([]);
+        setGeneratingCharDescIds(new Set());
+        setGeneratingCharImgIds(new Set());
+        setGeneratingDescIds(new Set());
+        setGeneratingSceneImgIds(new Set());
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clean up expired tasks periodically (safety net for long-running tasks)
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
