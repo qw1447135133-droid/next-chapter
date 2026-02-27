@@ -681,8 +681,8 @@ const CharacterSettings = ({
                     <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => handleUploadImage(c.id)}>
                       <Upload className="h-3 w-3" /> 上传人设图
                     </Button>
-                    <Button size="sm" className="gap-1 text-xs" onClick={() => handleGenerateCharacter(c.id)} disabled={generatingCharImgIds.has(c.id) || !String(c.name || "").trim()}>
-                      {generatingCharImgIds.has(c.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                    <Button size="sm" className="gap-1 text-xs" onClick={() => handleGenerateCharacter(c.id)} disabled={(generatingCharImgIds.has(c.id) && !c.imageUrl) || !String(c.name || "").trim()}>
+                      {generatingCharImgIds.has(c.id) && !c.imageUrl ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                       AI 生成三视图
                     </Button>
                   </div>
@@ -775,8 +775,8 @@ const CharacterSettings = ({
                     <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => handleUploadSceneImage(s.id)}>
                       <Upload className="h-3 w-3" /> 上传场景图
                     </Button>
-                    <Button size="sm" className="gap-1 text-xs" onClick={() => handleGenerateScene(s.id)} disabled={generatingSceneImgIds.has(s.id) || !String(s.name || "").trim()}>
-                      {generatingSceneImgIds.has(s.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                    <Button size="sm" className="gap-1 text-xs" onClick={() => handleGenerateScene(s.id)} disabled={(generatingSceneImgIds.has(s.id) && !s.imageUrl) || !String(s.name || "").trim()}>
+                      {generatingSceneImgIds.has(s.id) && !s.imageUrl ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                       AI 生成场景图
                     </Button>
                   </div>
