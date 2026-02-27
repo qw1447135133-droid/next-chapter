@@ -258,7 +258,20 @@ const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDi
 
       <Dialog open={enlarged} onOpenChange={setEnlarged}>
         <DialogContent className="max-w-[95vw] max-h-[95vh] p-1 flex items-center justify-center bg-black/80 border border-border/30">
-          <img src={src} alt={alt} className="max-w-full max-h-[92vh] object-contain" />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute top-2 right-2 z-50 text-white hover:bg-white/20 h-8 w-8"
+            onClick={() => setEnlarged(false)}
+          >
+            <X className="h-5 w-5" />
+          </Button>
+          <img
+            src={src}
+            alt={alt}
+            className="max-w-full max-h-[92vh] object-contain cursor-pointer"
+            onClick={() => setEnlarged(false)}
+          />
         </DialogContent>
       </Dialog>
     </>
