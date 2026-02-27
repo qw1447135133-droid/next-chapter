@@ -216,14 +216,40 @@ ${narrativeContext}
 3. CHARACTER CONSISTENCY IS THE TOP PRIORITY: each character MUST match their description exactly — hairstyle, hair color, clothing, accessories, body type, facial features. If character reference images are provided below, the generated characters MUST look identical to those references.
 4. If a scene environment reference image is provided below, maintain the same environment style, layout, and atmosphere.
 5. ${aspectRatio || "16:9"} cinematic composition, professional storyboard quality, cinematic lighting. The image MUST be in ${aspectRatio || "16:9"} aspect ratio.${(aspectRatio === "9:16" || aspectRatio === "2:3") ? `
-6. **PORTRAIT / VERTICAL FRAME COMPOSITION (9:16 / 2:3 — TikTok / Reels / Shorts oriented):**
-   - The tall narrow frame naturally compresses horizontal space, so LEAN INTO character-centric framing: faces, upper bodies, and emotional expressions should dominate the composition.
-   - Default to TIGHTER shot scales than horizontal formats — medium close-ups and close-ups are preferred unless the shot description explicitly calls for a wide or establishing shot.
-   - Use the vertical height creatively: overhead angles looking down staircases, low-angle hero shots emphasizing power, vertically stacked layered compositions (foreground character + midground action + background environment).
-   - Embrace dramatic depth-of-field to separate subject from a blurred vertical background.
-   - Characters should be framed slightly off-center for dynamic tension (rule of thirds applied vertically).
-   - Environment context can be conveyed through vertical slices: doorframes, alleyways, corridors, tall architecture, trees, shafts of light.
-   - This does NOT mean every shot is a selfie or talking-head — vary between close-ups, cowboy shots, over-the-shoulder, Dutch angles, bird's-eye, and worm's-eye to keep visual language diverse and cinematic.` : ""}
+6. **PORTRAIT / VERTICAL FRAME COMPOSITION (9:16 / 2:3 — CHARACTER-RELATIONSHIP-FIRST PHILOSOPHY):**
+   **CORE PRINCIPLE: The vertical frame is a CHARACTER INTIMACY tool, NOT a landscape tool. Every composition decision must prioritize showing the EMOTIONAL RELATIONSHIP between characters.**
+   
+   **A. FRAMING HIERARCHY (from most preferred to least preferred):**
+   - MOST PREFERRED: Two-shot close-ups capturing both characters' faces/expressions in the same frame — stacked vertically (one above, one below) or at diagonal eyelines
+   - HIGHLY PREFERRED: Over-the-shoulder shots that show one character's face with the other's shoulder/silhouette framing the edge
+   - PREFERRED: Tight medium shots (waist-up) with characters physically close, overlapping personal space
+   - ACCEPTABLE: Cowboy shots (thigh-up) with clear interpersonal tension visible in body language
+   - AVOID UNLESS SCRIPT DEMANDS: Full-body shots, wide/establishing shots, landscapes, environments without characters filling the frame
+   
+   **B. SPATIAL COMPRESSION (CRITICAL):**
+   - FILL the frame with characters — minimal headroom, minimal space between characters
+   - Use SHALLOW depth of field aggressively: background should be a soft bokeh wash, NOT a detailed environment
+   - Characters should occupy at least 60-80% of the frame area
+   - If two characters are in the shot, their faces should be within the same vertical third of the frame when possible
+   - Background is ATMOSPHERE, not geography — convey location through color temperature, light quality, and vague shapes, NOT architectural details
+   - NO empty sky, NO wide floor space, NO distant horizon lines
+   
+   **C. EMOTIONAL MICRO-EXPRESSIONS:**
+   - Eyes are the anchor of every frame: catch-lights, tear reflections, narrowed lids, widened pupils
+   - Show SUBTLE body language: a tightened jaw, a hand almost-but-not-quite touching someone, fingers curling into a fist, a slight lean toward or away from the other person
+   - Skin texture, pores, sweat droplets, tear tracks should be visible in close-ups
+   
+   **D. VERTICAL COMPOSITION TECHNIQUES:**
+   - Stack character eyelines at different heights to create power dynamics (dominant character higher)
+   - Use vertical leading lines (a character's arm, a weapon, a doorframe edge) to connect two characters within the frame
+   - Dutch angle (10-20° tilt) to heighten tension in confrontation scenes
+   - Rack-focus compositions: sharp foreground character, soft background character (or vice versa) to direct emotional attention
+   
+   **E. LIGHTING FOR INTIMACY:**
+   - Prefer dramatic side-lighting (Rembrandt, split lighting) that sculpts facial features
+   - Use rim/backlight to separate characters from backgrounds without showing the background in detail
+   - Color contrast between characters (warm key on one, cool fill on the other) to visualize emotional opposition` : ""}
+
 ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "7" : "6"}. Ultra high resolution.
 ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "8" : "7"}. Depict EXACTLY this single shot as described — show the specific action, character positions, and emotion.
 ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME PRINCIPLE (HIGHEST PRIORITY — overrides all other composition rules):**
