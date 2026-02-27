@@ -83,13 +83,33 @@ const Workspace = () => {
         const data = await loadProject(resumeId);
         if (data) {
           setScript(data.script);
-          setScenes(data.scenes);
+          // Clean up stale video/storyboard statuses before setting scenes
+          const cleanedScenes = (data.scenes || []).map((s: Scene) => {
+            const isStuck = s.videoStatus === "preparing" || s.videoStatus === "queued" || s.videoStatus === "processing";
+            if (isStuck && s.videoTaskId) {
+              // Has taskId — will resume polling below
+              return s;
+            }
+            if (isStuck && !s.videoTaskId) {
+              // No taskId — was in "preparing" phase before API returned, clear status
+              return { ...s, videoStatus: undefined };
+            }
+            return s;
+          });
+          setScenes(cleanedScenes);
           setCharacters(data.characters);
           setSceneSettings(data.sceneSettings);
           setArtStyle(data.artStyle);
           setCurrentStep(data.currentStep as WorkspaceStep);
           setSystemPrompt(data.systemPrompt || "");
           setProjectTitle(data.title);
+
+          // Resume polling for scenes that have an active video task
+          cleanedScenes.forEach((s: Scene) => {
+            if (s.videoTaskId && (s.videoStatus === "queued" || s.videoStatus === "processing")) {
+              pollVideoTask(s.id, s.videoTaskId, undefined);
+            }
+          });
         }
       }
       // For new projects, don't create DB row until first meaningful save
