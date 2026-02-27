@@ -499,15 +499,53 @@ const CharacterSettings = ({
       if (imgOk) successCount++; else failCount++;
     };
 
+    // Track failed items for review pass
+    const failedCharIds = new Set<string>();
+    const failedSceneIds = new Set<string>();
+
+    const processCharacterTracked = async (c: CharacterSetting) => {
+      await processCharacter(c);
+      const latest = charactersRef.current.find((ch) => ch.id === c.id);
+      if (latest && (!latest.description || !latest.imageUrl)) failedCharIds.add(c.id);
+    };
+    const processSceneTracked = async (s: SceneSetting) => {
+      await processScene(s);
+      const latest = sceneSettingsRef.current.find((sc) => sc.id === s.id);
+      if (latest && (!latest.description || !latest.imageUrl)) failedSceneIds.add(s.id);
+    };
+
     // Launch all tasks in parallel (concurrency controlled by semaphores)
     for (const c of charactersRef.current) {
-      allTasks.push(processCharacter(c));
+      allTasks.push(processCharacterTracked(c));
     }
     for (const s of sceneSettingsRef.current) {
-      allTasks.push(processScene(s));
+      allTasks.push(processSceneTracked(s));
     }
 
     await Promise.all(allTasks);
+
+    // === REVIEW PASS: retry any items still missing description or image ===
+    if (!autoDetectAbortRef.current) {
+      const reviewTasks: Promise<void>[] = [];
+      // Re-check characters
+      for (const c of charactersRef.current) {
+        if (!c.description || !c.imageUrl) {
+          console.log(`Review pass: retrying character "${c.name}"`);
+          reviewTasks.push(processCharacter(c));
+        }
+      }
+      // Re-check scenes
+      for (const s of sceneSettingsRef.current) {
+        if (!s.description || !s.imageUrl) {
+          console.log(`Review pass: retrying scene "${s.name}"`);
+          reviewTasks.push(processScene(s));
+        }
+      }
+      if (reviewTasks.length > 0) {
+        console.log(`Review pass: ${reviewTasks.length} items to retry`);
+        await Promise.all(reviewTasks);
+      }
+    }
 
     setIsAutoDetectingAll(false);
     setIsAbortingAutoDetect(false);

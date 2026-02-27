@@ -26,6 +26,8 @@ const Workspace = () => {
   const [currentStep, setCurrentStep] = useState<WorkspaceStep>(1);
   const [script, setScript] = useState("");
   const [scenes, setScenes] = useState<Scene[]>([]);
+  const scenesRef = useRef<Scene[]>([]);
+  useEffect(() => { scenesRef.current = scenes; }, [scenes]);
   const [characters, setCharacters] = useState<CharacterSetting[]>([]);
   const [sceneSettings, setSceneSettings] = useState<SceneSetting[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -387,7 +389,7 @@ const Workspace = () => {
     setIsAbortingStoryboards(false);
     setIsGeneratingAllStoryboards(true);
 
-    // Group scenes by sceneName for sequential generation within same scene
+    // Group scenes by sceneName for strict sequential generation within same scene
     const sceneGroups = new Map<string, typeof scenes>();
     for (const scene of scenes) {
       const key = (scene.sceneName || "").trim() || `__solo_${scene.id}`;
@@ -395,7 +397,7 @@ const Workspace = () => {
       sceneGroups.get(key)!.push(scene);
     }
 
-    // Semaphore for max 3 concurrent image generations
+    // Semaphore for max 3 concurrent generations ACROSS groups
     let running = 0;
     const queue: (() => void)[] = [];
     const acquire = () => new Promise<void>((resolve) => {
@@ -406,11 +408,13 @@ const Workspace = () => {
 
     let successCount = 0;
     let failCount = 0;
+    const failedSceneIds = new Set<string>();
 
-    // Process one scene group sequentially (same scene → shots in order)
+    // Process one scene group STRICTLY sequentially (same scene → shots in order, no jumping)
     const processGroup = async (groupScenes: typeof scenes) => {
       for (const scene of groupScenes) {
         if (stopStoryboardGenRef.current) return;
+        // Acquire semaphore but NEVER skip ahead — wait here until slot available
         await acquire();
         if (stopStoryboardGenRef.current) { release(); return; }
 
@@ -428,14 +432,34 @@ const Workspace = () => {
             }
           }
         }
-        if (succeeded) successCount++; else failCount++;
+        if (succeeded) successCount++; else { failCount++; failedSceneIds.add(scene.id); }
+        // MUST release AFTER this shot finishes before next shot in the SAME group proceeds
         release();
       }
     };
 
-    // Launch all scene groups in parallel (concurrency controlled by semaphore)
+    // Launch all scene groups in parallel (cross-group concurrency via semaphore)
     const groupTasks = Array.from(sceneGroups.values()).map((group) => processGroup(group));
     await Promise.all(groupTasks);
+
+    // === REVIEW PASS: scan for any missed/failed storyboards and retry ===
+    if (!stopStoryboardGenRef.current) {
+      // Re-read latest scenes state
+      const latestScenes = scenesRef.current;
+      const missing = latestScenes.filter((s) => !s.storyboardUrl || failedSceneIds.has(s.id));
+      if (missing.length > 0) {
+        console.log(`Review pass: ${missing.length} storyboards missing or failed, retrying...`);
+        // Regroup missing scenes for sequential retry within same scene
+        const reviewGroups = new Map<string, typeof scenes>();
+        for (const scene of missing) {
+          const key = (scene.sceneName || "").trim() || `__solo_${scene.id}`;
+          if (!reviewGroups.has(key)) reviewGroups.set(key, []);
+          reviewGroups.get(key)!.push(scene);
+        }
+        const reviewTasks = Array.from(reviewGroups.values()).map((group) => processGroup(group));
+        await Promise.all(reviewTasks);
+      }
+    }
 
     const aborted = stopStoryboardGenRef.current;
     setIsGeneratingAllStoryboards(false);
@@ -672,9 +696,24 @@ const Workspace = () => {
       release();
     };
 
+    const failedVideoIds = new Set<string>();
+    const processSceneTracked = async (sceneId: string) => {
+      await processScene(sceneId);
+      // Check if it actually succeeded (has videoStatus set to something active)
+      const s = scenes.find((sc) => sc.id === sceneId);
+      if (s && !s.videoUrl && !s.videoTaskId) failedVideoIds.add(sceneId);
+    };
+
     // Launch all in parallel (concurrency controlled by semaphore)
-    const tasks = scenes.map((scene) => processScene(scene.id));
+    const tasks = scenes.map((scene) => processSceneTracked(scene.id));
     await Promise.all(tasks);
+
+    // === REVIEW PASS: retry any failed/missed video submissions ===
+    if (!stopVideoGenRef.current && failedVideoIds.size > 0) {
+      console.log(`Video review pass: ${failedVideoIds.size} failed, retrying...`);
+      const retryTasks = Array.from(failedVideoIds).map((id) => processScene(id));
+      await Promise.all(retryTasks);
+    }
 
     const aborted = stopVideoGenRef.current;
     setIsGeneratingVideo(false);
