@@ -110,6 +110,12 @@ const Workspace = () => {
               pollVideoTask(s.id, s.videoTaskId, undefined);
             }
           });
+        } else if (resumeId) {
+          // Project not found in database — redirect to fresh workspace
+          console.warn("Project not found in database, starting fresh:", resumeId);
+          toast({ title: "项目未找到", description: "该项目在数据库中不存在，已为您创建新工作区", variant: "destructive" });
+          navigate("/workspace", { replace: true });
+          return;
         }
       }
       // For new projects, don't create DB row until first meaningful save
