@@ -288,14 +288,47 @@ const CharacterSettings = ({
               }
             }
           }, 500);
-        } else if (tasks.length > 0) {
-          // All tasks expired — just clean up
-          writeTasks([]);
-          setGeneratingCharDescIds(new Set());
-          setGeneratingCharImgIds(new Set());
-          setGeneratingDescIds(new Set());
-          setGeneratingSceneImgIds(new Set());
         }
+        // Always clear stale generating states for items that already have results
+        // This prevents buttons from being stuck disabled after refresh
+        setTimeout(() => {
+          setGeneratingCharImgIds((prev) => {
+            const next = new Set(prev);
+            for (const id of prev) {
+              const c = charactersRef.current.find((ch) => ch.id === id);
+              if (c?.imageUrl) next.delete(id);
+            }
+            return next.size === prev.size ? prev : next;
+          });
+          setGeneratingSceneImgIds((prev) => {
+            const next = new Set(prev);
+            for (const id of prev) {
+              const s = sceneSettingsRef.current.find((sc) => sc.id === id);
+              if (s?.imageUrl) next.delete(id);
+            }
+            return next.size === prev.size ? prev : next;
+          });
+          setGeneratingCharDescIds((prev) => {
+            const next = new Set(prev);
+            for (const id of prev) {
+              const c = charactersRef.current.find((ch) => ch.id === id);
+              if (c?.description) next.delete(id);
+            }
+            return next.size === prev.size ? prev : next;
+          });
+          setGeneratingDescIds((prev) => {
+            const next = new Set(prev);
+            for (const id of prev) {
+              const s = sceneSettingsRef.current.find((sc) => sc.id === id);
+              if (s?.description) next.delete(id);
+            }
+            return next.size === prev.size ? prev : next;
+          });
+          // Also clean up expired tasks
+          if (tasks.length > 0 && validTasks.length === 0) {
+            writeTasks([]);
+          }
+        }, 100);
       }
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
