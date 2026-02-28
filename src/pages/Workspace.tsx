@@ -202,13 +202,36 @@ const Workspace = () => {
       const timeoutMs = charCount <= 8000 ? 180_000 : charCount <= 15000 ? 360_000 : 600_000;
       const controller = new AbortController();
       analyzeAbortRef.current = controller;
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-      const { data, error } = await supabase.functions.invoke("script-decompose", {
-        body: { script, systemPrompt },
+      // Use direct fetch with streaming to handle long-running generation
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const response = await fetch(`${supabaseUrl}/functions/v1/script-decompose`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${supabaseKey}`,
+          "apikey": supabaseKey,
+        },
+        body: JSON.stringify({ script, systemPrompt }),
         signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errText = await response.text();
+        let errMsg = `剧本拆解失败 (${response.status})`;
+        try { errMsg = JSON.parse(errText.trim().split("\n").pop()!).error || errMsg; } catch {}
+        throw new Error(errMsg);
+      }
+
+      // Read streaming response: last non-empty line is the JSON result
+      const text = await response.text();
+      const lines = text.trim().split("\n").filter((l) => l.trim());
+      const lastLine = lines[lines.length - 1];
+      const data = JSON.parse(lastLine);
+
       if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)));
 
       // Store raw AI output for display
