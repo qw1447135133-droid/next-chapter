@@ -6,9 +6,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
-  Plus, Trash2, Upload, Sparkles, ArrowRight, User, MapPin, Loader2, ImageIcon,
+  Plus, Trash2, Upload, Sparkles, ArrowRight, User, MapPin, Loader2, ImageIcon, ChevronDown,
 } from "lucide-react";
 import ImageThumbnail from "./ImageThumbnail";
+
+export type CharImageModel = "gemini-3-pro-image-preview" | "gemini-3.1-flash-image-preview";
+
+const CHAR_IMAGE_MODEL_OPTIONS: { value: CharImageModel; label: string }[] = [
+  { value: "gemini-3-pro-image-preview", label: "Nano Banana Pro" },
+  { value: "gemini-3.1-flash-image-preview", label: "Nano Banana 2" },
+];
 import ImageHistoryDialog from "./ImageHistoryDialog";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
@@ -64,6 +71,29 @@ const CharacterSettings = ({
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const sceneFileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
+  // Image model selector state (persisted to localStorage)
+  const [charImageModel, setCharImageModelState] = useState<CharImageModel>(() => {
+    try { return (localStorage.getItem("char-image-model") as CharImageModel) || "gemini-3-pro-image-preview"; } catch { return "gemini-3-pro-image-preview"; }
+  });
+  const setCharImageModel = (v: CharImageModel) => {
+    setCharImageModelState(v);
+    try { localStorage.setItem("char-image-model", v); } catch {}
+  };
+  const [charModelOpen, setCharModelOpen] = useState(false);
+  const charModelDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (charModelDropdownRef.current && !charModelDropdownRef.current.contains(e.target as Node)) {
+        setCharModelOpen(false);
+      }
+    };
+    if (charModelOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [charModelOpen]);
+
+  const currentCharModel = CHAR_IMAGE_MODEL_OPTIONS.find((o) => o.value === charImageModel)!;
+
   // ---- Character helpers ----
   const addCharacter = () => {
     onCharactersChange([
@@ -112,7 +142,7 @@ const CharacterSettings = ({
     try {
       const { data, error } = await withTimeout(
         supabase.functions.invoke("generate-character", {
-          body: { name: character.name, description: character.description, style: artStyle },
+          body: { name: character.name, description: character.description, style: artStyle, model: charImageModel },
         }),
         CHAR_IMAGE_TIMEOUT_MS,
       );
@@ -187,7 +217,7 @@ const CharacterSettings = ({
     try {
       const { data, error } = await withTimeout(
         supabase.functions.invoke("generate-scene", {
-          body: { name: scene.name, description: scene.description, style: artStyle },
+          body: { name: scene.name, description: scene.description, style: artStyle, model: charImageModel },
         }),
         SCENE_IMAGE_TIMEOUT_MS,
       );
@@ -452,7 +482,7 @@ const CharacterSettings = ({
           const latest = charactersRef.current.find((ch) => ch.id === c.id);
           const { data, error } = await withTimeout(
             supabase.functions.invoke("generate-character", {
-              body: { name: c.name, description: latest?.description || desc, style: artStyle },
+              body: { name: c.name, description: latest?.description || desc, style: artStyle, model: charImageModel },
             }),
             CHAR_IMAGE_TIMEOUT_MS,
           );
@@ -523,7 +553,7 @@ const CharacterSettings = ({
           const latest = sceneSettingsRef.current.find((sc) => sc.id === s.id);
           const { data, error } = await withTimeout(
             supabase.functions.invoke("generate-scene", {
-              body: { name: s.name, description: latest?.description || desc, style: artStyle },
+              body: { name: s.name, description: latest?.description || desc, style: artStyle, model: charImageModel },
             }),
             SCENE_IMAGE_TIMEOUT_MS,
           );
@@ -627,10 +657,42 @@ const CharacterSettings = ({
     <div className="space-y-6">
       {/* One-click auto detect all */}
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold font-[Space_Grotesk] flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-primary" />
-          画面风格
-        </h2>
+        <div>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-semibold font-[Space_Grotesk] flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              画面风格
+            </h2>
+            {/* Model Selector — pill style matching StoryboardPreview */}
+            <div className="relative" ref={charModelDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setCharModelOpen((v) => !v)}
+                disabled={isAutoDetectingAll}
+                className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {currentCharModel.label}
+                <ChevronDown className={`h-3 w-3 transition-transform ${charModelOpen ? "rotate-180" : ""}`} />
+              </button>
+              {charModelOpen && (
+                <div className="absolute left-0 top-full mt-1 z-50 min-w-[160px] rounded-lg border border-border bg-popover shadow-lg py-1">
+                  {CHAR_IMAGE_MODEL_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => { setCharImageModel(opt.value); setCharModelOpen(false); }}
+                      className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent ${
+                        opt.value === charImageModel ? "text-primary font-semibold" : "text-popover-foreground"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           <Button
             onClick={handleAutoDetectAll}
