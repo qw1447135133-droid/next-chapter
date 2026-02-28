@@ -278,57 +278,6 @@ const CharacterSettings = ({
   const [generatingSceneImgIds, setGeneratingSceneImgIds] = useState<Set<string>>(() => initSet("sceneImg"));
   // isAutoDetectingAll, setIsAutoDetectingAll, autoDetectAbortRef are now props from Workspace
 
-  // On FIRST mount per page load: clean up orphaned tasks (no auto-restart).
-  // Clean up generating states after data is loaded - use props directly (not ref)
-  useEffect(() => {
-    // Only clean up if we have data loaded (not initial empty state)
-    if (characters.length === 0 && sceneSettings.length === 0) return;
-    
-    const cleanupTimeout = setTimeout(() => {
-      // Only clear spinner if the item has a result (imageUrl/description exists)
-      // Use props directly (characters/sceneSettings) instead of ref to avoid stale data
-      setGeneratingCharImgIds((prev) => {
-        if (prev.size === 0) return prev;
-        const next = new Set(prev);
-        for (const id of prev) {
-          const c = characters.find(ch => ch.id === id);
-          // Only clear if: 1) character exists AND 2) has imageUrl (generation completed)
-          if (c && c.imageUrl) next.delete(id);
-        }
-        return next.size === prev.size ? prev : next;
-      });
-      setGeneratingSceneImgIds((prev) => {
-        if (prev.size === 0) return prev;
-        const next = new Set(prev);
-        for (const id of prev) {
-          const s = sceneSettings.find(sc => sc.id === id);
-          if (s && s.imageUrl) next.delete(id);
-        }
-        return next.size === prev.size ? prev : next;
-      });
-      setGeneratingCharDescIds((prev) => {
-        if (prev.size === 0) return prev;
-        const next = new Set(prev);
-        for (const id of prev) {
-          const c = characters.find(ch => ch.id === id);
-          if (c && c.description) next.delete(id);
-        }
-        return next.size === prev.size ? prev : next;
-      });
-      setGeneratingDescIds((prev) => {
-        if (prev.size === 0) return prev;
-        const next = new Set(prev);
-        for (const id of prev) {
-          const s = sceneSettings.find(sc => sc.id === id);
-          if (s && s.description) next.delete(id);
-        }
-        return next.size === prev.size ? prev : next;
-      });
-    }, 1000);
-    
-    return () => clearTimeout(cleanupTimeout);
-  }, [characters, sceneSettings]); // Depend on full arrays to ensure data is fresh
-
   // Clean up expired tasks periodically (safety net for long-running tasks)
   useEffect(() => {
     const interval = setInterval(() => {
