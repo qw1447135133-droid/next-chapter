@@ -173,7 +173,7 @@ const StoryboardPreview = ({
           ) : (
             <Button variant="outline" onClick={() => onGenerateAll(aspectRatio, storyboardModel)} disabled={isAnyGenerating} className="gap-1">
               <Image className="h-3.5 w-3.5" />
-              生成全部
+              全部生成
             </Button>
           )}
           <Button size="sm" onClick={onNext} className="gap-1">
