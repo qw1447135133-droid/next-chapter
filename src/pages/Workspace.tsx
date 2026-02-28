@@ -195,101 +195,134 @@ const Workspace = () => {
   const handleAnalyze = async () => {
     if (!script.trim()) return;
     setIsAnalyzing(true);
-    try {
-      // Dynamic timeout based on script length
-      const charCount = script.trim().length;
-      const timeoutMs = charCount <= 8000 ? 180_000 : charCount <= 15000 ? 360_000 : 600_000;
-      const controller = new AbortController();
-      analyzeAbortRef.current = controller;
+    
+    // Retry mechanism: up to 2 retries
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt <= 2; attempt++) {
+      try {
+        // Dynamic timeout based on script length
+        const charCount = script.trim().length;
+        const timeoutMs = charCount <= 8000 ? 180_000 : charCount <= 15000 ? 360_000 : 600_000;
+        const controller = new AbortController();
+        analyzeAbortRef.current = controller;
 
-      const { data, error } = await supabase.functions.invoke("script-decompose", {
-        body: { script, systemPrompt },
-        signal: controller.signal,
-      });
-
-      if (error) throw error;
-      if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)));
-
-      // Store raw AI output for display
-      setRawAiOutput(JSON.stringify(data, null, 2));
-
-      const parsedScenes: Scene[] = (data.scenes || []).map((s: any, i: number) => ({
-        id: crypto.randomUUID(),
-        sceneNumber: s.sceneNumber ?? i + 1,
-        segmentLabel: s.segmentLabel ?? "",
-        sceneName: s.sceneName ?? "",
-        description: s.description ?? "",
-        characters: s.characters ?? [],
-        dialogue: s.dialogue ?? "",
-        cameraDirection: s.cameraDirection ?? "",
-        duration: s.duration ?? 5,
-      }));
-
-      setScenes(parsedScenes);
-
-      const aiCharacters: Array<{ name: string; description: string }> = data.characters || [];
-      const allCharNames = new Set<string>();
-      parsedScenes.forEach((s) => s.characters.forEach((name) => allCharNames.add(name)));
-      const autoCharacters: CharacterSetting[] = Array.from(allCharNames).map((name) => {
-        const aiChar = aiCharacters.find((c) => c.name === name);
-        return {
-          id: crypto.randomUUID(),
-          name,
-          description: aiChar?.description || "",
-          isAIGenerated: false,
-          source: "auto" as const,
-        };
-      });
-      setCharacters(autoCharacters);
-
-      const aiSceneSettings: Array<{ name: string; description: string }> = data.sceneSettings || [];
-      const sceneNameSet = new Set<string>();
-      if (aiSceneSettings.length > 0) {
-        const autoScenes: SceneSetting[] = aiSceneSettings.map((s) => ({
-          id: crypto.randomUUID(),
-          name: s.name,
-          description: s.description || "",
-          isAIGenerated: false,
-          source: "auto" as const,
-        }));
-        setSceneSettings(autoScenes);
-      } else {
-        parsedScenes.forEach((s) => {
-          if (s.sceneName && s.sceneName.trim()) sceneNameSet.add(s.sceneName.trim());
+        const { data, error } = await supabase.functions.invoke("script-decompose", {
+          body: { script, systemPrompt },
+          signal: controller.signal,
         });
-        const autoScenes: SceneSetting[] = Array.from(sceneNameSet).map((name) => ({
+
+        if (error) throw error;
+        if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)));
+
+        // Validate data structure
+        if (!data.scenes || !Array.isArray(data.scenes)) {
+          throw new Error("API 返回数据缺少 scenes 字段");
+        }
+
+        // Store raw AI output for display
+        setRawAiOutput(JSON.stringify(data, null, 2));
+
+        const parsedScenes: Scene[] = (data.scenes || []).map((s: any, i: number) => ({
           id: crypto.randomUUID(),
-          name,
-          description: "",
-          isAIGenerated: false,
-          source: "auto" as const,
+          sceneNumber: s.sceneNumber ?? i + 1,
+          segmentLabel: s.segmentLabel ?? "",
+          sceneName: s.sceneName ?? "",
+          description: s.description ?? "",
+          characters: s.characters ?? [],
+          dialogue: s.dialogue ?? "",
+          cameraDirection: s.cameraDirection ?? "",
+          duration: s.duration ?? 5,
         }));
-        setSceneSettings(autoScenes);
-      }
 
-      // Update project title from first line of script
-      const firstLine = script.trim().split("\n")[0].slice(0, 30);
-      if (firstLine) {
-        setProjectTitle(firstLine);
-        autoSave({ title: firstLine });
-      }
+        // Check for empty result
+        if (parsedScenes.length === 0) {
+          toast({ title: "警告", description: "未能从剧本中识别出任何分镜，请检查剧本内容", variant: "destructive" });
+          setIsAnalyzing(false);
+          return;
+        }
 
-      toast({ title: "拆解完成", description: `成功拆解为 ${parsedScenes.length} 个分镜，识别 ${autoCharacters.length} 个角色` });
-    } catch (e: any) {
-      // Ignore abort errors (user cancelled)
-      if (e?.name === "AbortError" || e?.message?.includes("aborted")) {
+        setScenes(parsedScenes);
+
+        const aiCharacters: Array<{ name: string; description: string }> = data.characters || [];
+        const allCharNames = new Set<string>();
+        parsedScenes.forEach((s) => s.characters.forEach((name) => allCharNames.add(name)));
+        const autoCharacters: CharacterSetting[] = Array.from(allCharNames).map((name) => {
+          const aiChar = aiCharacters.find((c) => c.name === name);
+          return {
+            id: crypto.randomUUID(),
+            name,
+            description: aiChar?.description || "",
+            isAIGenerated: false,
+            source: "auto" as const,
+          };
+        });
+        setCharacters(autoCharacters);
+
+        const aiSceneSettings: Array<{ name: string; description: string }> = data.sceneSettings || [];
+        const sceneNameSet = new Set<string>();
+        if (aiSceneSettings.length > 0) {
+          const autoScenes: SceneSetting[] = aiSceneSettings.map((s) => ({
+            id: crypto.randomUUID(),
+            name: s.name,
+            description: s.description || "",
+            isAIGenerated: false,
+            source: "auto" as const,
+          }));
+          setSceneSettings(autoScenes);
+        } else {
+          parsedScenes.forEach((s) => {
+            if (s.sceneName && s.sceneName.trim()) sceneNameSet.add(s.sceneName.trim());
+          });
+          const autoScenes: SceneSetting[] = Array.from(sceneNameSet).map((name) => ({
+            id: crypto.randomUUID(),
+            name,
+            description: "",
+            isAIGenerated: false,
+            source: "auto" as const,
+          }));
+          setSceneSettings(autoScenes);
+        }
+
+        // Update project title from first line of script
+        const firstLine = script.trim().split("\n")[0].slice(0, 30);
+        if (firstLine) {
+          setProjectTitle(firstLine);
+          autoSave({ title: firstLine });
+        }
+
+        toast({ title: "拆解完成", description: `成功拆解为 ${parsedScenes.length} 个分镜，识别 ${autoCharacters.length} 个角色` });
+        
+        // Success - exit retry loop
+        setIsAnalyzing(false);
         return;
+        
+      } catch (e: any) {
+        // Store error for potential retry
+        lastError = e;
+        
+        // Ignore abort errors (user cancelled)
+        if (e?.name === "AbortError" || e?.message?.includes("aborted")) {
+          setIsAnalyzing(false);
+          return;
+        }
+        
+        // Retry if not last attempt
+        if (attempt < 2) {
+          console.log(`Script decompose failed, retrying (attempt ${attempt + 2}/3)...`);
+          continue;
+        }
+        
+        console.error("Script decompose error:", e);
+        const fe = friendlyError(e);
+        toast({
+          title: fe.title,
+          description: `剧本拆解失败：${fe.description}`,
+          variant: "destructive",
+          duration: 8000,
+        });
+      } finally {
+        setIsAnalyzing(false);
       }
-      console.error("Script decompose error:", e);
-      const fe = friendlyError(e);
-      toast({
-        title: fe.title,
-        description: `剧本拆解失败：${fe.description}`,
-        variant: "destructive",
-        duration: 8000,
-      });
-    } finally {
-      setIsAnalyzing(false);
     }
   };
 
