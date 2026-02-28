@@ -312,13 +312,13 @@ const Workspace = () => {
       const characterImages = await Promise.all(
         characterImagesRaw.map(async (c) => ({
           name: c.name,
-          imageUrl: await compressImage(c.imageUrl!, 10 * 1024 * 1024),
+          imageUrl: await compressImage(c.imageUrl!, 1 * 1024 * 1024),
         }))
       );
 
       const sceneSetting = sceneSettings.find((ss) => ss.name === scene.sceneName?.trim());
       const sceneImageUrl = sceneSetting?.imageUrl
-        ? await compressImage(sceneSetting.imageUrl, 10 * 1024 * 1024)
+        ? await compressImage(sceneSetting.imageUrl, 1 * 1024 * 1024)
         : undefined;
 
       // Gather neighboring scenes in the same scene group for spatial continuity
@@ -329,7 +329,7 @@ const Workspace = () => {
 
       // Compress previous storyboard image for visual continuity
       const prevStoryboardUrl = prevScene?.storyboardUrl
-        ? await compressImage(prevScene.storyboardUrl, 5 * 1024 * 1024)
+        ? await compressImage(prevScene.storyboardUrl, 1 * 1024 * 1024)
         : undefined;
 
       const neighborContext = {
