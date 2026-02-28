@@ -213,7 +213,7 @@ async function decomposeScript(body: any) {
       temperature: 0.3,
       maxOutputTokens: 65536,
       responseMimeType: "application/json",
-      thinkingConfig: { thinkingBudget: 0 },
+      thinkingConfig: { thinkingBudget: 1024 },
     },
   });
 
@@ -254,7 +254,12 @@ async function decomposeScript(body: any) {
   }
 
   const geminiData = await geminiResponse.json();
-  const textContent = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+  // 过滤掉 thought parts，只取实际输出
+  const parts = geminiData?.candidates?.[0]?.content?.parts || [];
+  const textContent = parts
+    .filter((p: any) => !p.thought)
+    .map((p: any) => p.text || "")
+    .join("");
 
   if (!textContent) {
     console.error("Unexpected Gemini response:", JSON.stringify(geminiData));
