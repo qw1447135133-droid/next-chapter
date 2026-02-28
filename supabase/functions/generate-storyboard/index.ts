@@ -449,7 +449,7 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME 
     }
 
     if (!imageBase64) {
-      console.error("No image in response:", JSON.stringify(data).slice(0, 500));
+      console.error("No image in response");
       return new Response(
         JSON.stringify({ error: "AI 未返回分镜图" }),
         { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
