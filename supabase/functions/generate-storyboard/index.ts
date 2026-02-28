@@ -345,19 +345,29 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "7" : "6"}. Depict EXACTLY
       parts.push({ text: `[ART STYLE ENFORCEMENT]\nALL characters and environments MUST be rendered in: ${styleDesc}\nDo NOT mix art styles.` });
     }
 
-    // Add previous storyboard for continuity — BUT ONLY if there are shared characters
+    // Add previous storyboard for continuity — based on VISUAL PROTAGONIST matching
     if (prevStoryboardUrl && typeof prevStoryboardUrl === "string") {
       // Determine which characters were in the previous vs current shot
       const prevChars: string[] = neighborContext?.prevCharacters || [];
       const effectivePrevChars = prevChars.length > 0 ? prevChars
         : (neighborContext?.prevDescription ? (characters || []).filter((c: string) => neighborContext.prevDescription.includes(c)) : []);
       const curChars = characters || [];
+      
+      // Visual protagonist = first character in the list (the main subject of the shot)
+      const curProtagonist = curChars[0] || "";
+      const prevProtagonist = effectivePrevChars[0] || "";
+      const sameProtagonist = curProtagonist && prevProtagonist && curProtagonist === prevProtagonist;
+      
       const sharedChars = curChars.filter((c: string) => effectivePrevChars.includes(c));
       const newChars = curChars.filter((c: string) => !effectivePrevChars.includes(c));
 
-      // Only pass previous storyboard image if there are shared characters
-      // When subjects are completely different, the prev image causes the model to copy wrong appearances
-      if (sharedChars.length > 0) {
+      console.log(`[DEBUG] Protagonist check: prev="${prevProtagonist}", cur="${curProtagonist}", same=${sameProtagonist}, shared=[${sharedChars}]`);
+
+      // Only pass previous storyboard image if the VISUAL PROTAGONIST is the same
+      // Even if there are shared secondary characters (e.g. 黑衣人 appears in both),
+      // different protagonists mean different visual subjects — passing the prev image
+      // causes the model to copy the wrong character's appearance onto the new protagonist
+      if (sameProtagonist) {
         const inlineData = await getInlineData(prevStoryboardUrl);
         if (inlineData) {
           let continuityInstruction = `[PREVIOUS SHOT — ENVIRONMENT & SPATIAL CONTINUITY ONLY]
@@ -368,23 +378,27 @@ Above is the PREVIOUS shot in the same scene. Use it ONLY for:
 
 ⚠️ CRITICAL — CHARACTER IDENTITY RULES FOR THIS TRANSITION:`;
 
-          continuityInstruction += `\n• Characters appearing in BOTH shots (${sharedChars.join("、")}): maintain their EXACT position continuity and appearance from the previous shot AND their character reference images.`;
+          continuityInstruction += `\n• The VISUAL PROTAGONIST "${curProtagonist}" appears in BOTH shots: maintain their EXACT position continuity and appearance from the previous shot AND their character reference images.`;
+          if (sharedChars.length > 1) {
+            const otherShared = sharedChars.filter((c: string) => c !== curProtagonist);
+            continuityInstruction += `\n• Other shared characters (${otherShared.join("、")}): maintain consistent appearance.`;
+          }
           if (newChars.length > 0) {
             continuityInstruction += `\n• Characters NEW in this shot (${newChars.join("、")}): DO NOT copy any character appearance from the previous shot image. Their appearance MUST come EXCLUSIVELY from their own CHARACTER REFERENCE IMAGES above. They are DIFFERENT people.`;
-            continuityInstruction += `\n• The previous shot featured ${effectivePrevChars.join("、")} — the current shot features ${curChars.join("、")}. These may be ENTIRELY DIFFERENT characters. Do NOT transfer facial features, hair, or clothing between different characters.`;
           }
 
           parts.push({ inlineData });
           parts.push({ text: continuityInstruction });
         }
       } else {
-        // No shared characters — skip previous storyboard image entirely to prevent visual contamination
-        // Only pass textual environment context
-        console.log("[DEBUG] Skipping prevStoryboardUrl: no shared characters between prev and current shot");
+        // Different protagonist — skip previous storyboard image to prevent visual contamination
+        // Even though there may be shared secondary characters, the main subject is different
+        console.log(`[DEBUG] Skipping prevStoryboardUrl: different protagonist (prev="${prevProtagonist}", cur="${curProtagonist}"), shared secondary: [${sharedChars}]`);
         parts.push({ text: `[SCENE CONTINUITY — ENVIRONMENT ONLY (no previous image provided)]
-The previous shot in this scene featured different characters (${effectivePrevChars.join("、") || "unknown"}).
+The previous shot's visual protagonist was "${prevProtagonist}", but this shot's protagonist is "${curProtagonist}" — they are DIFFERENT characters.
+${sharedChars.length > 0 ? `Secondary characters appearing in both shots (${sharedChars.join("、")}): draw them from their own CHARACTER REFERENCE IMAGES, not from the previous shot.` : ""}
 The current shot features: ${curChars.join("、")}.
-These are COMPLETELY DIFFERENT characters — draw each character ONLY from their own CHARACTER REFERENCE IMAGES above.
+Draw EVERY character ONLY from their own CHARACTER REFERENCE IMAGES above.
 Maintain environment consistency (lighting, architecture, props) based on the scene description, but do NOT reference any previous shot's character appearances.` });
       }
     }
