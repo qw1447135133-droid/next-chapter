@@ -269,9 +269,15 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME 
     const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
       parts.push({ text: prompt });
 
+    console.log("[DEBUG] characterImages received:", Array.isArray(characterImages) ? characterImages.length : "not array",
+      Array.isArray(characterImages) ? characterImages.map((c: any) => ({ name: c.name, hasUrl: !!c.imageUrl, urlPrefix: c.imageUrl?.slice(0, 50) })) : "N/A");
+    console.log("[DEBUG] sceneImageUrl received:", sceneImageUrl ? sceneImageUrl.slice(0, 80) : "none");
+    console.log("[DEBUG] prevStoryboardUrl received:", prevStoryboardUrl ? prevStoryboardUrl.slice(0, 80) : "none");
+
     // Add scene reference image if available (supports both data URLs and storage URLs)
     if (sceneImageUrl && typeof sceneImageUrl === "string") {
       const inlineData = await getInlineData(sceneImageUrl);
+      console.log("[DEBUG] Scene image inlineData:", inlineData ? `OK (${inlineData.mimeType}, ${inlineData.data.length} chars)` : "FAILED to fetch");
       if (inlineData) {
         parts.push({ inlineData });
         parts.push({ text: `[SCENE ENVIRONMENT REFERENCE IMAGE]
@@ -285,6 +291,7 @@ Above is a WIDE ESTABLISHING SHOT of this scene's environment — use it ONLY as
       for (const charImg of characterImages) {
         if (charImg.imageUrl && typeof charImg.imageUrl === "string") {
           const inlineData = await getInlineData(charImg.imageUrl);
+          console.log(`[DEBUG] Character "${charImg.name}" inlineData:`, inlineData ? `OK (${inlineData.mimeType}, ${inlineData.data.length} chars)` : "FAILED to fetch");
           if (inlineData) {
             charRefCount++;
             parts.push({ inlineData });
