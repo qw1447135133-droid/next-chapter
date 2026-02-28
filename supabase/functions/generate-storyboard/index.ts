@@ -321,21 +321,33 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "7" : "6"}. Depict EXACTLY
       }
     }
 
-    // Add character reference images
+    // Add character reference images — PROTAGONIST LAST for maximum model attention
     let charRefCount = 0;
+    const curProtagonistName = (characters || [])[0] || "";
     if (Array.isArray(characterImages)) {
-      for (const charImg of characterImages) {
+      // Sort: protagonist goes LAST so model gives it the most weight
+      const sorted = [...characterImages].sort((a: any, b: any) => {
+        const aIsProt = a.name === curProtagonistName ? 1 : 0;
+        const bIsProt = b.name === curProtagonistName ? 1 : 0;
+        return aIsProt - bIsProt; // protagonist sorted to end
+      });
+      for (const charImg of sorted) {
         if (charImg.imageUrl && typeof charImg.imageUrl === "string") {
           const inlineData = await getInlineData(charImg.imageUrl);
           console.log(`[DEBUG] Character "${charImg.name}" inlineData:`, inlineData ? `OK (${inlineData.mimeType}, ${inlineData.data.length} chars)` : "FAILED to fetch");
           if (inlineData) {
             charRefCount++;
+            const isProtagonist = charImg.name === curProtagonistName;
             parts.push({ inlineData });
             const charDescEntry = (characterDescriptions || []).find(
               (c: { name: string; description: string }) => c.name === charImg.name
             );
             const descReinforcement = charDescEntry ? `\nCharacter description: ${charDescEntry.description}` : "";
-            parts.push({ text: `[CHARACTER REFERENCE — ${charImg.name}] (ABSOLUTE GROUND TRUTH — MUST CLONE EXACTLY)\nThis is the DEFINITIVE visual reference for ${charImg.name}. You MUST reproduce:\n• IDENTICAL face structure, eye shape/color, skin tone, scars, facial hair\n• IDENTICAL hairstyle, hair color, hair length\n• IDENTICAL clothing colors, layers, accessories (pendants, belts, holsters, bandages)\nAny deviation from this reference image is a CRITICAL ERROR.\n${descReinforcement}` });
+            if (isProtagonist) {
+              parts.push({ text: `[★★★ VISUAL PROTAGONIST REFERENCE — ${charImg.name} ★★★] (HIGHEST PRIORITY — THIS IS THE MAIN CHARACTER IN THIS SHOT)\nThis character is the VISUAL FOCUS of this shot. Their face, hair, clothing, and body MUST be an EXACT pixel-level clone of this reference image.\n• FACE: Copy the EXACT facial structure, eye shape, eye color, nose, lips, jawline, skin tone, scars, facial hair — the generated face must be RECOGNIZABLY THE SAME PERSON as this reference\n• HAIR: EXACT same hairstyle, color, length, texture — NO changes\n• CLOTHING: EXACT same outfit colors, layers, accessories — NO substitutions\n• BODY: Same build and proportions\n⚠️ If the generated protagonist does NOT look like this reference image, the ENTIRE image is WRONG and must be rejected.\n${descReinforcement}` });
+            } else {
+              parts.push({ text: `[CHARACTER REFERENCE — ${charImg.name}] (SECONDARY CHARACTER)\nThis is the visual reference for ${charImg.name}. Reproduce their appearance faithfully but note this character is NOT the main focus of this shot.\n${descReinforcement}` });
+            }
           }
         }
       }
