@@ -226,17 +226,17 @@ const Workspace = () => {
         if (!response.ok) {
           const errText = await response.text();
           let errMsg = `剧本拆解失败 (${response.status})`;
-          try { errMsg = JSON.parse(errText.trim().split("\n").pop()!).error || errMsg; } catch {}
-          throw new Error(errMsg);
-        }
+        try { errMsg = JSON.parse(errText.trim().split("\n").pop()!).error || errMsg; } catch {}
+        throw new Error(errMsg);
+      }
 
-        // Read streaming response: last non-empty line is the JSON result
-        const text = await response.text();
-        const lines = text.trim().split("\n").filter((l) => l.trim());
-        const lastLine = lines[lines.length - 1];
-        const data = JSON.parse(lastLine);
+      // Read streaming response: last non-empty line is the JSON result
+      const text = await response.text();
+      const lines = text.trim().split("\n").filter((l) => l.trim());
+      const lastLine = lines[lines.length - 1];
+      const data = JSON.parse(lastLine);
 
-        if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)));
+      if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)));
 
         // Validate data structure
         if (!data.scenes || !Array.isArray(data.scenes)) {

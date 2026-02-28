@@ -119,28 +119,60 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let body: any;
   try {
-    const { script, systemPrompt } = await req.json();
+    body = await req.json();
+  } catch {
+    return new Response(
+      JSON.stringify({ error: "无效的请求体" }),
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
 
-    if (!script || typeof script !== "string") {
-      return new Response(
-        JSON.stringify({ error: "缺少剧本内容" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+  // Use streaming response with heartbeats to prevent gateway timeout
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+
+  const heartbeat = setInterval(() => {
+    writer.write(encoder.encode("\n")).catch(() => {});
+  }, 10_000);
+
+  (async () => {
+    try {
+      const result = await decomposeScript(body);
+      clearInterval(heartbeat);
+      await writer.write(encoder.encode(JSON.stringify(result) + "\n"));
+    } catch (e: any) {
+      clearInterval(heartbeat);
+      console.error("script-decompose error:", e);
+      await writer.write(encoder.encode(JSON.stringify({ error: e.message || "未知错误" }) + "\n"));
+    } finally {
+      await writer.close();
     }
+  })();
 
-    const apiKey = Deno.env.get("Gemini");
-    if (!apiKey) {
-      return new Response(
-        JSON.stringify({ error: "API Key 未配置" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+  return new Response(readable, {
+    headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" },
+  });
+});
 
-    const basePrompt = (systemPrompt && typeof systemPrompt === "string") ? systemPrompt : FALLBACK_PROMPT;
-    
-    // Always inject JSON output and segmentLabel requirements
-    const jsonEnforcement = `\n\n【重要：输出格式强制要求】
+async function decomposeScript(body: any) {
+  const { script, systemPrompt } = body;
+
+  if (!script || typeof script !== "string") {
+    throw new Error("缺少剧本内容");
+  }
+
+  const apiKey = Deno.env.get("Gemini");
+  if (!apiKey) {
+    throw new Error("API Key 未配置");
+  }
+
+  const basePrompt = (systemPrompt && typeof systemPrompt === "string") ? systemPrompt : FALLBACK_PROMPT;
+  
+  // Always inject JSON output and segmentLabel requirements
+  const jsonEnforcement = `\n\n【重要：输出格式强制要求】
 无论上面的提示词如何描述输出格式，你的最终输出必须是一个合法的JSON对象（不要包含任何其他文字），包含以下字段：
 
 1. "scenes" - 分镜数组。注意：每个15秒片段包含3~5个分镜，每集包含8~10个片段。因此scenes数组的总长度应为 (8~10片段) × (3~5分镜/片段) = 24~50个元素。
@@ -162,165 +194,143 @@ serve(async (req) => {
 
 3. "sceneSettings" - 场景设定数组，每个包含 name 和 description（环境详细描述，不能为空）
 
-请严格按此JSON格式输出，不要输出文本格式的分镜脚本。`;
-    
-    const prompt = basePrompt + jsonEnforcement;
+请严格按此JSON格式输出，不要输出文本格式的分镜脚本。不要输出任何思考过程。直接输出JSON。`;
+  
+  const prompt = basePrompt + jsonEnforcement;
 
-    const models = ["gemini-3.1-pro-preview", "gemini-3-flash-preview"];
-    const TIMEOUT_MS = 180000; // 180s per attempt
+  const model = "gemini-3.1-pro-preview";
+  const TIMEOUT_MS = 180_000;
 
-    let geminiResponse: Response | null = null;
-    let lastError: Error | null = null;
+  let geminiResponse: Response | null = null;
+  let lastError: Error | null = null;
 
-    for (const model of models) {
-      const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model}:generateContent/`;
-      const requestBody = JSON.stringify({
-        contents: [
-          { role: "user", parts: [{ text: `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}` }] },
-        ],
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 65536,
-          responseMimeType: "application/json",
-        },
-      });
+  const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model}:generateContent/`;
+  const requestBody = JSON.stringify({
+    contents: [
+      { role: "user", parts: [{ text: `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}` }] },
+    ],
+    generationConfig: {
+      temperature: 0.3,
+      maxOutputTokens: 65536,
+      responseMimeType: "application/json",
+      thinkingConfig: { thinkingBudget: 1024 },
+    },
+  });
 
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
-        geminiResponse = await fetch(apiUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-          body: requestBody,
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (geminiResponse.ok) {
-          console.log(`Successfully using model: ${model}`);
-          break;
-        }
-
-        // 503/429: skip directly to next model, no retry on same model
-        const statusCode = geminiResponse.status;
-        const errText = await geminiResponse.text();
-        console.error(`Model ${model} returned ${statusCode}:`, errText);
-        geminiResponse = null;
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-        console.error(`Model ${model} failed:`, lastError.message);
-        geminiResponse = null;
-      }
-    }
-
-    if (!geminiResponse) {
-      const isTimeout = lastError?.message?.includes("abort") || lastError?.message?.includes("timed out") || lastError?.name === "AbortError";
-      return new Response(
-        JSON.stringify({ error: isTimeout ? "AI 服务连接超时，请稍后重试" : `所有模型均不可用，请稍后重试` }),
-        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    geminiResponse = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      body: requestBody,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
 
     if (!geminiResponse.ok) {
+      const statusCode = geminiResponse.status;
       const errText = await geminiResponse.text();
-      console.error("Gemini API error:", geminiResponse.status, errText);
-      return new Response(
-        JSON.stringify({ error: `Gemini API 调用失败 (${geminiResponse.status})` }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      console.error(`Model ${model} returned ${statusCode}:`, errText);
+      geminiResponse = null;
+    } else {
+      console.log(`Successfully using model: ${model}`);
     }
+  } catch (err) {
+    lastError = err instanceof Error ? err : new Error(String(err));
+    console.error(`Model ${model} failed:`, lastError.message);
+    geminiResponse = null;
+  }
 
-    const geminiData = await geminiResponse.json();
-    const textContent = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!geminiResponse) {
+    const isTimeout = lastError?.message?.includes("abort") || lastError?.message?.includes("timed out") || lastError?.name === "AbortError";
+    throw new Error(isTimeout ? "AI 服务连接超时，请稍后重试" : "所有模型均不可用，请稍后重试");
+  }
 
-    if (!textContent) {
-      console.error("Unexpected Gemini response:", JSON.stringify(geminiData));
-      return new Response(
-        JSON.stringify({ error: "Gemini 返回格式异常" }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+  if (!geminiResponse.ok) {
+    const errText = await geminiResponse.text();
+    console.error("Gemini API error:", geminiResponse.status, errText);
+    throw new Error(`Gemini API 调用失败 (${geminiResponse.status})`);
+  }
 
-    // Clean markdown code blocks if present
-    let cleanedText = textContent.trim();
-    if (cleanedText.startsWith("```")) {
-      cleanedText = cleanedText.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
-    }
+  const geminiData = await geminiResponse.json();
+  // 过滤掉 thought parts，只取实际输出
+  const parts = geminiData?.candidates?.[0]?.content?.parts || [];
+  const textContent = parts
+    .filter((p: any) => !p.thought)
+    .map((p: any) => p.text || "")
+    .join("");
 
-    let parsed;
-    // Try progressively more aggressive JSON extraction
-    const parseAttempts: (() => unknown)[] = [
-      () => JSON.parse(cleanedText),
-      () => {
-        // Extract the outermost {...} block
-        const match = cleanedText.match(/\{[\s\S]*\}/);
-        if (!match) throw new Error("no object");
-        return JSON.parse(match[0]);
-      },
-      () => {
-        // Extract the outermost [...] block (array response)
-        const match = cleanedText.match(/\[[\s\S]*\]/);
-        if (!match) throw new Error("no array");
-        return JSON.parse(match[0]);
-      },
-      () => {
-        // Truncate at the last valid closing brace/bracket by scanning backwards
-        for (let i = cleanedText.length - 1; i >= 0; i--) {
-          const ch = cleanedText[i];
-          if (ch === '}' || ch === ']') {
-            const startCh = ch === '}' ? '{' : '[';
-            const startIdx = cleanedText.indexOf(startCh);
-            if (startIdx >= 0) {
-              return JSON.parse(cleanedText.substring(startIdx, i + 1));
-            }
+  if (!textContent) {
+    console.error("Unexpected Gemini response:", JSON.stringify(geminiData));
+    throw new Error("Gemini 返回格式异常");
+  }
+
+  // Clean markdown code blocks if present
+  let cleanedText = textContent.trim();
+  if (cleanedText.startsWith("```")) {
+    cleanedText = cleanedText.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+  }
+
+  let parsed;
+  const parseAttempts: (() => unknown)[] = [
+    () => JSON.parse(cleanedText),
+    () => {
+      const match = cleanedText.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error("no object");
+      return JSON.parse(match[0]);
+    },
+    () => {
+      const match = cleanedText.match(/\[[\s\S]*\]/);
+      if (!match) throw new Error("no array");
+      return JSON.parse(match[0]);
+    },
+    () => {
+      for (let i = cleanedText.length - 1; i >= 0; i--) {
+        const ch = cleanedText[i];
+        if (ch === '}' || ch === ']') {
+          const startCh = ch === '}' ? '{' : '[';
+          const startIdx = cleanedText.indexOf(startCh);
+          if (startIdx >= 0) {
+            return JSON.parse(cleanedText.substring(startIdx, i + 1));
           }
         }
-        throw new Error("no json bounds");
-      },
-    ];
-
-    let lastErr: unknown;
-    for (const attempt of parseAttempts) {
-      try {
-        parsed = attempt();
-        break;
-      } catch (e) {
-        lastErr = e;
       }
-    }
-    if (parsed === undefined) {
-      console.error("All JSON parse attempts failed. Raw text:", cleanedText.substring(0, 500));
-      throw new Error("无法解析 Gemini 返回的 JSON: " + (lastErr instanceof Error ? lastErr.message : String(lastErr)));
-    }
+      throw new Error("no json bounds");
+    },
+  ];
 
-    let scenes, characters, sceneSettingsData;
-    if (Array.isArray(parsed)) {
-      scenes = parsed;
-      characters = [];
-      sceneSettingsData = [];
-    } else {
-      scenes = (parsed as any).scenes || [];
-      characters = (parsed as any).characters || [];
-      sceneSettingsData = (parsed as any).sceneSettings || [];
+  let lastErr: unknown;
+  for (const attempt of parseAttempts) {
+    try {
+      parsed = attempt();
+      break;
+    } catch (e) {
+      lastErr = e;
     }
-
-    // Handle nested structure: AI sometimes wraps data inside scenes[0] as an object
-    if (scenes.length > 0 && !Array.isArray(scenes[0]) && scenes[0].scenes && Array.isArray(scenes[0].scenes)) {
-      const nested = scenes[0];
-      scenes = nested.scenes;
-      if ((!characters || characters.length === 0) && nested.characters) characters = nested.characters;
-      if ((!sceneSettingsData || sceneSettingsData.length === 0) && nested.sceneSettings) sceneSettingsData = nested.sceneSettings;
-    }
-
-    return new Response(
-      JSON.stringify({ scenes, characters, sceneSettings: sceneSettingsData }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  } catch (e) {
-    console.error("script-decompose error:", e);
-    return new Response(
-      JSON.stringify({ error: e instanceof Error ? e.message : "未知错误" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
   }
-});
+  if (parsed === undefined) {
+    console.error("All JSON parse attempts failed. Raw text:", cleanedText.substring(0, 500));
+    throw new Error("无法解析 Gemini 返回的 JSON: " + (lastErr instanceof Error ? lastErr.message : String(lastErr)));
+  }
+
+  let scenes, characters, sceneSettingsData;
+  if (Array.isArray(parsed)) {
+    scenes = parsed;
+    characters = [];
+    sceneSettingsData = [];
+  } else {
+    scenes = (parsed as any).scenes || [];
+    characters = (parsed as any).characters || [];
+    sceneSettingsData = (parsed as any).sceneSettings || [];
+  }
+
+  if (scenes.length > 0 && !Array.isArray(scenes[0]) && scenes[0].scenes && Array.isArray(scenes[0].scenes)) {
+    const nested = scenes[0];
+    scenes = nested.scenes;
+    if ((!characters || characters.length === 0) && nested.characters) characters = nested.characters;
+    if ((!sceneSettingsData || sceneSettingsData.length === 0) && nested.sceneSettings) sceneSettingsData = nested.sceneSettings;
+  }
+
+  return { scenes, characters, sceneSettings: sceneSettingsData };
+}

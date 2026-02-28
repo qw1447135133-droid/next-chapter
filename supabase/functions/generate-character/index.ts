@@ -169,13 +169,77 @@ Each view should be labeled clearly. The character design must be consistent acr
       }
 
       const data = await response.json();
-      const parts = data.candidates?.[0]?.content?.parts;
-      if (parts) {
-        for (const part of parts) {
+      const responseParts = data.candidates?.[0]?.content?.parts;
+
+      // Debug logging
+      console.log("[DEBUG] Gemini response keys:", JSON.stringify(Object.keys(data)));
+      if (responseParts) {
+        console.log("[DEBUG] Parts count:", responseParts.length);
+        for (let i = 0; i < responseParts.length; i++) {
+          const keys = Object.keys(responseParts[i]);
+          console.log(`[DEBUG] Part ${i} keys:`, keys,
+            keys.includes("text") ? `text: ${responseParts[i].text?.slice(0, 200)}` : "",
+            keys.includes("fileData") ? `fileData mime: ${responseParts[i].fileData?.mimeType}` : "");
+        }
+      } else {
+        console.log("[DEBUG] No parts. Response:", JSON.stringify(data).slice(0, 500));
+      }
+
+      // Extract image: inlineData
+      if (responseParts) {
+        for (const part of responseParts) {
           if (part.inlineData) {
             mimeType = part.inlineData.mimeType || "image/png";
             imageBase64 = part.inlineData.data;
             break;
+          }
+        }
+      }
+
+      // Fallback 1: fileData
+      if (!imageBase64 && responseParts) {
+        for (const part of responseParts) {
+          if (part.fileData?.fileUri) {
+            console.log("[DEBUG] Trying fileData fallback:", part.fileData.fileUri.slice(0, 100));
+            const resp = await fetch(part.fileData.fileUri);
+            if (resp.ok) {
+              const buf = await resp.arrayBuffer();
+              const bytes = new Uint8Array(buf);
+              let binary = "";
+              const chunkSize = 8192;
+              for (let i = 0; i < bytes.length; i += chunkSize) {
+                binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+              }
+              imageBase64 = btoa(binary);
+              mimeType = (resp.headers.get("content-type") || "image/png").split(";")[0];
+              break;
+            }
+          }
+        }
+      }
+
+      // Fallback 2: URL in text
+      if (!imageBase64 && responseParts) {
+        for (const part of responseParts) {
+          if (part.text) {
+            const mdMatch = part.text.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/);
+            const urlMatch = mdMatch?.[1] || part.text.match(/(https?:\/\/\S+\.(?:png|jpg|jpeg|webp|gif))/i)?.[1];
+            if (urlMatch) {
+              console.log("[DEBUG] Trying URL fallback:", urlMatch.slice(0, 100));
+              const resp = await fetch(urlMatch);
+              if (resp.ok) {
+                const buf = await resp.arrayBuffer();
+                const bytes = new Uint8Array(buf);
+                let binary = "";
+                const chunkSize = 8192;
+                for (let i = 0; i < bytes.length; i += chunkSize) {
+                  binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+                }
+                imageBase64 = btoa(binary);
+                mimeType = (resp.headers.get("content-type") || "image/png").split(";")[0];
+                break;
+              }
+            }
           }
         }
       }

@@ -90,7 +90,24 @@ function rewriteToFirstFrame(desc: string): string {
     .replace(/射中/g, "射向")
     .replace(/撞上/g, "冲向")
     .replace(/砸中/g, "砸向")
-    .replace(/劈中/g, "朝其劈去");
+    .replace(/劈中/g, "朝其劈去")
+    // More action → anticipation rewrites
+    .replace(/一拳砸在/g, "举拳准备砸向")
+    .replace(/一拳打在/g, "举拳准备打向")
+    .replace(/一拳击在/g, "举拳准备击向")
+    .replace(/踹开/g, "准备踹向")
+    .replace(/踢中/g, "踢向")
+    .replace(/摔在/g, "即将摔向")
+    .replace(/重重摔/g, "即将摔")
+    .replace(/按在.*?地面/g, "按向地面")
+    .replace(/反复捶打/g, "举拳准备捶打")
+    .replace(/拖向/g, "准备拖向")
+    .replace(/架住/g, "准备架住")
+    .replace(/将其/g, "准备将其")
+    .replace(/渗出鲜血/g, "")
+    .replace(/嘴角渗出/g, "")
+    .replace(/痛苦地倒地/g, "即将倒地")
+    .replace(/倒地咳嗽/g, "即将倒地");
 
   // 4. Clean up: remove trailing dangling character references and punctuation
   cleaned = cleaned.replace(/[，,、]+\s*(\[[^\]]*\])\s*$/, "").replace(/[，,、。]+$/, "").replace(/\s+/g, " ").trim();
@@ -103,24 +120,57 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Parse request body first (fast, no streaming needed for errors)
+  let body: any;
   try {
-    const { description, characters, cameraDirection, sceneName, dialogue, style, characterDescriptions, sceneDescription, mode, characterImages, sceneImageUrl, prevStoryboardUrl, scriptExcerpt, neighborContext, aspectRatio, model } = await req.json();
+    body = await req.json();
+  } catch {
+    return new Response(JSON.stringify({ error: "无效的请求体" }), {
+      status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  // Use streaming response with heartbeats to prevent gateway timeout
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+
+  // Heartbeat: send a newline every 10s to keep connection alive
+  const heartbeat = setInterval(() => {
+    writer.write(encoder.encode("\n")).catch(() => {});
+  }, 10_000);
+
+  // Run the actual generation in the background
+  (async () => {
+    try {
+      const result = await generateStoryboard(body);
+      clearInterval(heartbeat);
+      await writer.write(encoder.encode(JSON.stringify(result) + "\n"));
+    } catch (e: any) {
+      clearInterval(heartbeat);
+      console.error("generate-storyboard error:", e);
+      await writer.write(encoder.encode(JSON.stringify({ error: e.message || "未知错误" }) + "\n"));
+    } finally {
+      await writer.close();
+    }
+  })();
+
+  return new Response(readable, {
+    headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" },
+  });
+
+async function generateStoryboard(body: any): Promise<{ imageUrl: string }> {
+    const { description, characters, cameraDirection, sceneName, dialogue, style, characterDescriptions, sceneDescription, mode, characterImages, sceneImageUrl, prevStoryboardUrl, scriptExcerpt, neighborContext, aspectRatio, model } = body;
 
     const isPanorama = mode === "panorama";
 
     if (!description && !isPanorama) {
-      return new Response(
-        JSON.stringify({ error: "缺少分镜描述" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      throw new Error("缺少分镜描述");
     }
 
     const ZHANHU_API_KEY = Deno.env.get("Gemini");
     if (!ZHANHU_API_KEY) {
-      return new Response(
-        JSON.stringify({ error: "Gemini API Key 未配置" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      throw new Error("Gemini API Key 未配置");
     }
 
     const styleMap: Record<string, string> = {
@@ -169,7 +219,6 @@ IMPORTANT REQUIREMENTS:
         .map((c: { name: string; description: string }) => `${c.name}: ${c.description}`)
         .join("\n");
 
-      // Build narrative context from script and neighbors
       let narrativeContext = "";
       if (scriptExcerpt) {
         narrativeContext += `\n[SCRIPT CONTEXT (for tone & atmosphere reference — DO NOT copy verbatim, use to expand details consistently)]\n${scriptExcerpt}\n`;
@@ -188,12 +237,30 @@ IMPORTANT REQUIREMENTS:
         narrativeContext += "\n";
       }
 
-      // Rewrite the shot description to keep only T=0 initial state
       const firstFrameDesc = rewriteToFirstFrame(description);
       console.log("Original description:", description);
       console.log("First-frame rewrite:", firstFrameDesc);
 
-      prompt = `You are a professional cinematic storyboard artist. Create a single storyboard frame for the shot described below. Your goal is to produce a frame that feels like a natural part of a continuous film sequence — visually coherent with previous and subsequent shots.
+      prompt = `You are a professional cinematic storyboard artist. Create a single storyboard frame for the shot described below.
+
+=== TWO CO-EQUAL TOP PRIORITIES (BOTH MUST BE SATISFIED SIMULTANEOUSLY) ===
+
+⚠️ **PRIORITY A — CHARACTER CONSISTENCY (ABSOLUTE GROUND TRUTH)** ⚠️
+Every character MUST be an EXACT visual clone of their reference image. This is NON-NEGOTIABLE:
+- **FACE**: Reproduce the EXACT same facial structure, eye shape, eye color, nose shape, lip shape, jawline, skin tone, scars, and facial hair from the reference image. The face must be RECOGNIZABLY THE SAME PERSON across all shots.
+- **HAIR**: EXACT same hairstyle, hair color, hair length, and hair texture. No changes allowed.
+- **CLOTHING**: EXACT same outfit — same colors, same layers, same accessories (belts, holsters, pendants, bandages). No substitutions.
+- **BODY**: Same build, height proportion, and posture tendencies.
+- **RULE**: If a reference image is provided, it is the GROUND TRUTH. Text description is secondary. When in doubt, copy the reference image pixel-for-pixel.
+- **ANTI-HALLUCINATION**: Do NOT invent new clothing, change hair color, add/remove accessories, or alter facial features. Every detail must trace back to the reference.
+
+⚠️ **PRIORITY B — FIRST-FRAME PRINCIPLE (VIDEO T=0 STARTING FRAME)** ⚠️
+This image will be used as the STARTING FRAME of a video clip at time T=0 before playback starts.
+- Depict the moment JUST BEFORE the first action begins. Characters are in ANTICIPATION POSES — tensed, ready, but NOT yet moving.
+- ABSOLUTELY NO: motion blur, mid-swing limbs, mid-air objects, impact deformation, splash effects, falling bodies.
+- Characters should look like they are ABOUT TO act, not already acting.
+- Example: "A punches B" → show A with fist raised, ABOUT TO swing — NOT the punch landing.
+- Example: "A falls to the ground" → show A losing balance, ABOUT TO fall — NOT already on the ground.
 
 === CURRENT SHOT ===
 Scene: "${sceneName || "Unknown"}"
@@ -208,125 +275,117 @@ Scene environment: ${sceneDescription || sceneName || "Not specified"}
 ${styleDesc}
 IMPORTANT: Every element in the image (characters, environment, lighting, textures) MUST be rendered in this EXACT art style. Do NOT default to photorealism unless "live-action" is specified. Do NOT mix styles.
 ${narrativeContext}
-=== CRITICAL REQUIREMENTS ===
+=== ADDITIONAL REQUIREMENTS ===
 1. NARRATIVE EXPANSION: Based on the shot description and script context, enrich the visual details — add appropriate environmental elements, lighting mood, character micro-expressions and body language that match the narrative tone. Do NOT invent content that contradicts the script.
-2. SPATIAL CONSISTENCY: If previous/next shot context is provided, maintain consistent:
-   - Character positions and facing directions (e.g. if character A is on the left in the previous shot, keep them on the left unless the description explicitly states movement)
-   - Background elements and environment layout (doors, windows, furniture, props must stay in the same relative positions)
+2. SPATIAL CONSISTENCY & VISUAL CONTINUITY: If previous/next shot context or a previous storyboard image is provided, maintain consistent:
+   - **Character appearance MUST match reference images exactly** (reiterated — this is the most common failure)
+   - Character positions and facing directions
+   - Background elements and environment layout
    - Lighting direction and color temperature
-3. CHARACTER CONSISTENCY IS THE TOP PRIORITY: each character MUST match their description exactly — hairstyle, hair color, clothing, accessories, body type, facial features. If character reference images are provided below, the generated characters MUST look identical to those references.
-4. If a scene environment reference image is provided below, maintain the same environment style, layout, and atmosphere.
-5. ${aspectRatio || "16:9"} cinematic composition, professional storyboard quality, cinematic lighting. The image MUST be in ${aspectRatio || "16:9"} aspect ratio.${(aspectRatio === "9:16" || aspectRatio === "2:3") ? `
-6. **PORTRAIT / VERTICAL FRAME COMPOSITION (9:16 / 2:3 — CHARACTER-RELATIONSHIP-FIRST PHILOSOPHY):**
-   **CORE PRINCIPLE: The vertical frame is a CHARACTER INTIMACY tool, NOT a landscape tool. Every composition decision must prioritize showing the EMOTIONAL RELATIONSHIP between characters.**
-   
-   **A. FRAMING HIERARCHY (from most preferred to least preferred):**
-   - MOST PREFERRED: Two-shot close-ups capturing both characters' faces/expressions in the same frame — stacked vertically (one above, one below) or at diagonal eyelines
-   - HIGHLY PREFERRED: Over-the-shoulder shots that show one character's face with the other's shoulder/silhouette framing the edge
-   - PREFERRED: Tight medium shots (waist-up) with characters physically close, overlapping personal space
-   - ACCEPTABLE: Cowboy shots (thigh-up) with clear interpersonal tension visible in body language
-   - AVOID UNLESS SCRIPT DEMANDS: Full-body shots, wide/establishing shots, landscapes, environments without characters filling the frame
-   
-   **B. SPATIAL COMPRESSION (CRITICAL):**
-   - FILL the frame with characters — minimal headroom, minimal space between characters
-   - Use SHALLOW depth of field aggressively: background should be a soft bokeh wash, NOT a detailed environment
+   **BUT VARY THE COMPOSITION**: Each consecutive shot MUST use a DISTINCTLY DIFFERENT composition:
+   - CHANGE the camera angle (e.g., eye-level → high angle → low angle → over-the-shoulder → Dutch angle)
+   - CHANGE the shot size (e.g., medium shot → close-up → wide shot → extreme close-up on hands/eyes)
+   - CHANGE the framing (e.g., center-framed → rule-of-thirds left → negative space right → foreground framing)
+   - NEVER produce two adjacent shots with the same angle + distance + framing combination
+3. If a scene environment reference image is provided below, maintain the same environment style, layout, and atmosphere.
+4. ${aspectRatio || "16:9"} cinematic composition, professional storyboard quality, cinematic lighting. The image MUST be in ${aspectRatio || "16:9"} aspect ratio.${(aspectRatio === "9:16" || aspectRatio === "2:3") ? `
+5. **PORTRAIT / VERTICAL FRAME COMPOSITION (9:16 / 2:3 — CHARACTER-RELATIONSHIP-FIRST PHILOSOPHY):**
+   **CORE PRINCIPLE: The vertical frame is a CHARACTER INTIMACY tool, NOT a landscape tool.**
+   - MOST PREFERRED: Two-shot close-ups capturing both characters' faces/expressions
+   - Use SHALLOW depth of field aggressively: background should be soft bokeh
    - Characters should occupy at least 60-80% of the frame area
-   - If two characters are in the shot, their faces should be within the same vertical third of the frame when possible
-   - Background is ATMOSPHERE, not geography — convey location through color temperature, light quality, and vague shapes, NOT architectural details
-   - NO empty sky, NO wide floor space, NO distant horizon lines
-   
-   **C. EMOTIONAL MICRO-EXPRESSIONS:**
-   - Eyes are the anchor of every frame: catch-lights, tear reflections, narrowed lids, widened pupils
-   - Show SUBTLE body language: a tightened jaw, a hand almost-but-not-quite touching someone, fingers curling into a fist, a slight lean toward or away from the other person
-   - Skin texture, pores, sweat droplets, tear tracks should be visible in close-ups
-   
-   **D. VERTICAL COMPOSITION TECHNIQUES:**
-   - Stack character eyelines at different heights to create power dynamics (dominant character higher)
-   - Use vertical leading lines (a character's arm, a weapon, a doorframe edge) to connect two characters within the frame
-   - Dutch angle (10-20° tilt) to heighten tension in confrontation scenes
-   - Rack-focus compositions: sharp foreground character, soft background character (or vice versa) to direct emotional attention
-   
-   **E. LIGHTING FOR INTIMACY:**
-   - Prefer dramatic side-lighting (Rembrandt, split lighting) that sculpts facial features
-   - Use rim/backlight to separate characters from backgrounds without showing the background in detail
-   - Color contrast between characters (warm key on one, cool fill on the other) to visualize emotional opposition` : ""}
+   - Eyes are the anchor: catch-lights, tear reflections, narrowed lids
+   - Stack character eyelines at different heights to create power dynamics
+   - Prefer dramatic side-lighting that sculpts facial features` : ""}
 
-${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "7" : "6"}. Ultra high resolution.
-${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "8" : "7"}. Depict EXACTLY this single shot as described — show the specific action, character positions, and emotion.
-${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME PRINCIPLE (HIGHEST PRIORITY — overrides all other composition rules):**
-   This image represents the VERY FIRST FRAME of a video clip — the frame shown at time T=0 before any playback begins.
-   - Read the shot description and identify ALL verbs/actions (e.g. "flies", "hits", "falls", "explodes", "runs", "turns into").
-   - Then REWIND to the moment JUST BEFORE the FIRST action verb begins. That frozen instant is what you must depict.
-   - Characters must be completely static, in anticipation poses — NO motion blur, NO mid-swing limbs, NO objects in mid-flight trajectory.
-   - Example: "A huge axe spins toward [Old Soldier] and hits him, turning him into blood mist" → Show the axe STILL IN THE THROWER'S HAND or just leaving the hand. Old Soldier stands unaware/bracing. No axe in the air, no impact, no blood.
-   - Example: "Character jumps off the cliff" → Show character standing at cliff edge, about to jump. Both feet on ground.
-   - Example: "An explosion destroys the building" → Show the building intact, with perhaps a fuse lit or a projectile approaching from far away.
-   - NEVER depict: motion blur, impact moments, deformation, gore, splatter, mid-air objects, falling bodies, or any state that occurs AFTER T=0.
-   - If in doubt, choose the EARLIER, more static moment.`;
+${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "6" : "5"}. Ultra high resolution.
+${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "7" : "6"}. Depict EXACTLY this single shot — show the specific anticipation moment, character positions, and emotion. Characters MUST look identical to their reference images.`;
     }
 
     // Build multimodal parts: text prompt + reference images
     const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
-      parts.push({ text: prompt });
+    parts.push({ text: prompt });
 
-    // Add scene reference image if available (supports both data URLs and storage URLs)
+    console.log("[DEBUG] characterImages received:", Array.isArray(characterImages) ? characterImages.length : "not array",
+      Array.isArray(characterImages) ? characterImages.map((c: any) => ({ name: c.name, hasUrl: !!c.imageUrl, urlPrefix: c.imageUrl?.slice(0, 50) })) : "N/A");
+    console.log("[DEBUG] sceneImageUrl received:", sceneImageUrl ? sceneImageUrl.slice(0, 80) : "none");
+    console.log("[DEBUG] prevStoryboardUrl received:", prevStoryboardUrl ? prevStoryboardUrl.slice(0, 80) : "none");
+
+    // Add scene reference image
     if (sceneImageUrl && typeof sceneImageUrl === "string") {
       const inlineData = await getInlineData(sceneImageUrl);
+      console.log("[DEBUG] Scene image inlineData:", inlineData ? `OK (${inlineData.mimeType}, ${inlineData.data.length} chars)` : "FAILED to fetch");
       if (inlineData) {
         parts.push({ inlineData });
-        parts.push({ text: `[SCENE ENVIRONMENT REFERENCE IMAGE]
-Above is a WIDE ESTABLISHING SHOT of this scene's environment — use it ONLY as a reference for the environment style, color palette, architecture, props, and lighting atmosphere. Do NOT replicate the same wide/panoramic framing. Instead, compose this frame according to the camera direction specified: "${cameraDirection || "Medium shot"}". Adjust the shot scale (close-up, medium, wide, etc.) to match the described action and emotion.` });
+        parts.push({ text: `[SCENE ENVIRONMENT REFERENCE IMAGE]\nAbove is this scene's environment — use it for environment style, color palette, architecture, props, and lighting.` });
       }
     }
 
-    // Add character reference images if available — with STRONG consistency instructions
+    // Add character reference images
     let charRefCount = 0;
     if (Array.isArray(characterImages)) {
       for (const charImg of characterImages) {
         if (charImg.imageUrl && typeof charImg.imageUrl === "string") {
           const inlineData = await getInlineData(charImg.imageUrl);
+          console.log(`[DEBUG] Character "${charImg.name}" inlineData:`, inlineData ? `OK (${inlineData.mimeType}, ${inlineData.data.length} chars)` : "FAILED to fetch");
           if (inlineData) {
             charRefCount++;
             parts.push({ inlineData });
-            // Find matching character description for reinforcement
             const charDescEntry = (characterDescriptions || []).find(
               (c: { name: string; description: string }) => c.name === charImg.name
             );
-            const descReinforcement = charDescEntry
-              ? `\nCharacter description reminder: ${charDescEntry.description}`
-              : "";
-            parts.push({ text: `[CHARACTER REFERENCE IMAGE — ${charImg.name}] (CRITICAL — MUST MATCH EXACTLY)
-Above is the DEFINITIVE visual reference for character "${charImg.name}". You MUST reproduce this character's appearance with PIXEL-LEVEL fidelity:
-- FACE: Exact same facial structure, eye shape, eye color, nose shape, lip shape, skin tone, facial hair (if any). The face must be RECOGNIZABLE as the same person/character.
-- HAIR: Exact same hairstyle, hair color, hair length, hair texture. No changes whatsoever.
-- CLOTHING & ACCESSORIES: Exact same outfit, colors, patterns, jewelry, weapons, props. Do NOT change, simplify, or reinterpret any clothing details.
-- BODY TYPE: Same proportions, height, build.
-- ART STYLE: The character in the storyboard must be rendered in the SAME art style as the reference image AND the specified art style "${styleDesc.split('.')[0]}". Do NOT switch to a different rendering style.${descReinforcement}
-If there is ANY conflict between text description and this reference image, the REFERENCE IMAGE TAKES PRIORITY.` });
+            const descReinforcement = charDescEntry ? `\nCharacter description: ${charDescEntry.description}` : "";
+            parts.push({ text: `[CHARACTER REFERENCE — ${charImg.name}] (ABSOLUTE GROUND TRUTH — MUST CLONE EXACTLY)\nThis is the DEFINITIVE visual reference for ${charImg.name}. You MUST reproduce:\n• IDENTICAL face structure, eye shape/color, skin tone, scars, facial hair\n• IDENTICAL hairstyle, hair color, hair length\n• IDENTICAL clothing colors, layers, accessories (pendants, belts, holsters, bandages)\nAny deviation from this reference image is a CRITICAL ERROR.\n${descReinforcement}` });
           }
         }
       }
     }
 
-    // Add a consolidated art style enforcement block after all character refs
     if (charRefCount > 0) {
-      parts.push({ text: `[ART STYLE ENFORCEMENT — MANDATORY]
-ALL characters and environments in this storyboard frame MUST be rendered in the following art style: ${styleDesc}
-Do NOT mix art styles. Do NOT default to photorealistic if the style specifies cartoon/anime/CG. The art style must be UNIFORM across the entire image — characters and background alike.
-The characters shown in the reference images above define their appearance (face, hair, clothing, body). Render them faithfully but IN THE SPECIFIED ART STYLE.` });
+      parts.push({ text: `[ART STYLE ENFORCEMENT]\nALL characters and environments MUST be rendered in: ${styleDesc}\nDo NOT mix art styles.` });
     }
 
-    // Add previous storyboard image for visual continuity within the same scene
+    // Add previous storyboard for continuity — BUT ONLY if there are shared characters
     if (prevStoryboardUrl && typeof prevStoryboardUrl === "string") {
-      const inlineData = await getInlineData(prevStoryboardUrl);
-      if (inlineData) {
-        parts.push({ inlineData });
-        parts.push({ text: `[PREVIOUS SHOT REFERENCE — VISUAL CONTINUITY]
-Above is the PREVIOUS SHOT's storyboard frame in the same scene. Maintain visual continuity:
-- Character appearances must remain IDENTICAL to both the character reference images AND this previous frame
-- Keep consistent background layout, lighting direction, color temperature, and spatial relationships
-- The art style must remain exactly the same as the previous frame
-- This shot should feel like the natural next frame in the sequence` });
+      // Determine which characters were in the previous vs current shot
+      const prevChars: string[] = neighborContext?.prevCharacters || [];
+      const effectivePrevChars = prevChars.length > 0 ? prevChars
+        : (neighborContext?.prevDescription ? (characters || []).filter((c: string) => neighborContext.prevDescription.includes(c)) : []);
+      const curChars = characters || [];
+      const sharedChars = curChars.filter((c: string) => effectivePrevChars.includes(c));
+      const newChars = curChars.filter((c: string) => !effectivePrevChars.includes(c));
+
+      // Only pass previous storyboard image if there are shared characters
+      // When subjects are completely different, the prev image causes the model to copy wrong appearances
+      if (sharedChars.length > 0) {
+        const inlineData = await getInlineData(prevStoryboardUrl);
+        if (inlineData) {
+          let continuityInstruction = `[PREVIOUS SHOT — ENVIRONMENT & SPATIAL CONTINUITY ONLY]
+Above is the PREVIOUS shot in the same scene. Use it ONLY for:
+• Background / environment layout, props, architecture — keep them CONSISTENT
+• Lighting direction, color temperature, time of day — keep them CONSISTENT
+• Overall atmosphere and color palette — keep them CONSISTENT
+
+⚠️ CRITICAL — CHARACTER IDENTITY RULES FOR THIS TRANSITION:`;
+
+          continuityInstruction += `\n• Characters appearing in BOTH shots (${sharedChars.join("、")}): maintain their EXACT position continuity and appearance from the previous shot AND their character reference images.`;
+          if (newChars.length > 0) {
+            continuityInstruction += `\n• Characters NEW in this shot (${newChars.join("、")}): DO NOT copy any character appearance from the previous shot image. Their appearance MUST come EXCLUSIVELY from their own CHARACTER REFERENCE IMAGES above. They are DIFFERENT people.`;
+            continuityInstruction += `\n• The previous shot featured ${effectivePrevChars.join("、")} — the current shot features ${curChars.join("、")}. These may be ENTIRELY DIFFERENT characters. Do NOT transfer facial features, hair, or clothing between different characters.`;
+          }
+
+          parts.push({ inlineData });
+          parts.push({ text: continuityInstruction });
+        }
+      } else {
+        // No shared characters — skip previous storyboard image entirely to prevent visual contamination
+        // Only pass textual environment context
+        console.log("[DEBUG] Skipping prevStoryboardUrl: no shared characters between prev and current shot");
+        parts.push({ text: `[SCENE CONTINUITY — ENVIRONMENT ONLY (no previous image provided)]
+The previous shot in this scene featured different characters (${effectivePrevChars.join("、") || "unknown"}).
+The current shot features: ${curChars.join("、")}.
+These are COMPLETELY DIFFERENT characters — draw each character ONLY from their own CHARACTER REFERENCE IMAGES above.
+Maintain environment consistency (lighting, architecture, props) based on the scene description, but do NOT reference any previous shot's character appearances.` });
       }
     }
 
@@ -337,45 +396,39 @@ Above is the PREVIOUS SHOT's storyboard frame in the same scene. Maintain visual
     let mimeType = "image/png";
 
     if (isSeedream) {
-      // Seedream uses OpenAI Images API format: POST /v1/images/generations/
-      // Supports multi-image fusion via "image" array parameter
       const jimengKey = Deno.env.get("JIMENG_API_KEY");
-      if (!jimengKey) {
-        return new Response(
-          JSON.stringify({ error: "JIMENG_API_KEY 未配置" }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
+      if (!jimengKey) throw new Error("JIMENG_API_KEY 未配置");
 
-      // Collect reference image URLs for multi-image fusion
       const refImages: string[] = [];
       let imageDescriptions = "";
 
-      // Add character reference images
       if (Array.isArray(characterImages)) {
         for (const charImg of characterImages) {
           if (charImg.imageUrl && typeof charImg.imageUrl === "string" && !charImg.imageUrl.startsWith("data:")) {
             refImages.push(charImg.imageUrl);
-            imageDescriptions += `\n图${refImages.length} 是角色「${charImg.name}」的外观设计参考图（必须严格匹配）：面部特征、发型发色、服装配饰、体型比例必须与参考图完全一致，不得修改或简化任何细节。`;
+            imageDescriptions += `\n图${refImages.length} 是角色「${charImg.name}」的外观设计参考图（必须严格匹配）。`;
           }
         }
       }
-
-      // Add scene reference image
       if (sceneImageUrl && typeof sceneImageUrl === "string" && !sceneImageUrl.startsWith("data:")) {
         refImages.push(sceneImageUrl);
-        imageDescriptions += `\n图${refImages.length} 是场景环境参考图，请保持环境风格一致。`;
+        imageDescriptions += `\n图${refImages.length} 是场景环境参考图。`;
       }
-
-      // Add previous storyboard for continuity
       if (prevStoryboardUrl && typeof prevStoryboardUrl === "string" && !prevStoryboardUrl.startsWith("data:")) {
         refImages.push(prevStoryboardUrl);
-        imageDescriptions += `\n图${refImages.length} 是上一个镜头的分镜图，请保持视觉连续性。`;
+        const sPrevChars: string[] = neighborContext?.prevCharacters || [];
+        const sEffectivePrevChars = sPrevChars.length > 0 ? sPrevChars
+          : (neighborContext?.prevDescription ? (characters || []).filter((c: string) => neighborContext.prevDescription.includes(c)) : []);
+        const sCurChars = characters || [];
+        const sNewChars = sCurChars.filter((c: string) => !sEffectivePrevChars.includes(c));
+        let seedreamContinuity = `\n图${refImages.length} 是上一个镜头的分镜图，仅用于保持背景环境、灯光、氛围的连续性。`;
+        if (sNewChars.length > 0) {
+          seedreamContinuity += `当前镜头的角色（${sNewChars.join("、")}）与上一镜头不同，请勿从上一镜头图片中复制任何角色外观，角色外观必须严格参照各自的设定参考图。`;
+        }
+        imageDescriptions += seedreamContinuity;
       }
 
-      const fullPrompt = refImages.length > 0
-        ? `${prompt}\n\n参考图说明：${imageDescriptions}`
-        : prompt;
+      const fullPrompt = refImages.length > 0 ? `${prompt}\n\n参考图说明：${imageDescriptions}` : prompt;
 
       const seedreamPayload: Record<string, unknown> = {
         model: selectedModel,
@@ -383,50 +436,34 @@ Above is the PREVIOUS SHOT's storyboard frame in the same scene. Maintain visual
         size: "2K",
         watermark: false,
       };
-
       if (refImages.length > 0) {
         seedreamPayload.image = refImages;
         seedreamPayload.sequential_image_generation = "disabled";
       }
 
-      console.log("Calling Seedream API via /v1/images/generations/, model:", selectedModel, "ref images:", refImages.length);
+      console.log("Calling Seedream API, ref images:", refImages.length);
 
       const seedreamResp = await fetch(`${ZHANHU_BASE_URL.replace("/v1beta", "")}/v1/images/generations/`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${jimengKey}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${jimengKey}` },
         body: JSON.stringify(seedreamPayload),
       });
 
       if (!seedreamResp.ok) {
         const errText = await seedreamResp.text();
         console.error("Seedream API error:", seedreamResp.status, errText);
-        return new Response(
-          JSON.stringify({ error: `Seedream 生成失败 (${seedreamResp.status})` }),
-          { status: seedreamResp.status >= 400 && seedreamResp.status < 500 ? seedreamResp.status : 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        throw new Error(`Seedream 生成失败 (${seedreamResp.status})`);
       }
 
       const seedreamData = await seedreamResp.json();
-      console.log("Seedream response keys:", Object.keys(seedreamData));
-
-      // OpenAI Images API response: { data: [{ url: "...", b64_json: "..." }] }
       const imgItem = seedreamData.data?.[0];
       if (imgItem?.b64_json) {
         imageBase64 = imgItem.b64_json;
         mimeType = "image/png";
       } else if (imgItem?.url) {
-        // Download image from URL
         console.log("Downloading Seedream image from URL:", imgItem.url.slice(0, 100));
         const imgResp = await fetch(imgItem.url);
-        if (!imgResp.ok) {
-          return new Response(
-            JSON.stringify({ error: "Seedream 图片下载失败" }),
-            { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
+        if (!imgResp.ok) throw new Error("Seedream 图片下载失败");
         const imgBuffer = await imgResp.arrayBuffer();
         const imgBytes = new Uint8Array(imgBuffer);
         let binary = "";
@@ -438,16 +475,11 @@ Above is the PREVIOUS SHOT's storyboard frame in the same scene. Maintain visual
         const contentType = imgResp.headers.get("content-type") || "";
         mimeType = contentType.includes("png") ? "image/png" : "image/jpeg";
       } else {
-        console.error("Seedream: no image in response:", JSON.stringify(seedreamData).slice(0, 500));
-        return new Response(
-          JSON.stringify({ error: "Seedream 未返回图片" }),
-          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        throw new Error("Seedream 未返回图片");
       }
     } else {
-      // Gemini models: use generateContent API
+      // Gemini models
       const apiUrl = `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent/`;
-
       const response = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },
@@ -460,14 +492,28 @@ Above is the PREVIOUS SHOT's storyboard frame in the same scene. Maintain visual
       if (!response.ok) {
         const errText = await response.text();
         console.error("ZhanHu API error:", response.status, errText);
-        return new Response(
-          JSON.stringify({ error: `AI 分镜图生成失败 (${response.status})` }),
-          { status: response.status >= 400 && response.status < 500 ? response.status : 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        throw new Error(`AI 分镜图生成失败 (${response.status})`);
       }
 
       const data = await response.json();
       const responseParts = data.candidates?.[0]?.content?.parts;
+
+      // Debug: log what the API actually returned
+      console.log("[DEBUG] Gemini response keys:", JSON.stringify(Object.keys(data)));
+      console.log("[DEBUG] Gemini candidates count:", data.candidates?.length);
+      if (responseParts) {
+        console.log("[DEBUG] Response parts count:", responseParts.length);
+        for (let i = 0; i < responseParts.length; i++) {
+          const keys = Object.keys(responseParts[i]);
+          console.log(`[DEBUG] Part ${i} keys:`, keys,
+            keys.includes("text") ? `text: ${responseParts[i].text?.slice(0, 200)}` : "",
+            keys.includes("fileData") ? `fileData mime: ${responseParts[i].fileData?.mimeType}` : "");
+        }
+      } else {
+        console.log("[DEBUG] No response parts found. Full response (truncated):", JSON.stringify(data).slice(0, 500));
+      }
+
+      // Extract image: try inlineData first
       if (responseParts) {
         for (const part of responseParts) {
           if (part.inlineData) {
@@ -477,14 +523,44 @@ Above is the PREVIOUS SHOT's storyboard frame in the same scene. Maintain visual
           }
         }
       }
+
+      // Fallback 1: fileData (Gemini file URI)
+      if (!imageBase64 && responseParts) {
+        for (const part of responseParts) {
+          if (part.fileData?.fileUri) {
+            console.log("[DEBUG] Trying fileData fallback:", part.fileData.fileUri.slice(0, 100));
+            const fetched = await fetchImageAsBase64(part.fileData.fileUri);
+            if (fetched) {
+              mimeType = fetched.mimeType;
+              imageBase64 = fetched.data;
+              break;
+            }
+          }
+        }
+      }
+
+      // Fallback 2: Markdown image link or plain URL in text
+      if (!imageBase64 && responseParts) {
+        for (const part of responseParts) {
+          if (part.text) {
+            const mdMatch = part.text.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/);
+            const urlMatch = mdMatch?.[1] || part.text.match(/(https?:\/\/\S+\.(?:png|jpg|jpeg|webp|gif))/i)?.[1];
+            if (urlMatch) {
+              console.log("[DEBUG] Trying URL fallback from text:", urlMatch.slice(0, 100));
+              const fetched = await fetchImageAsBase64(urlMatch);
+              if (fetched) {
+                mimeType = fetched.mimeType;
+                imageBase64 = fetched.data;
+                break;
+              }
+            }
+          }
+        }
+      }
     }
 
     if (!imageBase64) {
-      console.error("No image in response");
-      return new Response(
-        JSON.stringify({ error: "AI 未返回分镜图" }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      throw new Error("AI 未返回分镜图");
     }
 
     // Upload to Supabase Storage
@@ -492,8 +568,6 @@ Above is the PREVIOUS SHOT's storyboard frame in the same scene. Maintain visual
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
-
-    // Ensure bucket exists
     await supabaseAdmin.storage.createBucket("generated-images", { public: true, fileSizeLimit: 52428800 }).catch(() => {});
 
     const ext = mimeType.includes("png") ? "png" : "jpg";
@@ -513,11 +587,7 @@ Above is the PREVIOUS SHOT's storyboard frame in the same scene. Maintain visual
       .upload(fileName, bytes, { contentType: mimeType, upsert: false });
 
     if (uploadError) {
-      console.error("Storage upload error:", uploadError);
-      return new Response(JSON.stringify({ error: `图片上传失败: ${uploadError.message}` }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      throw new Error(`图片上传失败: ${uploadError.message}`);
     }
 
     const { data: urlData } = supabaseAdmin.storage
@@ -525,16 +595,7 @@ Above is the PREVIOUS SHOT's storyboard frame in the same scene. Maintain visual
       .getPublicUrl(fileName);
 
     console.log("Storyboard image uploaded successfully:", urlData.publicUrl);
+    return { imageUrl: urlData.publicUrl };
+}
 
-    return new Response(
-      JSON.stringify({ imageUrl: urlData.publicUrl }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  } catch (e) {
-    console.error("generate-storyboard error:", e);
-    return new Response(
-      JSON.stringify({ error: e instanceof Error ? e.message : "未知错误" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  }
 });
