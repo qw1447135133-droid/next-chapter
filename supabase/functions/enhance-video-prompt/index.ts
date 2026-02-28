@@ -85,9 +85,9 @@ serve(async (req) => {
       );
     }
 
-    const ZHANHU_API_KEY = Deno.env.get("ZHANHU_API_KEY");
+    const ZHANHU_API_KEY = Deno.env.get("Gemini");
     if (!ZHANHU_API_KEY) {
-      console.warn("ZHANHU_API_KEY not configured, returning original");
+      console.warn("Gemini API Key not configured, returning original");
       return new Response(
         JSON.stringify({ enhanced: description, fallback: true }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }

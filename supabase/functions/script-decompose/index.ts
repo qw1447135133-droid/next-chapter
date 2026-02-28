@@ -129,7 +129,7 @@ serve(async (req) => {
       );
     }
 
-    const apiKey = Deno.env.get("ZHANHU_API_KEY");
+    const apiKey = Deno.env.get("Gemini");
     if (!apiKey) {
       return new Response(
         JSON.stringify({ error: "API Key 未配置" }),
