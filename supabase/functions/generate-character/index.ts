@@ -60,74 +60,125 @@ The image should be a clean character turnaround sheet with 4 views arranged in 
 
 Each view should be labeled clearly. The character design must be consistent across all 4 views. The entire image MUST be in ${styleDesc} style.`;
 
-    console.log(`[${FUNCTION_VERSION}] Calling ZhanHu API for character:`, name, "style:", style);
+    console.log(`[${FUNCTION_VERSION}] Calling API for character:`, name, "style:", style, "model:", model || "gemini-3-pro-image-preview");
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 170000);
 
-    let response: Response;
-    try {
-      response = await fetch(
-        `${ZHANHU_BASE_URL}/models/${model || "gemini-3-pro-image-preview"}:generateContent/`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },
-          signal: controller.signal,
-          body: JSON.stringify({
-            contents: [{ role: "user", parts: [{ text: prompt }] }],
-            generationConfig: {
-              responseModalities: ["IMAGE", "TEXT"],
-              imageConfig: {
-                aspectRatio: "16:9",
-                imageSize: "2K",
-              },
-            },
-          }),
-        },
-      );
-    } catch (fetchErr) {
-      clearTimeout(timeout);
-      const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-      console.error("Fetch failed:", msg);
-      const isTimeout = msg.includes("abort");
-      return new Response(JSON.stringify({ error: isTimeout ? "AI 生成超时，请重试" : `网络错误: ${msg}` }), {
-        status: 504,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    clearTimeout(timeout);
-    console.log("ZhanHu API response status:", response.status);
+    const selectedModel = model || "gemini-3-pro-image-preview";
+    const isSeedream = selectedModel.startsWith("doubao-seedream");
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("ZhanHu API error:", response.status, errText);
-      return new Response(JSON.stringify({ error: `AI 图像生成失败 (${response.status})` }), {
-        status: response.status >= 400 && response.status < 500 ? response.status : 502,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const data = await response.json();
-
-    // Extract base64 image from Gemini response
     let imageBase64 = "";
     let mimeType = "image/png";
-    const parts = data.candidates?.[0]?.content?.parts;
-    if (parts) {
-      for (const part of parts) {
-        if (part.inlineData) {
-          mimeType = part.inlineData.mimeType || "image/png";
-          imageBase64 = part.inlineData.data;
-          break;
+
+    if (isSeedream) {
+      const jimengKey = Deno.env.get("JIMENG_API_KEY");
+      if (!jimengKey) {
+        clearTimeout(timeout);
+        return new Response(JSON.stringify({ error: "JIMENG_API_KEY 未配置" }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      try {
+        const seedreamResp = await fetch(`${ZHANHU_BASE_URL.replace("/v1beta", "")}/v1/images/generations/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${jimengKey}` },
+          signal: controller.signal,
+          body: JSON.stringify({ model: selectedModel, prompt, size: "2K", watermark: false }),
+        });
+        clearTimeout(timeout);
+
+        if (!seedreamResp.ok) {
+          const errText = await seedreamResp.text();
+          console.error("Seedream API error:", seedreamResp.status, errText);
+          return new Response(JSON.stringify({ error: `Seedream 生成失败 (${seedreamResp.status})` }), {
+            status: seedreamResp.status >= 400 && seedreamResp.status < 500 ? seedreamResp.status : 502,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const seedreamData = await seedreamResp.json();
+        const imgItem = seedreamData.data?.[0];
+        if (imgItem?.b64_json) {
+          imageBase64 = imgItem.b64_json;
+        } else if (imgItem?.url) {
+          const imgResp = await fetch(imgItem.url);
+          if (!imgResp.ok) {
+            return new Response(JSON.stringify({ error: "Seedream 图片下载失败" }), {
+              status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          const imgBuffer = await imgResp.arrayBuffer();
+          const imgBytes = new Uint8Array(imgBuffer);
+          let binary = "";
+          const chunkSize = 8192;
+          for (let i = 0; i < imgBytes.length; i += chunkSize) {
+            binary += String.fromCharCode(...imgBytes.subarray(i, i + chunkSize));
+          }
+          imageBase64 = btoa(binary);
+          const ct = imgResp.headers.get("content-type") || "";
+          mimeType = ct.includes("png") ? "image/png" : "image/jpeg";
+        }
+      } catch (fetchErr) {
+        clearTimeout(timeout);
+        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+        console.error("Seedream fetch failed:", msg);
+        const isTimeout = msg.includes("abort");
+        return new Response(JSON.stringify({ error: isTimeout ? "AI 生成超时，请重试" : `网络错误: ${msg}` }), {
+          status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    } else {
+      // Gemini models
+      let response: Response;
+      try {
+        response = await fetch(
+          `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent/`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },
+            signal: controller.signal,
+            body: JSON.stringify({
+              contents: [{ role: "user", parts: [{ text: prompt }] }],
+              generationConfig: {
+                responseModalities: ["IMAGE", "TEXT"],
+                imageConfig: { aspectRatio: "16:9", imageSize: "2K" },
+              },
+            }),
+          },
+        );
+      } catch (fetchErr) {
+        clearTimeout(timeout);
+        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+        console.error("Fetch failed:", msg);
+        const isTimeout = msg.includes("abort");
+        return new Response(JSON.stringify({ error: isTimeout ? "AI 生成超时，请重试" : `网络错误: ${msg}` }), {
+          status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      clearTimeout(timeout);
+      console.log("ZhanHu API response status:", response.status);
+
+      if (!response.ok) {
+        const errText = await response.text();
+        console.error("ZhanHu API error:", response.status, errText);
+        return new Response(JSON.stringify({ error: `AI 图像生成失败 (${response.status})` }), {
+          status: response.status >= 400 && response.status < 500 ? response.status : 502,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const data = await response.json();
+      const parts = data.candidates?.[0]?.content?.parts;
+      if (parts) {
+        for (const part of parts) {
+          if (part.inlineData) {
+            mimeType = part.inlineData.mimeType || "image/png";
+            imageBase64 = part.inlineData.data;
+            break;
+          }
         }
       }
-    }
-
-    if (!imageBase64) {
-      console.error("No image in response:", JSON.stringify(data).slice(0, 500));
-      return new Response(JSON.stringify({ error: "AI 未返回图像" }), {
-        status: 502,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
     }
 
     // Upload to Supabase Storage
