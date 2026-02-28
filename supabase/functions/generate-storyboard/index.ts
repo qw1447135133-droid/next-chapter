@@ -245,7 +245,14 @@ ${narrativeContext}
    - Character positions and facing directions
    - Background elements and environment layout
    - Lighting direction and color temperature
-3. CHARACTER CONSISTENCY IS THE TOP PRIORITY: each character MUST match their description exactly — hairstyle, hair color, clothing, accessories, body type, facial features. If character reference images are provided below, the generated characters MUST look identical to those references.
+3. **CHARACTER CONSISTENCY IS THE #1 ABSOLUTE TOP PRIORITY — ZERO TOLERANCE FOR DEVIATION:**
+   Every character MUST be an EXACT visual clone of their reference image. Follow these hard constraints:
+   - **FACE**: Reproduce the EXACT same facial structure, eye shape, eye color, nose shape, lip shape, jawline, skin tone, scars, and facial hair from the reference image. The face must be RECOGNIZABLY THE SAME PERSON.
+   - **HAIR**: EXACT same hairstyle, hair color, hair length, and hair texture. No changes allowed.
+   - **CLOTHING**: EXACT same outfit — same colors, same layers, same accessories (belts, holsters, pendants, bandages). No substitutions.
+   - **BODY**: Same build, height proportion, and posture tendencies.
+   - **RULE**: If a reference image is provided, it is the GROUND TRUTH. Text description is secondary. When in doubt, copy the reference image.
+   - **ANTI-HALLUCINATION**: Do NOT invent new clothing, change hair color, add/remove accessories, or alter facial features. Every detail must trace back to the reference.
 4. If a scene environment reference image is provided below, maintain the same environment style, layout, and atmosphere.
 5. ${aspectRatio || "16:9"} cinematic composition, professional storyboard quality, cinematic lighting. The image MUST be in ${aspectRatio || "16:9"} aspect ratio.${(aspectRatio === "9:16" || aspectRatio === "2:3") ? `
 6. **PORTRAIT / VERTICAL FRAME COMPOSITION (9:16 / 2:3 — CHARACTER-RELATIONSHIP-FIRST PHILOSOPHY):**
@@ -300,7 +307,7 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME 
               (c: { name: string; description: string }) => c.name === charImg.name
             );
             const descReinforcement = charDescEntry ? `\nCharacter description: ${charDescEntry.description}` : "";
-            parts.push({ text: `[CHARACTER REFERENCE — ${charImg.name}] (MUST MATCH EXACTLY)\nReproduce this character's face, hair, clothing, body with PIXEL-LEVEL fidelity. REFERENCE IMAGE TAKES PRIORITY over text.${descReinforcement}` });
+            parts.push({ text: `[CHARACTER REFERENCE — ${charImg.name}] (ABSOLUTE GROUND TRUTH — MUST CLONE EXACTLY)\nThis is the DEFINITIVE visual reference for ${charImg.name}. You MUST reproduce:\n• IDENTICAL face structure, eye shape/color, skin tone, scars, facial hair\n• IDENTICAL hairstyle, hair color, hair length\n• IDENTICAL clothing colors, layers, accessories (pendants, belts, holsters, bandages)\nAny deviation from this reference image is a CRITICAL ERROR.\n${descReinforcement}` });
           }
         }
       }
