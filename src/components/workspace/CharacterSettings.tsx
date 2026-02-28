@@ -387,8 +387,8 @@ const CharacterSettings = ({
     autoDetectAbortRef.current = false;
     setIsAbortingAutoDetect(false);
     setIsAutoDetectingAll(true);
-    let successCount = 0;
-    let failCount = 0;
+    const successCountRef = { current: 0 };
+    const failCountRef = { current: 0 };
 
     // Semaphore helper for concurrency control
     const createSemaphore = (max: number) => {
@@ -438,7 +438,7 @@ const CharacterSettings = ({
         }
         if (descOk) break;
       }
-      if (descOk) successCount++; else { failCount++; return; } // Skip image if desc failed
+      if (descOk) successCountRef.current++; else { failCountRef.current++; return; } // Skip image if desc failed
 
       // --- Image phase (retry up to 2 times) ---
       let imgOk = false;
@@ -475,7 +475,7 @@ const CharacterSettings = ({
         }
         if (imgOk) break;
       }
-      if (imgOk) successCount++; else failCount++;
+      if (imgOk) successCountRef.current++; else failCountRef.current++;
     };
 
     // Process a single scene: description (with retry) → image (with retry)
@@ -509,7 +509,7 @@ const CharacterSettings = ({
         }
         if (descOk) break;
       }
-      if (descOk) successCount++; else { failCount++; return; } // Skip image if desc failed
+      if (descOk) successCountRef.current++; else { failCountRef.current++; return; } // Skip image if desc failed
 
       // --- Image phase (retry up to 2 times) ---
       let imgOk = false;
@@ -546,7 +546,7 @@ const CharacterSettings = ({
         }
         if (imgOk) break;
       }
-      if (imgOk) successCount++; else failCount++;
+      if (imgOk) successCountRef.current++; else failCountRef.current++;
     };
 
     // Track failed items for review pass
@@ -574,21 +574,37 @@ const CharacterSettings = ({
 
     await Promise.all(allTasks);
 
-    // === REVIEW PASS: retry any items still missing description or image ===
+    // === REVIEW PASS: retry any items still missing description or image (with concurrency control) ===
     if (!autoDetectAbortRef.current) {
+      const reviewSem = createSemaphore(2); // 限制重试并发数为2
       const reviewTasks: Promise<void>[] = [];
+      
       // Re-check characters
       for (const c of charactersRef.current) {
         if (!c.description || !c.imageUrl) {
           console.log(`Review pass: retrying character "${c.name}"`);
-          reviewTasks.push(processCharacter(c));
+          reviewTasks.push((async () => {
+            await reviewSem.acquire();
+            try {
+              await processCharacter(c);
+            } finally {
+              reviewSem.release();
+            }
+          })());
         }
       }
       // Re-check scenes
       for (const s of sceneSettingsRef.current) {
         if (!s.description || !s.imageUrl) {
           console.log(`Review pass: retrying scene "${s.name}"`);
-          reviewTasks.push(processScene(s));
+          reviewTasks.push((async () => {
+            await reviewSem.acquire();
+            try {
+              await processScene(s);
+            } finally {
+              reviewSem.release();
+            }
+          })());
         }
       }
       if (reviewTasks.length > 0) {
@@ -603,7 +619,7 @@ const CharacterSettings = ({
     autoDetectAbortRef.current = false;
     toast({
       title: aborted ? "已中止" : "全部生成完成",
-      description: `成功 ${successCount} 项${failCount > 0 ? `，失败 ${failCount} 项` : ""}${aborted ? "（已中止）" : ""}`,
+      description: `成功 ${successCountRef.current} 项${failCountRef.current > 0 ? `，失败 ${failCountRef.current} 项` : ""}${aborted ? "（已中止）" : ""}`,
     });
   };
 
