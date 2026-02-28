@@ -168,7 +168,7 @@ const StoryboardPreview = ({
           {isGeneratingAll ? (
             <Button variant="destructive" onClick={onStopAll} disabled={isAborting} className="gap-1">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {isAborting ? "正在中止..." : "中止生成"}
+              {isAborting ? "全部生成" : "中止生成"}
             </Button>
           ) : (
             <Button variant="outline" onClick={() => onGenerateAll(aspectRatio, storyboardModel)} disabled={isAnyGenerating} className="gap-1">
