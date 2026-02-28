@@ -279,10 +279,11 @@ const CharacterSettings = ({
   // isAutoDetectingAll, setIsAutoDetectingAll, autoDetectAbortRef are now props from Workspace
 
   // On FIRST mount per page load: clean up orphaned tasks (no auto-restart).
-  // Module-level flag prevents re-clearing on step switches (component remount).
+  // Clean up generating states after data is loaded (characters/sceneSettings from props)
   useEffect(() => {
-    // Clean up generating states for items that already have results
-    // Use longer delay to ensure data is fully restored from Workspace
+    // Only clean up if we have data loaded
+    if (characters.length === 0 && sceneSettings.length === 0) return;
+    
     const cleanupTimeout = setTimeout(() => {
       // Only clear spinner if:
       // 1. The item has a result (imageUrl/description exists)
@@ -327,7 +328,7 @@ const CharacterSettings = ({
     }, 500);
     
     return () => clearTimeout(cleanupTimeout);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [characters.length, sceneSettings.length]);
 
   // Clean up expired tasks periodically (safety net for long-running tasks)
   useEffect(() => {
