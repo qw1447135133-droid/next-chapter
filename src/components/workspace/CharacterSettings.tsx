@@ -285,45 +285,44 @@ const CharacterSettings = ({
   useEffect(() => {
     if (!hasCleanedOrphansThisSession) {
       hasCleanedOrphansThisSession = true;
-      // Clear all localStorage tasks — we don't auto-restart after refresh
-      writeTasks([]);
-      // Clear generating states for items that already have results
-      // Keep spinners only for items still missing results (they'll time out naturally)
-      setTimeout(() => {
-        setGeneratingCharImgIds((prev) => {
-          const next = new Set(prev);
-          for (const id of prev) {
-            const c = charactersRef.current.find((ch) => ch.id === id);
-            if (c?.imageUrl) next.delete(id);
-          }
-          return next.size === prev.size ? prev : next;
-        });
-        setGeneratingSceneImgIds((prev) => {
-          const next = new Set(prev);
-          for (const id of prev) {
-            const s = sceneSettingsRef.current.find((sc) => sc.id === id);
-            if (s?.imageUrl) next.delete(id);
-          }
-          return next.size === prev.size ? prev : next;
-        });
-        setGeneratingCharDescIds((prev) => {
-          const next = new Set(prev);
-          for (const id of prev) {
-            const c = charactersRef.current.find((ch) => ch.id === id);
-            if (c?.description) next.delete(id);
-          }
-          return next.size === prev.size ? prev : next;
-        });
-        setGeneratingDescIds((prev) => {
-          const next = new Set(prev);
-          for (const id of prev) {
-            const s = sceneSettingsRef.current.find((sc) => sc.id === id);
-            if (s?.description) next.delete(id);
-          }
-          return next.size === prev.size ? prev : next;
-        });
-      }, 100);
     }
+    // Clear all localStorage tasks — we don't auto-restart after refresh
+    writeTasks([]);
+    
+    // Immediately clean up generating states for items that already have results
+    // (no delay, run synchronously after state is available)
+    setGeneratingCharImgIds((prev) => {
+      const next = new Set(prev);
+      for (const id of prev) {
+        const c = charactersRef.current.find((ch) => ch.id === id);
+        if (c?.imageUrl) next.delete(id);
+      }
+      return next.size === prev.size ? prev : next;
+    });
+    setGeneratingSceneImgIds((prev) => {
+      const next = new Set(prev);
+      for (const id of prev) {
+        const s = sceneSettingsRef.current.find((sc) => sc.id === id);
+        if (s?.imageUrl) next.delete(id);
+      }
+      return next.size === prev.size ? prev : next;
+    });
+    setGeneratingCharDescIds((prev) => {
+      const next = new Set(prev);
+      for (const id of prev) {
+        const c = charactersRef.current.find((ch) => ch.id === id);
+        if (c?.description) next.delete(id);
+      }
+      return next.size === prev.size ? prev : next;
+    });
+    setGeneratingDescIds((prev) => {
+      const next = new Set(prev);
+      for (const id of prev) {
+        const s = sceneSettingsRef.current.find((sc) => sc.id === id);
+        if (s?.description) next.delete(id);
+      }
+      return next.size === prev.size ? prev : next;
+    });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Clean up expired tasks periodically (safety net for long-running tasks)
