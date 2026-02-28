@@ -92,11 +92,11 @@ const StoryboardPreview = ({
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold font-[Space_Grotesk] mb-1">分镜图生成</h2>
-          <p className="text-sm text-muted-foreground">为每个分镜生成对应的画面图像</p>
-        </div>
-        <div className="flex gap-2 items-center">
+        <div className="flex items-center gap-2">
+          <div>
+            <h2 className="text-xl font-semibold font-[Space_Grotesk] mb-1">分镜图生成</h2>
+            <p className="text-sm text-muted-foreground">为每个分镜生成对应的画面图像</p>
+          </div>
           {/* Model Selector */}
           <Popover open={modelOpen} onOpenChange={setModelOpen}>
             <PopoverTrigger asChild>
@@ -105,7 +105,7 @@ const StoryboardPreview = ({
                 <ChevronDown className="h-3 w-3 opacity-50" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-48 p-1" align="end">
+            <PopoverContent className="w-48 p-1" align="start">
               {STORYBOARD_MODEL_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
@@ -121,8 +121,8 @@ const StoryboardPreview = ({
               ))}
             </PopoverContent>
           </Popover>
-
-          {/* Aspect Ratio Selector */}
+        </div>
+        <div className="flex gap-2 items-center">
           <Popover open={arOpen} onOpenChange={setArOpen}>
             <PopoverTrigger asChild>
               <Button variant="outline" size="sm" className="gap-1.5 h-9 text-xs" disabled={isAnyGenerating}>
