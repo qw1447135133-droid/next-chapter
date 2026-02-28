@@ -166,7 +166,7 @@ serve(async (req) => {
     
     const prompt = basePrompt + jsonEnforcement;
 
-    const models = ["gemini-3-pro-preview", "gemini-3-flash-preview"];
+    const models = ["gemini-3.1-pro-preview", "gemini-3-flash-preview"];
     const TIMEOUT_MS = 180000; // 180s per attempt
 
     let geminiResponse: Response | null = null;
