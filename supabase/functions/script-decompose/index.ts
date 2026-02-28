@@ -204,45 +204,41 @@ async function decomposeScript(body: any) {
   let geminiResponse: Response | null = null;
   let lastError: Error | null = null;
 
-  {
-    const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model}:generateContent/`;
-    const timeoutMs = TIMEOUT_MS;
-    const requestBody = JSON.stringify({
-      contents: [
-        { role: "user", parts: [{ text: `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}` }] },
-      ],
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 65536,
-        responseMimeType: "application/json",
-      },
+  const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model}:generateContent/`;
+  const requestBody = JSON.stringify({
+    contents: [
+      { role: "user", parts: [{ text: `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}` }] },
+    ],
+    generationConfig: {
+      temperature: 0.3,
+      maxOutputTokens: 65536,
+      responseMimeType: "application/json",
+    },
+  });
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    geminiResponse = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      body: requestBody,
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-      geminiResponse = await fetch(apiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-        body: requestBody,
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-
-      if (geminiResponse.ok) {
-        console.log(`Successfully using model: ${model}`);
-        break;
-      }
-
+    if (!geminiResponse.ok) {
       const statusCode = geminiResponse.status;
       const errText = await geminiResponse.text();
       console.error(`Model ${model} returned ${statusCode}:`, errText);
       geminiResponse = null;
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      console.error(`Model ${model} failed:`, lastError.message);
-      geminiResponse = null;
+    } else {
+      console.log(`Successfully using model: ${model}`);
     }
+  } catch (err) {
+    lastError = err instanceof Error ? err : new Error(String(err));
+    console.error(`Model ${model} failed:`, lastError.message);
+    geminiResponse = null;
   }
 
   if (!geminiResponse) {
