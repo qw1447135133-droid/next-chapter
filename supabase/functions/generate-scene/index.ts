@@ -15,7 +15,7 @@ serve(async (req) => {
   }
 
   try {
-    const { name, description, style } = await req.json();
+    const { name, description, style, model } = await req.json();
 
     if (!name) {
       return new Response(JSON.stringify({ error: "缺少场景名称" }), {
@@ -60,7 +60,7 @@ This is a wide establishing shot showing the full environment. Focus on atmosphe
     let response: Response;
     try {
       response = await fetch(
-        `${ZHANHU_BASE_URL}/models/gemini-3-pro-image-preview:generateContent/`,
+        `${ZHANHU_BASE_URL}/models/${model || "gemini-3-pro-image-preview"}:generateContent/`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },
