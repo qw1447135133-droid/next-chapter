@@ -67,7 +67,7 @@ Each view should be labeled clearly. The character design must be consistent acr
     let response: Response;
     try {
       response = await fetch(
-        `${ZHANHU_BASE_URL}/models/gemini-3-pro-image-preview:generateContent?key=${ZHANHU_API_KEY}&group=gemini-6`,
+        `${ZHANHU_BASE_URL}/models/gemini-3-pro-image-preview:generateContent?key=${ZHANHU_API_KEY}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
