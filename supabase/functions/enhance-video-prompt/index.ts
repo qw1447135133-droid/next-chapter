@@ -110,10 +110,10 @@ serve(async (req) => {
     const userPrompt = parts.join("\n");
 
     const response = await fetch(
-      `${ZHANHU_BASE_URL}/models/gemini-3-flash-preview:generateContent?key=${ZHANHU_API_KEY}`,
+      `${ZHANHU_BASE_URL}/models/gemini-3-flash-preview:generateContent/`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text: `${SYSTEM_PROMPT}\n\n${userPrompt}` }] }],
         }),
