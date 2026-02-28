@@ -213,6 +213,7 @@ async function decomposeScript(body: any) {
       temperature: 0.3,
       maxOutputTokens: 65536,
       responseMimeType: "application/json",
+      thinkingConfig: { thinkingBudget: 0 },
     },
   });
 
