@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { friendlyError } from "@/lib/friendly-error";
+import { compressImage } from "@/lib/image-compress";
 import { supabase } from "@/integrations/supabase/client";
 import type { Scene, CharacterSetting, SceneSetting, WorkspaceStep, ArtStyle, VideoModel } from "@/types/project";
 import { VIDEO_MODEL_API_MAP } from "@/types/project";
@@ -205,13 +206,36 @@ const Workspace = () => {
         const timeoutMs = charCount <= 8000 ? 180_000 : charCount <= 15000 ? 360_000 : 600_000;
         const controller = new AbortController();
         analyzeAbortRef.current = controller;
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-        const { data, error } = await supabase.functions.invoke("script-decompose", {
-          body: { script, systemPrompt },
+        // Use direct fetch with streaming to handle long-running generation
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        const response = await fetch(`${supabaseUrl}/functions/v1/script-decompose`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${supabaseKey}`,
+            "apikey": supabaseKey,
+          },
+          body: JSON.stringify({ script, systemPrompt }),
           signal: controller.signal,
         });
+        clearTimeout(timeoutId);
 
-        if (error) throw error;
+        if (!response.ok) {
+          const errText = await response.text();
+          let errMsg = `剧本拆解失败 (${response.status})`;
+          try { errMsg = JSON.parse(errText.trim().split("\n").pop()!).error || errMsg; } catch {}
+          throw new Error(errMsg);
+        }
+
+        // Read streaming response: last non-empty line is the JSON result
+        const text = await response.text();
+        const lines = text.trim().split("\n").filter((l) => l.trim());
+        const lastLine = lines[lines.length - 1];
+        const data = JSON.parse(lastLine);
+
         if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)));
 
         // Validate data structure
@@ -243,54 +267,54 @@ const Workspace = () => {
 
         setScenes(parsedScenes);
 
-        const aiCharacters: Array<{ name: string; description: string }> = data.characters || [];
-        const allCharNames = new Set<string>();
-        parsedScenes.forEach((s) => s.characters.forEach((name) => allCharNames.add(name)));
-        const autoCharacters: CharacterSetting[] = Array.from(allCharNames).map((name) => {
-          const aiChar = aiCharacters.find((c) => c.name === name);
-          return {
-            id: crypto.randomUUID(),
-            name,
-            description: aiChar?.description || "",
-            isAIGenerated: false,
-            source: "auto" as const,
-          };
+      const aiCharacters: Array<{ name: string; description: string }> = data.characters || [];
+      const allCharNames = new Set<string>();
+      parsedScenes.forEach((s) => s.characters.forEach((name) => allCharNames.add(name)));
+      const autoCharacters: CharacterSetting[] = Array.from(allCharNames).map((name) => {
+        const aiChar = aiCharacters.find((c) => c.name === name);
+        return {
+          id: crypto.randomUUID(),
+          name,
+          description: aiChar?.description || "",
+          isAIGenerated: false,
+          source: "auto" as const,
+        };
+      });
+      setCharacters(autoCharacters);
+
+      const aiSceneSettings: Array<{ name: string; description: string }> = data.sceneSettings || [];
+      const sceneNameSet = new Set<string>();
+      if (aiSceneSettings.length > 0) {
+        const autoScenes: SceneSetting[] = aiSceneSettings.map((s) => ({
+          id: crypto.randomUUID(),
+          name: s.name,
+          description: s.description || "",
+          isAIGenerated: false,
+          source: "auto" as const,
+        }));
+        setSceneSettings(autoScenes);
+      } else {
+        parsedScenes.forEach((s) => {
+          if (s.sceneName && s.sceneName.trim()) sceneNameSet.add(s.sceneName.trim());
         });
-        setCharacters(autoCharacters);
+        const autoScenes: SceneSetting[] = Array.from(sceneNameSet).map((name) => ({
+          id: crypto.randomUUID(),
+          name,
+          description: "",
+          isAIGenerated: false,
+          source: "auto" as const,
+        }));
+        setSceneSettings(autoScenes);
+      }
 
-        const aiSceneSettings: Array<{ name: string; description: string }> = data.sceneSettings || [];
-        const sceneNameSet = new Set<string>();
-        if (aiSceneSettings.length > 0) {
-          const autoScenes: SceneSetting[] = aiSceneSettings.map((s) => ({
-            id: crypto.randomUUID(),
-            name: s.name,
-            description: s.description || "",
-            isAIGenerated: false,
-            source: "auto" as const,
-          }));
-          setSceneSettings(autoScenes);
-        } else {
-          parsedScenes.forEach((s) => {
-            if (s.sceneName && s.sceneName.trim()) sceneNameSet.add(s.sceneName.trim());
-          });
-          const autoScenes: SceneSetting[] = Array.from(sceneNameSet).map((name) => ({
-            id: crypto.randomUUID(),
-            name,
-            description: "",
-            isAIGenerated: false,
-            source: "auto" as const,
-          }));
-          setSceneSettings(autoScenes);
-        }
+      // Update project title from first line of script
+      const firstLine = script.trim().split("\n")[0].slice(0, 30);
+      if (firstLine) {
+        setProjectTitle(firstLine);
+        autoSave({ title: firstLine });
+      }
 
-        // Update project title from first line of script
-        const firstLine = script.trim().split("\n")[0].slice(0, 30);
-        if (firstLine) {
-          setProjectTitle(firstLine);
-          autoSave({ title: firstLine });
-        }
-
-        toast({ title: "拆解完成", description: `成功拆解为 ${parsedScenes.length} 个分镜，识别 ${autoCharacters.length} 个角色` });
+      toast({ title: "拆解完成", description: `成功拆解为 ${parsedScenes.length} 个分镜，识别 ${autoCharacters.length} 个角色` });
         
         // Success - exit retry loop
         setIsAnalyzing(false);
@@ -338,20 +362,19 @@ const Workspace = () => {
         .filter((c) => scene.characters.includes(c.name))
         .map((c) => ({ name: c.name, description: c.description }));
 
-      // Compress character reference images before sending
-      const { compressImage } = await import("@/lib/image-compress");
-      const characterImagesRaw = characters
-        .filter((c) => scene.characters.includes(c.name) && c.imageUrl);
+      // Compress reference images client-side to reduce edge function payload & processing time
       const characterImages = await Promise.all(
-        characterImagesRaw.map(async (c) => ({
-          name: c.name,
-          imageUrl: await compressImage(c.imageUrl!, 10 * 1024 * 1024),
-        }))
+        characters
+          .filter((c) => scene.characters.includes(c.name) && c.imageUrl)
+          .map(async (c) => ({
+            name: c.name,
+            imageUrl: await compressImage(c.imageUrl!, 800 * 1024),
+          }))
       );
 
       const sceneSetting = sceneSettings.find((ss) => ss.name === scene.sceneName?.trim());
       const sceneImageUrl = sceneSetting?.imageUrl
-        ? await compressImage(sceneSetting.imageUrl, 10 * 1024 * 1024)
+        ? await compressImage(sceneSetting.imageUrl, 800 * 1024)
         : undefined;
 
       // Gather neighboring scenes in the same scene group for spatial continuity
@@ -360,15 +383,16 @@ const Workspace = () => {
       const prevScene = sceneIdx > 0 ? sameSceneGroup[sceneIdx - 1] : undefined;
       const nextScene = sceneIdx < sameSceneGroup.length - 1 ? sameSceneGroup[sceneIdx + 1] : undefined;
 
-      // Compress previous storyboard image for visual continuity
+      // Compress previous storyboard for continuity reference
       const prevStoryboardUrl = prevScene?.storyboardUrl
-        ? await compressImage(prevScene.storyboardUrl, 5 * 1024 * 1024)
+        ? await compressImage(prevScene.storyboardUrl, 800 * 1024)
         : undefined;
 
       const neighborContext = {
         prevDescription: prevScene?.description || "",
         prevDialogue: prevScene?.dialogue || "",
         prevCamera: prevScene?.cameraDirection || "",
+        prevCharacters: prevScene?.characters || [],
         nextDescription: nextScene?.description || "",
         nextDialogue: nextScene?.dialogue || "",
         totalShotsInScene: sameSceneGroup.length,
@@ -376,10 +400,19 @@ const Workspace = () => {
       };
 
       const abortController = new AbortController();
-      timeoutId = setTimeout(() => abortController.abort(), 240_000);
+      timeoutId = setTimeout(() => abortController.abort(), 300_000);
 
-      const { data, error } = await supabase.functions.invoke("generate-storyboard", {
-        body: {
+      // Use direct fetch with streaming to handle long-running generation
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const response = await fetch(`${supabaseUrl}/functions/v1/generate-storyboard`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${supabaseKey}`,
+          "apikey": supabaseKey,
+        },
+        body: JSON.stringify({
           description: scene.description,
           characters: scene.characters,
           characterDescriptions: charDescs,
@@ -396,12 +429,24 @@ const Workspace = () => {
           model,
           scriptExcerpt: script?.slice(0, 2000) || "",
           neighborContext,
-        },
+        }),
         signal: abortController.signal,
       });
       clearTimeout(timeoutId);
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errText = await response.text();
+        let errMsg = `分镜图生成失败 (${response.status})`;
+        try { errMsg = JSON.parse(errText.trim().split("\n").pop()!).error || errMsg; } catch {}
+        throw new Error(errMsg);
+      }
+
+      // Read streaming response: last non-empty line is the JSON result
+      const text = await response.text();
+      const lines = text.trim().split("\n").filter((l) => l.trim());
+      const lastLine = lines[lines.length - 1];
+      const data = JSON.parse(lastLine);
+
       if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)));
       if (!data?.imageUrl) throw new Error("API 返回数据中缺少 imageUrl");
 
