@@ -199,13 +199,14 @@ IMPORTANT REQUIREMENTS:
 Scene: "${sceneName || "Unknown"}"
 Shot description: ${firstFrameDesc}
 Characters present: ${charList || "None specified"}
-${charDescList ? `\nCharacter appearance (MUST follow strictly for visual consistency):\n${charDescList}` : ""}
+${charDescList ? `\nCharacter appearance (ABSOLUTE REQUIREMENT — every detail must match exactly):\n${charDescList}` : ""}
 Camera: ${cameraDirection || "Medium shot"}
 ${dialogue ? `Dialogue in this shot: ${dialogue}` : ""}
 Scene environment: ${sceneDescription || sceneName || "Not specified"}
 
-=== ART STYLE ===
+=== ART STYLE (MANDATORY — APPLIES TO ENTIRE IMAGE) ===
 ${styleDesc}
+IMPORTANT: Every element in the image (characters, environment, lighting, textures) MUST be rendered in this EXACT art style. Do NOT default to photorealism unless "live-action" is specified. Do NOT mix styles.
 ${narrativeContext}
 === CRITICAL REQUIREMENTS ===
 1. NARRATIVE EXPANSION: Based on the shot description and script context, enrich the visual details — add appropriate environmental elements, lighting mood, character micro-expressions and body language that match the narrative tone. Do NOT invent content that contradicts the script.
@@ -266,28 +267,53 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME 
 
     // Build multimodal parts: text prompt + reference images
     const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
-    parts.push({ text: prompt });
+      parts.push({ text: prompt });
 
     // Add scene reference image if available (supports both data URLs and storage URLs)
     if (sceneImageUrl && typeof sceneImageUrl === "string") {
       const inlineData = await getInlineData(sceneImageUrl);
       if (inlineData) {
         parts.push({ inlineData });
-        parts.push({ text: `Above is a WIDE ESTABLISHING SHOT of this scene's environment — use it ONLY as a reference for the environment style, color palette, architecture, props, and lighting atmosphere. Do NOT replicate the same wide/panoramic framing. Instead, compose this frame according to the camera direction specified: "${cameraDirection || "Medium shot"}". Adjust the shot scale (close-up, medium, wide, etc.) to match the described action and emotion.` });
+        parts.push({ text: `[SCENE ENVIRONMENT REFERENCE IMAGE]
+Above is a WIDE ESTABLISHING SHOT of this scene's environment — use it ONLY as a reference for the environment style, color palette, architecture, props, and lighting atmosphere. Do NOT replicate the same wide/panoramic framing. Instead, compose this frame according to the camera direction specified: "${cameraDirection || "Medium shot"}". Adjust the shot scale (close-up, medium, wide, etc.) to match the described action and emotion.` });
       }
     }
 
-    // Add character reference images if available
+    // Add character reference images if available — with STRONG consistency instructions
+    let charRefCount = 0;
     if (Array.isArray(characterImages)) {
       for (const charImg of characterImages) {
         if (charImg.imageUrl && typeof charImg.imageUrl === "string") {
           const inlineData = await getInlineData(charImg.imageUrl);
           if (inlineData) {
+            charRefCount++;
             parts.push({ inlineData });
-            parts.push({ text: `Above is the reference sheet for character "${charImg.name}". Keep this character's appearance consistent.` });
+            // Find matching character description for reinforcement
+            const charDescEntry = (characterDescriptions || []).find(
+              (c: { name: string; description: string }) => c.name === charImg.name
+            );
+            const descReinforcement = charDescEntry
+              ? `\nCharacter description reminder: ${charDescEntry.description}`
+              : "";
+            parts.push({ text: `[CHARACTER REFERENCE IMAGE — ${charImg.name}] (CRITICAL — MUST MATCH EXACTLY)
+Above is the DEFINITIVE visual reference for character "${charImg.name}". You MUST reproduce this character's appearance with PIXEL-LEVEL fidelity:
+- FACE: Exact same facial structure, eye shape, eye color, nose shape, lip shape, skin tone, facial hair (if any). The face must be RECOGNIZABLE as the same person/character.
+- HAIR: Exact same hairstyle, hair color, hair length, hair texture. No changes whatsoever.
+- CLOTHING & ACCESSORIES: Exact same outfit, colors, patterns, jewelry, weapons, props. Do NOT change, simplify, or reinterpret any clothing details.
+- BODY TYPE: Same proportions, height, build.
+- ART STYLE: The character in the storyboard must be rendered in the SAME art style as the reference image AND the specified art style "${styleDesc.split('.')[0]}". Do NOT switch to a different rendering style.${descReinforcement}
+If there is ANY conflict between text description and this reference image, the REFERENCE IMAGE TAKES PRIORITY.` });
           }
         }
       }
+    }
+
+    // Add a consolidated art style enforcement block after all character refs
+    if (charRefCount > 0) {
+      parts.push({ text: `[ART STYLE ENFORCEMENT — MANDATORY]
+ALL characters and environments in this storyboard frame MUST be rendered in the following art style: ${styleDesc}
+Do NOT mix art styles. Do NOT default to photorealistic if the style specifies cartoon/anime/CG. The art style must be UNIFORM across the entire image — characters and background alike.
+The characters shown in the reference images above define their appearance (face, hair, clothing, body). Render them faithfully but IN THE SPECIFIED ART STYLE.` });
     }
 
     // Add previous storyboard image for visual continuity within the same scene
@@ -295,7 +321,12 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME 
       const inlineData = await getInlineData(prevStoryboardUrl);
       if (inlineData) {
         parts.push({ inlineData });
-        parts.push({ text: "Above is the PREVIOUS SHOT's storyboard frame in the same scene. Maintain visual continuity: keep consistent character positions, background layout, lighting, and spatial relationships. This shot should feel like the natural next frame in the sequence." });
+        parts.push({ text: `[PREVIOUS SHOT REFERENCE — VISUAL CONTINUITY]
+Above is the PREVIOUS SHOT's storyboard frame in the same scene. Maintain visual continuity:
+- Character appearances must remain IDENTICAL to both the character reference images AND this previous frame
+- Keep consistent background layout, lighting direction, color temperature, and spatial relationships
+- The art style must remain exactly the same as the previous frame
+- This shot should feel like the natural next frame in the sequence` });
       }
     }
 
@@ -325,7 +356,7 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME 
         for (const charImg of characterImages) {
           if (charImg.imageUrl && typeof charImg.imageUrl === "string" && !charImg.imageUrl.startsWith("data:")) {
             refImages.push(charImg.imageUrl);
-            imageDescriptions += `\n图${refImages.length} 是角色「${charImg.name}」的设计参考图，请保持该角色外观一致。`;
+            imageDescriptions += `\n图${refImages.length} 是角色「${charImg.name}」的外观设计参考图（必须严格匹配）：面部特征、发型发色、服装配饰、体型比例必须与参考图完全一致，不得修改或简化任何细节。`;
           }
         }
       }
