@@ -307,6 +307,7 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME 
 
     if (isSeedream) {
       // Seedream uses OpenAI Images API format: POST /v1/images/generations/
+      // Supports multi-image fusion via "image" array parameter
       const jimengKey = Deno.env.get("JIMENG_API_KEY");
       if (!jimengKey) {
         return new Response(
@@ -315,15 +316,49 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME 
         );
       }
 
-      // Seedream only supports text prompt (no multimodal), so use the assembled prompt text
-      const seedreamPayload = {
+      // Collect reference image URLs for multi-image fusion
+      const refImages: string[] = [];
+      let imageDescriptions = "";
+
+      // Add character reference images
+      if (Array.isArray(characterImages)) {
+        for (const charImg of characterImages) {
+          if (charImg.imageUrl && typeof charImg.imageUrl === "string" && !charImg.imageUrl.startsWith("data:")) {
+            refImages.push(charImg.imageUrl);
+            imageDescriptions += `\n图${refImages.length} 是角色「${charImg.name}」的设计参考图，请保持该角色外观一致。`;
+          }
+        }
+      }
+
+      // Add scene reference image
+      if (sceneImageUrl && typeof sceneImageUrl === "string" && !sceneImageUrl.startsWith("data:")) {
+        refImages.push(sceneImageUrl);
+        imageDescriptions += `\n图${refImages.length} 是场景环境参考图，请保持环境风格一致。`;
+      }
+
+      // Add previous storyboard for continuity
+      if (prevStoryboardUrl && typeof prevStoryboardUrl === "string" && !prevStoryboardUrl.startsWith("data:")) {
+        refImages.push(prevStoryboardUrl);
+        imageDescriptions += `\n图${refImages.length} 是上一个镜头的分镜图，请保持视觉连续性。`;
+      }
+
+      const fullPrompt = refImages.length > 0
+        ? `${prompt}\n\n参考图说明：${imageDescriptions}`
+        : prompt;
+
+      const seedreamPayload: Record<string, unknown> = {
         model: selectedModel,
-        prompt: prompt,
+        prompt: fullPrompt,
         size: "2K",
         watermark: false,
       };
 
-      console.log("Calling Seedream API via /v1/images/generations/, model:", selectedModel);
+      if (refImages.length > 0) {
+        seedreamPayload.image = refImages;
+        seedreamPayload.sequential_image_generation = "disabled";
+      }
+
+      console.log("Calling Seedream API via /v1/images/generations/, model:", selectedModel, "ref images:", refImages.length);
 
       const seedreamResp = await fetch(`${ZHANHU_BASE_URL.replace("/v1beta", "")}/v1/images/generations/`, {
         method: "POST",
