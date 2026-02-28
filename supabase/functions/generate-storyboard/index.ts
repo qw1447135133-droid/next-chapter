@@ -415,6 +415,20 @@ Maintain environment consistency (lighting, architecture, props) based on the sc
       }
     }
 
+    // ★ DOUBLE ANCHOR: Re-send protagonist reference image as the VERY LAST part
+    // Models weight later inputs more heavily — this ensures the protagonist's face
+    // is the freshest visual reference right before generation
+    if (curProtagonistName && Array.isArray(characterImages)) {
+      const protagonistImg = characterImages.find((c: any) => c.name === curProtagonistName);
+      if (protagonistImg?.imageUrl) {
+        const anchorData = await getInlineData(protagonistImg.imageUrl);
+        if (anchorData) {
+          parts.push({ inlineData: anchorData });
+          parts.push({ text: `[★ FINAL ANCHOR — ${curProtagonistName} ★]\nThis is the SAME reference image shown earlier. FINAL REMINDER before you generate:\nThe protagonist "${curProtagonistName}" in your output MUST have THIS EXACT face, hair, and clothing. If the person in your generated image does not look like THIS photo, regenerate until they match.` });
+        }
+      }
+    }
+
     const selectedModel = model || "gemini-3-pro-image-preview";
     const isSeedream = selectedModel.startsWith("doubao-seedream");
 

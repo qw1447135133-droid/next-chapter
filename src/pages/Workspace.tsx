@@ -368,7 +368,8 @@ const Workspace = () => {
           .filter((c) => scene.characters.includes(c.name) && c.imageUrl)
           .map(async (c) => ({
             name: c.name,
-            imageUrl: await compressImage(c.imageUrl!, 800 * 1024),
+            // Higher quality for character refs (1536px, 1.2MB) to preserve facial details
+            imageUrl: await compressImage(c.imageUrl!, 1200 * 1024, { maxDim: 1536 }),
           }))
       );
 
