@@ -302,76 +302,114 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME 
     const selectedModel = model || "gemini-3-pro-image-preview";
     const isSeedream = selectedModel.startsWith("doubao-seedream");
 
-    const apiKey = isSeedream ? (Deno.env.get("JIMENG_API_KEY") || ZHANHU_API_KEY) : ZHANHU_API_KEY;
-    const groupParam = isSeedream ? "&group=jimeng-6" : "";
-    const apiUrl = `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent?key=${apiKey}${groupParam}`;
-
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts }],
-        generationConfig: { responseModalities: ["IMAGE", "TEXT"], imageSize: "2K" },
-      }),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("ZhanHu API error:", response.status, errText);
-      return new Response(
-        JSON.stringify({ error: `AI 分镜图生成失败 (${response.status})` }),
-        { status: response.status >= 400 && response.status < 500 ? response.status : 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const data = await response.json();
-
     let imageBase64 = "";
     let mimeType = "image/png";
-    let externalImageUrl = "";
-    const responseParts = data.candidates?.[0]?.content?.parts;
-    if (responseParts) {
-      for (const part of responseParts) {
-        if (part.inlineData) {
-          mimeType = part.inlineData.mimeType || "image/png";
-          imageBase64 = part.inlineData.data;
-          break;
-        }
-        // Seedream returns image as markdown URL: ![None](https://...)
-        if (part.text) {
-          const mdMatch = part.text.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/);
-          if (mdMatch) {
-            externalImageUrl = mdMatch[1];
-          }
-        }
-      }
-    }
 
-    // If we got an external URL (Seedream), download and convert to base64
-    if (!imageBase64 && externalImageUrl) {
-      console.log("Downloading Seedream image from URL:", externalImageUrl.slice(0, 100));
-      try {
-        const imgResp = await fetch(externalImageUrl);
+    if (isSeedream) {
+      // Seedream uses OpenAI Images API format: POST /v1/images/generations/
+      const jimengKey = Deno.env.get("JIMENG_API_KEY");
+      if (!jimengKey) {
+        return new Response(
+          JSON.stringify({ error: "JIMENG_API_KEY 未配置" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Seedream only supports text prompt (no multimodal), so use the assembled prompt text
+      const seedreamPayload = {
+        model: selectedModel,
+        prompt: prompt,
+        size: "2K",
+        watermark: false,
+      };
+
+      console.log("Calling Seedream API via /v1/images/generations/, model:", selectedModel);
+
+      const seedreamResp = await fetch(`${ZHANHU_BASE_URL.replace("/v1beta", "")}/v1/images/generations/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${jimengKey}`,
+        },
+        body: JSON.stringify(seedreamPayload),
+      });
+
+      if (!seedreamResp.ok) {
+        const errText = await seedreamResp.text();
+        console.error("Seedream API error:", seedreamResp.status, errText);
+        return new Response(
+          JSON.stringify({ error: `Seedream 生成失败 (${seedreamResp.status})` }),
+          { status: seedreamResp.status >= 400 && seedreamResp.status < 500 ? seedreamResp.status : 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const seedreamData = await seedreamResp.json();
+      console.log("Seedream response keys:", Object.keys(seedreamData));
+
+      // OpenAI Images API response: { data: [{ url: "...", b64_json: "..." }] }
+      const imgItem = seedreamData.data?.[0];
+      if (imgItem?.b64_json) {
+        imageBase64 = imgItem.b64_json;
+        mimeType = "image/png";
+      } else if (imgItem?.url) {
+        // Download image from URL
+        console.log("Downloading Seedream image from URL:", imgItem.url.slice(0, 100));
+        const imgResp = await fetch(imgItem.url);
         if (!imgResp.ok) {
-          throw new Error(`Image download failed: ${imgResp.status}`);
+          return new Response(
+            JSON.stringify({ error: "Seedream 图片下载失败" }),
+            { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
         }
         const imgBuffer = await imgResp.arrayBuffer();
         const imgBytes = new Uint8Array(imgBuffer);
-        // Convert to base64
         let binary = "";
-        for (let i = 0; i < imgBytes.length; i++) {
-          binary += String.fromCharCode(imgBytes[i]);
+        const chunkSize = 8192;
+        for (let i = 0; i < imgBytes.length; i += chunkSize) {
+          binary += String.fromCharCode(...imgBytes.subarray(i, i + chunkSize));
         }
         imageBase64 = btoa(binary);
         const contentType = imgResp.headers.get("content-type") || "";
         mimeType = contentType.includes("png") ? "image/png" : "image/jpeg";
-        console.log(`Seedream image downloaded: ${imgBytes.length} bytes, type: ${mimeType}`);
-      } catch (dlErr) {
-        console.error("Failed to download Seedream image:", dlErr);
+      } else {
+        console.error("Seedream: no image in response:", JSON.stringify(seedreamData).slice(0, 500));
         return new Response(
-          JSON.stringify({ error: "Seedream 图片下载失败" }),
+          JSON.stringify({ error: "Seedream 未返回图片" }),
           { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
+      }
+    } else {
+      // Gemini models: use generateContent API
+      const apiUrl = `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent?key=${ZHANHU_API_KEY}`;
+
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts }],
+          generationConfig: { responseModalities: ["IMAGE", "TEXT"], imageSize: "2K" },
+        }),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        console.error("ZhanHu API error:", response.status, errText);
+        return new Response(
+          JSON.stringify({ error: `AI 分镜图生成失败 (${response.status})` }),
+          { status: response.status >= 400 && response.status < 500 ? response.status : 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const data = await response.json();
+      const responseParts = data.candidates?.[0]?.content?.parts;
+      if (responseParts) {
+        for (const part of responseParts) {
+          if (part.inlineData) {
+            mimeType = part.inlineData.mimeType || "image/png";
+            imageBase64 = part.inlineData.data;
+            break;
+          }
+        }
       }
     }
 
