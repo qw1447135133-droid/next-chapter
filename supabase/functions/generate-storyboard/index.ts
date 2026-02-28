@@ -349,8 +349,35 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "7" : "6"}. Depict EXACTLY
     if (prevStoryboardUrl && typeof prevStoryboardUrl === "string") {
       const inlineData = await getInlineData(prevStoryboardUrl);
       if (inlineData) {
+        // Determine which characters were in the previous vs current shot
+        const prevChars: string[] = neighborContext?.prevCharacters || [];
+        // Fallback: if prevCharacters not provided, try matching from description
+        const effectivePrevChars = prevChars.length > 0 ? prevChars
+          : (neighborContext?.prevDescription ? (characters || []).filter((c: string) => neighborContext.prevDescription.includes(c)) : []);
+        const curChars = characters || [];
+        const sharedChars = curChars.filter((c: string) => effectivePrevChars.includes(c));
+        const newChars = curChars.filter((c: string) => !effectivePrevChars.includes(c));
+
+        let continuityInstruction = `[PREVIOUS SHOT — ENVIRONMENT & SPATIAL CONTINUITY ONLY]
+Above is the PREVIOUS shot in the same scene. Use it ONLY for:
+• Background / environment layout, props, architecture — keep them CONSISTENT
+• Lighting direction, color temperature, time of day — keep them CONSISTENT
+• Overall atmosphere and color palette — keep them CONSISTENT
+
+⚠️ CRITICAL — CHARACTER IDENTITY RULES FOR THIS TRANSITION:`;
+
+        if (sharedChars.length > 0) {
+          continuityInstruction += `\n• Characters appearing in BOTH shots (${sharedChars.join("、")}): maintain their EXACT position continuity and appearance from the previous shot AND their character reference images.`;
+        }
+        if (newChars.length > 0) {
+          continuityInstruction += `\n• Characters NEW in this shot (${newChars.join("、")}): DO NOT copy any character appearance from the previous shot image. Their appearance MUST come EXCLUSIVELY from their own CHARACTER REFERENCE IMAGES above. They are DIFFERENT people.`;
+        }
+        if (effectivePrevChars.length > 0 && newChars.length > 0) {
+          continuityInstruction += `\n• The previous shot featured ${effectivePrevChars.join("、")} — the current shot features ${curChars.join("、")}. These may be ENTIRELY DIFFERENT characters. Do NOT transfer facial features, hair, or clothing between different characters.`;
+        }
+
         parts.push({ inlineData });
-        parts.push({ text: `[PREVIOUS SHOT — VISUAL CONTINUITY]\nMaintain identical character appearances, consistent background, lighting, and art style.` });
+        parts.push({ text: continuityInstruction });
       }
     }
 
@@ -381,7 +408,16 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "7" : "6"}. Depict EXACTLY
       }
       if (prevStoryboardUrl && typeof prevStoryboardUrl === "string" && !prevStoryboardUrl.startsWith("data:")) {
         refImages.push(prevStoryboardUrl);
-        imageDescriptions += `\n图${refImages.length} 是上一个镜头的分镜图，请保持视觉连续性。`;
+        const sPrevChars: string[] = neighborContext?.prevCharacters || [];
+        const sEffectivePrevChars = sPrevChars.length > 0 ? sPrevChars
+          : (neighborContext?.prevDescription ? (characters || []).filter((c: string) => neighborContext.prevDescription.includes(c)) : []);
+        const sCurChars = characters || [];
+        const sNewChars = sCurChars.filter((c: string) => !sEffectivePrevChars.includes(c));
+        let seedreamContinuity = `\n图${refImages.length} 是上一个镜头的分镜图，仅用于保持背景环境、灯光、氛围的连续性。`;
+        if (sNewChars.length > 0) {
+          seedreamContinuity += `当前镜头的角色（${sNewChars.join("、")}）与上一镜头不同，请勿从上一镜头图片中复制任何角色外观，角色外观必须严格参照各自的设定参考图。`;
+        }
+        imageDescriptions += seedreamContinuity;
       }
 
       const fullPrompt = refImages.length > 0 ? `${prompt}\n\n参考图说明：${imageDescriptions}` : prompt;

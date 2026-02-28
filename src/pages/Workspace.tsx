@@ -336,6 +336,7 @@ const Workspace = () => {
         prevDescription: prevScene?.description || "",
         prevDialogue: prevScene?.dialogue || "",
         prevCamera: prevScene?.cameraDirection || "",
+        prevCharacters: prevScene?.characters || [],
         nextDescription: nextScene?.description || "",
         nextDialogue: nextScene?.dialogue || "",
         totalShotsInScene: sameSceneGroup.length,
