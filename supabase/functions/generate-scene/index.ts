@@ -77,7 +77,7 @@ This is a wide establishing shot showing the full environment. Focus on atmosphe
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${jimengKey}` },
           signal: controller.signal,
-          body: JSON.stringify({ model: selectedModel, prompt, size: "4K", watermark: false }),
+          body: JSON.stringify({ model: selectedModel, prompt, size: "1920x1080", watermark: false }),
         });
         clearTimeout(timeout);
 
