@@ -90,7 +90,24 @@ function rewriteToFirstFrame(desc: string): string {
     .replace(/射中/g, "射向")
     .replace(/撞上/g, "冲向")
     .replace(/砸中/g, "砸向")
-    .replace(/劈中/g, "朝其劈去");
+    .replace(/劈中/g, "朝其劈去")
+    // More action → anticipation rewrites
+    .replace(/一拳砸在/g, "举拳准备砸向")
+    .replace(/一拳打在/g, "举拳准备打向")
+    .replace(/一拳击在/g, "举拳准备击向")
+    .replace(/踹开/g, "准备踹向")
+    .replace(/踢中/g, "踢向")
+    .replace(/摔在/g, "即将摔向")
+    .replace(/重重摔/g, "即将摔")
+    .replace(/按在.*?地面/g, "按向地面")
+    .replace(/反复捶打/g, "举拳准备捶打")
+    .replace(/拖向/g, "准备拖向")
+    .replace(/架住/g, "准备架住")
+    .replace(/将其/g, "准备将其")
+    .replace(/渗出鲜血/g, "")
+    .replace(/嘴角渗出/g, "")
+    .replace(/痛苦地倒地/g, "即将倒地")
+    .replace(/倒地咳嗽/g, "即将倒地");
 
   // 4. Clean up: remove trailing dangling character references and punctuation
   cleaned = cleaned.replace(/[，,、]+\s*(\[[^\]]*\])\s*$/, "").replace(/[，,、。]+$/, "").replace(/\s+/g, " ").trim();
@@ -224,7 +241,18 @@ IMPORTANT REQUIREMENTS:
       console.log("Original description:", description);
       console.log("First-frame rewrite:", firstFrameDesc);
 
-      prompt = `You are a professional cinematic storyboard artist. Create a single storyboard frame for the shot described below. Your goal is to produce a frame that feels like a natural part of a continuous film sequence — visually coherent with previous and subsequent shots.
+      prompt = `You are a professional cinematic storyboard artist creating a VIDEO FIRST-FRAME — the frozen T=0 image before playback starts.
+
+⚠️ **FIRST-FRAME PRINCIPLE — THE SINGLE MOST IMPORTANT RULE** ⚠️
+This image will be used as the STARTING FRAME of a video clip. It is NOT a storyboard illustration — it is a REAL FIRST FRAME at time T=0.
+- Depict the moment JUST BEFORE the first action begins. Characters are in ANTICIPATION POSES — tensed, ready, but NOT yet moving.
+- ABSOLUTELY NO: motion blur, mid-swing limbs, mid-air objects, impact deformation, splash effects, falling bodies, or any sign of movement already in progress.
+- Think of it as pressing PAUSE at the very start of a scene: everything is STILL, FROZEN, STATIC.
+- Characters should look like they are ABOUT TO act, not already acting.
+- Example: "A punches B" → show A with fist raised, tensed, ABOUT TO swing — NOT the punch landing.
+- Example: "A falls to the ground" → show A losing balance, ABOUT TO fall — NOT already on the ground.
+- Example: "A drags B" → show A gripping B, ABOUT TO pull — NOT mid-drag.
+- If the description says "X is already on the ground" or a completed state, show the moment JUST BEFORE that state.
 
 === CURRENT SHOT ===
 Scene: "${sceneName || "Unknown"}"
@@ -240,8 +268,9 @@ ${styleDesc}
 IMPORTANT: Every element in the image (characters, environment, lighting, textures) MUST be rendered in this EXACT art style. Do NOT default to photorealism unless "live-action" is specified. Do NOT mix styles.
 ${narrativeContext}
 === CRITICAL REQUIREMENTS ===
-1. NARRATIVE EXPANSION: Based on the shot description and script context, enrich the visual details — add appropriate environmental elements, lighting mood, character micro-expressions and body language that match the narrative tone. Do NOT invent content that contradicts the script.
-2. SPATIAL CONSISTENCY: If previous/next shot context is provided, maintain consistent:
+1. **FIRST-FRAME STATIC POSE (REITERATED — #1 PRIORITY):** Every character and object must be COMPLETELY STILL. No motion blur. No mid-action poses. Anticipation only. This is a FROZEN MOMENT before action begins.
+2. NARRATIVE EXPANSION: Based on the shot description and script context, enrich the visual details — add appropriate environmental elements, lighting mood, character micro-expressions and body language that match the narrative tone. Do NOT invent content that contradicts the script.
+3. SPATIAL CONSISTENCY: If previous/next shot context is provided, maintain consistent:
    - Character positions and facing directions
    - Background elements and environment layout
    - Lighting direction and color temperature
@@ -251,7 +280,7 @@ ${narrativeContext}
    - CHANGE the framing (e.g., center-framed → rule-of-thirds left → negative space right → foreground framing)
    - NEVER produce two adjacent shots with the same angle + distance + framing combination
    - If the previous shot is provided, analyze its composition and DELIBERATELY choose a contrasting one
-3. **CHARACTER CONSISTENCY IS THE #1 ABSOLUTE TOP PRIORITY — ZERO TOLERANCE FOR DEVIATION:**
+4. **CHARACTER CONSISTENCY — ZERO TOLERANCE FOR DEVIATION:**
    Every character MUST be an EXACT visual clone of their reference image. Follow these hard constraints:
    - **FACE**: Reproduce the EXACT same facial structure, eye shape, eye color, nose shape, lip shape, jawline, skin tone, scars, and facial hair from the reference image. The face must be RECOGNIZABLY THE SAME PERSON.
    - **HAIR**: EXACT same hairstyle, hair color, hair length, and hair texture. No changes allowed.
@@ -259,9 +288,9 @@ ${narrativeContext}
    - **BODY**: Same build, height proportion, and posture tendencies.
    - **RULE**: If a reference image is provided, it is the GROUND TRUTH. Text description is secondary. When in doubt, copy the reference image.
    - **ANTI-HALLUCINATION**: Do NOT invent new clothing, change hair color, add/remove accessories, or alter facial features. Every detail must trace back to the reference.
-4. If a scene environment reference image is provided below, maintain the same environment style, layout, and atmosphere.
-5. ${aspectRatio || "16:9"} cinematic composition, professional storyboard quality, cinematic lighting. The image MUST be in ${aspectRatio || "16:9"} aspect ratio.${(aspectRatio === "9:16" || aspectRatio === "2:3") ? `
-6. **PORTRAIT / VERTICAL FRAME COMPOSITION (9:16 / 2:3 — CHARACTER-RELATIONSHIP-FIRST PHILOSOPHY):**
+5. If a scene environment reference image is provided below, maintain the same environment style, layout, and atmosphere.
+6. ${aspectRatio || "16:9"} cinematic composition, professional storyboard quality, cinematic lighting. The image MUST be in ${aspectRatio || "16:9"} aspect ratio.${(aspectRatio === "9:16" || aspectRatio === "2:3") ? `
+7. **PORTRAIT / VERTICAL FRAME COMPOSITION (9:16 / 2:3 — CHARACTER-RELATIONSHIP-FIRST PHILOSOPHY):**
    **CORE PRINCIPLE: The vertical frame is a CHARACTER INTIMACY tool, NOT a landscape tool.**
    - MOST PREFERRED: Two-shot close-ups capturing both characters' faces/expressions
    - Use SHALLOW depth of field aggressively: background should be soft bokeh
@@ -270,14 +299,8 @@ ${narrativeContext}
    - Stack character eyelines at different heights to create power dynamics
    - Prefer dramatic side-lighting that sculpts facial features` : ""}
 
-${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "7" : "6"}. Ultra high resolution.
-${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "8" : "7"}. Depict EXACTLY this single shot as described — show the specific action, character positions, and emotion.
-${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME PRINCIPLE (HIGHEST PRIORITY):**
-   This image represents the VERY FIRST FRAME of a video clip — the frame shown at time T=0 before any playback begins.
-   - REWIND to the moment JUST BEFORE the FIRST action verb begins. That frozen instant is what you must depict.
-   - Characters must be completely static, in anticipation poses — NO motion blur, NO mid-swing limbs.
-   - NEVER depict: motion blur, impact moments, deformation, gore, mid-air objects, falling bodies.
-   - If in doubt, choose the EARLIER, more static moment.`;
+${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "8" : "7"}. Ultra high resolution.
+${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. Depict EXACTLY this single shot as described — show the specific action anticipation, character positions, and emotion.`;
     }
 
     // Build multimodal parts: text prompt + reference images
