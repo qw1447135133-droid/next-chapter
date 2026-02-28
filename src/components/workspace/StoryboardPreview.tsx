@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Scene, CharacterSetting } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -65,6 +65,17 @@ const StoryboardPreview = ({
     try { localStorage.setItem("storyboard-model", v); } catch {}
   };
   const [modelOpen, setModelOpen] = useState(false);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setModelOpen(false);
+      }
+    };
+    if (modelOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [modelOpen]);
 
   const isAnyGenerating = (generatingScenes?.size ?? 0) > 0;
   const currentModel = STORYBOARD_MODEL_OPTIONS.find((o) => o.value === storyboardModel)!;
@@ -97,30 +108,34 @@ const StoryboardPreview = ({
             <h2 className="text-xl font-semibold font-[Space_Grotesk] mb-1">分镜图生成</h2>
             <p className="text-sm text-muted-foreground">为每个分镜生成对应的画面图像</p>
           </div>
-          {/* Model Selector */}
-          <Popover open={modelOpen} onOpenChange={setModelOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1.5 h-9 text-xs" disabled={isAnyGenerating}>
-                {currentModel.label}
-                <ChevronDown className="h-3 w-3 opacity-50" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-48 p-1" align="start">
-              {STORYBOARD_MODEL_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-sm text-xs transition-colors ${
-                    storyboardModel === opt.value
-                      ? "bg-primary/10 text-primary font-medium"
-                      : "hover:bg-muted text-foreground"
-                  }`}
-                  onClick={() => { setStoryboardModel(opt.value); setModelOpen(false); }}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </PopoverContent>
-          </Popover>
+          {/* Model Selector — pill style matching VideoGeneration */}
+          <div className="relative" ref={modelDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setModelOpen((v) => !v)}
+              disabled={isAnyGenerating}
+              className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+            >
+              {currentModel.label}
+              <ChevronDown className={`h-3 w-3 transition-transform ${modelOpen ? "rotate-180" : ""}`} />
+            </button>
+            {modelOpen && (
+              <div className="absolute left-0 top-full mt-1 z-50 min-w-[160px] rounded-lg border border-border bg-popover shadow-lg py-1">
+                {STORYBOARD_MODEL_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { setStoryboardModel(opt.value); setModelOpen(false); }}
+                    className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent ${
+                      opt.value === storyboardModel ? "text-primary font-semibold" : "text-popover-foreground"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
         <div className="flex gap-2 items-center">
           <Popover open={arOpen} onOpenChange={setArOpen}>
