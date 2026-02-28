@@ -712,28 +712,7 @@ const Workspace = () => {
     });
     const release = () => { running--; if (queue.length > 0) queue.shift()!(); };
 
-    const processScene = async (sceneId: string) => {
-      if (stopVideoGenRef.current) return;
-      await acquire();
-      if (stopVideoGenRef.current) { release(); return; }
-
-      let succeeded = false;
-      const maxRetries = 2;
-      for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        if (stopVideoGenRef.current) break;
-        try {
-          await generateVideoForScene(sceneId);
-          succeeded = true;
-          break;
-        } catch {
-          if (attempt < maxRetries) {
-            console.log(`Retrying video for scene ${sceneId}, attempt ${attempt + 2}`);
-          }
-        }
-      }
-      if (succeeded) successCountRef.current++; else failCountRef.current++;
-      release();
-    };
+    const failedVideoIds = new Set<string>();
 
     // Process one scene group STRICTLY sequentially (same scene → shots in order)
     const processGroup = async (groupScenes: typeof scenes) => {
@@ -756,17 +735,9 @@ const Workspace = () => {
             }
           }
         }
-        if (succeeded) successCountRef.current++; else failCountRef.current++;
+        if (succeeded) successCountRef.current++; else { failCountRef.current++; failedVideoIds.add(scene.id); }
         release();
       }
-    };
-
-    const failedVideoIds = new Set<string>();
-    const processSceneTracked = async (sceneId: string) => {
-      await processScene(sceneId);
-      // Check if it actually succeeded (has videoStatus set to something active)
-      const s = scenes.find((sc) => sc.id === sceneId);
-      if (s && !s.videoUrl && !s.videoTaskId) failedVideoIds.add(sceneId);
     };
 
     // Launch all scene groups in parallel (cross-group concurrency via semaphore)
