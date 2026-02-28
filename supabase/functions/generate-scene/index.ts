@@ -24,9 +24,9 @@ serve(async (req) => {
       });
     }
 
-    const ZHANHU_API_KEY = Deno.env.get("ZHANHU_API_KEY");
+    const ZHANHU_API_KEY = Deno.env.get("Gemini");
     if (!ZHANHU_API_KEY) {
-      return new Response(JSON.stringify({ error: "ZHANHU_API_KEY 未配置" }), {
+      return new Response(JSON.stringify({ error: "Gemini API Key 未配置" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
