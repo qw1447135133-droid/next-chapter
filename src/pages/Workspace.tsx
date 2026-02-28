@@ -305,21 +305,13 @@ const Workspace = () => {
         .filter((c) => scene.characters.includes(c.name))
         .map((c) => ({ name: c.name, description: c.description }));
 
-      // Compress character reference images before sending
-      const { compressImage } = await import("@/lib/image-compress");
-      const characterImagesRaw = characters
-        .filter((c) => scene.characters.includes(c.name) && c.imageUrl);
-      const characterImages = await Promise.all(
-        characterImagesRaw.map(async (c) => ({
-          name: c.name,
-          imageUrl: await compressImage(c.imageUrl!, 1 * 1024 * 1024),
-        }))
-      );
+      // Send storage URLs directly — edge function fetches images server-side
+      const characterImages = characters
+        .filter((c) => scene.characters.includes(c.name) && c.imageUrl)
+        .map((c) => ({ name: c.name, imageUrl: c.imageUrl! }));
 
       const sceneSetting = sceneSettings.find((ss) => ss.name === scene.sceneName?.trim());
-      const sceneImageUrl = sceneSetting?.imageUrl
-        ? await compressImage(sceneSetting.imageUrl, 1 * 1024 * 1024)
-        : undefined;
+      const sceneImageUrl = sceneSetting?.imageUrl || undefined;
 
       // Gather neighboring scenes in the same scene group for spatial continuity
       const sameSceneGroup = scenes.filter((s) => s.sceneName?.trim() === scene.sceneName?.trim());
@@ -327,10 +319,8 @@ const Workspace = () => {
       const prevScene = sceneIdx > 0 ? sameSceneGroup[sceneIdx - 1] : undefined;
       const nextScene = sceneIdx < sameSceneGroup.length - 1 ? sameSceneGroup[sceneIdx + 1] : undefined;
 
-      // Compress previous storyboard image for visual continuity
-      const prevStoryboardUrl = prevScene?.storyboardUrl
-        ? await compressImage(prevScene.storyboardUrl, 1 * 1024 * 1024)
-        : undefined;
+      // Send storage URL directly for previous storyboard
+      const prevStoryboardUrl = prevScene?.storyboardUrl || undefined;
 
       const neighborContext = {
         prevDescription: prevScene?.description || "",
@@ -343,10 +333,19 @@ const Workspace = () => {
       };
 
       const abortController = new AbortController();
-      timeoutId = setTimeout(() => abortController.abort(), 240_000);
+      timeoutId = setTimeout(() => abortController.abort(), 300_000);
 
-      const { data, error } = await supabase.functions.invoke("generate-storyboard", {
-        body: {
+      // Use direct fetch with streaming to handle long-running generation
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const response = await fetch(`${supabaseUrl}/functions/v1/generate-storyboard`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${supabaseKey}`,
+          "apikey": supabaseKey,
+        },
+        body: JSON.stringify({
           description: scene.description,
           characters: scene.characters,
           characterDescriptions: charDescs,
@@ -363,12 +362,24 @@ const Workspace = () => {
           model,
           scriptExcerpt: script?.slice(0, 2000) || "",
           neighborContext,
-        },
+        }),
         signal: abortController.signal,
       });
       clearTimeout(timeoutId);
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errText = await response.text();
+        let errMsg = `分镜图生成失败 (${response.status})`;
+        try { errMsg = JSON.parse(errText.trim().split("\n").pop()!).error || errMsg; } catch {}
+        throw new Error(errMsg);
+      }
+
+      // Read streaming response: last non-empty line is the JSON result
+      const text = await response.text();
+      const lines = text.trim().split("\n").filter((l) => l.trim());
+      const lastLine = lines[lines.length - 1];
+      const data = JSON.parse(lastLine);
+
       if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)));
       if (!data?.imageUrl) throw new Error("API 返回数据中缺少 imageUrl");
 
