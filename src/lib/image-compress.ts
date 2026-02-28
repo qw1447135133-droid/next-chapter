@@ -5,7 +5,8 @@
  */
 export async function compressImage(
   imageSource: string,
-  maxBytes: number = 10 * 1024 * 1024
+  maxBytes: number = 10 * 1024 * 1024,
+  { maxDim = 1024, minQuality = 0.2 }: { maxDim?: number; minQuality?: number } = {}
 ): Promise<string> {
   // For data URLs, check size directly
   if (imageSource.startsWith("data:image")) {
@@ -21,10 +22,10 @@ export async function compressImage(
       let width = img.width;
       let height = img.height;
 
-      // Scale down if dimensions are very large (max 1024 on longest side)
-      const maxDim = 1024;
-      if (width > maxDim || height > maxDim) {
-        const ratio = Math.min(maxDim / width, maxDim / height);
+      // Scale down if dimensions are very large
+      const dimLimit = maxDim;
+      if (width > dimLimit || height > dimLimit) {
+        const ratio = Math.min(dimLimit / width, dimLimit / height);
         width = Math.round(width * ratio);
         height = Math.round(height * ratio);
       }
