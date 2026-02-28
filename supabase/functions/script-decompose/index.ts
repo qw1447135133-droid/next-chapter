@@ -173,7 +173,7 @@ serve(async (req) => {
     let lastError: Error | null = null;
 
     for (const model of models) {
-      const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model}:generateContent/`;
       const requestBody = JSON.stringify({
         contents: [
           { role: "user", parts: [{ text: `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}` }] },
@@ -190,7 +190,7 @@ serve(async (req) => {
         const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
         geminiResponse = await fetch(apiUrl, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
           body: requestBody,
           signal: controller.signal,
         });

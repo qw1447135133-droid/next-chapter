@@ -415,11 +415,11 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME 
       }
     } else {
       // Gemini models: use generateContent API
-      const apiUrl = `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent?key=${ZHANHU_API_KEY}&group=gemini-6`;
+      const apiUrl = `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent/`;
 
       const response = await fetch(apiUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },
         body: JSON.stringify({
           contents: [{ role: "user", parts }],
           generationConfig: { responseModalities: ["IMAGE", "TEXT"], imageSize: "2K" },
