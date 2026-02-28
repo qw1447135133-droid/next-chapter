@@ -302,8 +302,9 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME 
     const selectedModel = model || "gemini-3-pro-image-preview";
     const isSeedream = selectedModel.startsWith("doubao-seedream");
 
+    const apiKey = isSeedream ? (Deno.env.get("JIMENG_API_KEY") || ZHANHU_API_KEY) : ZHANHU_API_KEY;
     const groupParam = isSeedream ? "&group=jimeng-6" : "";
-    const apiUrl = `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent?key=${ZHANHU_API_KEY}${groupParam}`;
+    const apiUrl = `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent?key=${apiKey}${groupParam}`;
 
     const response = await fetch(apiUrl, {
       method: "POST",
