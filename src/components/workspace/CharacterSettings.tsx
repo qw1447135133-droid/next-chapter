@@ -279,53 +279,52 @@ const CharacterSettings = ({
   // isAutoDetectingAll, setIsAutoDetectingAll, autoDetectAbortRef are now props from Workspace
 
   // On FIRST mount per page load: clean up orphaned tasks (no auto-restart).
-  // Clean up generating states after data is loaded (characters/sceneSettings from props)
+  // Clean up generating states after data is loaded
   useEffect(() => {
-    // Only clean up if we have data loaded
+    // Only clean up if we have data loaded (not initial empty state)
     if (characters.length === 0 && sceneSettings.length === 0) return;
     
     const cleanupTimeout = setTimeout(() => {
-      // Only clear spinner if:
-      // 1. The item has a result (imageUrl/description exists)
-      // 2. AND we can find the corresponding item in current data
-      // Otherwise keep spinning (generation still in progress)
+      // Only clear spinner if the item has a result (imageUrl/description exists)
+      // If no result (generation still in progress or cancelled), keep spinner
       setGeneratingCharImgIds((prev) => {
         if (prev.size === 0) return prev;
         const next = new Set(prev);
         for (const id of prev) {
           const c = charactersRef.current.find((ch) => ch.id === id);
-          if (c?.imageUrl) next.delete(id);
+          // Only clear if: 1) character exists AND 2) has imageUrl (generation completed)
+          if (c && c.imageUrl) next.delete(id);
         }
-        return next;
+        return next.size === prev.size ? prev : next;
       });
       setGeneratingSceneImgIds((prev) => {
         if (prev.size === 0) return prev;
         const next = new Set(prev);
         for (const id of prev) {
           const s = sceneSettingsRef.current.find((sc) => sc.id === id);
-          if (s?.imageUrl) next.delete(id);
+          if (s && s.imageUrl) next.delete(id);
         }
-        return next;
+        return next.size === prev.size ? prev : next;
       });
       setGeneratingCharDescIds((prev) => {
         if (prev.size === 0) return prev;
         const next = new Set(prev);
         for (const id of prev) {
           const c = charactersRef.current.find((ch) => ch.id === id);
-          if (c?.description) next.delete(id);
+          if (c && c.description) next.delete(id);
         }
-        return next;
+        return next.size === prev.size ? prev : next;
       });
       setGeneratingDescIds((prev) => {
         if (prev.size === 0) return prev;
         const next = new Set(prev);
         for (const id of prev) {
           const s = sceneSettingsRef.current.find((sc) => sc.id === id);
-          if (s?.description) next.delete(id);
+          if (s && s.description) next.delete(id);
         }
-        return next;
+        return next.size === prev.size ? prev : next;
       });
-    }, 500);
+    }, 1000); // Longer delay to ensure everything is loaded
     
     return () => clearTimeout(cleanupTimeout);
   }, [characters.length, sceneSettings.length]);
