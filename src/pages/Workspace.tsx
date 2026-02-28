@@ -370,6 +370,7 @@ const Workspace = () => {
 
       if (error) throw error;
       if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)));
+      if (!data?.imageUrl) throw new Error("API 返回数据中缺少 imageUrl");
 
       setScenes((prev) =>
         prev.map((s) => {
