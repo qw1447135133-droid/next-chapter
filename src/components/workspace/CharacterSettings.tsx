@@ -631,15 +631,21 @@ const CharacterSettings = ({
           <Sparkles className="h-5 w-5 text-primary" />
           画面风格
         </h2>
-        <Button
-          onClick={handleAutoDetectAll}
-          variant={isAutoDetectingAll ? "destructive" : "default"}
-          disabled={isAbortingAutoDetect || (!isAutoDetectingAll && (!script?.trim() || (characters.length === 0 && sceneSettings.length === 0)))}
-          className="gap-1.5"
-        >
-          {isAutoDetectingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-          {isAutoDetectingAll ? (isAbortingAutoDetect ? "正在中止..." : "中止生成") : "全部生成"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={handleAutoDetectAll}
+            variant={isAutoDetectingAll ? "destructive" : "default"}
+            disabled={isAbortingAutoDetect || (!isAutoDetectingAll && (!script?.trim() || (characters.length === 0 && sceneSettings.length === 0)))}
+            className="gap-1.5"
+          >
+            {isAutoDetectingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            {isAutoDetectingAll ? (isAbortingAutoDetect ? "正在中止..." : "中止生成") : "全部生成"}
+          </Button>
+          <Button size="sm" onClick={onNext} className="gap-1">
+            下一步
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       </div>
 
       {/* Art Style Selector */}
@@ -860,12 +866,6 @@ const CharacterSettings = ({
         ))}
       </div>
 
-      <div className="flex justify-end">
-        <Button onClick={onNext} className="gap-1">
-          下一步
-          <ArrowRight className="h-3.5 w-3.5" />
-        </Button>
-      </div>
     </div>
   );
 };
