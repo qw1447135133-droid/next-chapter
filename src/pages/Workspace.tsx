@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { friendlyError } from "@/lib/friendly-error";
+import { compressImage } from "@/lib/image-compress";
 import { supabase } from "@/integrations/supabase/client";
 import type { Scene, CharacterSetting, SceneSetting, WorkspaceStep, ArtStyle, VideoModel } from "@/types/project";
 import { VIDEO_MODEL_API_MAP } from "@/types/project";
@@ -305,13 +306,20 @@ const Workspace = () => {
         .filter((c) => scene.characters.includes(c.name))
         .map((c) => ({ name: c.name, description: c.description }));
 
-      // Send storage URLs directly — edge function fetches images server-side
-      const characterImages = characters
-        .filter((c) => scene.characters.includes(c.name) && c.imageUrl)
-        .map((c) => ({ name: c.name, imageUrl: c.imageUrl! }));
+      // Compress reference images client-side to reduce edge function payload & processing time
+      const characterImages = await Promise.all(
+        characters
+          .filter((c) => scene.characters.includes(c.name) && c.imageUrl)
+          .map(async (c) => ({
+            name: c.name,
+            imageUrl: await compressImage(c.imageUrl!, 500 * 1024),
+          }))
+      );
 
       const sceneSetting = sceneSettings.find((ss) => ss.name === scene.sceneName?.trim());
-      const sceneImageUrl = sceneSetting?.imageUrl || undefined;
+      const sceneImageUrl = sceneSetting?.imageUrl
+        ? await compressImage(sceneSetting.imageUrl, 500 * 1024)
+        : undefined;
 
       // Gather neighboring scenes in the same scene group for spatial continuity
       const sameSceneGroup = scenes.filter((s) => s.sceneName?.trim() === scene.sceneName?.trim());
@@ -319,8 +327,10 @@ const Workspace = () => {
       const prevScene = sceneIdx > 0 ? sameSceneGroup[sceneIdx - 1] : undefined;
       const nextScene = sceneIdx < sameSceneGroup.length - 1 ? sameSceneGroup[sceneIdx + 1] : undefined;
 
-      // Send storage URL directly for previous storyboard
-      const prevStoryboardUrl = prevScene?.storyboardUrl || undefined;
+      // Compress previous storyboard for continuity reference
+      const prevStoryboardUrl = prevScene?.storyboardUrl
+        ? await compressImage(prevScene.storyboardUrl, 500 * 1024)
+        : undefined;
 
       const neighborContext = {
         prevDescription: prevScene?.description || "",
