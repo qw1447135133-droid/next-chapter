@@ -302,20 +302,8 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME 
     const selectedModel = model || "gemini-3-pro-image-preview";
     const isSeedream = selectedModel.startsWith("doubao-seedream");
 
-    let apiKey = ZHANHU_API_KEY;
-    let apiUrl = `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent?key=${apiKey}`;
-
-    if (isSeedream) {
-      const jimengKey = Deno.env.get("JIMENG_API_KEY");
-      if (!jimengKey) {
-        return new Response(
-          JSON.stringify({ error: "JIMENG_API_KEY 未配置" }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      apiKey = jimengKey;
-      apiUrl = `http://202.90.21.53:13003/v1beta/models/${selectedModel}:generateContent?key=${apiKey}&group=jimeng-6`;
-    }
+    const groupParam = isSeedream ? "&group=jimeng-6" : "";
+    const apiUrl = `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent?key=${ZHANHU_API_KEY}${groupParam}`;
 
     const response = await fetch(apiUrl, {
       method: "POST",
