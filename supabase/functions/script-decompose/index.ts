@@ -198,17 +198,15 @@ async function decomposeScript(body: any) {
   
   const prompt = basePrompt + jsonEnforcement;
 
-  const models = ["gemini-3.1-pro-preview", "gemini-3-flash-preview"];
-  // Shorter timeout for first model to leave room for fallback within edge function limits
-  const MODEL_TIMEOUTS = [120_000, 180_000];
+  const model = "gemini-3.1-pro-preview";
+  const TIMEOUT_MS = 180_000;
 
   let geminiResponse: Response | null = null;
   let lastError: Error | null = null;
 
-  for (let i = 0; i < models.length; i++) {
-    const model = models[i];
-    const timeoutMs = MODEL_TIMEOUTS[i];
+  {
     const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model}:generateContent/`;
+    const timeoutMs = TIMEOUT_MS;
     const requestBody = JSON.stringify({
       contents: [
         { role: "user", parts: [{ text: `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}` }] },
