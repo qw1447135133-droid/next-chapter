@@ -21,8 +21,8 @@ export async function compressImage(
       let width = img.width;
       let height = img.height;
 
-      // Scale down if dimensions are very large (max 2048 on longest side)
-      const maxDim = 2048;
+      // Scale down if dimensions are very large (max 1024 on longest side)
+      const maxDim = 1024;
       if (width > maxDim || height > maxDim) {
         const ratio = Math.min(maxDim / width, maxDim / height);
         width = Math.round(width * ratio);
