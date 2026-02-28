@@ -280,7 +280,7 @@ const Workspace = () => {
     }
   };
 
-  const handleGenerateSceneStoryboard = async (sceneId: string, aspectRatio: string = "16:9") => {
+  const handleGenerateSceneStoryboard = async (sceneId: string, aspectRatio: string = "16:9", model: string = "gemini-3-pro-image-preview") => {
     const scene = scenes.find((s) => s.id === sceneId);
     if (!scene) return;
 
@@ -347,6 +347,7 @@ const Workspace = () => {
           style: artStyle,
           mode: "single",
           aspectRatio,
+          model,
           scriptExcerpt: script?.slice(0, 2000) || "",
           neighborContext,
         },
@@ -384,7 +385,7 @@ const Workspace = () => {
     }
   };
 
-  const handleGenerateAllStoryboards = async (aspectRatio: string = "16:9") => {
+  const handleGenerateAllStoryboards = async (aspectRatio: string = "16:9", model: string = "gemini-3-pro-image-preview") => {
     stopStoryboardGenRef.current = false;
     setIsAbortingStoryboards(false);
     setIsGeneratingAllStoryboards(true);
@@ -423,7 +424,7 @@ const Workspace = () => {
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
           if (stopStoryboardGenRef.current) break;
           try {
-            await handleGenerateSceneStoryboard(scene.id, aspectRatio);
+            await handleGenerateSceneStoryboard(scene.id, aspectRatio, model);
             succeeded = true;
             break;
           } catch {

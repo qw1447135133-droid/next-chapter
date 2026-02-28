@@ -9,6 +9,12 @@ import { Image, RefreshCw, Loader2, ArrowRight, History, ChevronDown, RectangleH
 import ImageThumbnail from "./ImageThumbnail";
 
 export type StoryboardAspectRatio = "16:9" | "9:16" | "3:2" | "2:3";
+export type StoryboardModel = "gemini-3-pro-image-preview" | "doubao-seedream-5-0-260128";
+
+const STORYBOARD_MODEL_OPTIONS: { value: StoryboardModel; label: string }[] = [
+  { value: "gemini-3-pro-image-preview", label: "Nano Banana Pro" },
+  { value: "doubao-seedream-5-0-260128", label: "Seedream 5.0" },
+];
 
 const ASPECT_RATIO_OPTIONS: { value: StoryboardAspectRatio; label: string; icon: typeof RectangleHorizontal; cssAspect: string }[] = [
   { value: "16:9", label: "16:9 横屏", icon: RectangleHorizontal, cssAspect: "aspect-video" },
@@ -20,8 +26,8 @@ const ASPECT_RATIO_OPTIONS: { value: StoryboardAspectRatio; label: string; icon:
 interface StoryboardPreviewProps {
   scenes: Scene[];
   characters: CharacterSetting[];
-  onGenerateScene: (sceneId: string, aspectRatio: StoryboardAspectRatio) => void;
-  onGenerateAll: (aspectRatio: StoryboardAspectRatio) => void;
+  onGenerateScene: (sceneId: string, aspectRatio: StoryboardAspectRatio, model: StoryboardModel) => void;
+  onGenerateAll: (aspectRatio: StoryboardAspectRatio, model: StoryboardModel) => void;
   onStopAll: () => void;
   onScenesChange: (scenes: Scene[]) => void;
   generatingScenes: Set<string>;
@@ -51,8 +57,17 @@ const StoryboardPreview = ({
     try { localStorage.setItem("storyboard-aspect-ratio", v); } catch {}
   };
   const [arOpen, setArOpen] = useState(false);
+  const [storyboardModel, setStoryboardModelState] = useState<StoryboardModel>(() => {
+    try { return (localStorage.getItem("storyboard-model") as StoryboardModel) || "gemini-3-pro-image-preview"; } catch { return "gemini-3-pro-image-preview"; }
+  });
+  const setStoryboardModel = (v: StoryboardModel) => {
+    setStoryboardModelState(v);
+    try { localStorage.setItem("storyboard-model", v); } catch {}
+  };
+  const [modelOpen, setModelOpen] = useState(false);
 
   const isAnyGenerating = (generatingScenes?.size ?? 0) > 0;
+  const currentModel = STORYBOARD_MODEL_OPTIONS.find((o) => o.value === storyboardModel)!;
   const currentAR = ASPECT_RATIO_OPTIONS.find((o) => o.value === aspectRatio)!;
 
   const restoreFromHistory = (sceneId: string, url: string) => {
@@ -82,6 +97,31 @@ const StoryboardPreview = ({
           <p className="text-sm text-muted-foreground">为每个分镜生成对应的画面图像</p>
         </div>
         <div className="flex gap-2 items-center">
+          {/* Model Selector */}
+          <Popover open={modelOpen} onOpenChange={setModelOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5 h-9 text-xs" disabled={isAnyGenerating}>
+                {currentModel.label}
+                <ChevronDown className="h-3 w-3 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-48 p-1" align="end">
+              {STORYBOARD_MODEL_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-sm text-xs transition-colors ${
+                    storyboardModel === opt.value
+                      ? "bg-primary/10 text-primary font-medium"
+                      : "hover:bg-muted text-foreground"
+                  }`}
+                  onClick={() => { setStoryboardModel(opt.value); setModelOpen(false); }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </PopoverContent>
+          </Popover>
+
           {/* Aspect Ratio Selector */}
           <Popover open={arOpen} onOpenChange={setArOpen}>
             <PopoverTrigger asChild>
@@ -115,7 +155,7 @@ const StoryboardPreview = ({
               {isAborting ? "正在中止..." : "中止生成"}
             </Button>
           ) : (
-            <Button variant="outline" onClick={() => onGenerateAll(aspectRatio)} disabled={isAnyGenerating} className="gap-1">
+            <Button variant="outline" onClick={() => onGenerateAll(aspectRatio, storyboardModel)} disabled={isAnyGenerating} className="gap-1">
               <Image className="h-3.5 w-3.5" />
               生成全部
             </Button>
@@ -149,7 +189,7 @@ const StoryboardPreview = ({
                     variant="outline"
                     size="sm"
                     className="h-7 text-xs gap-1"
-                    onClick={() => onGenerateScene(scene.id, aspectRatio)}
+                    onClick={() => onGenerateScene(scene.id, aspectRatio, storyboardModel)}
                     disabled={isGen}
                   >
                     {isGen ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
