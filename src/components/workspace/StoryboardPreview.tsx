@@ -103,39 +103,39 @@ const StoryboardPreview = ({
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div>
-            <h2 className="text-xl font-semibold font-[Space_Grotesk] mb-1">分镜图生成</h2>
-            <p className="text-sm text-muted-foreground">为每个分镜生成对应的画面图像</p>
+        <div>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-semibold font-[Space_Grotesk]">分镜图生成</h2>
+            {/* Model Selector — pill style matching VideoGeneration */}
+            <div className="relative" ref={modelDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setModelOpen((v) => !v)}
+                disabled={isAnyGenerating}
+                className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {currentModel.label}
+                <ChevronDown className={`h-3 w-3 transition-transform ${modelOpen ? "rotate-180" : ""}`} />
+              </button>
+              {modelOpen && (
+                <div className="absolute left-0 top-full mt-1 z-50 min-w-[160px] rounded-lg border border-border bg-popover shadow-lg py-1">
+                  {STORYBOARD_MODEL_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => { setStoryboardModel(opt.value); setModelOpen(false); }}
+                      className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent ${
+                        opt.value === storyboardModel ? "text-primary font-semibold" : "text-popover-foreground"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-          {/* Model Selector — pill style matching VideoGeneration */}
-          <div className="relative" ref={modelDropdownRef}>
-            <button
-              type="button"
-              onClick={() => setModelOpen((v) => !v)}
-              disabled={isAnyGenerating}
-              className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
-            >
-              {currentModel.label}
-              <ChevronDown className={`h-3 w-3 transition-transform ${modelOpen ? "rotate-180" : ""}`} />
-            </button>
-            {modelOpen && (
-              <div className="absolute left-0 top-full mt-1 z-50 min-w-[160px] rounded-lg border border-border bg-popover shadow-lg py-1">
-                {STORYBOARD_MODEL_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => { setStoryboardModel(opt.value); setModelOpen(false); }}
-                    className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent ${
-                      opt.value === storyboardModel ? "text-primary font-semibold" : "text-popover-foreground"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <p className="text-sm text-muted-foreground mt-1">为每个分镜生成对应的画面图像</p>
         </div>
         <div className="flex gap-2 items-center">
           <Popover open={arOpen} onOpenChange={setArOpen}>
