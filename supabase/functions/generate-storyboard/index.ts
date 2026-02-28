@@ -104,7 +104,7 @@ serve(async (req) => {
   }
 
   try {
-    const { description, characters, cameraDirection, sceneName, dialogue, style, characterDescriptions, sceneDescription, mode, characterImages, sceneImageUrl, prevStoryboardUrl, scriptExcerpt, neighborContext, aspectRatio } = await req.json();
+    const { description, characters, cameraDirection, sceneName, dialogue, style, characterDescriptions, sceneDescription, mode, characterImages, sceneImageUrl, prevStoryboardUrl, scriptExcerpt, neighborContext, aspectRatio, model } = await req.json();
 
     const isPanorama = mode === "panorama";
 
@@ -299,8 +299,10 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME 
       }
     }
 
+    const selectedModel = model || "gemini-3-pro-image-preview";
+
     const response = await fetch(
-      `${ZHANHU_BASE_URL}/models/gemini-3-pro-image-preview:generateContent?key=${ZHANHU_API_KEY}`,
+      `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent?key=${ZHANHU_API_KEY}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
