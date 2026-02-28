@@ -51,8 +51,6 @@ interface CharacterSettingsProps {
   setIsAbortingAutoDetect: (v: boolean) => void;
   autoDetectAbortRef: React.MutableRefObject<boolean>;
 }
-// Module-level flag: only clear orphaned tasks once per page load (not on step switches)
-let hasCleanedOrphansThisSession = false;
 
 const CharacterSettings = ({
   characters,
@@ -283,49 +281,52 @@ const CharacterSettings = ({
   // On FIRST mount per page load: clean up orphaned tasks (no auto-restart).
   // Module-level flag prevents re-clearing on step switches (component remount).
   useEffect(() => {
-    if (!hasCleanedOrphansThisSession) {
-      hasCleanedOrphansThisSession = true;
-      // Clear all localStorage tasks — we don't auto-restart after refresh
-      writeTasks([]);
-    }
-    
     // Clean up generating states for items that already have results
-    // Use setTimeout to ensure state is fully restored first
-    setTimeout(() => {
-      // Only clear spinner if the item already has a result (generation completed)
+    // Use longer delay to ensure data is fully restored from Workspace
+    const cleanupTimeout = setTimeout(() => {
+      // Only clear spinner if:
+      // 1. The item has a result (imageUrl/description exists)
+      // 2. AND we can find the corresponding item in current data
+      // Otherwise keep spinning (generation still in progress)
       setGeneratingCharImgIds((prev) => {
+        if (prev.size === 0) return prev;
         const next = new Set(prev);
         for (const id of prev) {
           const c = charactersRef.current.find((ch) => ch.id === id);
-          if (c?.imageUrl) next.delete(id); // Has result, clear spinner
+          if (c?.imageUrl) next.delete(id);
         }
         return next;
       });
       setGeneratingSceneImgIds((prev) => {
+        if (prev.size === 0) return prev;
         const next = new Set(prev);
         for (const id of prev) {
           const s = sceneSettingsRef.current.find((sc) => sc.id === id);
-          if (s?.imageUrl) next.delete(id); // Has result, clear spinner
+          if (s?.imageUrl) next.delete(id);
         }
         return next;
       });
       setGeneratingCharDescIds((prev) => {
+        if (prev.size === 0) return prev;
         const next = new Set(prev);
         for (const id of prev) {
           const c = charactersRef.current.find((ch) => ch.id === id);
-          if (c?.description) next.delete(id); // Has result, clear spinner
+          if (c?.description) next.delete(id);
         }
         return next;
       });
       setGeneratingDescIds((prev) => {
+        if (prev.size === 0) return prev;
         const next = new Set(prev);
         for (const id of prev) {
           const s = sceneSettingsRef.current.find((sc) => sc.id === id);
-          if (s?.description) next.delete(id); // Has result, clear spinner
+          if (s?.description) next.delete(id);
         }
         return next;
       });
-    }, 200);
+    }, 500);
+    
+    return () => clearTimeout(cleanupTimeout);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Clean up expired tasks periodically (safety net for long-running tasks)
