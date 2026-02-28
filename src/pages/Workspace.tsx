@@ -18,6 +18,19 @@ import StoryboardPreview from "@/components/workspace/StoryboardPreview";
 import VideoGeneration from "@/components/workspace/VideoGeneration";
 import VideoPreview from "@/components/workspace/VideoPreview";
 
+// Helper for concurrency control
+const createSemaphore = (max: number) => {
+  let current = 0;
+  const queue: (() => void)[] = [];
+  return {
+    acquire: () => new Promise<void>((resolve) => {
+      if (current < max) { current++; resolve(); }
+      else queue.push(() => { current++; resolve(); });
+    }),
+    release: () => { current--; if (queue.length > 0) queue.shift()!(); },
+  };
+};
+
 const Workspace = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -407,8 +420,8 @@ const Workspace = () => {
     });
     const release = () => { running--; if (queue.length > 0) queue.shift()!(); };
 
-    let successCount = 0;
-    let failCount = 0;
+    const successCountRef = { current: 0 };
+    const failCountRef = { current: 0 };
     const failedSceneIds = new Set<string>();
 
     // Process one scene group STRICTLY sequentially (same scene → shots in order, no jumping)
@@ -433,7 +446,7 @@ const Workspace = () => {
             }
           }
         }
-        if (succeeded) successCount++; else { failCount++; failedSceneIds.add(scene.id); }
+        if (succeeded) successCountRef.current++; else { failCountRef.current++; failedSceneIds.add(scene.id); }
         // MUST release AFTER this shot finishes before next shot in the SAME group proceeds
         release();
       }
@@ -443,7 +456,7 @@ const Workspace = () => {
     const groupTasks = Array.from(sceneGroups.values()).map((group) => processGroup(group));
     await Promise.all(groupTasks);
 
-    // === REVIEW PASS: scan for any missed/failed storyboards and retry ===
+    // === REVIEW PASS: scan for any missed/failed storyboards and retry (with concurrency control) ===
     if (!stopStoryboardGenRef.current) {
       // Re-read latest scenes state
       const latestScenes = scenesRef.current;
@@ -457,7 +470,24 @@ const Workspace = () => {
           if (!reviewGroups.has(key)) reviewGroups.set(key, []);
           reviewGroups.get(key)!.push(scene);
         }
-        const reviewTasks = Array.from(reviewGroups.values()).map((group) => processGroup(group));
+        const reviewSem = createSemaphore(2);
+        const reviewTasks: Promise<void>[] = [];
+        for (const group of reviewGroups.values()) {
+          reviewTasks.push((async () => {
+            for (const scene of group) {
+              if (stopStoryboardGenRef.current) return;
+              await reviewSem.acquire();
+              if (stopStoryboardGenRef.current) { reviewSem.release(); return; }
+              try {
+                await handleGenerateSceneStoryboard(scene.id, aspectRatio, model);
+                successCountRef.current++;
+              } catch {
+                failCountRef.current++;
+              }
+              reviewSem.release();
+            }
+          })());
+        }
         await Promise.all(reviewTasks);
       }
     }
@@ -467,7 +497,7 @@ const Workspace = () => {
     setIsAbortingStoryboards(false);
     toast({
       title: aborted ? "已中止" : "全部分镜图生成完成",
-      description: `成功 ${successCount} 张${failCount > 0 ? `，失败 ${failCount} 张` : ""}${aborted ? "（已中止）" : ""}`,
+      description: `成功 ${successCountRef.current} 张${failCountRef.current > 0 ? `，失败 ${failCountRef.current} 张` : ""}${aborted ? "（已中止）" : ""}`,
     });
   };
 
@@ -662,10 +692,18 @@ const Workspace = () => {
     setIsAbortingVideo(false);
     setIsGeneratingVideo(true);
 
-    let successCount = 0;
-    let failCount = 0;
+    const successCountRef = { current: 0 };
+    const failCountRef = { current: 0 };
 
-    // Semaphore for max 3 concurrent video submissions
+    // Group scenes by sceneName for strict sequential generation within same scene
+    const sceneGroups = new Map<string, typeof scenes>();
+    for (const scene of scenes) {
+      const key = (scene.sceneName || "").trim() || `__solo_${scene.id}`;
+      if (!sceneGroups.has(key)) sceneGroups.set(key, []);
+      sceneGroups.get(key)!.push(scene);
+    }
+
+    // Semaphore for max 3 concurrent video submissions ACROSS groups
     let running = 0;
     const queue: (() => void)[] = [];
     const acquire = () => new Promise<void>((resolve) => {
@@ -693,8 +731,34 @@ const Workspace = () => {
           }
         }
       }
-      if (succeeded) successCount++; else failCount++;
+      if (succeeded) successCountRef.current++; else failCountRef.current++;
       release();
+    };
+
+    // Process one scene group STRICTLY sequentially (same scene → shots in order)
+    const processGroup = async (groupScenes: typeof scenes) => {
+      for (const scene of groupScenes) {
+        if (stopVideoGenRef.current) return;
+        await acquire();
+        if (stopVideoGenRef.current) { release(); return; }
+
+        let succeeded = false;
+        const maxRetries = 2;
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+          if (stopVideoGenRef.current) break;
+          try {
+            await generateVideoForScene(scene.id);
+            succeeded = true;
+            break;
+          } catch {
+            if (attempt < maxRetries) {
+              console.log(`Retrying video for scene #${scene.sceneNumber}, attempt ${attempt + 2}`);
+            }
+          }
+        }
+        if (succeeded) successCountRef.current++; else failCountRef.current++;
+        release();
+      }
     };
 
     const failedVideoIds = new Set<string>();
@@ -705,15 +769,40 @@ const Workspace = () => {
       if (s && !s.videoUrl && !s.videoTaskId) failedVideoIds.add(sceneId);
     };
 
-    // Launch all in parallel (concurrency controlled by semaphore)
-    const tasks = scenes.map((scene) => processSceneTracked(scene.id));
-    await Promise.all(tasks);
+    // Launch all scene groups in parallel (cross-group concurrency via semaphore)
+    const groupTasks = Array.from(sceneGroups.values()).map((group) => processGroup(group));
+    await Promise.all(groupTasks);
 
-    // === REVIEW PASS: retry any failed/missed video submissions ===
+    // === REVIEW PASS: retry any failed/missed video submissions (with concurrency control) ===
     if (!stopVideoGenRef.current && failedVideoIds.size > 0) {
       console.log(`Video review pass: ${failedVideoIds.size} failed, retrying...`);
-      const retryTasks = Array.from(failedVideoIds).map((id) => processScene(id));
-      await Promise.all(retryTasks);
+      // Regroup failed scenes for sequential retry within same scene
+      const reviewGroups = new Map<string, typeof scenes>();
+      for (const scene of scenes) {
+        if (!failedVideoIds.has(scene.id)) continue;
+        const key = (scene.sceneName || "").trim() || `__solo_${scene.id}`;
+        if (!reviewGroups.has(key)) reviewGroups.set(key, []);
+        reviewGroups.get(key)!.push(scene);
+      }
+      const reviewSem = createSemaphore(2);
+      const reviewTasks: Promise<void>[] = [];
+      for (const group of reviewGroups.values()) {
+        reviewTasks.push((async () => {
+          for (const scene of group) {
+            if (stopVideoGenRef.current) return;
+            await reviewSem.acquire();
+            if (stopVideoGenRef.current) { reviewSem.release(); return; }
+            try {
+              await generateVideoForScene(scene.id);
+              successCountRef.current++;
+            } catch {
+              failCountRef.current++;
+            }
+            reviewSem.release();
+          }
+        })());
+      }
+      await Promise.all(reviewTasks);
     }
 
     const aborted = stopVideoGenRef.current;
@@ -721,7 +810,7 @@ const Workspace = () => {
     setIsAbortingVideo(false);
     toast({
       title: aborted ? "已中止" : "全部视频生成完成",
-      description: `已提交 ${successCount} 个${failCount > 0 ? `，失败 ${failCount} 个` : ""}${aborted ? "（已中止，已提交的任务仍会继续）" : ""}`,
+      description: `已提交 ${successCountRef.current} 个${failCountRef.current > 0 ? `，失败 ${failCountRef.current} 个` : ""}${aborted ? "（已中止，已提交的任务仍会继续）" : ""}`,
     });
   };
 
