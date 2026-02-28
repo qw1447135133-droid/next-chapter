@@ -285,44 +285,47 @@ const CharacterSettings = ({
   useEffect(() => {
     if (!hasCleanedOrphansThisSession) {
       hasCleanedOrphansThisSession = true;
+      // Clear all localStorage tasks — we don't auto-restart after refresh
+      writeTasks([]);
     }
-    // Clear all localStorage tasks — we don't auto-restart after refresh
-    writeTasks([]);
     
-    // Immediately clean up generating states for items that already have results
-    // (no delay, run synchronously after state is available)
-    setGeneratingCharImgIds((prev) => {
-      const next = new Set(prev);
-      for (const id of prev) {
-        const c = charactersRef.current.find((ch) => ch.id === id);
-        if (c?.imageUrl) next.delete(id);
-      }
-      return next.size === prev.size ? prev : next;
-    });
-    setGeneratingSceneImgIds((prev) => {
-      const next = new Set(prev);
-      for (const id of prev) {
-        const s = sceneSettingsRef.current.find((sc) => sc.id === id);
-        if (s?.imageUrl) next.delete(id);
-      }
-      return next.size === prev.size ? prev : next;
-    });
-    setGeneratingCharDescIds((prev) => {
-      const next = new Set(prev);
-      for (const id of prev) {
-        const c = charactersRef.current.find((ch) => ch.id === id);
-        if (c?.description) next.delete(id);
-      }
-      return next.size === prev.size ? prev : next;
-    });
-    setGeneratingDescIds((prev) => {
-      const next = new Set(prev);
-      for (const id of prev) {
-        const s = sceneSettingsRef.current.find((sc) => sc.id === id);
-        if (s?.description) next.delete(id);
-      }
-      return next.size === prev.size ? prev : next;
-    });
+    // Clean up generating states for items that already have results
+    // Use setTimeout to ensure state is fully restored first
+    setTimeout(() => {
+      // Only clear spinner if the item already has a result (generation completed)
+      setGeneratingCharImgIds((prev) => {
+        const next = new Set(prev);
+        for (const id of prev) {
+          const c = charactersRef.current.find((ch) => ch.id === id);
+          if (c?.imageUrl) next.delete(id); // Has result, clear spinner
+        }
+        return next;
+      });
+      setGeneratingSceneImgIds((prev) => {
+        const next = new Set(prev);
+        for (const id of prev) {
+          const s = sceneSettingsRef.current.find((sc) => sc.id === id);
+          if (s?.imageUrl) next.delete(id); // Has result, clear spinner
+        }
+        return next;
+      });
+      setGeneratingCharDescIds((prev) => {
+        const next = new Set(prev);
+        for (const id of prev) {
+          const c = charactersRef.current.find((ch) => ch.id === id);
+          if (c?.description) next.delete(id); // Has result, clear spinner
+        }
+        return next;
+      });
+      setGeneratingDescIds((prev) => {
+        const next = new Set(prev);
+        for (const id of prev) {
+          const s = sceneSettingsRef.current.find((sc) => sc.id === id);
+          if (s?.description) next.delete(id); // Has result, clear spinner
+        }
+        return next;
+      });
+    }, 200);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Clean up expired tasks periodically (safety net for long-running tasks)
