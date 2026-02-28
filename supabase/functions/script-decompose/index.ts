@@ -173,7 +173,7 @@ serve(async (req) => {
     let lastError: Error | null = null;
 
     for (const model of models) {
-      const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model}:generateContent?key=${apiKey}&group=gemini-6`;
+      const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const requestBody = JSON.stringify({
         contents: [
           { role: "user", parts: [{ text: `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}` }] },
