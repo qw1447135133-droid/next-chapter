@@ -339,6 +339,7 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME 
 
     let imageBase64 = "";
     let mimeType = "image/png";
+    let externalImageUrl = "";
     const responseParts = data.candidates?.[0]?.content?.parts;
     if (responseParts) {
       for (const part of responseParts) {
@@ -347,6 +348,41 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME 
           imageBase64 = part.inlineData.data;
           break;
         }
+        // Seedream returns image as markdown URL: ![None](https://...)
+        if (part.text) {
+          const mdMatch = part.text.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/);
+          if (mdMatch) {
+            externalImageUrl = mdMatch[1];
+          }
+        }
+      }
+    }
+
+    // If we got an external URL (Seedream), download and convert to base64
+    if (!imageBase64 && externalImageUrl) {
+      console.log("Downloading Seedream image from URL:", externalImageUrl.slice(0, 100));
+      try {
+        const imgResp = await fetch(externalImageUrl);
+        if (!imgResp.ok) {
+          throw new Error(`Image download failed: ${imgResp.status}`);
+        }
+        const imgBuffer = await imgResp.arrayBuffer();
+        const imgBytes = new Uint8Array(imgBuffer);
+        // Convert to base64
+        let binary = "";
+        for (let i = 0; i < imgBytes.length; i++) {
+          binary += String.fromCharCode(imgBytes[i]);
+        }
+        imageBase64 = btoa(binary);
+        const contentType = imgResp.headers.get("content-type") || "";
+        mimeType = contentType.includes("png") ? "image/png" : "image/jpeg";
+        console.log(`Seedream image downloaded: ${imgBytes.length} bytes, type: ${mimeType}`);
+      } catch (dlErr) {
+        console.error("Failed to download Seedream image:", dlErr);
+        return new Response(
+          JSON.stringify({ error: "Seedream 图片下载失败" }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
     }
 
