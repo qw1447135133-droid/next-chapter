@@ -9,10 +9,11 @@ import { Image, RefreshCw, Loader2, ArrowRight, History, ChevronDown, RectangleH
 import ImageThumbnail from "./ImageThumbnail";
 
 export type StoryboardAspectRatio = "16:9" | "9:16" | "3:2" | "2:3";
-export type StoryboardModel = "gemini-3-pro-image-preview" | "doubao-seedream-5-0-260128";
+export type StoryboardModel = "gemini-3-pro-image-preview" | "doubao-seedream-5-0-260128" | "gemini-3.1-flash-image-preview";
 
 const STORYBOARD_MODEL_OPTIONS: { value: StoryboardModel; label: string }[] = [
   { value: "gemini-3-pro-image-preview", label: "Nano Banana Pro" },
+  { value: "gemini-3.1-flash-image-preview", label: "Nano Banana 2" },
   { value: "doubao-seedream-5-0-260128", label: "Seedream 5.0" },
 ];
 
