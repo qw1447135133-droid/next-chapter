@@ -245,6 +245,12 @@ ${narrativeContext}
    - Character positions and facing directions
    - Background elements and environment layout
    - Lighting direction and color temperature
+   **BUT VARY THE COMPOSITION**: Even when characters and environment stay the same, each consecutive shot MUST use a DISTINCTLY DIFFERENT composition:
+   - CHANGE the camera angle (e.g., eye-level → high angle → low angle → over-the-shoulder → Dutch angle)
+   - CHANGE the shot size (e.g., medium shot → close-up → wide shot → extreme close-up on hands/eyes)
+   - CHANGE the framing (e.g., center-framed → rule-of-thirds left → negative space right → foreground framing)
+   - NEVER produce two adjacent shots with the same angle + distance + framing combination
+   - If the previous shot is provided, analyze its composition and DELIBERATELY choose a contrasting one
 3. **CHARACTER CONSISTENCY IS THE #1 ABSOLUTE TOP PRIORITY — ZERO TOLERANCE FOR DEVIATION:**
    Every character MUST be an EXACT visual clone of their reference image. Follow these hard constraints:
    - **FACE**: Reproduce the EXACT same facial structure, eye shape, eye color, nose shape, lip shape, jawline, skin tone, scars, and facial hair from the reference image. The face must be RECOGNIZABLY THE SAME PERSON.
