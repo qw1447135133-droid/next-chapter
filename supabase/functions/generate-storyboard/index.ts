@@ -418,12 +418,63 @@ ${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. **FIRST-FRAME 
 
       const data = await response.json();
       const responseParts = data.candidates?.[0]?.content?.parts;
+
+      // Debug: log what the API actually returned
+      console.log("[DEBUG] Gemini response keys:", JSON.stringify(Object.keys(data)));
+      console.log("[DEBUG] Gemini candidates count:", data.candidates?.length);
+      if (responseParts) {
+        console.log("[DEBUG] Response parts count:", responseParts.length);
+        for (let i = 0; i < responseParts.length; i++) {
+          const keys = Object.keys(responseParts[i]);
+          console.log(`[DEBUG] Part ${i} keys:`, keys,
+            keys.includes("text") ? `text: ${responseParts[i].text?.slice(0, 200)}` : "",
+            keys.includes("fileData") ? `fileData mime: ${responseParts[i].fileData?.mimeType}` : "");
+        }
+      } else {
+        console.log("[DEBUG] No response parts found. Full response (truncated):", JSON.stringify(data).slice(0, 500));
+      }
+
+      // Extract image: try inlineData first
       if (responseParts) {
         for (const part of responseParts) {
           if (part.inlineData) {
             mimeType = part.inlineData.mimeType || "image/png";
             imageBase64 = part.inlineData.data;
             break;
+          }
+        }
+      }
+
+      // Fallback 1: fileData (Gemini file URI)
+      if (!imageBase64 && responseParts) {
+        for (const part of responseParts) {
+          if (part.fileData?.fileUri) {
+            console.log("[DEBUG] Trying fileData fallback:", part.fileData.fileUri.slice(0, 100));
+            const fetched = await fetchImageAsBase64(part.fileData.fileUri);
+            if (fetched) {
+              mimeType = fetched.mimeType;
+              imageBase64 = fetched.data;
+              break;
+            }
+          }
+        }
+      }
+
+      // Fallback 2: Markdown image link or plain URL in text
+      if (!imageBase64 && responseParts) {
+        for (const part of responseParts) {
+          if (part.text) {
+            const mdMatch = part.text.match(/!\[.*?\]\((https?:\/\/[^\s)]+)\)/);
+            const urlMatch = mdMatch?.[1] || part.text.match(/(https?:\/\/\S+\.(?:png|jpg|jpeg|webp|gif))/i)?.[1];
+            if (urlMatch) {
+              console.log("[DEBUG] Trying URL fallback from text:", urlMatch.slice(0, 100));
+              const fetched = await fetchImageAsBase64(urlMatch);
+              if (fetched) {
+                mimeType = fetched.mimeType;
+                imageBase64 = fetched.data;
+                break;
+              }
+            }
           }
         }
       }
