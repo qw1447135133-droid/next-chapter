@@ -241,18 +241,26 @@ IMPORTANT REQUIREMENTS:
       console.log("Original description:", description);
       console.log("First-frame rewrite:", firstFrameDesc);
 
-      prompt = `You are a professional cinematic storyboard artist creating a VIDEO FIRST-FRAME — the frozen T=0 image before playback starts.
+      prompt = `You are a professional cinematic storyboard artist. Create a single storyboard frame for the shot described below.
 
-⚠️ **FIRST-FRAME PRINCIPLE — THE SINGLE MOST IMPORTANT RULE** ⚠️
-This image will be used as the STARTING FRAME of a video clip. It is NOT a storyboard illustration — it is a REAL FIRST FRAME at time T=0.
+=== TWO CO-EQUAL TOP PRIORITIES (BOTH MUST BE SATISFIED SIMULTANEOUSLY) ===
+
+⚠️ **PRIORITY A — CHARACTER CONSISTENCY (ABSOLUTE GROUND TRUTH)** ⚠️
+Every character MUST be an EXACT visual clone of their reference image. This is NON-NEGOTIABLE:
+- **FACE**: Reproduce the EXACT same facial structure, eye shape, eye color, nose shape, lip shape, jawline, skin tone, scars, and facial hair from the reference image. The face must be RECOGNIZABLY THE SAME PERSON across all shots.
+- **HAIR**: EXACT same hairstyle, hair color, hair length, and hair texture. No changes allowed.
+- **CLOTHING**: EXACT same outfit — same colors, same layers, same accessories (belts, holsters, pendants, bandages). No substitutions.
+- **BODY**: Same build, height proportion, and posture tendencies.
+- **RULE**: If a reference image is provided, it is the GROUND TRUTH. Text description is secondary. When in doubt, copy the reference image pixel-for-pixel.
+- **ANTI-HALLUCINATION**: Do NOT invent new clothing, change hair color, add/remove accessories, or alter facial features. Every detail must trace back to the reference.
+
+⚠️ **PRIORITY B — FIRST-FRAME PRINCIPLE (VIDEO T=0 STARTING FRAME)** ⚠️
+This image will be used as the STARTING FRAME of a video clip at time T=0 before playback starts.
 - Depict the moment JUST BEFORE the first action begins. Characters are in ANTICIPATION POSES — tensed, ready, but NOT yet moving.
-- ABSOLUTELY NO: motion blur, mid-swing limbs, mid-air objects, impact deformation, splash effects, falling bodies, or any sign of movement already in progress.
-- Think of it as pressing PAUSE at the very start of a scene: everything is STILL, FROZEN, STATIC.
+- ABSOLUTELY NO: motion blur, mid-swing limbs, mid-air objects, impact deformation, splash effects, falling bodies.
 - Characters should look like they are ABOUT TO act, not already acting.
-- Example: "A punches B" → show A with fist raised, tensed, ABOUT TO swing — NOT the punch landing.
+- Example: "A punches B" → show A with fist raised, ABOUT TO swing — NOT the punch landing.
 - Example: "A falls to the ground" → show A losing balance, ABOUT TO fall — NOT already on the ground.
-- Example: "A drags B" → show A gripping B, ABOUT TO pull — NOT mid-drag.
-- If the description says "X is already on the ground" or a completed state, show the moment JUST BEFORE that state.
 
 === CURRENT SHOT ===
 Scene: "${sceneName || "Unknown"}"
@@ -267,30 +275,21 @@ Scene environment: ${sceneDescription || sceneName || "Not specified"}
 ${styleDesc}
 IMPORTANT: Every element in the image (characters, environment, lighting, textures) MUST be rendered in this EXACT art style. Do NOT default to photorealism unless "live-action" is specified. Do NOT mix styles.
 ${narrativeContext}
-=== CRITICAL REQUIREMENTS ===
-1. **FIRST-FRAME STATIC POSE (REITERATED — #1 PRIORITY):** Every character and object must be COMPLETELY STILL. No motion blur. No mid-action poses. Anticipation only. This is a FROZEN MOMENT before action begins.
-2. NARRATIVE EXPANSION: Based on the shot description and script context, enrich the visual details — add appropriate environmental elements, lighting mood, character micro-expressions and body language that match the narrative tone. Do NOT invent content that contradicts the script.
-3. SPATIAL CONSISTENCY: If previous/next shot context is provided, maintain consistent:
+=== ADDITIONAL REQUIREMENTS ===
+1. NARRATIVE EXPANSION: Based on the shot description and script context, enrich the visual details — add appropriate environmental elements, lighting mood, character micro-expressions and body language that match the narrative tone. Do NOT invent content that contradicts the script.
+2. SPATIAL CONSISTENCY & VISUAL CONTINUITY: If previous/next shot context or a previous storyboard image is provided, maintain consistent:
+   - **Character appearance MUST match reference images exactly** (reiterated — this is the most common failure)
    - Character positions and facing directions
    - Background elements and environment layout
    - Lighting direction and color temperature
-   **BUT VARY THE COMPOSITION**: Even when characters and environment stay the same, each consecutive shot MUST use a DISTINCTLY DIFFERENT composition:
+   **BUT VARY THE COMPOSITION**: Each consecutive shot MUST use a DISTINCTLY DIFFERENT composition:
    - CHANGE the camera angle (e.g., eye-level → high angle → low angle → over-the-shoulder → Dutch angle)
    - CHANGE the shot size (e.g., medium shot → close-up → wide shot → extreme close-up on hands/eyes)
    - CHANGE the framing (e.g., center-framed → rule-of-thirds left → negative space right → foreground framing)
    - NEVER produce two adjacent shots with the same angle + distance + framing combination
-   - If the previous shot is provided, analyze its composition and DELIBERATELY choose a contrasting one
-4. **CHARACTER CONSISTENCY — ZERO TOLERANCE FOR DEVIATION:**
-   Every character MUST be an EXACT visual clone of their reference image. Follow these hard constraints:
-   - **FACE**: Reproduce the EXACT same facial structure, eye shape, eye color, nose shape, lip shape, jawline, skin tone, scars, and facial hair from the reference image. The face must be RECOGNIZABLY THE SAME PERSON.
-   - **HAIR**: EXACT same hairstyle, hair color, hair length, and hair texture. No changes allowed.
-   - **CLOTHING**: EXACT same outfit — same colors, same layers, same accessories (belts, holsters, pendants, bandages). No substitutions.
-   - **BODY**: Same build, height proportion, and posture tendencies.
-   - **RULE**: If a reference image is provided, it is the GROUND TRUTH. Text description is secondary. When in doubt, copy the reference image.
-   - **ANTI-HALLUCINATION**: Do NOT invent new clothing, change hair color, add/remove accessories, or alter facial features. Every detail must trace back to the reference.
-5. If a scene environment reference image is provided below, maintain the same environment style, layout, and atmosphere.
-6. ${aspectRatio || "16:9"} cinematic composition, professional storyboard quality, cinematic lighting. The image MUST be in ${aspectRatio || "16:9"} aspect ratio.${(aspectRatio === "9:16" || aspectRatio === "2:3") ? `
-7. **PORTRAIT / VERTICAL FRAME COMPOSITION (9:16 / 2:3 — CHARACTER-RELATIONSHIP-FIRST PHILOSOPHY):**
+3. If a scene environment reference image is provided below, maintain the same environment style, layout, and atmosphere.
+4. ${aspectRatio || "16:9"} cinematic composition, professional storyboard quality, cinematic lighting. The image MUST be in ${aspectRatio || "16:9"} aspect ratio.${(aspectRatio === "9:16" || aspectRatio === "2:3") ? `
+5. **PORTRAIT / VERTICAL FRAME COMPOSITION (9:16 / 2:3 — CHARACTER-RELATIONSHIP-FIRST PHILOSOPHY):**
    **CORE PRINCIPLE: The vertical frame is a CHARACTER INTIMACY tool, NOT a landscape tool.**
    - MOST PREFERRED: Two-shot close-ups capturing both characters' faces/expressions
    - Use SHALLOW depth of field aggressively: background should be soft bokeh
@@ -299,8 +298,8 @@ ${narrativeContext}
    - Stack character eyelines at different heights to create power dynamics
    - Prefer dramatic side-lighting that sculpts facial features` : ""}
 
-${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "8" : "7"}. Ultra high resolution.
-${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "9" : "8"}. Depict EXACTLY this single shot as described — show the specific action anticipation, character positions, and emotion.`;
+${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "6" : "5"}. Ultra high resolution.
+${(aspectRatio === "9:16" || aspectRatio === "2:3") ? "7" : "6"}. Depict EXACTLY this single shot — show the specific anticipation moment, character positions, and emotion. Characters MUST look identical to their reference images.`;
     }
 
     // Build multimodal parts: text prompt + reference images
