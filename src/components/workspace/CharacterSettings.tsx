@@ -157,74 +157,87 @@ const CharacterSettings = ({
     const hasCostumes = character.costumes && character.costumes.length > 0;
 
     if (hasCostumes) {
-      // For characters with costumes: generate images for ALL costume variants sequentially
-      // This ensures visual consistency (same person, different outfits)
+      // First costume: no reference image; subsequent costumes reference the first one's result
+      // If the first costume fails after 3 retries, abort all remaining costumes
       setGeneratingCharImgIds((prev) => new Set(prev).add(id));
       const costumes = character.costumes!;
       let successCount = 0;
       let failCount = 0;
-      let firstSuccessImageUrl: string | undefined = character.imageUrl; // Use base character image as initial anchor
-      let anchorLocked = !!character.imageUrl; // If base image exists, it's already our anchor
+      let anchorImageUrl: string | undefined; // Set after first costume succeeds
 
-      for (const cos of costumes) {
+      for (let cosIdx = 0; cosIdx < costumes.length; cosIdx++) {
+        const cos = costumes[cosIdx];
         if (stopCostumeGenRef.current.has(id)) {
           toast({ title: "已中止", description: `${character.name} 服装图生成已中止（已完成 ${successCount} 套）` });
           break;
         }
         if (!cos.label?.trim()) continue;
-        // Auto-switch to the costume being generated
         updateCharacterAsync(id, { activeCostumeId: cos.id });
         const cosTaskKey = `costume-${cos.id}`;
         addTask(cosTaskKey, "charImg");
         setGeneratingCharImgIds((prev) => new Set(prev).add(cosTaskKey));
-        try {
-          const freshChar = charactersRef.current.find((ch) => ch.id === id);
-          const freshCos = freshChar?.costumes?.find(cc => cc.id === cos.id);
-          const combinedDesc = `${character.name}，${freshCos?.label || cos.label}：${freshCos?.description || cos.description || freshChar?.description || character.description}`;
-          const { data, error } = await withTimeout(
-            supabase.functions.invoke("generate-character", {
-              body: {
-                name: `${character.name} - ${freshCos?.label || cos.label}`,
-                description: combinedDesc,
-                style: artStyle,
-                model: charImageModel,
-                referenceImageUrl: firstSuccessImageUrl || undefined,
-              },
-            }),
-            CHAR_IMAGE_TIMEOUT_MS,
-          );
-          if (error) throw error;
-          if (data?.error) throw new Error(data.error);
-          const cosUrl = await ensureStorageUrl(data.imageUrl, "costumes");
-          // Lock the first successful image as the anchor for ALL subsequent costumes
-          if (!anchorLocked) {
-            firstSuccessImageUrl = cosUrl;
-            anchorLocked = true;
+
+        const isFirstCostume = cosIdx === 0;
+        const maxRetries = isFirstCostume ? 3 : 1;
+        let succeeded = false;
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            const freshChar = charactersRef.current.find((ch) => ch.id === id);
+            const freshCos = freshChar?.costumes?.find(cc => cc.id === cos.id);
+            const combinedDesc = `${character.name}，${freshCos?.label || cos.label}：${freshCos?.description || cos.description || freshChar?.description || character.description}`;
+            const { data, error } = await withTimeout(
+              supabase.functions.invoke("generate-character", {
+                body: {
+                  name: `${character.name} - ${freshCos?.label || cos.label}`,
+                  description: combinedDesc,
+                  style: artStyle,
+                  model: charImageModel,
+                  referenceImageUrl: isFirstCostume ? undefined : anchorImageUrl,
+                },
+              }),
+              CHAR_IMAGE_TIMEOUT_MS,
+            );
+            if (error) throw error;
+            if (data?.error) throw new Error(data.error);
+            const cosUrl = await ensureStorageUrl(data.imageUrl, "costumes");
+            if (isFirstCostume) {
+              anchorImageUrl = cosUrl;
+            }
+            const charNow = charactersRef.current.find((ch) => ch.id === id);
+            if (charNow) {
+              const updatedCostumes = (charNow.costumes || []).map(cc => {
+                if (cc.id !== cos.id) return cc;
+                const history = [...(cc.imageHistory || [])];
+                if (cc.imageUrl) {
+                  history.push({ imageUrl: cc.imageUrl, description: cc.description || "", createdAt: new Date().toISOString() });
+                }
+                return { ...cc, imageUrl: cosUrl, isAIGenerated: true, imageHistory: history };
+              });
+              updateCharacterAsync(id, { costumes: updatedCostumes });
+            }
+            successCount++;
+            succeeded = true;
+            toast({ title: "生成成功", description: `${character.name}「${freshCos?.label || cos.label}」服装设定图已生成（${successCount}/${costumes.length}）` });
+            break;
+          } catch (e: any) {
+            console.error(`Costume generation error for ${cos.label} (attempt ${attempt}/${maxRetries}):`, e);
+            if (attempt < maxRetries) {
+              toast({ title: "重试中", description: `${character.name}「${cos.label}」生成失败，正在重试（${attempt}/${maxRetries}）…`, variant: "destructive" });
+            } else {
+              failCount++;
+              const fe = friendlyError(e);
+              toast({ title: fe.title, description: `${character.name}「${cos.label}」生成失败：${fe.description}`, variant: "destructive" });
+            }
           }
-          // Update costume image with history
-          const charNow = charactersRef.current.find((ch) => ch.id === id);
-          if (charNow) {
-            const updatedCostumes = (charNow.costumes || []).map(cc => {
-              if (cc.id !== cos.id) return cc;
-              const history = [...(cc.imageHistory || [])];
-              if (cc.imageUrl) {
-                history.push({ imageUrl: cc.imageUrl, description: cc.description || "", createdAt: new Date().toISOString() });
-              }
-              return { ...cc, imageUrl: cosUrl, isAIGenerated: true, imageHistory: history };
-            });
-            updateCharacterAsync(id, { costumes: updatedCostumes });
-          }
-          successCount++;
-          toast({ title: "生成成功", description: `${character.name}「${freshCos?.label || cos.label}」服装设定图已生成（${successCount}/${costumes.length}）` });
-        } catch (e: any) {
-          console.error(`Costume generation error for ${cos.label}:`, e);
-          failCount++;
-          const fe = friendlyError(e);
-          toast({ title: fe.title, description: `${character.name}「${cos.label}」生成失败：${fe.description}`, variant: "destructive" });
-          // Don't update lastSuccessImageUrl on failure — next costume will still reference the last successful one
-        } finally {
-          removeTask(cosTaskKey, "charImg");
-          setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(cosTaskKey); return next; });
+        }
+
+        removeTask(cosTaskKey, "charImg");
+        setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(cosTaskKey); return next; });
+
+        if (isFirstCostume && !succeeded) {
+          toast({ title: "已中止", description: `${character.name} 首套服装生成失败（已重试3次），后续服装生成已中止`, variant: "destructive" });
+          break;
         }
       }
 
