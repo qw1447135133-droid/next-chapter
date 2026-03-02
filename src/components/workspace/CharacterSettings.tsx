@@ -1139,7 +1139,7 @@ const CharacterSettings = ({
                         </div>
                         {activeCostume.imageUrl && (
                           <div className="rounded-lg overflow-hidden border border-border/40">
-                            <ImageThumbnail src={activeCostume.imageUrl} alt={`${c.name} ${activeCostume.label}`} className="w-full max-h-[250px] object-contain" maxDim={800} />
+                            <ImageThumbnail src={activeCostume.imageUrl} alt={`${c.name} ${activeCostume.label}`} className="w-full max-h-[400px] object-contain" maxDim={1000} />
                           </div>
                         )}
                       </div>
