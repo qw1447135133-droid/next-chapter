@@ -63,7 +63,7 @@ Write in vivid, detail-rich English that can be used directly as an AI image gen
     const userContent = `Script content:\n${script}\n\nGenerate a detailed environment description for the scene "${sceneName}".`;
 
     const response = await fetch(
-      `${ZHANHU_BASE_URL}/models/gemini-3.1-pro-preview:generateContent/`,
+      `${ZHANHU_BASE_URL}/models/gemini-3-pro-preview:generateContent/`,
       {
         method: "POST",
         headers: {

@@ -69,7 +69,7 @@ Write in vivid, visually precise English that can be used directly as an AI imag
     const userContent = `Script content:\n${script}\n\nGenerate a detailed appearance and design description for the character "${characterName}".`;
 
     const response = await fetch(
-      `${ZHANHU_BASE_URL}/models/gemini-3.1-pro-preview:generateContent/`,
+      `${ZHANHU_BASE_URL}/models/gemini-3-pro-preview:generateContent/`,
       {
         method: "POST",
         headers: {
