@@ -125,7 +125,9 @@ const CharacterSettings = ({
   const charactersRef = useRef(characters);
   charactersRef.current = characters;
   const updateCharacterAsync = (id: string, updates: Partial<CharacterSetting>) => {
-    onCharactersChange(charactersRef.current.map((c) => (c.id === id ? { ...c, ...updates } : c)));
+    const updated = charactersRef.current.map((c) => (c.id === id ? { ...c, ...updates } : c));
+    charactersRef.current = updated; // Eagerly update ref to prevent stale reads in batched calls
+    onCharactersChange(updated);
   };
 
   const handleUploadImage = (id: string) => fileInputRefs.current[id]?.click();
@@ -310,7 +312,9 @@ const CharacterSettings = ({
   const sceneSettingsRef = useRef(sceneSettings);
   sceneSettingsRef.current = sceneSettings;
   const updateSceneAsync = (id: string, updates: Partial<SceneSetting>) => {
-    onSceneSettingsChange(sceneSettingsRef.current.map((s) => (s.id === id ? { ...s, ...updates } : s)));
+    const updated = sceneSettingsRef.current.map((s) => (s.id === id ? { ...s, ...updates } : s));
+    sceneSettingsRef.current = updated; // Eagerly update ref to prevent stale reads
+    onSceneSettingsChange(updated);
   };
 
   const handleUploadSceneImage = (id: string) => sceneFileInputRefs.current[id]?.click();
