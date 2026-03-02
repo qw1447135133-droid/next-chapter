@@ -198,48 +198,61 @@ async function decomposeScript(body: any) {
   
   const prompt = basePrompt + jsonEnforcement;
 
-  const model = "gemini-3.1-pro-preview";
+  // Models to try in order: primary needs thinking mode, fallbacks may not
+  const models = [
+    { name: "gemini-3.1-pro-preview", group: "vertex", needsThinking: true },
+    { name: "gemini-2.5-pro", group: "gemini-6", needsThinking: true },
+    { name: "gemini-2.5-flash", group: "gemini-6", needsThinking: false },
+  ];
   const TIMEOUT_MS = 180_000;
 
   let geminiResponse: Response | null = null;
   let lastError: Error | null = null;
 
-  const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model}:generateContent/`;
-  const requestBody = JSON.stringify({
-    contents: [
-      { role: "user", parts: [{ text: `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}` }] },
-    ],
-    generationConfig: {
+  const userContent = `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}`;
+
+  for (const model of models) {
+    const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model.name}:generateContent/`;
+    const genConfig: any = {
       temperature: 0.3,
       maxOutputTokens: 65536,
       responseMimeType: "application/json",
-      thinkingConfig: { thinkingBudget: 1024 },
-    },
-  });
-
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    geminiResponse = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-      body: requestBody,
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-
-    if (!geminiResponse.ok) {
-      const statusCode = geminiResponse.status;
-      const errText = await geminiResponse.text();
-      console.error(`Model ${model} returned ${statusCode}:`, errText);
-      geminiResponse = null;
-    } else {
-      console.log(`Successfully using model: ${model}`);
+    };
+    if (model.needsThinking) {
+      genConfig.thinkingConfig = { thinkingBudget: 1024 };
     }
-  } catch (err) {
-    lastError = err instanceof Error ? err : new Error(String(err));
-    console.error(`Model ${model} failed:`, lastError.message);
-    geminiResponse = null;
+    const requestBody = JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: userContent }] }],
+      generationConfig: genConfig,
+    });
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      geminiResponse = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+        body: requestBody,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!geminiResponse.ok) {
+        const statusCode = geminiResponse.status;
+        const errText = await geminiResponse.text();
+        console.error(`Model ${model.name} returned ${statusCode}:`, errText);
+        geminiResponse = null;
+        continue; // try next model
+      } else {
+        console.log(`Successfully using model: ${model.name}`);
+        break; // success
+      }
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      console.error(`Model ${model.name} failed:`, lastError.message);
+      geminiResponse = null;
+      continue; // try next model
+    }
   }
 
   if (!geminiResponse) {
