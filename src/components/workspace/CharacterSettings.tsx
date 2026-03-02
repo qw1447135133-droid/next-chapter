@@ -77,7 +77,7 @@ const CharacterSettings = ({
     const currentIds = characters.map(c => c.id).join(",");
     if (currentIds === prevCharIdsRef.current) return; // only trigger on character list change
     prevCharIdsRef.current = currentIds;
-    const charsWithCostumes = characters.filter(c => c.costumes && c.costumes.length > 0);
+    const charsWithCostumes = characters.filter(c => c.costumes && c.costumes.length > 1);
     if (charsWithCostumes.length > 0) {
       setExpandedCostumeCharIds(prev => {
         const next = new Set(prev);
