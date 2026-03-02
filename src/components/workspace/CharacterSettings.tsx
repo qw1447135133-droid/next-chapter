@@ -995,9 +995,11 @@ const CharacterSettings = ({
             setGeneratingCharImgIds((prev) => new Set(prev).add(costumeTaskKey));
             try {
               const combinedDesc = `${c.name}，${costume.label}：${costume.description || c.description}`;
+              // Use base character image or first successful costume image as reference anchor
+              const referenceImageUrl = c.imageUrl || (c.costumes || []).find(cos => cos.id !== costumeId && cos.imageUrl)?.imageUrl || undefined;
               const { data, error } = await withTimeout(
                 supabase.functions.invoke("generate-character", {
-                  body: { name: `${c.name} - ${costume.label}`, description: combinedDesc, style: artStyle, model: charImageModel },
+                  body: { name: `${c.name} - ${costume.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl },
                 }),
                 CHAR_IMAGE_TIMEOUT_MS,
               );
