@@ -8,7 +8,7 @@ import { toast } from "@/hooks/use-toast";
 import { friendlyError } from "@/lib/friendly-error";
 import { compressImage } from "@/lib/image-compress";
 import { supabase } from "@/integrations/supabase/client";
-import type { Scene, CharacterSetting, SceneSetting, WorkspaceStep, ArtStyle, VideoModel } from "@/types/project";
+import type { Scene, CharacterSetting, SceneSetting, WorkspaceStep, ArtStyle, VideoModel, CostumeSetting } from "@/types/project";
 import { VIDEO_MODEL_API_MAP } from "@/types/project";
 import { useProjectPersistence } from "@/hooks/use-project-persistence";
 import StepIndicator from "@/components/workspace/StepIndicator";
@@ -267,17 +267,27 @@ const Workspace = () => {
 
         setScenes(parsedScenes);
 
-      const aiCharacters: Array<{ name: string; description: string }> = data.characters || [];
+      const aiCharacters: Array<{ name: string; description: string; costumes?: Array<{ label: string; description: string }> }> = data.characters || [];
       const allCharNames = new Set<string>();
       parsedScenes.forEach((s) => s.characters.forEach((name) => allCharNames.add(name)));
       const autoCharacters: CharacterSetting[] = Array.from(allCharNames).map((name) => {
         const aiChar = aiCharacters.find((c) => c.name === name);
+        const costumes: CostumeSetting[] | undefined = aiChar?.costumes && aiChar.costumes.length > 0
+          ? aiChar.costumes.map((cos) => ({
+              id: crypto.randomUUID(),
+              label: cos.label || "",
+              description: cos.description || "",
+              isAIGenerated: false,
+            }))
+          : undefined;
         return {
           id: crypto.randomUUID(),
           name,
           description: aiChar?.description || "",
           isAIGenerated: false,
           source: "auto" as const,
+          costumes,
+          activeCostumeId: costumes?.[0]?.id,
         };
       });
       setCharacters(autoCharacters);

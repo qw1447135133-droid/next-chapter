@@ -190,7 +190,13 @@ async function decomposeScript(body: any) {
 
    【关键约束】：每个segmentLabel必须对应3~5个分镜对象，绝不能1个片段只有1个分镜！
 
-2. "characters" - 角色信息数组，每个包含 name 和 description
+2. "characters" - 角色信息数组，每个包含：
+   - name: 角色名称
+   - description: 角色外貌描述
+   - costumes: 服装变体数组（可选）。如果剧本中同一角色出现了多套不同的服装/造型/装扮，请提取为服装变体。每个服装变体包含：
+     - label: 服装名称（如"校服"、"礼服"、"战斗装"等）
+     - description: 该服装的详细描述
+   注意：只有当角色在剧本中确实出现多套不同服装时才需要填写costumes字段。如果角色始终穿同一套衣服，则不需要costumes字段。
 
 3. "sceneSettings" - 场景设定数组，每个包含 name 和 description（环境详细描述，不能为空）
 

@@ -69,7 +69,23 @@ const CharacterSettings = ({
 }: CharacterSettingsProps) => {
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const sceneFileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  const [expandedCostumeCharId, setExpandedCostumeCharId] = useState<string | null>(null);
+  const [expandedCostumeCharIds, setExpandedCostumeCharIds] = useState<Set<string>>(new Set());
+
+  // Auto-expand costume panel for characters that have multiple costumes (e.g. from script decomposition)
+  const prevCharIdsRef = useRef<string>("");
+  useEffect(() => {
+    const currentIds = characters.map(c => c.id).join(",");
+    if (currentIds === prevCharIdsRef.current) return; // only trigger on character list change
+    prevCharIdsRef.current = currentIds;
+    const charsWithCostumes = characters.filter(c => c.costumes && c.costumes.length > 0);
+    if (charsWithCostumes.length > 0) {
+      setExpandedCostumeCharIds(prev => {
+        const next = new Set(prev);
+        charsWithCostumes.forEach(c => next.add(c.id));
+        return next;
+      });
+    }
+  }, [characters]);
 
   // Image model selector state (persisted to localStorage)
   const [charImageModel, setCharImageModelState] = useState<CharImageModel>(() => {
@@ -726,7 +742,7 @@ const CharacterSettings = ({
         {characters.map((c) => {
           const hasCostumes = c.costumes && c.costumes.length > 0;
           const costumeCount = c.costumes?.length || 0;
-          const isCostumeExpanded = expandedCostumeCharId === c.id;
+          const isCostumeExpanded = expandedCostumeCharIds.has(c.id);
 
           const addCostume = () => {
             const newCostume: CostumeSetting = {
@@ -838,7 +854,11 @@ const CharacterSettings = ({
                        variant={isCostumeExpanded ? "secondary" : "outline"}
                        size="sm"
                        className="shrink-0 gap-1 text-xs"
-                       onClick={() => setExpandedCostumeCharId(isCostumeExpanded ? null : c.id)}
+                        onClick={() => setExpandedCostumeCharIds(prev => {
+                          const next = new Set(prev);
+                          if (isCostumeExpanded) next.delete(c.id); else next.add(c.id);
+                          return next;
+                        })}
                      >
                        <Shirt className="h-3 w-3" />
                        服装
