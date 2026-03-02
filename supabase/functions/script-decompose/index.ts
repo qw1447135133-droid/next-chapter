@@ -198,66 +198,53 @@ async function decomposeScript(body: any) {
   
   const prompt = basePrompt + jsonEnforcement;
 
-  // Models to try in order: primary needs thinking mode, fallbacks may not
-  const models = [
-    { name: "gemini-3.1-pro-preview", group: "vertex", needsThinking: true },
-    { name: "gemini-2.5-pro", group: "gemini-6", needsThinking: true },
-    { name: "gemini-2.5-flash", group: "gemini-6", needsThinking: false },
-  ];
+  const model = "gemini-3.1-pro-preview";
   const TIMEOUT_MS = 180_000;
+
+  const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model}:generateContent/`;
+  const requestBody = JSON.stringify({
+    contents: [
+      { role: "user", parts: [{ text: `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}` }] },
+    ],
+    generationConfig: {
+      temperature: 0.3,
+      maxOutputTokens: 65536,
+      responseMimeType: "application/json",
+      thinkingConfig: { thinkingBudget: 1024 },
+    },
+  });
 
   let geminiResponse: Response | null = null;
   let lastError: Error | null = null;
 
-  const userContent = `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}`;
-
-  for (const model of models) {
-    const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model.name}:generateContent/`;
-    const genConfig: any = {
-      temperature: 0.3,
-      maxOutputTokens: 65536,
-      responseMimeType: "application/json",
-    };
-    if (model.needsThinking) {
-      genConfig.thinkingConfig = { thinkingBudget: 1024 };
-    }
-    const requestBody = JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: userContent }] }],
-      generationConfig: genConfig,
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    geminiResponse = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      body: requestBody,
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
-      geminiResponse = await fetch(apiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-        body: requestBody,
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-
-      if (!geminiResponse.ok) {
-        const statusCode = geminiResponse.status;
-        const errText = await geminiResponse.text();
-        console.error(`Model ${model.name} returned ${statusCode}:`, errText);
-        geminiResponse = null;
-        continue; // try next model
-      } else {
-        console.log(`Successfully using model: ${model.name}`);
-        break; // success
-      }
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      console.error(`Model ${model.name} failed:`, lastError.message);
+    if (!geminiResponse.ok) {
+      const statusCode = geminiResponse.status;
+      const errText = await geminiResponse.text();
+      console.error(`Model ${model} returned ${statusCode}:`, errText);
       geminiResponse = null;
-      continue; // try next model
+    } else {
+      console.log(`Successfully using model: ${model}`);
     }
+  } catch (err) {
+    lastError = err instanceof Error ? err : new Error(String(err));
+    console.error(`Model ${model} failed:`, lastError.message);
+    geminiResponse = null;
   }
 
   if (!geminiResponse) {
     const isTimeout = lastError?.message?.includes("abort") || lastError?.message?.includes("timed out") || lastError?.name === "AbortError";
-    throw new Error(isTimeout ? "AI 服务连接超时，请稍后重试" : "所有模型均不可用，请稍后重试");
+    throw new Error(isTimeout ? "AI 服务连接超时，请稍后重试" : "模型不可用，请稍后重试");
   }
 
   if (!geminiResponse.ok) {
