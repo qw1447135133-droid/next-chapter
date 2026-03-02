@@ -100,7 +100,7 @@ async function extractCharactersAndScenes(body: any) {
     throw new Error("API Key 未配置");
   }
 
-  const models = ["gemini-3-pro-preview"];
+  const models = ["gemini-3-pro-preview-thinking", "gemini-3-pro-preview"];
   const TIMEOUT_MS = 120_000;
   const promptText = `${EXTRACTION_PROMPT}\n\n---\n\n以下是用户的剧本：\n\n${script}`;
 
