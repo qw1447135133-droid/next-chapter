@@ -1145,7 +1145,7 @@ const CharacterSettings = ({
                           className="text-xs min-h-[50px] resize-none"
                           rows={2}
                         />
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-wrap">
                           <input
                             type="file"
                             accept="image/*"
@@ -1165,6 +1165,21 @@ const CharacterSettings = ({
                             {generatingCharImgIds.has(`costume-${activeCostume.id}`) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                             AI 生成服装图
                           </Button>
+                          <ImageHistoryDialog
+                            history={activeCostume.imageHistory || []}
+                            label={`${c.name} - ${activeCostume.label || "服装"}`}
+                            onRestore={(entry) => {
+                              const updatedCostumes = (c.costumes || []).map(cos => {
+                                if (cos.id !== activeCostume.id) return cos;
+                                const history = [...(cos.imageHistory || [])];
+                                if (cos.imageUrl) {
+                                  history.push({ imageUrl: cos.imageUrl, description: cos.description || "", createdAt: new Date().toISOString() });
+                                }
+                                return { ...cos, imageUrl: entry.imageUrl, imageHistory: history.filter(h => h.imageUrl !== entry.imageUrl) };
+                              });
+                              updateCharacter(c.id, { costumes: updatedCostumes });
+                            }}
+                          />
                         </div>
                         {activeCostume.imageUrl && (
                           <div className="rounded-lg overflow-hidden border border-border/40">
