@@ -206,11 +206,81 @@ const Workspace = () => {
         const timeoutMs = charCount <= 8000 ? 180_000 : charCount <= 15000 ? 360_000 : 600_000;
         const controller = new AbortController();
         analyzeAbortRef.current = controller;
-        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-        // Use direct fetch with streaming to handle long-running generation
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+        // ========== Phase 1: Extract characters & scenes ==========
+        toast({ title: "阶段 1/2", description: "正在识别角色与场景..." });
+        
+        const extractTimeoutId = setTimeout(() => controller.abort(), 120_000);
+        const extractResponse = await fetch(`${supabaseUrl}/functions/v1/extract-characters-scenes`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${supabaseKey}`,
+            "apikey": supabaseKey,
+          },
+          body: JSON.stringify({ script }),
+          signal: controller.signal,
+        });
+        clearTimeout(extractTimeoutId);
+
+        if (!extractResponse.ok) {
+          const errText = await extractResponse.text();
+          let errMsg = `角色提取失败 (${extractResponse.status})`;
+          try { errMsg = JSON.parse(errText.trim().split("\n").pop()!).error || errMsg; } catch {}
+          throw new Error(errMsg);
+        }
+
+        const extractText = await extractResponse.text();
+        const extractLines = extractText.trim().split("\n").filter((l) => l.trim());
+        const extractLastLine = extractLines[extractLines.length - 1];
+        const extractData = JSON.parse(extractLastLine);
+        if (extractData?.error) throw new Error(typeof extractData.error === 'string' ? extractData.error : (extractData.error.message || JSON.stringify(extractData.error)));
+
+        // Process characters from phase 1
+        const aiCharacters: Array<{ name: string; description: string; costumes?: Array<{ label: string; description: string }> }> = extractData.characters || [];
+        const aiSceneSettings: Array<{ name: string; description: string }> = extractData.sceneSettings || [];
+
+        const autoCharacters: CharacterSetting[] = aiCharacters.map((aiChar) => {
+          const costumes: CostumeSetting[] | undefined = aiChar?.costumes && aiChar.costumes.length > 0
+            ? aiChar.costumes.map((cos) => ({
+                id: crypto.randomUUID(),
+                label: cos.label || "",
+                description: cos.description || "",
+                isAIGenerated: false,
+              }))
+            : undefined;
+          return {
+            id: crypto.randomUUID(),
+            name: aiChar.name,
+            description: aiChar?.description || "",
+            isAIGenerated: false,
+            source: "auto" as const,
+            costumes,
+            activeCostumeId: costumes?.[0]?.id,
+          };
+        });
+        setCharacters(autoCharacters);
+
+        if (aiSceneSettings.length > 0) {
+          const autoScenes: SceneSetting[] = aiSceneSettings.map((s) => ({
+            id: crypto.randomUUID(),
+            name: s.name,
+            description: s.description || "",
+            isAIGenerated: false,
+            source: "auto" as const,
+          }));
+          setSceneSettings(autoScenes);
+        }
+
+        toast({ title: "阶段 1/2 完成", description: `识别 ${autoCharacters.length} 个角色，${aiSceneSettings.length} 个场景` });
+
+        // ========== Phase 2: Script decomposition (timing-focused) ==========
+        toast({ title: "阶段 2/2", description: "正在拆解分镜与时长分配..." });
+
+        const decomposeTimeoutId = setTimeout(() => controller.abort(), timeoutMs);
         const response = await fetch(`${supabaseUrl}/functions/v1/script-decompose`, {
           method: "POST",
           headers: {
@@ -221,22 +291,22 @@ const Workspace = () => {
           body: JSON.stringify({ script, systemPrompt }),
           signal: controller.signal,
         });
-        clearTimeout(timeoutId);
+        clearTimeout(decomposeTimeoutId);
 
         if (!response.ok) {
           const errText = await response.text();
           let errMsg = `剧本拆解失败 (${response.status})`;
-        try { errMsg = JSON.parse(errText.trim().split("\n").pop()!).error || errMsg; } catch {}
-        throw new Error(errMsg);
-      }
+          try { errMsg = JSON.parse(errText.trim().split("\n").pop()!).error || errMsg; } catch {}
+          throw new Error(errMsg);
+        }
 
-      // Read streaming response: last non-empty line is the JSON result
-      const text = await response.text();
-      const lines = text.trim().split("\n").filter((l) => l.trim());
-      const lastLine = lines[lines.length - 1];
-      const data = JSON.parse(lastLine);
+        // Read streaming response: last non-empty line is the JSON result
+        const text = await response.text();
+        const lines = text.trim().split("\n").filter((l) => l.trim());
+        const lastLine = lines[lines.length - 1];
+        const data = JSON.parse(lastLine);
 
-      if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)));
+        if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)));
 
         // Validate data structure
         if (!data.scenes || !Array.isArray(data.scenes)) {
@@ -267,64 +337,47 @@ const Workspace = () => {
 
         setScenes(parsedScenes);
 
-      const aiCharacters: Array<{ name: string; description: string; costumes?: Array<{ label: string; description: string }> }> = data.characters || [];
-      const allCharNames = new Set<string>();
-      parsedScenes.forEach((s) => s.characters.forEach((name) => allCharNames.add(name)));
-      const autoCharacters: CharacterSetting[] = Array.from(allCharNames).map((name) => {
-        const aiChar = aiCharacters.find((c) => c.name === name);
-        const costumes: CostumeSetting[] | undefined = aiChar?.costumes && aiChar.costumes.length > 0
-          ? aiChar.costumes.map((cos) => ({
-              id: crypto.randomUUID(),
-              label: cos.label || "",
-              description: cos.description || "",
-              isAIGenerated: false,
-            }))
-          : undefined;
-        return {
-          id: crypto.randomUUID(),
-          name,
-          description: aiChar?.description || "",
-          isAIGenerated: false,
-          source: "auto" as const,
-          costumes,
-          activeCostumeId: costumes?.[0]?.id,
-        };
-      });
-      setCharacters(autoCharacters);
+        // Merge any characters found in scenes but not in phase 1
+        const existingNames = new Set(autoCharacters.map(c => c.name));
+        const allCharNames = new Set<string>();
+        parsedScenes.forEach((s) => s.characters.forEach((name) => allCharNames.add(name)));
+        const missingChars: CharacterSetting[] = Array.from(allCharNames)
+          .filter(name => !existingNames.has(name))
+          .map(name => ({
+            id: crypto.randomUUID(),
+            name,
+            description: "",
+            isAIGenerated: false,
+            source: "auto" as const,
+          }));
+        if (missingChars.length > 0) {
+          setCharacters(prev => [...prev, ...missingChars]);
+        }
 
-      const aiSceneSettings: Array<{ name: string; description: string }> = data.sceneSettings || [];
-      const sceneNameSet = new Set<string>();
-      if (aiSceneSettings.length > 0) {
-        const autoScenes: SceneSetting[] = aiSceneSettings.map((s) => ({
-          id: crypto.randomUUID(),
-          name: s.name,
-          description: s.description || "",
-          isAIGenerated: false,
-          source: "auto" as const,
-        }));
-        setSceneSettings(autoScenes);
-      } else {
-        parsedScenes.forEach((s) => {
-          if (s.sceneName && s.sceneName.trim()) sceneNameSet.add(s.sceneName.trim());
-        });
-        const autoScenes: SceneSetting[] = Array.from(sceneNameSet).map((name) => ({
-          id: crypto.randomUUID(),
-          name,
-          description: "",
-          isAIGenerated: false,
-          source: "auto" as const,
-        }));
-        setSceneSettings(autoScenes);
-      }
+        // If phase 1 didn't extract scene settings, derive from scenes
+        if (aiSceneSettings.length === 0) {
+          const sceneNameSet = new Set<string>();
+          parsedScenes.forEach((s) => {
+            if (s.sceneName && s.sceneName.trim()) sceneNameSet.add(s.sceneName.trim());
+          });
+          const autoScenes: SceneSetting[] = Array.from(sceneNameSet).map((name) => ({
+            id: crypto.randomUUID(),
+            name,
+            description: "",
+            isAIGenerated: false,
+            source: "auto" as const,
+          }));
+          setSceneSettings(autoScenes);
+        }
 
-      // Update project title from first line of script
-      const firstLine = script.trim().split("\n")[0].slice(0, 30);
-      if (firstLine) {
-        setProjectTitle(firstLine);
-        autoSave({ title: firstLine });
-      }
+        // Update project title from first line of script
+        const firstLine = script.trim().split("\n")[0].slice(0, 30);
+        if (firstLine) {
+          setProjectTitle(firstLine);
+          autoSave({ title: firstLine });
+        }
 
-      toast({ title: "拆解完成", description: `成功拆解为 ${parsedScenes.length} 个分镜，识别 ${autoCharacters.length} 个角色` });
+        toast({ title: "拆解完成", description: `成功拆解为 ${parsedScenes.length} 个分镜，识别 ${autoCharacters.length + missingChars.length} 个角色` });
         
         // Success - exit retry loop
         setIsAnalyzing(false);
