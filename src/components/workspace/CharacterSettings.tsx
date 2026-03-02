@@ -153,35 +153,93 @@ const CharacterSettings = ({
       toast({ title: "请先填写角色名称", variant: "destructive" });
       return;
     }
-    addTask(id, "charImg");
-    setGeneratingCharImgIds((prev) => new Set(prev).add(id));
-    try {
-      const { data, error } = await withTimeout(
-        supabase.functions.invoke("generate-character", {
-          body: { name: character.name, description: character.description, style: artStyle, model: charImageModel },
-        }),
-        CHAR_IMAGE_TIMEOUT_MS,
-      );
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      const imgUrl = await ensureStorageUrl(data.imageUrl, "characters");
-      // Save current image to history before replacing
-      const history = [...(character.imageHistory || [])];
-      if (character.imageUrl) {
-        history.push({ imageUrl: character.imageUrl, description: character.description || "", createdAt: new Date().toISOString() });
+
+    const hasCostumes = character.costumes && character.costumes.length > 0;
+
+    if (hasCostumes) {
+      // For characters with costumes: generate images for ALL costume variants sequentially
+      // This ensures visual consistency (same person, different outfits)
+      setGeneratingCharImgIds((prev) => new Set(prev).add(id));
+      const costumes = character.costumes!;
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const cos of costumes) {
+        if (!cos.label?.trim()) continue;
+        const cosTaskKey = `costume-${cos.id}`;
+        addTask(cosTaskKey, "charImg");
+        setGeneratingCharImgIds((prev) => new Set(prev).add(cosTaskKey));
+        try {
+          const freshChar = charactersRef.current.find((ch) => ch.id === id);
+          const freshCos = freshChar?.costumes?.find(cc => cc.id === cos.id);
+          const combinedDesc = `${character.name}，${freshCos?.label || cos.label}：${freshCos?.description || cos.description || freshChar?.description || character.description}`;
+          const { data, error } = await withTimeout(
+            supabase.functions.invoke("generate-character", {
+              body: { name: `${character.name} - ${freshCos?.label || cos.label}`, description: combinedDesc, style: artStyle, model: charImageModel },
+            }),
+            CHAR_IMAGE_TIMEOUT_MS,
+          );
+          if (error) throw error;
+          if (data?.error) throw new Error(data.error);
+          const cosUrl = await ensureStorageUrl(data.imageUrl, "costumes");
+          // Update costume image with history
+          const charNow = charactersRef.current.find((ch) => ch.id === id);
+          if (charNow) {
+            const updatedCostumes = (charNow.costumes || []).map(cc => {
+              if (cc.id !== cos.id) return cc;
+              const history = [...(cc.imageHistory || [])];
+              if (cc.imageUrl) {
+                history.push({ imageUrl: cc.imageUrl, description: cc.description || "", createdAt: new Date().toISOString() });
+              }
+              return { ...cc, imageUrl: cosUrl, isAIGenerated: true, imageHistory: history };
+            });
+            updateCharacterAsync(id, { costumes: updatedCostumes });
+          }
+          successCount++;
+          toast({ title: "生成成功", description: `${character.name}「${freshCos?.label || cos.label}」服装设定图已生成（${successCount}/${costumes.length}）` });
+        } catch (e: any) {
+          console.error(`Costume generation error for ${cos.label}:`, e);
+          failCount++;
+          const fe = friendlyError(e);
+          toast({ title: fe.title, description: `${character.name}「${cos.label}」生成失败：${fe.description}`, variant: "destructive" });
+        } finally {
+          removeTask(cosTaskKey, "charImg");
+          setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(cosTaskKey); return next; });
+        }
       }
-      updateCharacterAsync(id, { imageUrl: imgUrl, isAIGenerated: true, imageHistory: history });
-      const dbgImg = new Image();
-      dbgImg.onload = () => console.log(`[DEBUG] Character image resolution: ${dbgImg.naturalWidth}x${dbgImg.naturalHeight}, URL type: ${imgUrl?.startsWith("data:") ? "base64" : "storage"}`);
-      dbgImg.src = imgUrl;
-      toast({ title: "生成成功", description: `${character.name} 的三视图已生成` });
-    } catch (e: any) {
-      console.error("Character generation error:", e);
-      const fe = friendlyError(e);
-      toast({ title: fe.title, description: `${characters.find(c => c.id === id)?.name || "角色"}图像生成失败：${fe.description}`, variant: "destructive" });
-    } finally {
-      removeTask(id, "charImg");
+
       setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+      if (successCount > 0) {
+        toast({ title: "全部服装设定图生成完成", description: `${character.name}：成功 ${successCount} 套${failCount > 0 ? `，失败 ${failCount} 套` : ""}` });
+      }
+    } else {
+      // No costumes — original single character image generation
+      addTask(id, "charImg");
+      setGeneratingCharImgIds((prev) => new Set(prev).add(id));
+      try {
+        const { data, error } = await withTimeout(
+          supabase.functions.invoke("generate-character", {
+            body: { name: character.name, description: character.description, style: artStyle, model: charImageModel },
+          }),
+          CHAR_IMAGE_TIMEOUT_MS,
+        );
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+        const imgUrl = await ensureStorageUrl(data.imageUrl, "characters");
+        const history = [...(character.imageHistory || [])];
+        if (character.imageUrl) {
+          history.push({ imageUrl: character.imageUrl, description: character.description || "", createdAt: new Date().toISOString() });
+        }
+        updateCharacterAsync(id, { imageUrl: imgUrl, isAIGenerated: true, imageHistory: history });
+        toast({ title: "生成成功", description: `${character.name} 的三视图已生成` });
+      } catch (e: any) {
+        console.error("Character generation error:", e);
+        const fe = friendlyError(e);
+        toast({ title: fe.title, description: `${characters.find(c => c.id === id)?.name || "角色"}图像生成失败：${fe.description}`, variant: "destructive" });
+      } finally {
+        removeTask(id, "charImg");
+        setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+      }
     }
   };
 
@@ -981,7 +1039,7 @@ const CharacterSettings = ({
                     </Button>
                     <Button size="sm" className="gap-1 text-xs" onClick={() => handleGenerateCharacter(c.id)} disabled={generatingCharImgIds.has(c.id) || !String(c.name || "").trim()}>
                       {generatingCharImgIds.has(c.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                      AI 生成三视图
+                      {hasCostumes ? `AI 生成全部服装图 (${costumeCount})` : "AI 生成三视图"}
                     </Button>
                   </div>
                 </div>
