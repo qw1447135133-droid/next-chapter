@@ -18,7 +18,7 @@ serve(async (req) => {
   }
 
   try {
-    const { name, description, style, model } = await req.json();
+    const { name, description, style, model, referenceImageUrl } = await req.json();
 
     if (!name) {
       return new Response(JSON.stringify({ error: "缺少角色名称" }), {
@@ -48,6 +48,10 @@ serve(async (req) => {
     };
     const styleDesc = styleMap[style] || styleMap["live-action"];
 
+    const refImageNote = referenceImageUrl
+      ? `\n\nCRITICAL: The attached reference image shows the SAME character in a different costume. You MUST preserve the EXACT same face, facial features, bone structure, eye shape, nose, lips, skin tone, hair color, hairstyle, body proportions, and build. ONLY change the clothing/outfit as described. The character's identity must be unmistakably the same person.`
+      : "";
+
     const prompt = `Create a professional character design reference sheet for an animated character: "${name}" - ${characterDesc}.
 
 Art style: ${styleDesc}.
@@ -58,7 +62,7 @@ The image should be a clean character turnaround sheet with 4 views arranged in 
 - Bottom-left: BACK VIEW (full body, facing away)
 - Bottom-right: FACE CLOSE-UP (detailed head/face portrait)
 
-Each view should be labeled clearly. The character design must be consistent across all 4 views. The entire image MUST be in ${styleDesc} style.`;
+Each view should be labeled clearly. The character design must be consistent across all 4 views. The entire image MUST be in ${styleDesc} style.${refImageNote}`;
 
     console.log(`[${FUNCTION_VERSION}] Calling API for character:`, name, "style:", style, "model:", model || "gemini-3-pro-image-preview");
     const controller = new AbortController();
@@ -132,21 +136,50 @@ Each view should be labeled clearly. The character design must be consistent acr
       // Gemini models
       let response: Response;
       try {
-        response = await fetch(
-          `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent/`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },
-            signal: controller.signal,
-            body: JSON.stringify({
-              contents: [{ role: "user", parts: [{ text: prompt }] }],
-              generationConfig: {
-                responseModalities: ["IMAGE", "TEXT"],
-                imageConfig: { aspectRatio: "16:9", imageSize: "2K" },
-              },
-            }),
-          },
-        );
+      // Build multimodal parts: text + optional reference image
+      const parts: any[] = [{ text: prompt }];
+      if (referenceImageUrl) {
+        try {
+          console.log("Fetching reference image for consistency...");
+          const refResp = await fetch(referenceImageUrl);
+          if (refResp.ok) {
+            const refBuf = await refResp.arrayBuffer();
+            const refBytes = new Uint8Array(refBuf);
+            // Only include if reasonable size (< 4MB)
+            if (refBytes.length < 4 * 1024 * 1024) {
+              let refBinary = "";
+              const chunkSize = 8192;
+              for (let i = 0; i < refBytes.length; i += chunkSize) {
+                refBinary += String.fromCharCode(...refBytes.subarray(i, i + chunkSize));
+              }
+              const refBase64 = btoa(refBinary);
+              const refMime = (refResp.headers.get("content-type") || "image/png").split(";")[0];
+              parts.unshift({ inlineData: { mimeType: refMime, data: refBase64 } });
+              console.log(`Reference image included: ${refBytes.length} bytes`);
+            } else {
+              console.log(`Reference image too large (${refBytes.length} bytes), skipping`);
+            }
+          }
+        } catch (refErr) {
+          console.error("Failed to fetch reference image:", refErr);
+        }
+      }
+
+      response = await fetch(
+        `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent/`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },
+          signal: controller.signal,
+          body: JSON.stringify({
+            contents: [{ role: "user", parts }],
+            generationConfig: {
+              responseModalities: ["IMAGE", "TEXT"],
+              imageConfig: { aspectRatio: "16:9", imageSize: "2K" },
+            },
+          }),
+        },
+      );
       } catch (fetchErr) {
         clearTimeout(timeout);
         const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
