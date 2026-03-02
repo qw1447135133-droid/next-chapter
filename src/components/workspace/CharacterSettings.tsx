@@ -163,6 +163,7 @@ const CharacterSettings = ({
       const costumes = character.costumes!;
       let successCount = 0;
       let failCount = 0;
+      let lastSuccessImageUrl: string | undefined = character.imageUrl; // Use base character image as initial reference
 
       for (const cos of costumes) {
         if (!cos.label?.trim()) continue;
@@ -175,13 +176,21 @@ const CharacterSettings = ({
           const combinedDesc = `${character.name}，${freshCos?.label || cos.label}：${freshCos?.description || cos.description || freshChar?.description || character.description}`;
           const { data, error } = await withTimeout(
             supabase.functions.invoke("generate-character", {
-              body: { name: `${character.name} - ${freshCos?.label || cos.label}`, description: combinedDesc, style: artStyle, model: charImageModel },
+              body: {
+                name: `${character.name} - ${freshCos?.label || cos.label}`,
+                description: combinedDesc,
+                style: artStyle,
+                model: charImageModel,
+                referenceImageUrl: lastSuccessImageUrl || undefined,
+              },
             }),
             CHAR_IMAGE_TIMEOUT_MS,
           );
           if (error) throw error;
           if (data?.error) throw new Error(data.error);
           const cosUrl = await ensureStorageUrl(data.imageUrl, "costumes");
+          // Track last successful image for next costume's reference
+          lastSuccessImageUrl = cosUrl;
           // Update costume image with history
           const charNow = charactersRef.current.find((ch) => ch.id === id);
           if (charNow) {
@@ -202,6 +211,7 @@ const CharacterSettings = ({
           failCount++;
           const fe = friendlyError(e);
           toast({ title: fe.title, description: `${character.name}「${cos.label}」生成失败：${fe.description}`, variant: "destructive" });
+          // Don't update lastSuccessImageUrl on failure — next costume will still reference the last successful one
         } finally {
           removeTask(cosTaskKey, "charImg");
           setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(cosTaskKey); return next; });
