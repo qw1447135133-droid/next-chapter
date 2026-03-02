@@ -106,12 +106,16 @@ interface ImageThumbnailProps {
  * or the original URL for storage-hosted images.
  * Shows a download button on hover to save the original full-size image.
  */
-const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDim = 2048 }: ImageThumbnailProps) => {
-  const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDim = 512 }: ImageThumbnailProps) => {
+  // Show src immediately as preview; replace with compressed version when ready
+  const [thumbUrl, setThumbUrl] = useState<string | null>(src || null);
   const [hovered, setHovered] = useState(false);
   const [enlarged, setEnlarged] = useState(false);
 
   useEffect(() => {
+    // Always show src immediately
+    setThumbUrl(src);
+
     let cancelled = false;
 
     // Check memory cache first (sync)
@@ -177,6 +181,8 @@ const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDi
         img.onload = () => compressWithCanvas(img);
         img.src = src;
       } else {
+        // For storage URLs, the browser is already showing the image via src
+        // Compress in background for memory optimization
         const img = new Image();
         img.crossOrigin = "anonymous";
         img.onload = () => compressWithCanvas(img);
