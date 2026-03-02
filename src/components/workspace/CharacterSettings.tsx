@@ -168,6 +168,8 @@ const CharacterSettings = ({
 
       for (const cos of costumes) {
         if (!cos.label?.trim()) continue;
+        // Auto-switch to the costume being generated
+        updateCharacterAsync(id, { activeCostumeId: cos.id });
         const cosTaskKey = `costume-${cos.id}`;
         addTask(cosTaskKey, "charImg");
         setGeneratingCharImgIds((prev) => new Set(prev).add(cosTaskKey));
@@ -1090,8 +1092,12 @@ const CharacterSettings = ({
                           onClick={() => updateCharacter(c.id, { activeCostumeId: cos.id })}
                           className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors border ${
                             c.activeCostumeId === cos.id
-                              ? "bg-primary text-primary-foreground border-primary"
-                              : "bg-muted/50 text-muted-foreground border-border hover:bg-muted"
+                              ? cos.imageUrl
+                                ? "bg-green-600 text-white border-green-600"
+                                : "bg-primary text-primary-foreground border-primary"
+                              : cos.imageUrl
+                                ? "bg-green-50 text-green-700 border-green-300 hover:bg-green-100 dark:bg-green-950 dark:text-green-300 dark:border-green-700 dark:hover:bg-green-900"
+                                : "bg-muted/50 text-muted-foreground border-border hover:bg-muted"
                           }`}
                         >
                           {cos.label || "未命名"}
