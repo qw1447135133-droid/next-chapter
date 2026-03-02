@@ -606,8 +606,12 @@ const CharacterSettings = ({
       // --- Costume image phase: generate images for each costume variant ---
       const latestChar = charactersRef.current.find((ch) => ch.id === c.id);
       const costumesToGen = latestChar?.costumes?.filter(cos => cos.label?.trim() && !cos.imageUrl) || [];
+      // Use base character image as fixed anchor for consistency
+      const costumeAnchorUrl = latestChar?.imageUrl || undefined;
       for (const cos of costumesToGen) {
         if (autoDetectAbortRef.current) return;
+        // Auto-switch to the costume being generated
+        updateCharacterAsync(c.id, { activeCostumeId: cos.id });
         let cosImgOk = false;
         for (let attempt = 0; attempt <= 2; attempt++) {
           if (autoDetectAbortRef.current) return;
@@ -622,19 +626,24 @@ const CharacterSettings = ({
             const combinedDesc = `${c.name}，${freshCos?.label || cos.label}：${freshCos?.description || cos.description || freshChar?.description || desc}`;
             const { data, error } = await withTimeout(
               supabase.functions.invoke("generate-character", {
-                body: { name: `${c.name} - ${freshCos?.label || cos.label}`, description: combinedDesc, style: artStyle, model: charImageModel },
+                body: { name: `${c.name} - ${freshCos?.label || cos.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl: costumeAnchorUrl },
               }),
               CHAR_IMAGE_TIMEOUT_MS,
             );
             if (error) throw error;
             if (data?.error) throw new Error(data.error);
             const cosUrl = await ensureStorageUrl(data.imageUrl, "costumes");
-            // Update costume image
+            // Update costume image with history
             const charNow = charactersRef.current.find((ch) => ch.id === c.id);
             if (charNow) {
-              const updatedCostumes = (charNow.costumes || []).map(cc =>
-                cc.id === cos.id ? { ...cc, imageUrl: cosUrl, isAIGenerated: true } : cc
-              );
+              const updatedCostumes = (charNow.costumes || []).map(cc => {
+                if (cc.id !== cos.id) return cc;
+                const history = [...(cc.imageHistory || [])];
+                if (cc.imageUrl) {
+                  history.push({ imageUrl: cc.imageUrl, description: cc.description || "", createdAt: new Date().toISOString() });
+                }
+                return { ...cc, imageUrl: cosUrl, isAIGenerated: true, imageHistory: history };
+              });
               updateCharacterAsync(c.id, { costumes: updatedCostumes });
             }
             cosImgOk = true;
