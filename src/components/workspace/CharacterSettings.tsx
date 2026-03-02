@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Plus, Trash2, Upload, Sparkles, ArrowRight, User, MapPin, Loader2, ImageIcon, ChevronDown, Shirt, Square,
 } from "lucide-react";
-import ImageThumbnail from "./ImageThumbnail";
+import ImageThumbnail, { prewarmThumbnail } from "./ImageThumbnail";
 
 export type CharImageModel = "gemini-3-pro-image-preview" | "gemini-3.1-flash-image-preview" | "doubao-seedream-5-0-260128";
 
@@ -206,6 +206,7 @@ const CharacterSettings = ({
           if (error) throw error;
           if (data?.error) throw new Error(data.error);
           const rawUrl = data.imageUrl; // may be base64 or URL
+          prewarmThumbnail(rawUrl);
           if (isFirstCostume) {
             anchorImageUrl = rawUrl;
             isFirstGenerated = true;
@@ -277,6 +278,7 @@ const CharacterSettings = ({
         if (error) throw error;
         if (data?.error) throw new Error(data.error);
         const rawUrl = data.imageUrl;
+        prewarmThumbnail(rawUrl);
         const history = [...(character.imageHistory || [])];
         if (character.imageUrl) {
           history.push({ imageUrl: character.imageUrl, description: character.description || "", createdAt: new Date().toISOString() });
@@ -354,6 +356,7 @@ const CharacterSettings = ({
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       const rawUrl = data.imageUrl;
+      prewarmThumbnail(rawUrl);
       const history = [...(scene.imageHistory || [])];
       if (scene.imageUrl) {
         history.push({ imageUrl: scene.imageUrl, description: scene.description || "", createdAt: new Date().toISOString() });
@@ -968,6 +971,7 @@ const CharacterSettings = ({
               if (error) throw error;
               if (data?.error) throw new Error(data.error);
               const rawUrl = data.imageUrl;
+              prewarmThumbnail(rawUrl);
               const freshChar = charactersRef.current.find((ch) => ch.id === c.id);
               const freshCostume = freshChar?.costumes?.find(cos => cos.id === costumeId);
               const history = [...(freshCostume?.imageHistory || [])];

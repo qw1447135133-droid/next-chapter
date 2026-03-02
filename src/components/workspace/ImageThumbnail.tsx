@@ -92,6 +92,64 @@ async function idbSet(key: string, value: string): Promise<void> {
   }
 }
 
+/**
+ * Pre-warm the thumbnail cache for a given image URL.
+ * Call this after generation so that when the user switches tabs the thumbnail is already ready.
+ */
+export function prewarmThumbnail(src: string, maxDim = 512, maxBytes = 500 * 1024): void {
+  if (!src) return;
+  // Already cached
+  if (memCache.has(src)) return;
+
+  // Check IDB, then compress if miss
+  idbGet(src).then((cached) => {
+    if (cached) {
+      memCache.set(src, cached);
+      return;
+    }
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      let w = img.width;
+      let h = img.height;
+      if (w > maxDim || h > maxDim) {
+        const ratio = Math.min(maxDim / w, maxDim / h);
+        w = Math.round(w * ratio);
+        h = Math.round(h * ratio);
+      }
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0, w, h);
+      const qualities = [0.7, 0.5, 0.35, 0.2, 0.1];
+      for (const q of qualities) {
+        const result = canvas.toDataURL("image/jpeg", q);
+        const size = Math.ceil((result.length - result.indexOf(",") - 1) * 0.75);
+        if (size <= maxBytes) {
+          memCache.set(src, result);
+          idbSet(src, result);
+          return;
+        }
+      }
+      const small = document.createElement("canvas");
+      small.width = Math.round(w * 0.5);
+      small.height = Math.round(h * 0.5);
+      const sCtx = small.getContext("2d");
+      if (!sCtx) return;
+      sCtx.drawImage(canvas, 0, 0, small.width, small.height);
+      const result = small.toDataURL("image/jpeg", 0.2);
+      memCache.set(src, result);
+      idbSet(src, result);
+    };
+    img.onerror = () => {
+      memCache.set(src, src);
+    };
+    img.src = src;
+  });
+}
+
 interface ImageThumbnailProps {
   src: string;
   alt: string;
