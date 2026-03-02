@@ -243,7 +243,13 @@ const CharacterSettings = ({
       }
       } finally {
         stopCostumeGenRef.current.delete(id);
-        setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+        // Clean up ALL costume-related generating states (safety net)
+        setGeneratingCharImgIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          costumes.forEach(cos => { next.delete(`costume-${cos.id}`); removeTask(`costume-${cos.id}`, "charImg"); });
+          return next;
+        });
       }
     } else {
       // No costumes — original single character image generation
