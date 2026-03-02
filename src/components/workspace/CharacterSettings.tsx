@@ -183,65 +183,57 @@ const CharacterSettings = ({
         setGeneratingCharImgIds((prev) => new Set(prev).add(cosTaskKey));
 
         const isFirstCostume = !isFirstGenerated;
-        const maxRetries = isFirstCostume ? 3 : 1;
         let succeeded = false;
 
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-          try {
-            const freshChar = charactersRef.current.find((ch) => ch.id === id);
-            const freshCos = freshChar?.costumes?.find(cc => cc.id === cos.id);
-            const combinedDesc = `${character.name}，${freshCos?.label || cos.label}：${freshCos?.description || cos.description || freshChar?.description || character.description}`;
-            const { data, error } = await withTimeout(
-              supabase.functions.invoke("generate-character", {
-                body: {
-                  name: `${character.name} - ${freshCos?.label || cos.label}`,
-                  description: combinedDesc,
-                  style: artStyle,
-                  model: charImageModel,
-                  referenceImageUrl: isFirstCostume ? undefined : anchorImageUrl,
-                },
-              }),
-              CHAR_IMAGE_TIMEOUT_MS,
-            );
-            if (error) throw error;
-            if (data?.error) throw new Error(data.error);
-            const cosUrl = await ensureStorageUrl(data.imageUrl, "costumes");
-            if (isFirstCostume) {
-              anchorImageUrl = cosUrl;
-              isFirstGenerated = true;
-            }
-            // Update local copy immediately so next iteration sees it
-            localCostumes = localCostumes.map(cc => {
-              if (cc.id !== cos.id) return cc;
-              const history = [...(cc.imageHistory || [])];
-              if (cc.imageUrl) {
-                history.push({ imageUrl: cc.imageUrl, description: cc.description || "", createdAt: new Date().toISOString() });
-              }
-              return { ...cc, imageUrl: cosUrl, isAIGenerated: true, imageHistory: history };
-            });
-            // Push local copy to React state
-            updateCharacterAsync(id, { costumes: [...localCostumes] });
-            successCount++;
-            succeeded = true;
-            toast({ title: "生成成功", description: `${character.name}「${freshCos?.label || cos.label}」服装设定图已生成（${successCount}/${costumes.length}）` });
-            break;
-          } catch (e: any) {
-            console.error(`Costume generation error for ${cos.label} (attempt ${attempt}/${maxRetries}):`, e);
-            if (attempt < maxRetries) {
-              toast({ title: "重试中", description: `${character.name}「${cos.label}」生成失败，正在重试（${attempt}/${maxRetries}）…`, variant: "destructive" });
-            } else {
-              failCount++;
-              const fe = friendlyError(e);
-              toast({ title: fe.title, description: `${character.name}「${cos.label}」生成失败：${fe.description}`, variant: "destructive" });
-            }
+        try {
+          const freshChar = charactersRef.current.find((ch) => ch.id === id);
+          const freshCos = freshChar?.costumes?.find(cc => cc.id === cos.id);
+          const combinedDesc = `${character.name}，${freshCos?.label || cos.label}：${freshCos?.description || cos.description || freshChar?.description || character.description}`;
+          const { data, error } = await withTimeout(
+            supabase.functions.invoke("generate-character", {
+              body: {
+                name: `${character.name} - ${freshCos?.label || cos.label}`,
+                description: combinedDesc,
+                style: artStyle,
+                model: charImageModel,
+                referenceImageUrl: isFirstCostume ? undefined : anchorImageUrl,
+              },
+            }),
+            CHAR_IMAGE_TIMEOUT_MS,
+          );
+          if (error) throw error;
+          if (data?.error) throw new Error(data.error);
+          const cosUrl = await ensureStorageUrl(data.imageUrl, "costumes");
+          if (isFirstCostume) {
+            anchorImageUrl = cosUrl;
+            isFirstGenerated = true;
           }
+          // Update local copy immediately so next iteration sees it
+          localCostumes = localCostumes.map(cc => {
+            if (cc.id !== cos.id) return cc;
+            const history = [...(cc.imageHistory || [])];
+            if (cc.imageUrl) {
+              history.push({ imageUrl: cc.imageUrl, description: cc.description || "", createdAt: new Date().toISOString() });
+            }
+            return { ...cc, imageUrl: cosUrl, isAIGenerated: true, imageHistory: history };
+          });
+          // Push local copy to React state
+          updateCharacterAsync(id, { costumes: [...localCostumes] });
+          successCount++;
+          succeeded = true;
+          toast({ title: "生成成功", description: `${character.name}「${freshCos?.label || cos.label}」服装设定图已生成（${successCount}/${costumes.length}）` });
+        } catch (e: any) {
+          console.error(`Costume generation error for ${cos.label}:`, e);
+          failCount++;
+          const fe = friendlyError(e);
+          toast({ title: fe.title, description: `${character.name}「${cos.label}」生成失败：${fe.description}`, variant: "destructive" });
         }
 
         removeTask(cosTaskKey, "charImg");
         setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(cosTaskKey); return next; });
 
         if (isFirstCostume && !succeeded) {
-          toast({ title: "已中止", description: `${character.name} 首套服装生成失败（已重试3次），后续服装生成已中止`, variant: "destructive" });
+          toast({ title: "已中止", description: `${character.name} 首套服装生成失败，后续服装生成已中止`, variant: "destructive" });
           break;
         }
       }
@@ -544,284 +536,209 @@ const CharacterSettings = ({
 
       const hasCostumesToDescribe = c.costumes && c.costumes.length > 0;
 
-      // --- Description phase (retry up to 2 times) ---
+      // --- Description phase ---
       let desc = "";
       let descOk = false;
-      for (let attempt = 0; attempt <= 2; attempt++) {
-        if (autoDetectAbortRef.current) return;
-        await textSem.acquire();
-        if (autoDetectAbortRef.current) { textSem.release(); return; }
-        addTask(c.id, "charDesc");
-        setGeneratingCharDescIds((prev) => new Set(prev).add(c.id));
-        try {
-          if (hasCostumesToDescribe) {
-            // Describe character + all costumes at once
-            const { data, error } = await supabase.functions.invoke("generate-character-description", {
-              body: { characterName: c.name, script, costumes: c.costumes!.map(cos => cos.label || "未命名") },
-            });
-            if (error) throw error;
-            if (data?.error) throw new Error(data.error);
-            desc = data.description || "";
-            if (data.costumeDescriptions && Array.isArray(data.costumeDescriptions)) {
-              const updatedCostumes = c.costumes!.map((cos, i) => ({
-                ...cos,
-                description: data.costumeDescriptions[i]?.description || cos.description,
-              }));
-              updateCharacterAsync(c.id, { description: desc, costumes: updatedCostumes });
-            } else {
-              updateCharacterAsync(c.id, { description: desc });
-            }
-          } else {
-            const { data, error } = await supabase.functions.invoke("generate-character-description", {
-              body: { characterName: c.name, script },
-            });
-            if (error) throw error;
-            if (data?.error) throw new Error(data.error);
-            desc = data.description || "";
-            updateCharacterAsync(c.id, { description: desc });
-          }
-          descOk = true;
-        } catch (e) {
-          if (attempt < 2) console.log(`Retrying char desc "${c.name}", attempt ${attempt + 2}`);
-        } finally {
-          removeTask(c.id, "charDesc");
-          setGeneratingCharDescIds((prev) => { const next = new Set(prev); next.delete(c.id); return next; });
-          textSem.release();
-        }
-        if (descOk) break;
-      }
-      if (descOk) successCountRef.current++; else { failCountRef.current++; return; } // Skip image if desc failed
-
-      // --- Image phase (retry up to 2 times) ---
-      let imgOk = false;
-      for (let attempt = 0; attempt <= 2; attempt++) {
-        if (autoDetectAbortRef.current) return;
-        await imageSem.acquire();
-        if (autoDetectAbortRef.current) { imageSem.release(); return; }
-        addTask(c.id, "charImg");
-        setGeneratingCharImgIds((prev) => new Set(prev).add(c.id));
-        try {
-          const latest = charactersRef.current.find((ch) => ch.id === c.id);
-          const { data, error } = await withTimeout(
-            supabase.functions.invoke("generate-character", {
-              body: { name: c.name, description: latest?.description || desc, style: artStyle, model: charImageModel },
-            }),
-            CHAR_IMAGE_TIMEOUT_MS,
-          );
+      if (autoDetectAbortRef.current) return;
+      await textSem.acquire();
+      if (autoDetectAbortRef.current) { textSem.release(); return; }
+      addTask(c.id, "charDesc");
+      setGeneratingCharDescIds((prev) => new Set(prev).add(c.id));
+      try {
+        if (hasCostumesToDescribe) {
+          const { data, error } = await supabase.functions.invoke("generate-character-description", {
+            body: { characterName: c.name, script, costumes: c.costumes!.map(cos => cos.label || "未命名") },
+          });
           if (error) throw error;
           if (data?.error) throw new Error(data.error);
-          const charUrl = await ensureStorageUrl(data.imageUrl, "characters");
-          const latestAgain = charactersRef.current.find((ch) => ch.id === c.id);
-          const history = [...(latestAgain?.imageHistory || [])];
-          if (latestAgain?.imageUrl) {
-            history.push({ imageUrl: latestAgain.imageUrl, description: latestAgain.description || "", createdAt: new Date().toISOString() });
+          desc = data.description || "";
+          if (data.costumeDescriptions && Array.isArray(data.costumeDescriptions)) {
+            const updatedCostumes = c.costumes!.map((cos, i) => ({
+              ...cos,
+              description: data.costumeDescriptions[i]?.description || cos.description,
+            }));
+            updateCharacterAsync(c.id, { description: desc, costumes: updatedCostumes });
+          } else {
+            updateCharacterAsync(c.id, { description: desc });
           }
-          updateCharacterAsync(c.id, { imageUrl: charUrl, isAIGenerated: true, imageHistory: history });
-          imgOk = true;
-        } catch (e) {
-          if (attempt < 2) console.log(`Retrying char img "${c.name}", attempt ${attempt + 2}`);
-        } finally {
-          removeTask(c.id, "charImg");
-          setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(c.id); return next; });
-          imageSem.release();
+        } else {
+          const { data, error } = await supabase.functions.invoke("generate-character-description", {
+            body: { characterName: c.name, script },
+          });
+          if (error) throw error;
+          if (data?.error) throw new Error(data.error);
+          desc = data.description || "";
+          updateCharacterAsync(c.id, { description: desc });
         }
-        if (imgOk) break;
+        descOk = true;
+      } catch (e) {
+        console.error(`Char desc "${c.name}" failed:`, e);
+      } finally {
+        removeTask(c.id, "charDesc");
+        setGeneratingCharDescIds((prev) => { const next = new Set(prev); next.delete(c.id); return next; });
+        textSem.release();
+      }
+      if (descOk) successCountRef.current++; else { failCountRef.current++; return; }
+
+      // --- Image phase ---
+      let imgOk = false;
+      if (autoDetectAbortRef.current) return;
+      await imageSem.acquire();
+      if (autoDetectAbortRef.current) { imageSem.release(); return; }
+      addTask(c.id, "charImg");
+      setGeneratingCharImgIds((prev) => new Set(prev).add(c.id));
+      try {
+        const latest = charactersRef.current.find((ch) => ch.id === c.id);
+        const { data, error } = await withTimeout(
+          supabase.functions.invoke("generate-character", {
+            body: { name: c.name, description: latest?.description || desc, style: artStyle, model: charImageModel },
+          }),
+          CHAR_IMAGE_TIMEOUT_MS,
+        );
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+        const charUrl = await ensureStorageUrl(data.imageUrl, "characters");
+        const latestAgain = charactersRef.current.find((ch) => ch.id === c.id);
+        const history = [...(latestAgain?.imageHistory || [])];
+        if (latestAgain?.imageUrl) {
+          history.push({ imageUrl: latestAgain.imageUrl, description: latestAgain.description || "", createdAt: new Date().toISOString() });
+        }
+        updateCharacterAsync(c.id, { imageUrl: charUrl, isAIGenerated: true, imageHistory: history });
+        imgOk = true;
+      } catch (e) {
+        console.error(`Char img "${c.name}" failed:`, e);
+      } finally {
+        removeTask(c.id, "charImg");
+        setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(c.id); return next; });
+        imageSem.release();
       }
       if (imgOk) successCountRef.current++; else failCountRef.current++;
 
       // --- Costume image phase: generate images for each costume variant ---
       const latestChar = charactersRef.current.find((ch) => ch.id === c.id);
       const costumesToGen = latestChar?.costumes?.filter(cos => cos.label?.trim() && !cos.imageUrl) || [];
-      // Use base character image as fixed anchor for consistency
       const costumeAnchorUrl = latestChar?.imageUrl || undefined;
       for (const cos of costumesToGen) {
         if (autoDetectAbortRef.current) return;
-        // Auto-switch to the costume being generated
         updateCharacterAsync(c.id, { activeCostumeId: cos.id });
+        if (autoDetectAbortRef.current) return;
+        await imageSem.acquire();
+        if (autoDetectAbortRef.current) { imageSem.release(); return; }
+        const cosTaskKey = `costume-${cos.id}`;
+        addTask(cosTaskKey, "charImg");
+        setGeneratingCharImgIds((prev) => new Set(prev).add(cosTaskKey));
         let cosImgOk = false;
-        for (let attempt = 0; attempt <= 2; attempt++) {
-          if (autoDetectAbortRef.current) return;
-          await imageSem.acquire();
-          if (autoDetectAbortRef.current) { imageSem.release(); return; }
-          const cosTaskKey = `costume-${cos.id}`;
-          addTask(cosTaskKey, "charImg");
-          setGeneratingCharImgIds((prev) => new Set(prev).add(cosTaskKey));
-          try {
-            const freshChar = charactersRef.current.find((ch) => ch.id === c.id);
-            const freshCos = freshChar?.costumes?.find(cc => cc.id === cos.id);
-            const combinedDesc = `${c.name}，${freshCos?.label || cos.label}：${freshCos?.description || cos.description || freshChar?.description || desc}`;
-            const { data, error } = await withTimeout(
-              supabase.functions.invoke("generate-character", {
-                body: { name: `${c.name} - ${freshCos?.label || cos.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl: costumeAnchorUrl },
-              }),
-              CHAR_IMAGE_TIMEOUT_MS,
-            );
-            if (error) throw error;
-            if (data?.error) throw new Error(data.error);
-            const cosUrl = await ensureStorageUrl(data.imageUrl, "costumes");
-            // Update costume image with history
-            const charNow = charactersRef.current.find((ch) => ch.id === c.id);
-            if (charNow) {
-              const updatedCostumes = (charNow.costumes || []).map(cc => {
-                if (cc.id !== cos.id) return cc;
-                const history = [...(cc.imageHistory || [])];
-                if (cc.imageUrl) {
-                  history.push({ imageUrl: cc.imageUrl, description: cc.description || "", createdAt: new Date().toISOString() });
-                }
-                return { ...cc, imageUrl: cosUrl, isAIGenerated: true, imageHistory: history };
-              });
-              updateCharacterAsync(c.id, { costumes: updatedCostumes });
-            }
-            cosImgOk = true;
-          } catch (e) {
-            if (attempt < 2) console.log(`Retrying costume img "${c.name} - ${cos.label}", attempt ${attempt + 2}`);
-          } finally {
-            removeTask(cosTaskKey, "charImg");
-            setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(cosTaskKey); return next; });
-            imageSem.release();
+        try {
+          const freshChar = charactersRef.current.find((ch) => ch.id === c.id);
+          const freshCos = freshChar?.costumes?.find(cc => cc.id === cos.id);
+          const combinedDesc = `${c.name}，${freshCos?.label || cos.label}：${freshCos?.description || cos.description || freshChar?.description || desc}`;
+          const { data, error } = await withTimeout(
+            supabase.functions.invoke("generate-character", {
+              body: { name: `${c.name} - ${freshCos?.label || cos.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl: costumeAnchorUrl },
+            }),
+            CHAR_IMAGE_TIMEOUT_MS,
+          );
+          if (error) throw error;
+          if (data?.error) throw new Error(data.error);
+          const cosUrl = await ensureStorageUrl(data.imageUrl, "costumes");
+          const charNow = charactersRef.current.find((ch) => ch.id === c.id);
+          if (charNow) {
+            const updatedCostumes = (charNow.costumes || []).map(cc => {
+              if (cc.id !== cos.id) return cc;
+              const history = [...(cc.imageHistory || [])];
+              if (cc.imageUrl) {
+                history.push({ imageUrl: cc.imageUrl, description: cc.description || "", createdAt: new Date().toISOString() });
+              }
+              return { ...cc, imageUrl: cosUrl, isAIGenerated: true, imageHistory: history };
+            });
+            updateCharacterAsync(c.id, { costumes: updatedCostumes });
           }
-          if (cosImgOk) break;
+          cosImgOk = true;
+        } catch (e) {
+          console.error(`Costume img "${c.name} - ${cos.label}" failed:`, e);
+        } finally {
+          removeTask(cosTaskKey, "charImg");
+          setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(cosTaskKey); return next; });
+          imageSem.release();
         }
         if (cosImgOk) successCountRef.current++; else failCountRef.current++;
       }
     };
 
-    // Process a single scene: description (with retry) → image (with retry)
+    // Process a single scene: description → image
     const processScene = async (s: SceneSetting) => {
       if (!String(s.name || "").trim()) return;
 
-      // --- Description phase (retry up to 2 times) ---
+      // --- Description phase ---
       let desc = "";
       let descOk = false;
-      for (let attempt = 0; attempt <= 2; attempt++) {
-        if (autoDetectAbortRef.current) return;
-        await textSem.acquire();
-        if (autoDetectAbortRef.current) { textSem.release(); return; }
-        addTask(s.id, "sceneDesc");
-        setGeneratingDescIds((prev) => new Set(prev).add(s.id));
-        try {
-          const { data, error } = await supabase.functions.invoke("generate-scene-description", {
-            body: { sceneName: s.name, script },
-          });
-          if (error) throw error;
-          if (data?.error) throw new Error(data.error);
-          desc = data.description || "";
-          updateSceneAsync(s.id, { description: desc });
-          descOk = true;
-        } catch (e) {
-          if (attempt < 2) console.log(`Retrying scene desc "${s.name}", attempt ${attempt + 2}`);
-        } finally {
-          removeTask(s.id, "sceneDesc");
-          setGeneratingDescIds((prev) => { const next = new Set(prev); next.delete(s.id); return next; });
-          textSem.release();
-        }
-        if (descOk) break;
+      if (autoDetectAbortRef.current) return;
+      await textSem.acquire();
+      if (autoDetectAbortRef.current) { textSem.release(); return; }
+      addTask(s.id, "sceneDesc");
+      setGeneratingDescIds((prev) => new Set(prev).add(s.id));
+      try {
+        const { data, error } = await supabase.functions.invoke("generate-scene-description", {
+          body: { sceneName: s.name, script },
+        });
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+        desc = data.description || "";
+        updateSceneAsync(s.id, { description: desc });
+        descOk = true;
+      } catch (e) {
+        console.error(`Scene desc "${s.name}" failed:`, e);
+      } finally {
+        removeTask(s.id, "sceneDesc");
+        setGeneratingDescIds((prev) => { const next = new Set(prev); next.delete(s.id); return next; });
+        textSem.release();
       }
-      if (descOk) successCountRef.current++; else { failCountRef.current++; return; } // Skip image if desc failed
+      if (descOk) successCountRef.current++; else { failCountRef.current++; return; }
 
-      // --- Image phase (retry up to 2 times) ---
+      // --- Image phase ---
       let imgOk = false;
-      for (let attempt = 0; attempt <= 2; attempt++) {
-        if (autoDetectAbortRef.current) return;
-        await imageSem.acquire();
-        if (autoDetectAbortRef.current) { imageSem.release(); return; }
-        addTask(s.id, "sceneImg");
-        setGeneratingSceneImgIds((prev) => new Set(prev).add(s.id));
-        try {
-          const latest = sceneSettingsRef.current.find((sc) => sc.id === s.id);
-          const { data, error } = await withTimeout(
-            supabase.functions.invoke("generate-scene", {
-              body: { name: s.name, description: latest?.description || desc, style: artStyle, model: charImageModel },
-            }),
-            SCENE_IMAGE_TIMEOUT_MS,
-          );
-          if (error) throw error;
-          if (data?.error) throw new Error(data.error);
-          const scnUrl = await ensureStorageUrl(data.imageUrl, "scenes");
-          const latestAgain = sceneSettingsRef.current.find((sc) => sc.id === s.id);
-          const sceneHistory = [...(latestAgain?.imageHistory || [])];
-          if (latestAgain?.imageUrl) {
-            sceneHistory.push({ imageUrl: latestAgain.imageUrl, description: latestAgain.description || "", createdAt: new Date().toISOString() });
-          }
-          updateSceneAsync(s.id, { imageUrl: scnUrl, isAIGenerated: true, imageHistory: sceneHistory });
-          imgOk = true;
-        } catch (e) {
-          if (attempt < 2) console.log(`Retrying scene img "${s.name}", attempt ${attempt + 2}`);
-        } finally {
-          removeTask(s.id, "sceneImg");
-          setGeneratingSceneImgIds((prev) => { const next = new Set(prev); next.delete(s.id); return next; });
-          imageSem.release();
+      if (autoDetectAbortRef.current) return;
+      await imageSem.acquire();
+      if (autoDetectAbortRef.current) { imageSem.release(); return; }
+      addTask(s.id, "sceneImg");
+      setGeneratingSceneImgIds((prev) => new Set(prev).add(s.id));
+      try {
+        const latest = sceneSettingsRef.current.find((sc) => sc.id === s.id);
+        const { data, error } = await withTimeout(
+          supabase.functions.invoke("generate-scene", {
+            body: { name: s.name, description: latest?.description || desc, style: artStyle, model: charImageModel },
+          }),
+          SCENE_IMAGE_TIMEOUT_MS,
+        );
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+        const scnUrl = await ensureStorageUrl(data.imageUrl, "scenes");
+        const latestAgain = sceneSettingsRef.current.find((sc) => sc.id === s.id);
+        const sceneHistory = [...(latestAgain?.imageHistory || [])];
+        if (latestAgain?.imageUrl) {
+          sceneHistory.push({ imageUrl: latestAgain.imageUrl, description: latestAgain.description || "", createdAt: new Date().toISOString() });
         }
-        if (imgOk) break;
+        updateSceneAsync(s.id, { imageUrl: scnUrl, isAIGenerated: true, imageHistory: sceneHistory });
+        imgOk = true;
+      } catch (e) {
+        console.error(`Scene img "${s.name}" failed:`, e);
+      } finally {
+        removeTask(s.id, "sceneImg");
+        setGeneratingSceneImgIds((prev) => { const next = new Set(prev); next.delete(s.id); return next; });
+        imageSem.release();
       }
       if (imgOk) successCountRef.current++; else failCountRef.current++;
     };
 
-    // Track failed items for review pass
-    const failedCharIds = new Set<string>();
-    const failedSceneIds = new Set<string>();
-
-    const processCharacterTracked = async (c: CharacterSetting) => {
-      await processCharacter(c);
-      const latest = charactersRef.current.find((ch) => ch.id === c.id);
-      if (latest && (!latest.description || !latest.imageUrl)) failedCharIds.add(c.id);
-      // Also check costumes missing images
-      if (latest?.costumes?.some(cos => cos.label?.trim() && !cos.imageUrl)) failedCharIds.add(c.id);
-    };
-    const processSceneTracked = async (s: SceneSetting) => {
-      await processScene(s);
-      const latest = sceneSettingsRef.current.find((sc) => sc.id === s.id);
-      if (latest && (!latest.description || !latest.imageUrl)) failedSceneIds.add(s.id);
-    };
-
     // Launch all tasks in parallel (concurrency controlled by semaphores)
     for (const c of charactersRef.current) {
-      allTasks.push(processCharacterTracked(c));
+      allTasks.push(processCharacter(c));
     }
     for (const s of sceneSettingsRef.current) {
-      allTasks.push(processSceneTracked(s));
+      allTasks.push(processScene(s));
     }
 
     await Promise.all(allTasks);
-
-    // === REVIEW PASS: retry any items still missing description or image (with concurrency control) ===
-    if (!autoDetectAbortRef.current) {
-      const reviewSem = createSemaphore(2); // 限制重试并发数为2
-      const reviewTasks: Promise<void>[] = [];
-      
-      // Re-check characters
-      for (const c of charactersRef.current) {
-        if (!c.description || !c.imageUrl) {
-          console.log(`Review pass: retrying character "${c.name}"`);
-          reviewTasks.push((async () => {
-            await reviewSem.acquire();
-            try {
-              await processCharacter(c);
-            } finally {
-              reviewSem.release();
-            }
-          })());
-        }
-      }
-      // Re-check scenes
-      for (const s of sceneSettingsRef.current) {
-        if (!s.description || !s.imageUrl) {
-          console.log(`Review pass: retrying scene "${s.name}"`);
-          reviewTasks.push((async () => {
-            await reviewSem.acquire();
-            try {
-              await processScene(s);
-            } finally {
-              reviewSem.release();
-            }
-          })());
-        }
-      }
-      if (reviewTasks.length > 0) {
-        console.log(`Review pass: ${reviewTasks.length} items to retry`);
-        await Promise.all(reviewTasks);
-      }
-    }
 
     setIsAutoDetectingAll(false);
     setIsAbortingAutoDetect(false);
