@@ -1148,7 +1148,7 @@ const CharacterSettings = ({
                 </div>
               )}
 
-              {c.imageUrl && (
+              {c.imageUrl && !(isCostumeExpanded && hasCostumes) && (
                 <div className="border-t border-border/40 p-4 bg-muted/30">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
