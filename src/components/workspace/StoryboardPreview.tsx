@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Image, RefreshCw, Loader2, ArrowRight, History, ChevronDown, RectangleHorizontal, RectangleVertical, Square } from "lucide-react";
+import { Image, RefreshCw, Loader2, ArrowRight, History, ChevronDown, RectangleHorizontal, RectangleVertical, Square, Shirt } from "lucide-react";
 import ImageThumbnail from "./ImageThumbnail";
 
 export type StoryboardAspectRatio = "16:9" | "9:16" | "3:2" | "2:3";
@@ -271,6 +271,103 @@ const StoryboardPreview = ({
 
                 {/* Scene description */}
                 <p className={`text-xs text-muted-foreground ${isPortrait ? "line-clamp-2" : "line-clamp-3"}`}>{scene.description}</p>
+
+                {/* Costume selector for characters with 2+ costumes */}
+                {(() => {
+                  const charsWithCostumes = characters.filter(
+                    c => scene.characters.includes(c.name) && c.costumes && c.costumes.length > 1
+                  );
+                  if (charsWithCostumes.length === 0) return null;
+                  return (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {charsWithCostumes.map(c => {
+                        const assignedId = scene.characterCostumes?.[c.name];
+                        const assignedCostume = assignedId ? c.costumes!.find(cos => cos.id === assignedId) : null;
+                        // Auto-detect which costume matches scene text
+                        let autoLabel: string | null = null;
+                        if (!assignedCostume) {
+                          const sceneText = `${scene.description} ${scene.dialogue}`.toLowerCase();
+                          let bestScore = 0;
+                          for (const cos of c.costumes!) {
+                            if (!cos.label) continue;
+                            const label = cos.label.toLowerCase();
+                            if (sceneText.includes(label)) {
+                              const score = label.length + 100;
+                              if (score > bestScore) { bestScore = score; autoLabel = cos.label; }
+                              continue;
+                            }
+                            const parts = label.split(/[·・]/).map(p => p.trim()).filter(Boolean);
+                            let cs = 0, mp = 0;
+                            for (const part of parts) { if (part && sceneText.includes(part)) { cs += part.length; mp++; } }
+                            if (mp > 0) { const score = cs + mp * 10; if (score > bestScore) { bestScore = score; autoLabel = cos.label; } }
+                          }
+                        }
+                        const displayLabel = assignedCostume?.label || autoLabel || "未指定";
+                        const isManual = !!assignedCostume;
+
+                        return (
+                          <Popover key={c.id}>
+                            <PopoverTrigger asChild>
+                              <button
+                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors border ${
+                                  isManual
+                                    ? "bg-primary/10 text-primary border-primary/30"
+                                    : autoLabel
+                                    ? "bg-accent/50 text-accent-foreground border-border/40"
+                                    : "bg-muted/50 text-muted-foreground border-border/40"
+                                }`}
+                                title={`${c.name} 服装：${displayLabel}${isManual ? "（手动指定）" : autoLabel ? "（自动匹配）" : ""}`}
+                              >
+                                <Shirt className="h-2.5 w-2.5" />
+                                <span className="max-w-[80px] truncate">{c.name}</span>
+                                <span className="opacity-60">:</span>
+                                <span className="max-w-[60px] truncate">{displayLabel}</span>
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-48 p-1" align="start">
+                              <p className="px-2 py-1 text-xs font-medium text-muted-foreground">{c.name} 服装</p>
+                              {/* Auto option */}
+                              <button
+                                className={`w-full text-left px-2 py-1.5 rounded-sm text-xs transition-colors ${
+                                  !assignedCostume ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted text-foreground"
+                                }`}
+                                onClick={() => {
+                                  const updated = scenes.map(s => {
+                                    if (s.id !== scene.id) return s;
+                                    const cc = { ...(s.characterCostumes || {}) };
+                                    delete cc[c.name];
+                                    return { ...s, characterCostumes: Object.keys(cc).length > 0 ? cc : undefined };
+                                  });
+                                  onScenesChange(updated);
+                                }}
+                              >
+                                自动匹配{autoLabel ? ` (${autoLabel})` : ""}
+                              </button>
+                              {c.costumes!.map(cos => (
+                                <button
+                                  key={cos.id}
+                                  className={`w-full text-left px-2 py-1.5 rounded-sm text-xs transition-colors ${
+                                    assignedId === cos.id ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted text-foreground"
+                                  }`}
+                                  onClick={() => {
+                                    const updated = scenes.map(s => {
+                                      if (s.id !== scene.id) return s;
+                                      return { ...s, characterCostumes: { ...(s.characterCostumes || {}), [c.name]: cos.id } };
+                                    });
+                                    onScenesChange(updated);
+                                  }}
+                                >
+                                  {cos.label || "未命名"}
+                                  {cos.imageUrl && <span className="ml-1 text-muted-foreground">📷</span>}
+                                </button>
+                              ))}
+                            </PopoverContent>
+                          </Popover>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             </Card>
           );
