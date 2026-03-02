@@ -384,7 +384,7 @@ const Workspace = () => {
             if (costumeId && c.costumes) {
               const costume = c.costumes.find(cos => cos.id === costumeId);
               if (costume?.imageUrl) imageUrl = costume.imageUrl;
-            } else if (c.costumes && c.costumes.length > 0) {
+            } else if (c.costumes && c.costumes.length > 1) {
               // Auto-match: find the best costume variant based on scene text
               const sceneText = `${scene.description} ${scene.dialogue}`.toLowerCase();
               // Score each costume: check how many label components match the scene text

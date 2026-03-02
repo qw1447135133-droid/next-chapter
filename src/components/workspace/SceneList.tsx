@@ -9,7 +9,7 @@ import { useState } from "react";
 
 /** Find the best matching costume label for a character in a given scene */
 function matchCostumeLabel(character: CharacterSetting, scene: Scene): string | null {
-  if (!character.costumes || character.costumes.length === 0) return null;
+  if (!character.costumes || character.costumes.length <= 1) return null; // Skip if 0 or 1 costume
 
   // Check scene-level manual assignment first
   const costumeId = scene.characterCostumes?.[character.name];

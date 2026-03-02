@@ -199,7 +199,7 @@ async function decomposeScript(body: any) {
       每个服装变体包含：
       - label: 服装名称（如"校服"、"礼服"；若涉及年龄跨度则加年龄前缀如"18岁·校服"）
       - description: 该服装的详细描述（应包含该年龄阶段的外貌特征）
-    注意：只有当角色在剧本中确实出现多套不同服装或多个年龄阶段时才需要填写costumes字段。如果角色始终是同一年龄且穿同一套衣服，则不需要costumes字段。
+    注意：costumes字段仅在角色拥有**2套及以上**不同服装/造型时才需要填写。如果角色只有1套服装（即使剧本描述了该服装），请将服装描述合并到角色的description中，不要生成costumes字段。
 
 3. "sceneSettings" - 场景设定数组，每个包含 name 和 description（环境详细描述，不能为空）
 
