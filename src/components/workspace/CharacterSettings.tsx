@@ -324,16 +324,47 @@ const CharacterSettings = ({
       toast({ title: "缺少剧本内容", description: "请先在第一步输入剧本", variant: "destructive" });
       return;
     }
+    const hasCostumesToDescribe = character.costumes && character.costumes.length > 0;
     addTask(id, "charDesc");
     setGeneratingCharDescIds(prev => new Set(prev).add(id));
     try {
-      const { data, error } = await supabase.functions.invoke("generate-character-description", {
-        body: { characterName: character.name, script },
-      });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      updateCharacterAsync(id, { description: data.description || "" });
-      toast({ title: "识别成功", description: `已为「${character.name}」生成角色描述` });
+      if (hasCostumesToDescribe) {
+        // Describe each costume variant individually
+        const costumeLabels = character.costumes!.map(cos => cos.label || "未命名").join("、");
+        const { data, error } = await supabase.functions.invoke("generate-character-description", {
+          body: {
+            characterName: character.name,
+            script,
+            costumes: character.costumes!.map(cos => cos.label || "未命名"),
+          },
+        });
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+        // Apply per-costume descriptions
+        if (data.costumeDescriptions && Array.isArray(data.costumeDescriptions)) {
+          const updatedCostumes = character.costumes!.map((cos, i) => ({
+            ...cos,
+            description: data.costumeDescriptions[i]?.description || cos.description,
+          }));
+          updateCharacterAsync(id, {
+            description: data.description || character.description,
+            costumes: updatedCostumes,
+          });
+        } else {
+          // Fallback: just set base description
+          updateCharacterAsync(id, { description: data.description || "" });
+        }
+        toast({ title: "识别成功", description: `已为「${character.name}」生成角色描述及 ${character.costumes!.length} 套服装描述` });
+      } else {
+        // No costumes — original behavior
+        const { data, error } = await supabase.functions.invoke("generate-character-description", {
+          body: { characterName: character.name, script },
+        });
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+        updateCharacterAsync(id, { description: data.description || "" });
+        toast({ title: "识别成功", description: `已为「${character.name}」生成角色描述` });
+      }
     } catch (e: any) {
       console.error("Auto describe character error:", e);
       const fe = friendlyError(e);
@@ -869,7 +900,10 @@ const CharacterSettings = ({
                        )}
                      </Button>
                    </div>
-                  <Textarea value={c.description} onChange={(e) => updateCharacter(c.id, { description: e.target.value })} placeholder="角色描述（外貌特征、服装、年龄、气质等，越详细生成效果越好）" className="text-sm min-h-[60px] resize-none" rows={2} />
+                  {/* Hide base description when costumes are expanded — description lives per-costume */}
+                  {!(isCostumeExpanded && hasCostumes) && (
+                    <Textarea value={c.description} onChange={(e) => updateCharacter(c.id, { description: e.target.value })} placeholder="角色描述（外貌特征、服装、年龄、气质等，越详细生成效果越好）" className="text-sm min-h-[60px] resize-none" rows={2} />
+                  )}
                   <div className="flex gap-2">
                     <input type="file" accept="image/*" className="hidden" ref={(el) => { fileInputRefs.current[c.id] = el; }} onChange={(e) => handleFileChange(c.id, e)} />
                     <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => handleUploadImage(c.id)}>
