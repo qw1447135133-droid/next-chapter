@@ -203,25 +203,35 @@ const CharacterSettings = ({
           );
           if (error) throw error;
           if (data?.error) throw new Error(data.error);
-          const cosUrl = await ensureStorageUrl(data.imageUrl, "costumes");
+          const rawUrl = data.imageUrl; // may be base64 or URL
           if (isFirstCostume) {
-            anchorImageUrl = cosUrl;
+            anchorImageUrl = rawUrl;
             isFirstGenerated = true;
           }
-          // Update local copy immediately so next iteration sees it
+          // Show image immediately with raw URL (may be base64)
           localCostumes = localCostumes.map(cc => {
             if (cc.id !== cos.id) return cc;
             const history = [...(cc.imageHistory || [])];
             if (cc.imageUrl) {
               history.push({ imageUrl: cc.imageUrl, description: cc.description || "", createdAt: new Date().toISOString() });
             }
-            return { ...cc, imageUrl: cosUrl, isAIGenerated: true, imageHistory: history };
+            return { ...cc, imageUrl: rawUrl, isAIGenerated: true, imageHistory: history };
           });
-          // Push local copy to React state
           updateCharacterAsync(id, { costumes: [...localCostumes] });
           successCount++;
           succeeded = true;
           toast({ title: "生成成功", description: `${character.name}「${freshCos?.label || cos.label}」服装设定图已生成（${successCount}/${costumes.length}）` });
+          // Upload to storage in background, then update URL silently
+          ensureStorageUrl(rawUrl, "costumes").then(finalUrl => {
+            if (finalUrl !== rawUrl) {
+              if (isFirstCostume) anchorImageUrl = finalUrl;
+              const latest = charactersRef.current.find(ch => ch.id === id);
+              const updCostumes = (latest?.costumes || []).map(cc =>
+                cc.id === cos.id ? { ...cc, imageUrl: finalUrl } : cc
+              );
+              updateCharacterAsync(id, { costumes: updCostumes });
+            }
+          }).catch(() => {});
         } catch (e: any) {
           console.error(`Costume generation error for ${cos.label}:`, e);
           failCount++;
@@ -264,13 +274,16 @@ const CharacterSettings = ({
         );
         if (error) throw error;
         if (data?.error) throw new Error(data.error);
-        const imgUrl = await ensureStorageUrl(data.imageUrl, "characters");
+        const rawUrl = data.imageUrl;
         const history = [...(character.imageHistory || [])];
         if (character.imageUrl) {
           history.push({ imageUrl: character.imageUrl, description: character.description || "", createdAt: new Date().toISOString() });
         }
-        updateCharacterAsync(id, { imageUrl: imgUrl, isAIGenerated: true, imageHistory: history });
+        updateCharacterAsync(id, { imageUrl: rawUrl, isAIGenerated: true, imageHistory: history });
         toast({ title: "生成成功", description: `${character.name} 的三视图已生成` });
+        ensureStorageUrl(rawUrl, "characters").then(finalUrl => {
+          if (finalUrl !== rawUrl) updateCharacterAsync(id, { imageUrl: finalUrl });
+        }).catch(() => {});
       } catch (e: any) {
         console.error("Character generation error:", e);
         const fe = friendlyError(e);
@@ -336,14 +349,16 @@ const CharacterSettings = ({
       );
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      const sceneImgUrl = await ensureStorageUrl(data.imageUrl, "scenes");
-      // Save current image to history before replacing
+      const rawUrl = data.imageUrl;
       const history = [...(scene.imageHistory || [])];
       if (scene.imageUrl) {
         history.push({ imageUrl: scene.imageUrl, description: scene.description || "", createdAt: new Date().toISOString() });
       }
-      updateSceneAsync(id, { imageUrl: sceneImgUrl, isAIGenerated: true, imageHistory: history });
+      updateSceneAsync(id, { imageUrl: rawUrl, isAIGenerated: true, imageHistory: history });
       toast({ title: "生成成功", description: `场景「${scene.name}」已生成` });
+      ensureStorageUrl(rawUrl, "scenes").then(finalUrl => {
+        if (finalUrl !== rawUrl) updateSceneAsync(id, { imageUrl: finalUrl });
+      }).catch(() => {});
     } catch (e: any) {
       console.error("Scene generation error:", e);
       const fe = friendlyError(e);
@@ -948,8 +963,7 @@ const CharacterSettings = ({
               );
               if (error) throw error;
               if (data?.error) throw new Error(data.error);
-              const imgUrl = await ensureStorageUrl(data.imageUrl, "costumes");
-              // Use ref to get fresh character state to avoid stale closure overwrites
+              const rawUrl = data.imageUrl;
               const freshChar = charactersRef.current.find((ch) => ch.id === c.id);
               const freshCostume = freshChar?.costumes?.find(cos => cos.id === costumeId);
               const history = [...(freshCostume?.imageHistory || [])];
@@ -957,10 +971,19 @@ const CharacterSettings = ({
                 history.push({ imageUrl: freshCostume.imageUrl, description: freshCostume.description || "", createdAt: new Date().toISOString() });
               }
               const updatedCostumes = (freshChar?.costumes || []).map(cos =>
-                cos.id === costumeId ? { ...cos, imageUrl: imgUrl, isAIGenerated: true, imageHistory: history } : cos
+                cos.id === costumeId ? { ...cos, imageUrl: rawUrl, isAIGenerated: true, imageHistory: history } : cos
               );
               updateCharacterAsync(c.id, { costumes: updatedCostumes });
               toast({ title: "生成成功", description: `${c.name}「${costume.label}」服装图已生成` });
+              ensureStorageUrl(rawUrl, "costumes").then(finalUrl => {
+                if (finalUrl !== rawUrl) {
+                  const latestChar = charactersRef.current.find(ch => ch.id === c.id);
+                  const upd = (latestChar?.costumes || []).map(cos =>
+                    cos.id === costumeId ? { ...cos, imageUrl: finalUrl } : cos
+                  );
+                  updateCharacterAsync(c.id, { costumes: upd });
+                }
+              }).catch(() => {});
             } catch (e: any) {
               console.error("Costume generation error:", e);
               const fe = friendlyError(e);
