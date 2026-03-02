@@ -161,10 +161,14 @@ const CharacterSettings = ({
       // If the first costume fails after 3 retries, abort all remaining costumes
       setGeneratingCharImgIds((prev) => new Set(prev).add(id));
       const costumes = character.costumes!;
+      // Keep a local mutable copy of costumes so sequential updates don't overwrite each other
+      // (charactersRef.current only updates after React re-renders)
+      let localCostumes = [...costumes.map(c => ({ ...c }))];
       try {
       let successCount = 0;
       let failCount = 0;
       let anchorImageUrl: string | undefined; // Set after first costume succeeds
+      let isFirstGenerated = false; // tracks whether we've generated the anchor
 
       for (let cosIdx = 0; cosIdx < costumes.length; cosIdx++) {
         const cos = costumes[cosIdx];
@@ -178,7 +182,7 @@ const CharacterSettings = ({
         addTask(cosTaskKey, "charImg");
         setGeneratingCharImgIds((prev) => new Set(prev).add(cosTaskKey));
 
-        const isFirstCostume = cosIdx === 0;
+        const isFirstCostume = !isFirstGenerated;
         const maxRetries = isFirstCostume ? 3 : 1;
         let succeeded = false;
 
@@ -204,19 +208,19 @@ const CharacterSettings = ({
             const cosUrl = await ensureStorageUrl(data.imageUrl, "costumes");
             if (isFirstCostume) {
               anchorImageUrl = cosUrl;
+              isFirstGenerated = true;
             }
-            const charNow = charactersRef.current.find((ch) => ch.id === id);
-            if (charNow) {
-              const updatedCostumes = (charNow.costumes || []).map(cc => {
-                if (cc.id !== cos.id) return cc;
-                const history = [...(cc.imageHistory || [])];
-                if (cc.imageUrl) {
-                  history.push({ imageUrl: cc.imageUrl, description: cc.description || "", createdAt: new Date().toISOString() });
-                }
-                return { ...cc, imageUrl: cosUrl, isAIGenerated: true, imageHistory: history };
-              });
-              updateCharacterAsync(id, { costumes: updatedCostumes });
-            }
+            // Update local copy immediately so next iteration sees it
+            localCostumes = localCostumes.map(cc => {
+              if (cc.id !== cos.id) return cc;
+              const history = [...(cc.imageHistory || [])];
+              if (cc.imageUrl) {
+                history.push({ imageUrl: cc.imageUrl, description: cc.description || "", createdAt: new Date().toISOString() });
+              }
+              return { ...cc, imageUrl: cosUrl, isAIGenerated: true, imageHistory: history };
+            });
+            // Push local copy to React state
+            updateCharacterAsync(id, { costumes: [...localCostumes] });
             successCount++;
             succeeded = true;
             toast({ title: "生成成功", description: `${character.name}「${freshCos?.label || cos.label}」服装设定图已生成（${successCount}/${costumes.length}）` });
