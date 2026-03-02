@@ -385,10 +385,38 @@ const Workspace = () => {
               const costume = c.costumes.find(cos => cos.id === costumeId);
               if (costume?.imageUrl) imageUrl = costume.imageUrl;
             } else if (c.costumes && c.costumes.length > 0) {
-              // Auto-match: check if scene description/dialogue mentions a costume label
+              // Auto-match: find the best costume variant based on scene text
               const sceneText = `${scene.description} ${scene.dialogue}`.toLowerCase();
-              const matchedCostume = c.costumes.find(cos => cos.label && sceneText.includes(cos.label.toLowerCase()) && cos.imageUrl);
-              if (matchedCostume) imageUrl = matchedCostume.imageUrl;
+              // Score each costume: check how many label components match the scene text
+              // For labels like "18岁·护士服", split on "·" and check each part
+              let bestCostume: typeof c.costumes[0] | null = null;
+              let bestScore = 0;
+              for (const cos of c.costumes) {
+                if (!cos.label || !cos.imageUrl) continue;
+                const label = cos.label.toLowerCase();
+                // Check full label match first (highest priority)
+                if (sceneText.includes(label)) {
+                  const score = label.length + 100; // full match bonus
+                  if (score > bestScore) { bestScore = score; bestCostume = cos; }
+                  continue;
+                }
+                // Split on "·" or "·" (full-width/half-width dot) and score by component matches
+                const parts = label.split(/[·・]/).map(p => p.trim()).filter(Boolean);
+                let componentScore = 0;
+                let matchedParts = 0;
+                for (const part of parts) {
+                  if (part && sceneText.includes(part)) {
+                    componentScore += part.length;
+                    matchedParts++;
+                  }
+                }
+                // Only consider if at least one part matches; prefer more parts matched
+                if (matchedParts > 0) {
+                  const score = componentScore + matchedParts * 10;
+                  if (score > bestScore) { bestScore = score; bestCostume = cos; }
+                }
+              }
+              if (bestCostume) imageUrl = bestCostume.imageUrl;
             }
             if (!imageUrl) return null;
             return {
