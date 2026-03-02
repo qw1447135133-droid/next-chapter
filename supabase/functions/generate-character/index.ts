@@ -144,9 +144,9 @@ Each view should be labeled clearly. The character design must be consistent acr
           const refResp = await fetch(referenceImageUrl);
           if (refResp.ok) {
             const refBuf = await refResp.arrayBuffer();
-            const refBytes = new Uint8Array(refBuf);
-            // Only include if reasonable size (< 4MB)
-            if (refBytes.length < 4 * 1024 * 1024) {
+            let refBytes = new Uint8Array(refBuf);
+            const MAX_REF_SIZE = 10 * 1024 * 1024; // 10MB limit for Gemini
+            if (refBytes.length < MAX_REF_SIZE) {
               let refBinary = "";
               const chunkSize = 8192;
               for (let i = 0; i < refBytes.length; i += chunkSize) {
