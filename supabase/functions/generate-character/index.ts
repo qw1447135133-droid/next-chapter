@@ -149,19 +149,29 @@ Each view should be labeled clearly. The character design must be consistent acr
             const originalSize = refBytes.length;
             console.log(`Reference image original size: ${originalSize} bytes`);
 
-            // Compress large reference images to speed up Gemini API call
-            const COMPRESS_THRESHOLD = 1.5 * 1024 * 1024; // 1.5MB
+            // Compress to ~1MB target
+            const TARGET_SIZE = 1 * 1024 * 1024; // 1MB
             let refMime = (refResp.headers.get("content-type") || "image/png").split(";")[0];
-            if (refBytes.length > COMPRESS_THRESHOLD) {
+            if (refBytes.length > TARGET_SIZE) {
               try {
-                console.log("Compressing reference image...");
+                console.log("Compressing reference image to ~1MB...");
                 const img = await Image.decode(refBytes);
-                const MAX_DIM = 1536;
-                if (img.width > MAX_DIM || img.height > MAX_DIM) {
-                  const scale = MAX_DIM / Math.max(img.width, img.height);
-                  img.resize(Math.round(img.width * scale), Math.round(img.height * scale));
+                // Scale down progressively until under 1MB
+                let maxDim = 1536;
+                let compressed = refBytes;
+                let quality = 80;
+                while (compressed.length > TARGET_SIZE && maxDim >= 512) {
+                  if (img.width > maxDim || img.height > maxDim) {
+                    const scale = maxDim / Math.max(img.width, img.height);
+                    img.resize(Math.round(img.width * scale), Math.round(img.height * scale));
+                  }
+                  compressed = await img.encodeJPEG(quality);
+                  if (compressed.length > TARGET_SIZE) {
+                    quality -= 10;
+                    if (quality < 40) { maxDim -= 256; quality = 70; }
+                  }
                 }
-                refBytes = await img.encodeJPEG(75);
+                refBytes = compressed;
                 refMime = "image/jpeg";
                 console.log(`Reference image compressed: ${originalSize} -> ${refBytes.length} bytes`);
               } catch (compErr) {
@@ -169,7 +179,7 @@ Each view should be labeled clearly. The character design must be consistent acr
               }
             }
 
-            const MAX_REF_SIZE = 4 * 1024 * 1024; // 4MB after compression
+            const MAX_REF_SIZE = 2 * 1024 * 1024; // 2MB fallback cap
             if (refBytes.length < MAX_REF_SIZE) {
               let refBinary = "";
               const chunkSize = 8192;
