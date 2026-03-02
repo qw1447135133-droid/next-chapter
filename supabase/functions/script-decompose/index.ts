@@ -198,7 +198,7 @@ async function decomposeScript(body: any) {
   
   const prompt = basePrompt + jsonEnforcement;
 
-  const model = "gemini-3.1-pro-preview";
+  const model = "gemini-3-pro-preview";
   const TIMEOUT_MS = 180_000;
 
   const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model}:generateContent/`;
