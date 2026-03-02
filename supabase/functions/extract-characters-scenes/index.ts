@@ -100,46 +100,58 @@ async function extractCharactersAndScenes(body: any) {
     throw new Error("API Key 未配置");
   }
 
-  const model = "gemini-3-flash-preview";
+  const models = ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro"];
   const TIMEOUT_MS = 120_000;
+  const promptText = `${EXTRACTION_PROMPT}\n\n---\n\n以下是用户的剧本：\n\n${script}`;
 
-  const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model}:generateContent/`;
-  const requestBody = JSON.stringify({
-    contents: [
-      { role: "user", parts: [{ text: `${EXTRACTION_PROMPT}\n\n---\n\n以下是用户的剧本：\n\n${script}` }] },
-    ],
-    generationConfig: {
-      temperature: 0.2,
-      maxOutputTokens: 16384,
-      responseMimeType: "application/json",
-    },
-  });
+  let geminiResponse: Response | null = null;
+  let lastError: Error | null = null;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-  let response: Response;
-  try {
-    response = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-      body: requestBody,
-      signal: controller.signal,
+  for (const model of models) {
+    const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model}:generateContent/`;
+    const requestBody = JSON.stringify({
+      contents: [
+        { role: "user", parts: [{ text: promptText }] },
+      ],
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 16384,
+        responseMimeType: "application/json",
+      },
     });
-    clearTimeout(timeoutId);
-  } catch (err) {
-    clearTimeout(timeoutId);
-    const isTimeout = err instanceof Error && (err.message.includes("abort") || err.name === "AbortError");
-    throw new Error(isTimeout ? "AI 服务连接超时，请稍后重试" : "模型不可用，请稍后重试");
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      const resp = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+        body: requestBody,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (resp.ok) {
+        console.log(`extract-characters-scenes using model: ${model}`);
+        geminiResponse = resp;
+        break;
+      } else {
+        const errText = await resp.text();
+        console.error(`Model ${model} returned ${resp.status}:`, errText);
+        lastError = new Error(`${model} failed (${resp.status})`);
+      }
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      console.error(`Model ${model} failed:`, lastError.message);
+    }
   }
 
-  if (!response.ok) {
-    const errText = await response.text();
-    console.error(`Model ${model} returned ${response.status}:`, errText);
-    throw new Error(`API 调用失败 (${response.status})`);
+  if (!geminiResponse) {
+    const isTimeout = lastError?.message?.includes("abort") || lastError?.name === "AbortError";
+    throw new Error(isTimeout ? "AI 服务连接超时，请稍后重试" : "所有模型均不可用，请稍后重试");
   }
 
-  console.log(`extract-characters-scenes using model: ${model}`);
+  const response = geminiResponse;
 
   const geminiData = await response.json();
   const parts = geminiData?.candidates?.[0]?.content?.parts || [];
