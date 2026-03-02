@@ -325,7 +325,7 @@ const CharacterSettings = ({
     try {
       const { data, error } = await withTimeout(
         supabase.functions.invoke("generate-scene", {
-          body: { name: scene.name, description: scene.description, style: artStyle, model: "gemini-3-pro-image-preview" },
+          body: { name: scene.name, description: scene.description, style: artStyle, model: charImageModel },
         }),
         SCENE_IMAGE_TIMEOUT_MS,
       );
@@ -724,7 +724,7 @@ const CharacterSettings = ({
           const latest = sceneSettingsRef.current.find((sc) => sc.id === s.id);
           const { data, error } = await withTimeout(
             supabase.functions.invoke("generate-scene", {
-              body: { name: s.name, description: latest?.description || desc, style: artStyle, model: "gemini-3-pro-image-preview" },
+              body: { name: s.name, description: latest?.description || desc, style: artStyle, model: charImageModel },
             }),
             SCENE_IMAGE_TIMEOUT_MS,
           );
