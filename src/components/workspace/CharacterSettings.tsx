@@ -161,6 +161,7 @@ const CharacterSettings = ({
       // If the first costume fails after 3 retries, abort all remaining costumes
       setGeneratingCharImgIds((prev) => new Set(prev).add(id));
       const costumes = character.costumes!;
+      try {
       let successCount = 0;
       let failCount = 0;
       let anchorImageUrl: string | undefined; // Set after first costume succeeds
@@ -241,10 +242,12 @@ const CharacterSettings = ({
         }
       }
 
-      stopCostumeGenRef.current.delete(id);
-      setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
       if (successCount > 0) {
         toast({ title: "全部服装设定图生成完成", description: `${character.name}：成功 ${successCount} 套${failCount > 0 ? `，失败 ${failCount} 套` : ""}` });
+      }
+      } finally {
+        stopCostumeGenRef.current.delete(id);
+        setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
       }
     } else {
       // No costumes — original single character image generation
@@ -1019,11 +1022,17 @@ const CharacterSettings = ({
               if (error) throw error;
               if (data?.error) throw new Error(data.error);
               const imgUrl = await ensureStorageUrl(data.imageUrl, "costumes");
-              const history = [...(costume.imageHistory || [])];
-              if (costume.imageUrl) {
-                history.push({ imageUrl: costume.imageUrl, description: costume.description || "", createdAt: new Date().toISOString() });
+              // Use ref to get fresh character state to avoid stale closure overwrites
+              const freshChar = charactersRef.current.find((ch) => ch.id === c.id);
+              const freshCostume = freshChar?.costumes?.find(cos => cos.id === costumeId);
+              const history = [...(freshCostume?.imageHistory || [])];
+              if (freshCostume?.imageUrl) {
+                history.push({ imageUrl: freshCostume.imageUrl, description: freshCostume.description || "", createdAt: new Date().toISOString() });
               }
-              updateCostume(costumeId, { imageUrl: imgUrl, isAIGenerated: true, imageHistory: history });
+              const updatedCostumes = (freshChar?.costumes || []).map(cos =>
+                cos.id === costumeId ? { ...cos, imageUrl: imgUrl, isAIGenerated: true, imageHistory: history } : cos
+              );
+              updateCharacterAsync(c.id, { costumes: updatedCostumes });
               toast({ title: "生成成功", description: `${c.name}「${costume.label}」服装图已生成` });
             } catch (e: any) {
               console.error("Costume generation error:", e);
