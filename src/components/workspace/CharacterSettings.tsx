@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
-  Plus, Trash2, Upload, Sparkles, ArrowRight, User, MapPin, Loader2, ImageIcon, ChevronDown, Shirt,
+  Plus, Trash2, Upload, Sparkles, ArrowRight, User, MapPin, Loader2, ImageIcon, ChevronDown, Shirt, Square,
 } from "lucide-react";
 import ImageThumbnail from "./ImageThumbnail";
 
@@ -167,6 +167,10 @@ const CharacterSettings = ({
       let anchorLocked = !!character.imageUrl; // If base image exists, it's already our anchor
 
       for (const cos of costumes) {
+        if (stopCostumeGenRef.current.has(id)) {
+          toast({ title: "已中止", description: `${character.name} 服装图生成已中止（已完成 ${successCount} 套）` });
+          break;
+        }
         if (!cos.label?.trim()) continue;
         // Auto-switch to the costume being generated
         updateCharacterAsync(id, { activeCostumeId: cos.id });
@@ -224,6 +228,7 @@ const CharacterSettings = ({
         }
       }
 
+      stopCostumeGenRef.current.delete(id);
       setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
       if (successCount > 0) {
         toast({ title: "全部服装设定图生成完成", description: `${character.name}：成功 ${successCount} 套${failCount > 0 ? `，失败 ${failCount} 套` : ""}` });
@@ -368,6 +373,7 @@ const CharacterSettings = ({
   const [generatingCharImgIds, setGeneratingCharImgIds] = useState<Set<string>>(() => initSet("charImg"));
   const [generatingSceneImgIds, setGeneratingSceneImgIds] = useState<Set<string>>(() => initSet("sceneImg"));
   // isAutoDetectingAll, setIsAutoDetectingAll, autoDetectAbortRef are now props from Workspace
+  const stopCostumeGenRef = useRef<Set<string>>(new Set()); // track which character IDs should stop costume gen
 
   // Clean up expired tasks periodically (safety net for long-running tasks)
   useEffect(() => {
@@ -1062,10 +1068,16 @@ const CharacterSettings = ({
                     <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => handleUploadImage(c.id)}>
                       <Upload className="h-3 w-3" /> 上传人设图
                     </Button>
-                    <Button size="sm" className="gap-1 text-xs" onClick={() => handleGenerateCharacter(c.id)} disabled={generatingCharImgIds.has(c.id) || !String(c.name || "").trim()}>
-                      {generatingCharImgIds.has(c.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                      {hasCostumes ? `AI 生成全部服装图 (${costumeCount})` : "AI 生成三视图"}
-                    </Button>
+                    {hasCostumes && generatingCharImgIds.has(c.id) ? (
+                      <Button size="sm" variant="destructive" className="gap-1 text-xs" onClick={() => { stopCostumeGenRef.current.add(c.id); }}>
+                        <Square className="h-3 w-3" /> 中止生成
+                      </Button>
+                    ) : (
+                      <Button size="sm" className="gap-1 text-xs" onClick={() => handleGenerateCharacter(c.id)} disabled={generatingCharImgIds.has(c.id) || !String(c.name || "").trim()}>
+                        {generatingCharImgIds.has(c.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                        {hasCostumes ? `AI 生成全部服装图 (${costumeCount})` : "AI 生成三视图"}
+                      </Button>
+                    )}
                   </div>
                 </div>
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0" onClick={() => onCharactersChange(characters.filter((ch) => ch.id !== c.id))}>
