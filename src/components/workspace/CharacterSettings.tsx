@@ -163,7 +163,8 @@ const CharacterSettings = ({
       const costumes = character.costumes!;
       let successCount = 0;
       let failCount = 0;
-      let lastSuccessImageUrl: string | undefined = character.imageUrl; // Use base character image as initial reference
+      let firstSuccessImageUrl: string | undefined = character.imageUrl; // Use base character image as initial anchor
+      let anchorLocked = !!character.imageUrl; // If base image exists, it's already our anchor
 
       for (const cos of costumes) {
         if (!cos.label?.trim()) continue;
@@ -181,7 +182,7 @@ const CharacterSettings = ({
                 description: combinedDesc,
                 style: artStyle,
                 model: charImageModel,
-                referenceImageUrl: lastSuccessImageUrl || undefined,
+                referenceImageUrl: firstSuccessImageUrl || undefined,
               },
             }),
             CHAR_IMAGE_TIMEOUT_MS,
@@ -189,8 +190,11 @@ const CharacterSettings = ({
           if (error) throw error;
           if (data?.error) throw new Error(data.error);
           const cosUrl = await ensureStorageUrl(data.imageUrl, "costumes");
-          // Track last successful image for next costume's reference
-          lastSuccessImageUrl = cosUrl;
+          // Lock the first successful image as the anchor for ALL subsequent costumes
+          if (!anchorLocked) {
+            firstSuccessImageUrl = cosUrl;
+            anchorLocked = true;
+          }
           // Update costume image with history
           const charNow = charactersRef.current.find((ch) => ch.id === id);
           if (charNow) {
