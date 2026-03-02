@@ -255,7 +255,6 @@ Each view should be labeled clearly. The character design must be consistent acr
     await supabaseAdmin.storage.createBucket("generated-images", { public: true, fileSizeLimit: 52428800 }).catch(() => {});
 
     const ext = mimeType.includes("png") ? "png" : "jpg";
-    const fileName = `characters/${crypto.randomUUID()}.${ext}`;
 
     // Decode base64 to binary
     const binaryStr = atob(imageBase64);
@@ -264,15 +263,32 @@ Each view should be labeled clearly. The character design must be consistent acr
       bytes[i] = binaryStr.charCodeAt(i);
     }
 
-    console.log(`Uploading character image: ${fileName}, size: ${bytes.length} bytes`);
+    console.log(`Character image size: ${bytes.length} bytes`);
 
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from("generated-images")
-      .upload(fileName, bytes, { contentType: mimeType, upsert: false });
+    // Upload with retry (up to 3 attempts)
+    let uploadedFileName = "";
+    let lastUploadError: any = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const tryFileName = `characters/${crypto.randomUUID()}.${ext}`;
+      console.log(`Upload attempt ${attempt + 1}: ${tryFileName}`);
+      const { error } = await supabaseAdmin.storage
+        .from("generated-images")
+        .upload(tryFileName, bytes, { contentType: mimeType, upsert: false });
+      if (!error) {
+        uploadedFileName = tryFileName;
+        lastUploadError = null;
+        break;
+      }
+      lastUploadError = error;
+      console.error(`Storage upload attempt ${attempt + 1} failed:`, error.message);
+      if (attempt < 2) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
 
-    if (uploadError) {
-      console.error("Storage upload error:", uploadError);
-      return new Response(JSON.stringify({ error: `图片上传失败: ${uploadError.message}` }), {
+    if (lastUploadError || !uploadedFileName) {
+      console.error("Storage upload failed after retries:", lastUploadError);
+      return new Response(JSON.stringify({ error: `图片上传失败: ${lastUploadError?.message || "unknown"}` }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -280,7 +296,7 @@ Each view should be labeled clearly. The character design must be consistent acr
 
     const { data: urlData } = supabaseAdmin.storage
       .from("generated-images")
-      .getPublicUrl(fileName);
+      .getPublicUrl(uploadedFileName);
 
     console.log("Image uploaded successfully:", urlData.publicUrl);
 
