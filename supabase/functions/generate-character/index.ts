@@ -1,6 +1,7 @@
-// generate-character v3 — Storage upload + 2K resolution
+// generate-character v4 — Storage upload + 2K resolution + ref image compression
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { Image } from "https://deno.land/x/imagescript@1.3.0/mod.ts";
 
 const FUNCTION_VERSION = "v3-storage-2k";
 
@@ -145,7 +146,30 @@ Each view should be labeled clearly. The character design must be consistent acr
           if (refResp.ok) {
             const refBuf = await refResp.arrayBuffer();
             let refBytes = new Uint8Array(refBuf);
-            const MAX_REF_SIZE = 10 * 1024 * 1024; // 10MB limit for Gemini
+            const originalSize = refBytes.length;
+            console.log(`Reference image original size: ${originalSize} bytes`);
+
+            // Compress large reference images to speed up Gemini API call
+            const COMPRESS_THRESHOLD = 1.5 * 1024 * 1024; // 1.5MB
+            let refMime = (refResp.headers.get("content-type") || "image/png").split(";")[0];
+            if (refBytes.length > COMPRESS_THRESHOLD) {
+              try {
+                console.log("Compressing reference image...");
+                const img = await Image.decode(refBytes);
+                const MAX_DIM = 1536;
+                if (img.width > MAX_DIM || img.height > MAX_DIM) {
+                  const scale = MAX_DIM / Math.max(img.width, img.height);
+                  img.resize(Math.round(img.width * scale), Math.round(img.height * scale));
+                }
+                refBytes = await img.encodeJPEG(75);
+                refMime = "image/jpeg";
+                console.log(`Reference image compressed: ${originalSize} -> ${refBytes.length} bytes`);
+              } catch (compErr) {
+                console.warn("Image compression failed, using original:", compErr);
+              }
+            }
+
+            const MAX_REF_SIZE = 4 * 1024 * 1024; // 4MB after compression
             if (refBytes.length < MAX_REF_SIZE) {
               let refBinary = "";
               const chunkSize = 8192;
@@ -153,11 +177,10 @@ Each view should be labeled clearly. The character design must be consistent acr
                 refBinary += String.fromCharCode(...refBytes.subarray(i, i + chunkSize));
               }
               const refBase64 = btoa(refBinary);
-              const refMime = (refResp.headers.get("content-type") || "image/png").split(";")[0];
               parts.unshift({ inlineData: { mimeType: refMime, data: refBase64 } });
               console.log(`Reference image included: ${refBytes.length} bytes`);
             } else {
-              console.log(`Reference image too large (${refBytes.length} bytes), skipping`);
+              console.log(`Reference image still too large after compression (${refBytes.length} bytes), skipping`);
             }
           }
         } catch (refErr) {
