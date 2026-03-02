@@ -1165,25 +1165,33 @@ const CharacterSettings = ({
                             {generatingCharImgIds.has(`costume-${activeCostume.id}`) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                             AI 生成服装图
                           </Button>
-                          <ImageHistoryDialog
-                            history={activeCostume.imageHistory || []}
-                            label={`${c.name} - ${activeCostume.label || "服装"}`}
-                            onRestore={(entry) => {
-                              const updatedCostumes = (c.costumes || []).map(cos => {
-                                if (cos.id !== activeCostume.id) return cos;
-                                const history = [...(cos.imageHistory || [])];
-                                if (cos.imageUrl) {
-                                  history.push({ imageUrl: cos.imageUrl, description: cos.description || "", createdAt: new Date().toISOString() });
-                                }
-                                return { ...cos, imageUrl: entry.imageUrl, imageHistory: history.filter(h => h.imageUrl !== entry.imageUrl) };
-                              });
-                              updateCharacter(c.id, { costumes: updatedCostumes });
-                            }}
-                          />
                         </div>
                         {activeCostume.imageUrl && (
-                          <div className="rounded-lg overflow-hidden border border-border/40">
-                            <ImageThumbnail src={activeCostume.imageUrl} alt={`${c.name} ${activeCostume.label}`} className="w-full max-h-[400px] object-contain" maxDim={1000} />
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <ImageIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                                <span className="text-xs text-muted-foreground font-medium">{activeCostume.isAIGenerated ? "AI 生成服装设定图" : "上传服装图"}</span>
+                              </div>
+                              <ImageHistoryDialog
+                                history={activeCostume.imageHistory || []}
+                                label={`${c.name} - ${activeCostume.label || "服装"}`}
+                                onRestore={(entry) => {
+                                  const updatedCostumes = (c.costumes || []).map(cos => {
+                                    if (cos.id !== activeCostume.id) return cos;
+                                    const history = [...(cos.imageHistory || [])];
+                                    if (cos.imageUrl) {
+                                      history.push({ imageUrl: cos.imageUrl, description: cos.description || "", createdAt: new Date().toISOString() });
+                                    }
+                                    return { ...cos, imageUrl: entry.imageUrl, imageHistory: history.filter(h => h.imageUrl !== entry.imageUrl) };
+                                  });
+                                  updateCharacter(c.id, { costumes: updatedCostumes });
+                                }}
+                              />
+                            </div>
+                            <div className="rounded-lg overflow-hidden border border-border/40">
+                              <ImageThumbnail src={activeCostume.imageUrl} alt={`${c.name} ${activeCostume.label}`} className="w-full max-h-[400px] object-contain" maxDim={1000} />
+                            </div>
                           </div>
                         )}
                       </div>
