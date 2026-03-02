@@ -1097,8 +1097,14 @@ const CharacterSettings = ({
                       <Upload className="h-3 w-3" /> 上传人设图
                     </Button>
                     {hasCostumes && generatingCharImgIds.has(c.id) ? (
-                      <Button size="sm" variant="outline" className="gap-1 text-xs border-destructive text-destructive hover:bg-destructive/10" onClick={() => { stopCostumeGenRef.current.add(c.id); }}>
-                        <Loader2 className="h-3 w-3 animate-spin" /> 中止生成
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className={`gap-1 text-xs ${stopCostumeGenRef.current.has(c.id) ? "border-muted-foreground/40 text-muted-foreground opacity-60 cursor-not-allowed" : "border-destructive text-destructive hover:bg-destructive/10"}`}
+                        disabled={stopCostumeGenRef.current.has(c.id)}
+                        onClick={() => { stopCostumeGenRef.current.add(c.id); onCharactersChange([...characters]); }}
+                      >
+                        <Loader2 className="h-3 w-3 animate-spin" /> {stopCostumeGenRef.current.has(c.id) ? "正在中止..." : "中止生成"}
                       </Button>
                     ) : (
                       <Button size="sm" className="gap-1 text-xs" onClick={() => handleGenerateCharacter(c.id)} disabled={generatingCharImgIds.has(c.id) || !String(c.name || "").trim()}>
