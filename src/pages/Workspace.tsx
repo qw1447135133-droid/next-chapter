@@ -363,15 +363,31 @@ const Workspace = () => {
         .map((c) => ({ name: c.name, description: c.description }));
 
       // Compress reference images client-side to reduce edge function payload & processing time
+      // For each character, check if the scene specifies a costume; if so, use costume image
       const characterImages = await Promise.all(
         characters
-          .filter((c) => scene.characters.includes(c.name) && c.imageUrl)
-          .map(async (c) => ({
-            name: c.name,
-            // Higher quality for character refs (1536px, 1.2MB) to preserve facial details
-            imageUrl: await compressImage(c.imageUrl!, 1200 * 1024, { maxDim: 1536 }),
-          }))
-      );
+          .filter((c) => scene.characters.includes(c.name) && (c.imageUrl || (c.costumes && c.costumes.some(cos => cos.imageUrl))))
+          .map(async (c) => {
+            let imageUrl = c.imageUrl;
+            // Check scene-level costume assignment first
+            const costumeId = scene.characterCostumes?.[c.name];
+            if (costumeId && c.costumes) {
+              const costume = c.costumes.find(cos => cos.id === costumeId);
+              if (costume?.imageUrl) imageUrl = costume.imageUrl;
+            } else if (c.costumes && c.costumes.length > 0) {
+              // Auto-match: check if scene description/dialogue mentions a costume label
+              const sceneText = `${scene.description} ${scene.dialogue}`.toLowerCase();
+              const matchedCostume = c.costumes.find(cos => cos.label && sceneText.includes(cos.label.toLowerCase()) && cos.imageUrl);
+              if (matchedCostume) imageUrl = matchedCostume.imageUrl;
+            }
+            if (!imageUrl) return null;
+            return {
+              name: c.name,
+              // Higher quality for character refs (1536px, 1.2MB) to preserve facial details
+              imageUrl: await compressImage(imageUrl, 1200 * 1024, { maxDim: 1536 }),
+            };
+          })
+      ).then(results => results.filter(Boolean) as { name: string; imageUrl: string }[]);
 
       const sceneSetting = sceneSettings.find((ss) => ss.name === scene.sceneName?.trim());
       const sceneImageUrl = sceneSetting?.imageUrl

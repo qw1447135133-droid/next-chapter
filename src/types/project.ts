@@ -17,6 +17,7 @@ export interface Scene {
   videoHistory?: VideoHistoryEntry[];
   recommendedDuration?: number;
   isManualDuration?: boolean; // true when user manually set duration
+  characterCostumes?: Record<string, string>; // { characterName: costumeId }
 }
 
 export interface VideoHistoryEntry {
@@ -28,6 +29,15 @@ export interface ImageHistoryEntry {
   imageUrl: string;
   description: string;
   createdAt: string;
+}
+
+export interface CostumeSetting {
+  id: string;
+  label: string;
+  description: string;
+  imageUrl?: string;
+  isAIGenerated: boolean;
+  imageHistory?: ImageHistoryEntry[];
 }
 
 export interface CharacterSetting {
@@ -45,6 +55,8 @@ export interface CharacterSetting {
   isGenerating?: boolean;
   source: 'auto' | 'manual'; // auto = detected from script
   imageHistory?: ImageHistoryEntry[];
+  costumes?: CostumeSetting[];
+  activeCostumeId?: string;
 }
 
 export interface SceneSetting {

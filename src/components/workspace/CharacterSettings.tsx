@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { CharacterSetting, SceneSetting, ArtStyle, ART_STYLE_LABELS, ImageHistoryEntry } from "@/types/project";
+import { CharacterSetting, SceneSetting, ArtStyle, ART_STYLE_LABELS, ImageHistoryEntry, CostumeSetting } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
-  Plus, Trash2, Upload, Sparkles, ArrowRight, User, MapPin, Loader2, ImageIcon, ChevronDown,
+  Plus, Trash2, Upload, Sparkles, ArrowRight, User, MapPin, Loader2, ImageIcon, ChevronDown, Shirt,
 } from "lucide-react";
 import ImageThumbnail from "./ImageThumbnail";
 
@@ -69,6 +69,7 @@ const CharacterSettings = ({
 }: CharacterSettingsProps) => {
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const sceneFileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [expandedCostumeCharId, setExpandedCostumeCharId] = useState<string | null>(null);
 
   // Image model selector state (persisted to localStorage)
   const [charImageModel, setCharImageModelState] = useState<CharImageModel>(() => {
@@ -722,7 +723,98 @@ const CharacterSettings = ({
           </Card>
         )}
 
-        {characters.map((c) => (
+        {characters.map((c) => {
+          const hasCostumes = c.costumes && c.costumes.length > 0;
+          const costumeCount = c.costumes?.length || 0;
+          const isCostumeExpanded = expandedCostumeCharId === c.id;
+
+          const addCostume = () => {
+            const newCostume: CostumeSetting = {
+              id: crypto.randomUUID(),
+              label: "",
+              description: "",
+              isAIGenerated: false,
+            };
+            updateCharacter(c.id, {
+              costumes: [...(c.costumes || []), newCostume],
+              activeCostumeId: c.activeCostumeId || newCostume.id,
+            });
+          };
+
+          const updateCostume = (costumeId: string, updates: Partial<CostumeSetting>) => {
+            const costumes = (c.costumes || []).map((cos) =>
+              cos.id === costumeId ? { ...cos, ...updates } : cos
+            );
+            updateCharacter(c.id, { costumes });
+          };
+
+          const removeCostume = (costumeId: string) => {
+            const costumes = (c.costumes || []).filter((cos) => cos.id !== costumeId);
+            const newActive = c.activeCostumeId === costumeId
+              ? (costumes[0]?.id || undefined)
+              : c.activeCostumeId;
+            updateCharacter(c.id, { costumes, activeCostumeId: newActive });
+          };
+
+          const handleUploadCostumeImage = (costumeId: string) => {
+            const key = `costume-${costumeId}`;
+            fileInputRefs.current[key]?.click();
+          };
+
+          const handleCostumeFileChange = async (costumeId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("folder", "costumes");
+            try {
+              const { data, error } = await supabase.functions.invoke("upload-image", { body: formData });
+              if (error) throw error;
+              if (data?.error) throw new Error(data.error);
+              updateCostume(costumeId, { imageUrl: data.imageUrl, isAIGenerated: false });
+            } catch (err: any) {
+              const fe = friendlyError(err);
+              toast({ title: fe.title, description: fe.description, variant: "destructive" });
+            }
+          };
+
+          const handleGenerateCostumeImage = async (costumeId: string) => {
+            const costume = (c.costumes || []).find((cos) => cos.id === costumeId);
+            if (!costume || !costume.label.trim()) {
+              toast({ title: "请先填写服装名称", variant: "destructive" });
+              return;
+            }
+            const costumeTaskKey = `costume-${costumeId}`;
+            addTask(costumeTaskKey, "charImg");
+            setGeneratingCharImgIds((prev) => new Set(prev).add(costumeTaskKey));
+            try {
+              const combinedDesc = `${c.name}，${costume.label}：${costume.description || c.description}`;
+              const { data, error } = await withTimeout(
+                supabase.functions.invoke("generate-character", {
+                  body: { name: `${c.name} - ${costume.label}`, description: combinedDesc, style: artStyle, model: charImageModel },
+                }),
+                CHAR_IMAGE_TIMEOUT_MS,
+              );
+              if (error) throw error;
+              if (data?.error) throw new Error(data.error);
+              const imgUrl = await ensureStorageUrl(data.imageUrl, "costumes");
+              const history = [...(costume.imageHistory || [])];
+              if (costume.imageUrl) {
+                history.push({ imageUrl: costume.imageUrl, description: costume.description || "", createdAt: new Date().toISOString() });
+              }
+              updateCostume(costumeId, { imageUrl: imgUrl, isAIGenerated: true, imageHistory: history });
+              toast({ title: "生成成功", description: `${c.name}「${costume.label}」服装图已生成` });
+            } catch (e: any) {
+              console.error("Costume generation error:", e);
+              const fe = friendlyError(e);
+              toast({ title: fe.title, description: `服装图生成失败：${fe.description}`, variant: "destructive" });
+            } finally {
+              removeTask(costumeTaskKey, "charImg");
+              setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(costumeTaskKey); return next; });
+            }
+          };
+
+          return (
           <Card key={c.id} className="border-border/60 overflow-hidden">
             <CardContent className="p-0">
               <div className="flex gap-4 p-4">
@@ -739,6 +831,22 @@ const CharacterSettings = ({
                      >
                        {generatingCharDescIds.has(c.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                        自动识别
+                     </Button>
+
+                     {/* Costume toggle button */}
+                     <Button
+                       variant={isCostumeExpanded ? "secondary" : "outline"}
+                       size="sm"
+                       className="shrink-0 gap-1 text-xs"
+                       onClick={() => setExpandedCostumeCharId(isCostumeExpanded ? null : c.id)}
+                     >
+                       <Shirt className="h-3 w-3" />
+                       服装
+                       {costumeCount > 0 && (
+                         <Badge variant="secondary" className="ml-0.5 h-4 min-w-[16px] px-1 text-[10px]">
+                           {costumeCount}
+                         </Badge>
+                       )}
                      </Button>
                    </div>
                   <Textarea value={c.description} onChange={(e) => updateCharacter(c.id, { description: e.target.value })} placeholder="角色描述（外貌特征、服装、年龄、气质等，越详细生成效果越好）" className="text-sm min-h-[60px] resize-none" rows={2} />
@@ -757,6 +865,107 @@ const CharacterSettings = ({
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
+
+              {/* Costume Management Section */}
+              {isCostumeExpanded && (
+                <div className="border-t border-border/40 p-4 bg-accent/5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                      <Shirt className="h-3.5 w-3.5" /> 服装变体
+                    </span>
+                    <Button variant="outline" size="sm" className="gap-1 text-xs h-7" onClick={addCostume}>
+                      <Plus className="h-3 w-3" /> 新增服装
+                    </Button>
+                  </div>
+
+                  {(!c.costumes || c.costumes.length === 0) && (
+                    <p className="text-xs text-muted-foreground text-center py-3">
+                      暂无服装变体，点击"新增服装"添加不同造型
+                    </p>
+                  )}
+
+                  {/* Active costume pill selector */}
+                  {hasCostumes && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {c.costumes!.map((cos) => (
+                        <button
+                          key={cos.id}
+                          type="button"
+                          onClick={() => updateCharacter(c.id, { activeCostumeId: cos.id })}
+                          className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors border ${
+                            c.activeCostumeId === cos.id
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "bg-muted/50 text-muted-foreground border-border hover:bg-muted"
+                          }`}
+                        >
+                          {cos.label || "未命名"}
+                          {cos.imageUrl && <ImageIcon className="h-2.5 w-2.5" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Active costume editor */}
+                  {hasCostumes && c.activeCostumeId && (() => {
+                    const activeCostume = c.costumes!.find((cos) => cos.id === c.activeCostumeId);
+                    if (!activeCostume) return null;
+                    return (
+                      <div className="space-y-2 rounded-lg border border-border/40 bg-background p-3">
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={activeCostume.label}
+                            onChange={(e) => updateCostume(activeCostume.id, { label: e.target.value })}
+                            placeholder="服装名称（如：护士装、女仆装）"
+                            className="text-xs h-8"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
+                            onClick={() => removeCostume(activeCostume.id)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                        <Textarea
+                          value={activeCostume.description}
+                          onChange={(e) => updateCostume(activeCostume.id, { description: e.target.value })}
+                          placeholder="服装外观描述（颜色、款式、配饰等）"
+                          className="text-xs min-h-[50px] resize-none"
+                          rows={2}
+                        />
+                        <div className="flex gap-2">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            ref={(el) => { fileInputRefs.current[`costume-${activeCostume.id}`] = el; }}
+                            onChange={(e) => handleCostumeFileChange(activeCostume.id, e)}
+                          />
+                          <Button variant="outline" size="sm" className="gap-1 text-xs h-7" onClick={() => handleUploadCostumeImage(activeCostume.id)}>
+                            <Upload className="h-3 w-3" /> 上传服装图
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="gap-1 text-xs h-7"
+                            onClick={() => handleGenerateCostumeImage(activeCostume.id)}
+                            disabled={generatingCharImgIds.has(`costume-${activeCostume.id}`) || !activeCostume.label.trim()}
+                          >
+                            {generatingCharImgIds.has(`costume-${activeCostume.id}`) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                            AI 生成服装图
+                          </Button>
+                        </div>
+                        {activeCostume.imageUrl && (
+                          <div className="rounded-lg overflow-hidden border border-border/40">
+                            <ImageThumbnail src={activeCostume.imageUrl} alt={`${c.name} ${activeCostume.label}`} className="w-full max-h-[250px] object-contain" maxDim={800} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
               {c.imageUrl && (
                 <div className="border-t border-border/40 p-4 bg-muted/30">
                   <div className="flex items-center justify-between mb-2">
@@ -785,7 +994,8 @@ const CharacterSettings = ({
               )}
             </CardContent>
           </Card>
-        ))}
+          );
+        })}
       </div>
 
       {/* Scene Settings */}
