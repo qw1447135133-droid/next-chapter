@@ -1,16 +1,57 @@
 import { useMemo } from "react";
-import { Scene } from "@/types/project";
+import { Scene, CharacterSetting } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Trash2, Plus, ArrowRight, ChevronDown, ChevronRight, Link2 } from "lucide-react";
+import { Trash2, Plus, ArrowRight, ChevronDown, ChevronRight, Link2, Shirt } from "lucide-react";
 import { useState } from "react";
+
+/** Find the best matching costume label for a character in a given scene */
+function matchCostumeLabel(character: CharacterSetting, scene: Scene): string | null {
+  if (!character.costumes || character.costumes.length === 0) return null;
+
+  // Check scene-level manual assignment first
+  const costumeId = scene.characterCostumes?.[character.name];
+  if (costumeId) {
+    const costume = character.costumes.find(cos => cos.id === costumeId);
+    if (costume) return costume.label || null;
+  }
+
+  // Auto-match by scene text
+  const sceneText = `${scene.description} ${scene.dialogue}`.toLowerCase();
+  let bestLabel: string | null = null;
+  let bestScore = 0;
+  for (const cos of character.costumes) {
+    if (!cos.label) continue;
+    const label = cos.label.toLowerCase();
+    if (sceneText.includes(label)) {
+      const score = label.length + 100;
+      if (score > bestScore) { bestScore = score; bestLabel = cos.label; }
+      continue;
+    }
+    const parts = label.split(/[·・]/).map(p => p.trim()).filter(Boolean);
+    let componentScore = 0;
+    let matchedParts = 0;
+    for (const part of parts) {
+      if (part && sceneText.includes(part)) {
+        componentScore += part.length;
+        matchedParts++;
+      }
+    }
+    if (matchedParts > 0) {
+      const score = componentScore + matchedParts * 10;
+      if (score > bestScore) { bestScore = score; bestLabel = cos.label; }
+    }
+  }
+  return bestLabel;
+}
 
 interface SceneListProps {
   scenes: Scene[];
   onScenesChange: (scenes: Scene[]) => void;
   onNext: () => void;
+  characters?: CharacterSetting[];
 }
 
 interface Segment {
@@ -21,7 +62,7 @@ interface Segment {
   totalDuration: number;
 }
 
-const SceneList = ({ scenes, onScenesChange, onNext }: SceneListProps) => {
+const SceneList = ({ scenes, onScenesChange, onNext, characters = [] }: SceneListProps) => {
   const [collapsedSegments, setCollapsedSegments] = useState<Set<string>>(new Set());
 
   // Group scenes by segmentLabel (e.g. "1-1", "1-2")
@@ -168,13 +209,38 @@ const SceneList = ({ scenes, onScenesChange, onNext }: SceneListProps) => {
                                     className="min-h-[32px] text-sm py-1 px-2 resize-none border-transparent hover:border-border focus:border-border bg-transparent"
                                     rows={1}
                                   />
-                                  {/* Character link badges */}
-                                  {scene.characters.length > 0 && (
-                                    <span className="inline-flex items-center gap-0.5 text-muted-foreground mt-0.5 shrink-0">
-                                      <Link2 className="h-3 w-3" />
-                                      <span className="text-[10px]">+{scene.characters.length}</span>
-                                    </span>
-                                  )}
+                                  {/* Character link badges + costume match labels */}
+                                  {scene.characters.length > 0 && (() => {
+                                    // Compute costume matches for each character in this scene
+                                    const costumeMatches: { charName: string; costumeLabel: string }[] = [];
+                                    for (const charName of scene.characters) {
+                                      const name = typeof charName === 'string' ? charName : (charName as any)?.name || '';
+                                      if (!name) continue;
+                                      const charSetting = characters.find(c => c.name === name);
+                                      if (charSetting) {
+                                        const label = matchCostumeLabel(charSetting, scene);
+                                        if (label) costumeMatches.push({ charName: name, costumeLabel: label });
+                                      }
+                                    }
+                                    return (
+                                      <span className="inline-flex items-center gap-1 mt-0.5 shrink-0 flex-wrap">
+                                        <span className="inline-flex items-center gap-0.5 text-muted-foreground">
+                                          <Link2 className="h-3 w-3" />
+                                          <span className="text-[10px]">+{scene.characters.length}</span>
+                                        </span>
+                                        {costumeMatches.map(({ charName, costumeLabel }) => (
+                                          <span
+                                            key={`${charName}-${costumeLabel}`}
+                                            className="inline-flex items-center gap-0.5 rounded-full bg-accent/50 px-1.5 py-0 text-[10px] text-accent-foreground border border-border/40"
+                                            title={`${charName} → ${costumeLabel}`}
+                                          >
+                                            <Shirt className="h-2.5 w-2.5" />
+                                            {costumeLabel}
+                                          </span>
+                                        ))}
+                                      </span>
+                                    );
+                                  })()}
                                 </div>
 
                                 {/* Dialogue if present */}
