@@ -114,8 +114,8 @@ const Settings = () => {
   };
 
   const keyFields = [
-    { key: "zhanhuKey", label: "站狐 API Key", desc: "用于剧本拆解与分镜图 AI 生成" },
-    { key: "seedance", label: "Seedance API Key", desc: "用于视频片段生成" },
+    { key: "zhanhuKey", label: "Gemini API Key（站狐）", desc: "用于剧本拆解与分镜图 AI 生成" },
+    { key: "seedance", label: "Seedance API Key（站狐）", desc: "用于视频片段生成" },
   ];
 
   const supabaseFields = [
