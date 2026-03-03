@@ -22,6 +22,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { friendlyError } from "@/lib/friendly-error";
 import { ensureStorageUrl } from "@/lib/upload-base64-to-storage";
+import { invokeStreamingFunction } from "@/lib/invoke-streaming";
 
 const CHAR_IMAGE_TIMEOUT_MS = 180_000;
 const SCENE_IMAGE_TIMEOUT_MS = 300_000;
@@ -580,16 +581,12 @@ const CharacterSettings = ({
       if (hasCostumesToDescribe) {
         // Describe each costume variant individually
         const costumeLabels = character.costumes!.map(cos => cos.label || "未命名").join("、");
-        const { data, error } = await supabase.functions.invoke("generate-character-description", {
-          body: {
-            characterName: character.name,
-            script,
-            costumes: character.costumes!.map(cos => cos.label || "未命名"),
-            model: decomposeModel,
-          },
+        const data = await invokeStreamingFunction("generate-character-description", {
+          characterName: character.name,
+          script,
+          costumes: character.costumes!.map(cos => cos.label || "未命名"),
+          model: decomposeModel,
         });
-        if (error) throw error;
-        if (data?.error) throw new Error(data.error);
         // Apply per-costume descriptions
         if (data.costumeDescriptions && Array.isArray(data.costumeDescriptions)) {
           const updatedCostumes = character.costumes!.map((cos, i) => ({
@@ -607,11 +604,9 @@ const CharacterSettings = ({
         toast({ title: "识别成功", description: `已为「${character.name}」生成角色描述及 ${character.costumes!.length} 套服装描述` });
       } else {
         // No costumes — original behavior
-        const { data, error } = await supabase.functions.invoke("generate-character-description", {
-          body: { characterName: character.name, script, model: decomposeModel },
+        const data = await invokeStreamingFunction("generate-character-description", {
+          characterName: character.name, script, model: decomposeModel,
         });
-        if (error) throw error;
-        if (data?.error) throw new Error(data.error);
         updateCharacterAsync(id, { description: data.description || "" });
         toast({ title: "识别成功", description: `已为「${character.name}」生成角色描述` });
       }
@@ -638,11 +633,9 @@ const CharacterSettings = ({
     addTask(id, "sceneDesc");
     setGeneratingDescIds(prev => new Set(prev).add(id));
     try {
-      const { data, error } = await supabase.functions.invoke("generate-scene-description", {
-        body: { sceneName: scene.name, script, model: decomposeModel },
+      const data = await invokeStreamingFunction("generate-scene-description", {
+        sceneName: scene.name, script, model: decomposeModel,
       });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
       updateSceneAsync(id, { description: data.description || "" });
       toast({ title: "识别成功", description: `已为「${scene.name}」生成场景描述` });
     } catch (e: any) {
@@ -726,11 +719,9 @@ const CharacterSettings = ({
       setGeneratingCharDescIds((prev) => new Set(prev).add(c.id));
       try {
         if (hasCostumesToDescribe) {
-          const { data, error } = await supabase.functions.invoke("generate-character-description", {
-            body: { characterName: c.name, script, costumes: c.costumes!.map(cos => cos.label || "未命名"), model: decomposeModel },
+          const data = await invokeStreamingFunction("generate-character-description", {
+            characterName: c.name, script, costumes: c.costumes!.map(cos => cos.label || "未命名"), model: decomposeModel,
           });
-          if (error) throw error;
-          if (data?.error) throw new Error(data.error);
           desc = data.description || "";
           if (data.costumeDescriptions && Array.isArray(data.costumeDescriptions)) {
             const updatedCostumes = c.costumes!.map((cos, i) => ({
@@ -742,11 +733,9 @@ const CharacterSettings = ({
             updateCharacterAsync(c.id, { description: desc });
           }
         } else {
-          const { data, error } = await supabase.functions.invoke("generate-character-description", {
-            body: { characterName: c.name, script, model: decomposeModel },
+          const data = await invokeStreamingFunction("generate-character-description", {
+            characterName: c.name, script, model: decomposeModel,
           });
-          if (error) throw error;
-          if (data?.error) throw new Error(data.error);
           desc = data.description || "";
           updateCharacterAsync(c.id, { description: desc });
         }
@@ -899,11 +888,9 @@ const CharacterSettings = ({
       addTask(s.id, "sceneDesc");
       setGeneratingDescIds((prev) => new Set(prev).add(s.id));
       try {
-        const { data, error } = await supabase.functions.invoke("generate-scene-description", {
-          body: { sceneName: s.name, script, model: decomposeModel },
+        const data = await invokeStreamingFunction("generate-scene-description", {
+          sceneName: s.name, script, model: decomposeModel,
         });
-        if (error) throw error;
-        if (data?.error) throw new Error(data.error);
         desc = data.description || "";
         updateSceneAsync(s.id, { description: desc });
         descOk = true;

@@ -13,25 +13,58 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let body: any;
   try {
-    const { sceneName, script, model: requestedModel } = await req.json();
+    body = await req.json();
+  } catch {
+    return new Response(
+      JSON.stringify({ error: "无效的请求体" }),
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
 
-    if (!sceneName || !script) {
-      return new Response(JSON.stringify({ error: "缺少场景名称或剧本内容" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+
+  const heartbeat = setInterval(() => {
+    writer.write(encoder.encode("\n")).catch(() => {});
+  }, 5_000);
+
+  (async () => {
+    try {
+      const result = await generateSceneDescription(body);
+      clearInterval(heartbeat);
+      await writer.write(encoder.encode(JSON.stringify(result) + "\n"));
+    } catch (e: any) {
+      clearInterval(heartbeat);
+      console.error("generate-scene-description error:", e);
+      try {
+        await writer.write(encoder.encode(JSON.stringify({ error: e.message || "未知错误" }) + "\n"));
+      } catch {}
+    } finally {
+      try { await writer.close(); } catch {}
     }
+  })();
 
-    const ZHANHU_API_KEY = Deno.env.get("Gemini");
-    if (!ZHANHU_API_KEY) {
-      return new Response(JSON.stringify({ error: "Gemini API Key 未配置" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+  return new Response(readable, {
+    headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" },
+  });
+});
 
-    const systemPrompt = `You are a professional film production designer. Your core task is: based on the script provided by the user and a specified scene name, produce a detailed environment description for AI image generation, aimed at creating a grand **Panoramic View** scene concept design.
+async function generateSceneDescription(body: any) {
+  const { sceneName, script, model: requestedModel } = body;
+
+  if (!sceneName || !script) {
+    throw new Error("缺少场景名称或剧本内容");
+  }
+
+  const ZHANHU_API_KEY = Deno.env.get("Gemini");
+  if (!ZHANHU_API_KEY) {
+    throw new Error("Gemini API Key 未配置");
+  }
+
+  const systemPrompt = `You are a professional film production designer. Your core task is: based on the script provided by the user and a specified scene name, produce a detailed environment description for AI image generation, aimed at creating a grand **Panoramic View** scene concept design.
 
 ### Core Generation Principles
 
@@ -60,81 +93,47 @@ Your description must be well-structured and cover ALL of the following, specifi
 
 Write in vivid, detail-rich English that can be used directly as an AI image generation prompt. Return ONLY plain text scene description. **ABSOLUTELY DO NOT** return JSON, code blocks, or any other formatting. Begin the description immediately upon receiving the script and scene name.`;
 
-    const userContent = `Script content:\n${script}\n\nGenerate a detailed environment description for the scene "${sceneName}".`;
+  const userContent = `Script content:\n${script}\n\nGenerate a detailed environment description for the scene "${sceneName}".`;
 
-    // Retry wrapper for cross-region network resilience
-    const MAX_RETRIES = 1;
-    const RETRY_DELAY_MS = 2000;
-    const TIMEOUT_MS = 120_000;
-    let response: Response | null = null;
-    let lastFetchError: Error | null = null;
+  const useModel = requestedModel || "gemini-3-pro-preview";
+  const TIMEOUT_MS = 290_000;
 
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      if (attempt > 0) {
-        console.log(`generate-scene-description: retry attempt ${attempt} after ${RETRY_DELAY_MS}ms`);
-        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
-      }
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
-        const useModel = requestedModel || "gemini-3-pro-preview";
-        response = await fetch(
-          `${ZHANHU_BASE_URL}/models/${useModel}:generateContent/`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${ZHANHU_API_KEY}`,
-            },
-            body: JSON.stringify({
-              contents: [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
-            }),
-            signal: controller.signal,
-          },
-        );
-        clearTimeout(timeoutId);
-        if (response.ok) break;
-        if (response.status >= 400 && response.status < 500) break;
-        lastFetchError = new Error(`API returned ${response.status}`);
-      } catch (err) {
-        lastFetchError = err instanceof Error ? err : new Error(String(err));
-        const isTimeout = lastFetchError.message.includes("abort") || lastFetchError.name === "AbortError";
-        console.error(`Attempt ${attempt} failed:`, lastFetchError.message);
-        if (attempt >= MAX_RETRIES) {
-          return new Response(JSON.stringify({ error: isTimeout ? "AI 生成超时，请重试" : `网络错误: ${lastFetchError.message}` }), {
-            status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-        response = null;
-      }
-    }
+  console.log(`generate-scene-description using model: ${useModel}`);
 
-    if (!response) {
-      return new Response(JSON.stringify({ error: lastFetchError?.message || "网络错误" }), {
-        status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let response: Response;
 
-    if (!response.ok) {
-      const t = await response.text();
-      console.error("ZhanHu API error:", response.status, t);
-      return new Response(JSON.stringify({ error: `AI 调用失败 (${response.status})` }), {
-        status: response.status >= 400 && response.status < 500 ? response.status : 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const data = await response.json();
-    const description = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
-
-    return new Response(JSON.stringify({ description }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  } catch (e) {
-    console.error("generate-scene-description error:", e);
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "未知错误" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  try {
+    response = await fetch(
+      `${ZHANHU_BASE_URL}/models/${useModel}:generateContent/`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${ZHANHU_API_KEY}`,
+        },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
+        }),
+        signal: controller.signal,
+      },
+    );
+    clearTimeout(timeoutId);
+  } catch (err) {
+    clearTimeout(timeoutId);
+    const isTimeout = err instanceof Error && (err.message.includes("abort") || err.name === "AbortError");
+    throw new Error(isTimeout ? "AI 生成超时，请重试" : `网络错误: ${err instanceof Error ? err.message : String(err)}`);
   }
-});
+
+  if (!response.ok) {
+    const t = await response.text();
+    console.error("ZhanHu API error:", response.status, t);
+    throw new Error(`AI 调用失败 (${response.status})`);
+  }
+
+  const data = await response.json();
+  const description = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+
+  return { description };
+}

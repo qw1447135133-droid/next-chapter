@@ -22,29 +22,61 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let body: any;
   try {
-    const { characterName, script, costumes, model: requestedModel } = await req.json();
+    body = await req.json();
+  } catch {
+    return new Response(
+      JSON.stringify({ error: "无效的请求体" }),
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
 
-    if (!characterName || !script) {
-      return new Response(JSON.stringify({ error: "缺少角色名称或剧本内容" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+
+  const heartbeat = setInterval(() => {
+    writer.write(encoder.encode("\n")).catch(() => {});
+  }, 5_000);
+
+  (async () => {
+    try {
+      const result = await generateCharacterDescription(body);
+      clearInterval(heartbeat);
+      await writer.write(encoder.encode(JSON.stringify(result) + "\n"));
+    } catch (e: any) {
+      clearInterval(heartbeat);
+      console.error("generate-character-description error:", e);
+      try {
+        await writer.write(encoder.encode(JSON.stringify({ error: e.message || "未知错误" }) + "\n"));
+      } catch {}
+    } finally {
+      try { await writer.close(); } catch {}
     }
+  })();
 
-    const ZHANHU_API_KEY = Deno.env.get("Gemini");
-    if (!ZHANHU_API_KEY) {
-      return new Response(JSON.stringify({ error: "Gemini API Key 未配置" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+  return new Response(readable, {
+    headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" },
+  });
+});
 
-    // If costumes array is provided, generate per-costume descriptions
-    const hasCostumes = Array.isArray(costumes) && costumes.length > 0;
+async function generateCharacterDescription(body: any) {
+  const { characterName, script, costumes, model: requestedModel } = body;
 
-    const systemPrompt = hasCostumes
-      ? `You are a professional film character designer and AI image-prompt expert. Based on the script and character name, produce:
+  if (!characterName || !script) {
+    throw new Error("缺少角色名称或剧本内容");
+  }
+
+  const ZHANHU_API_KEY = Deno.env.get("Gemini");
+  if (!ZHANHU_API_KEY) {
+    throw new Error("Gemini API Key 未配置");
+  }
+
+  const hasCostumes = Array.isArray(costumes) && costumes.length > 0;
+
+  const systemPrompt = hasCostumes
+    ? `You are a professional film character designer and AI image-prompt expert. Based on the script and character name, produce:
 
 1. A brief base character description (gender, age, build, facial features, hairstyle, skin tone — NO clothing).
 2. For EACH costume variant listed, produce a detailed AI-ready appearance description designed to generate a **standard character design sheet** showing the character wearing that specific outfit.
@@ -68,7 +100,7 @@ Return a JSON object with:
 - "costumeDescriptions": array of objects, each with "label" and "description" fields, in the SAME ORDER as the input costumes list
 
 Return ONLY valid JSON. No markdown, no code blocks.`
-      : `You are a professional film character designer and AI image-prompt expert. Your core task is: based on the script provided by the user and a specified character name, produce a detailed AI-ready appearance description designed to generate a **standard character design sheet**.
+    : `You are a professional film character designer and AI image-prompt expert. Your core task is: based on the script provided by the user and a specified character name, produce a detailed AI-ready appearance description designed to generate a **standard character design sheet**.
 
 ${ETHNICITY_RULE}
 
@@ -105,115 +137,68 @@ Your description must cover ALL of the following so it can be directly converted
 
 Write in vivid, visually precise English that can be used directly as an AI image generation prompt. Explicitly state "no text, no labels, no annotations, no captions anywhere in the image". Return ONLY plain text character description. **ABSOLUTELY DO NOT** return JSON, code blocks, or any other formatting. Begin the description immediately upon receiving the script and character name.`;
 
-    const userContent = hasCostumes
-      ? `Script content:\n${script}\n\nCharacter: "${characterName}"\nCostume variants to describe (in order): ${JSON.stringify(costumes)}\n\nGenerate the base description and per-costume descriptions as specified.`
-      : `Script content:\n${script}\n\nGenerate a detailed appearance and design description for the character "${characterName}".`;
+  const userContent = hasCostumes
+    ? `Script content:\n${script}\n\nCharacter: "${characterName}"\nCostume variants to describe (in order): ${JSON.stringify(costumes)}\n\nGenerate the base description and per-costume descriptions as specified.`
+    : `Script content:\n${script}\n\nGenerate a detailed appearance and design description for the character "${characterName}".`;
 
-    const generationConfig: any = hasCostumes
-      ? { responseMimeType: "application/json" }
-      : {};
+  const generationConfig: any = hasCostumes
+    ? { responseMimeType: "application/json" }
+    : {};
 
-    // Retry wrapper for cross-region network resilience
-    const MAX_RETRIES = 1;
-    const RETRY_DELAY_MS = 2000;
-    const TIMEOUT_MS = 120_000;
-    let response: Response | null = null;
-    let lastFetchError: Error | null = null;
+  const useModel = requestedModel || "gemini-3-pro-preview";
+  const TIMEOUT_MS = 290_000;
 
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      if (attempt > 0) {
-        console.log(`generate-character-description: retry attempt ${attempt} after ${RETRY_DELAY_MS}ms`);
-        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
-      }
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
-        const useModel = requestedModel || "gemini-3-pro-preview";
-        response = await fetch(
-          `${ZHANHU_BASE_URL}/models/${useModel}:generateContent/`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${ZHANHU_API_KEY}`,
-            },
-            body: JSON.stringify({
-              contents: [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
-              ...(Object.keys(generationConfig).length > 0 ? { generationConfig } : {}),
-            }),
-            signal: controller.signal,
-          },
-        );
-        clearTimeout(timeoutId);
-        if (response.ok) break;
-        // Non-retryable client error
-        if (response.status >= 400 && response.status < 500) break;
-        lastFetchError = new Error(`API returned ${response.status}`);
-      } catch (err) {
-        lastFetchError = err instanceof Error ? err : new Error(String(err));
-        const isTimeout = lastFetchError.message.includes("abort") || lastFetchError.name === "AbortError";
-        console.error(`Attempt ${attempt} failed:`, lastFetchError.message);
-        if (!isTimeout && attempt >= MAX_RETRIES) {
-          return new Response(JSON.stringify({ error: `网络错误: ${lastFetchError.message}` }), {
-            status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-        if (isTimeout && attempt >= MAX_RETRIES) {
-          return new Response(JSON.stringify({ error: "AI 生成超时，请重试" }), {
-            status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-        response = null;
-      }
-    }
+  console.log(`generate-character-description using model: ${useModel}`);
 
-    if (!response) {
-      return new Response(JSON.stringify({ error: lastFetchError?.message || "网络错误" }), {
-        status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let response: Response;
 
-    if (!response.ok) {
-      const t = await response.text();
-      console.error("ZhanHu API error:", response.status, t);
-      return new Response(JSON.stringify({ error: `AI 调用失败 (${response.status})` }), {
-        status: response.status >= 400 && response.status < 500 ? response.status : 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const data = await response.json();
-    // Filter out thinking parts
-    const parts = data.candidates?.[0]?.content?.parts?.filter((p: any) => !p.thought) || [];
-    const rawText = parts.map((p: any) => p.text || "").join("").trim();
-
-    if (hasCostumes) {
-      // Parse JSON response for costume mode
-      try {
-        const parsed = JSON.parse(rawText);
-        return new Response(JSON.stringify({
-          description: parsed.description || "",
-          costumeDescriptions: parsed.costumeDescriptions || [],
-        }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      } catch (parseErr) {
-        console.error("Failed to parse costume JSON:", parseErr, "Raw:", rawText.slice(0, 500));
-        // Fallback: return raw as base description
-        return new Response(JSON.stringify({ description: rawText }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-    } else {
-      return new Response(JSON.stringify({ description: rawText }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-  } catch (e) {
-    console.error("generate-character-description error:", e);
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "未知错误" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  try {
+    response = await fetch(
+      `${ZHANHU_BASE_URL}/models/${useModel}:generateContent/`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${ZHANHU_API_KEY}`,
+        },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
+          ...(Object.keys(generationConfig).length > 0 ? { generationConfig } : {}),
+        }),
+        signal: controller.signal,
+      },
+    );
+    clearTimeout(timeoutId);
+  } catch (err) {
+    clearTimeout(timeoutId);
+    const isTimeout = err instanceof Error && (err.message.includes("abort") || err.name === "AbortError");
+    throw new Error(isTimeout ? "AI 生成超时，请重试" : `网络错误: ${err instanceof Error ? err.message : String(err)}`);
   }
-});
+
+  if (!response.ok) {
+    const t = await response.text();
+    console.error("ZhanHu API error:", response.status, t);
+    throw new Error(`AI 调用失败 (${response.status})`);
+  }
+
+  const data = await response.json();
+  const parts = data.candidates?.[0]?.content?.parts?.filter((p: any) => !p.thought) || [];
+  const rawText = parts.map((p: any) => p.text || "").join("").trim();
+
+  if (hasCostumes) {
+    try {
+      const parsed = JSON.parse(rawText);
+      return {
+        description: parsed.description || "",
+        costumeDescriptions: parsed.costumeDescriptions || [],
+      };
+    } catch (parseErr) {
+      console.error("Failed to parse costume JSON:", parseErr, "Raw:", rawText.slice(0, 500));
+      return { description: rawText };
+    }
+  } else {
+    return { description: rawText };
+  }
+}
