@@ -168,7 +168,7 @@ async function generateStoryboard(body: any): Promise<{ imageUrl: string }> {
       throw new Error("缺少分镜描述");
     }
 
-    const ZHANHU_API_KEY = body.geminiKey || Deno.env.get("Gemini");
+    const ZHANHU_API_KEY = body.geminiKey;
     if (!ZHANHU_API_KEY) {
       throw new Error("Gemini API Key 未配置，请在设置中配置");
     }
@@ -436,7 +436,7 @@ Maintain environment consistency (lighting, architecture, props) based on the sc
     let mimeType = "image/png";
 
     if (isSeedream) {
-      const jimengKey = body.seedanceKey || Deno.env.get("JIMENG_API_KEY");
+      const jimengKey = body.seedanceKey;
       if (!jimengKey) throw new Error("Seedance API Key 未配置，请在设置中配置");
 
       const refImages: string[] = [];

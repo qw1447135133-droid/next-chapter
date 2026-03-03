@@ -86,7 +86,7 @@ serve(async (req) => {
       );
     }
 
-    const ZHANHU_API_KEY = body.geminiKey || Deno.env.get("Gemini");
+    const ZHANHU_API_KEY = body.geminiKey;
     if (!ZHANHU_API_KEY) {
       console.warn("Gemini API Key not configured, returning original");
       return new Response(

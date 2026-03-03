@@ -25,7 +25,7 @@ serve(async (req) => {
       });
     }
 
-    const ZHANHU_API_KEY = body.geminiKey || Deno.env.get("Gemini");
+    const ZHANHU_API_KEY = body.geminiKey;
     if (!ZHANHU_API_KEY) {
       return new Response(JSON.stringify({ error: "Gemini API Key 未配置，请在设置中配置" }), {
         status: 500,
@@ -65,7 +65,7 @@ This is a wide establishing shot showing the full environment. Focus on atmosphe
     let mimeType = "image/png";
 
     if (isSeedream) {
-      const jimengKey = body.seedanceKey || Deno.env.get("JIMENG_API_KEY");
+      const jimengKey = body.seedanceKey;
       if (!jimengKey) {
         clearTimeout(timeout);
         return new Response(JSON.stringify({ error: "Seedance API Key 未配置，请在设置中配置" }), {

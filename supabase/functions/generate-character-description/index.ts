@@ -68,7 +68,7 @@ async function generateCharacterDescription(body: any) {
     throw new Error("缺少角色名称或剧本内容");
   }
 
-  const ZHANHU_API_KEY = geminiKey || Deno.env.get("Gemini");
+  const ZHANHU_API_KEY = geminiKey;
   if (!ZHANHU_API_KEY) {
     throw new Error("Gemini API Key 未配置，请在设置中配置");
   }
