@@ -265,18 +265,7 @@ const Workspace = () => {
     if (!script.trim()) return;
     setIsAnalyzing(true);
     
-    // Retry mechanism: up to 2 retries
-    const maxAttempts = 3;
-    let lastError: Error | null = null;
-    for (let attempt = 0; attempt <= 2; attempt++) {
-      if (attempt > 0) {
-        toast({
-          title: `第 ${attempt} 次尝试失败，正在重试 (${attempt + 1}/${maxAttempts})...`,
-          description: `错误: ${lastError?.message?.substring(0, 80) || "未知错误"}`,
-          duration: 5000,
-        });
-      }
-      try {
+    try {
         // Dynamic timeout based on script length
         const charCount = script.trim().length;
         const timeoutMs = charCount <= 8000 ? 300_000 : charCount <= 15000 ? 480_000 : 600_000;
@@ -287,7 +276,7 @@ const Workspace = () => {
         const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
         // ========== Phase 1: Extract characters & scenes ==========
-        toast({ title: "阶段 1/2", description: `正在识别角色与场景...${attempt > 0 ? ` (第 ${attempt + 1} 次尝试)` : ""}` });
+        toast({ title: "阶段 1/2", description: "正在识别角色与场景..." });
         
         const extractResponse = await fetch(`${supabaseUrl}/functions/v1/extract-characters-scenes`, {
           method: "POST",
@@ -349,7 +338,7 @@ const Workspace = () => {
         toast({ title: "阶段 1/2 完成", description: `识别 ${autoCharacters.length} 个角色，${aiSceneSettings.length} 个场景` });
 
         // ========== Phase 2: Script decomposition (timing-focused) ==========
-        toast({ title: "阶段 2/2", description: `正在拆解分镜与时长分配...${attempt > 0 ? ` (第 ${attempt + 1} 次尝试)` : ""}` });
+        toast({ title: "阶段 2/2", description: "正在拆解分镜与时长分配..." });
 
         // Use a single timeout that covers both fetch AND body reading
         const response = await fetch(`${supabaseUrl}/functions/v1/script-decompose`, {
@@ -444,24 +433,14 @@ const Workspace = () => {
 
         toast({ title: "拆解完成", description: `成功拆解为 ${parsedScenes.length} 个分镜，识别 ${autoCharacters.length + missingChars.length} 个角色` });
         
-        // Success - exit retry loop
         setIsAnalyzing(false);
         return;
         
       } catch (e: any) {
-        // Store error for potential retry
-        lastError = e;
-        
         // Ignore abort errors (user cancelled)
         if (e?.name === "AbortError" || e?.message?.includes("aborted")) {
           setIsAnalyzing(false);
           return;
-        }
-        
-        // Retry if not last attempt
-        if (attempt < 2) {
-          console.log(`Script decompose failed, retrying (attempt ${attempt + 2}/3)...`);
-          continue;
         }
         
         console.error("Script decompose error:", e);
@@ -475,8 +454,7 @@ const Workspace = () => {
       } finally {
         setIsAnalyzing(false);
       }
-    }
-  };
+    };
 
   const handleGenerateSceneStoryboard = async (sceneId: string, aspectRatio: string = "16:9", model: string = "gemini-3-pro-image-preview") => {
     const scene = scenes.find((s) => s.id === sceneId);
@@ -685,18 +663,11 @@ const Workspace = () => {
         if (stopStoryboardGenRef.current) { release(); return; }
 
         let succeeded = false;
-        const maxRetries = 2;
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
-          if (stopStoryboardGenRef.current) break;
-          try {
-            await handleGenerateSceneStoryboard(scene.id, aspectRatio, model);
-            succeeded = true;
-            break;
-          } catch {
-            if (attempt < maxRetries) {
-              console.log(`Retrying storyboard #${scene.sceneNumber}, attempt ${attempt + 2}`);
-            }
-          }
+        try {
+          await handleGenerateSceneStoryboard(scene.id, aspectRatio, model);
+          succeeded = true;
+        } catch {
+          // No retry — fail immediately
         }
         if (succeeded) successCountRef.current++; else { failCountRef.current++; failedSceneIds.add(scene.id); }
         // MUST release AFTER this shot finishes before next shot in the SAME group proceeds
@@ -708,41 +679,7 @@ const Workspace = () => {
     const groupTasks = Array.from(sceneGroups.values()).map((group) => processGroup(group));
     await Promise.all(groupTasks);
 
-    // === REVIEW PASS: scan for any missed/failed storyboards and retry (with concurrency control) ===
-    if (!stopStoryboardGenRef.current) {
-      // Re-read latest scenes state
-      const latestScenes = scenesRef.current;
-      const missing = latestScenes.filter((s) => !s.storyboardUrl || failedSceneIds.has(s.id));
-      if (missing.length > 0) {
-        console.log(`Review pass: ${missing.length} storyboards missing or failed, retrying...`);
-        // Regroup missing scenes for sequential retry within same scene
-        const reviewGroups = new Map<string, typeof scenes>();
-        for (const scene of missing) {
-          const key = (scene.sceneName || "").trim() || `__solo_${scene.id}`;
-          if (!reviewGroups.has(key)) reviewGroups.set(key, []);
-          reviewGroups.get(key)!.push(scene);
-        }
-        const reviewSem = createSemaphore(2);
-        const reviewTasks: Promise<void>[] = [];
-        for (const group of reviewGroups.values()) {
-          reviewTasks.push((async () => {
-            for (const scene of group) {
-              if (stopStoryboardGenRef.current) return;
-              await reviewSem.acquire();
-              if (stopStoryboardGenRef.current) { reviewSem.release(); return; }
-              try {
-                await handleGenerateSceneStoryboard(scene.id, aspectRatio, model);
-                successCountRef.current++;
-              } catch {
-                failCountRef.current++;
-              }
-              reviewSem.release();
-            }
-          })());
-        }
-        await Promise.all(reviewTasks);
-      }
-    }
+    // Review pass removed — no automatic retries
 
     const aborted = stopStoryboardGenRef.current;
     setIsGeneratingAllStoryboards(false);
@@ -969,18 +906,11 @@ const Workspace = () => {
         if (stopVideoGenRef.current) { release(); return; }
 
         let succeeded = false;
-        const maxRetries = 2;
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
-          if (stopVideoGenRef.current) break;
-          try {
-            await generateVideoForScene(scene.id);
-            succeeded = true;
-            break;
-          } catch {
-            if (attempt < maxRetries) {
-              console.log(`Retrying video for scene #${scene.sceneNumber}, attempt ${attempt + 2}`);
-            }
-          }
+        try {
+          await generateVideoForScene(scene.id);
+          succeeded = true;
+        } catch {
+          // No retry — fail immediately
         }
         if (succeeded) successCountRef.current++; else { failCountRef.current++; failedVideoIds.add(scene.id); }
         release();
@@ -991,37 +921,7 @@ const Workspace = () => {
     const groupTasks = Array.from(sceneGroups.values()).map((group) => processGroup(group));
     await Promise.all(groupTasks);
 
-    // === REVIEW PASS: retry any failed/missed video submissions (with concurrency control) ===
-    if (!stopVideoGenRef.current && failedVideoIds.size > 0) {
-      console.log(`Video review pass: ${failedVideoIds.size} failed, retrying...`);
-      // Regroup failed scenes for sequential retry within same scene
-      const reviewGroups = new Map<string, typeof scenes>();
-      for (const scene of scenes) {
-        if (!failedVideoIds.has(scene.id)) continue;
-        const key = (scene.sceneName || "").trim() || `__solo_${scene.id}`;
-        if (!reviewGroups.has(key)) reviewGroups.set(key, []);
-        reviewGroups.get(key)!.push(scene);
-      }
-      const reviewSem = createSemaphore(2);
-      const reviewTasks: Promise<void>[] = [];
-      for (const group of reviewGroups.values()) {
-        reviewTasks.push((async () => {
-          for (const scene of group) {
-            if (stopVideoGenRef.current) return;
-            await reviewSem.acquire();
-            if (stopVideoGenRef.current) { reviewSem.release(); return; }
-            try {
-              await generateVideoForScene(scene.id);
-              successCountRef.current++;
-            } catch {
-              failCountRef.current++;
-            }
-            reviewSem.release();
-          }
-        })());
-      }
-      await Promise.all(reviewTasks);
-    }
+    // Review pass removed — no automatic retries
 
     const aborted = stopVideoGenRef.current;
     setIsGeneratingVideo(false);

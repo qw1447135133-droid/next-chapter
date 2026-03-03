@@ -134,7 +134,7 @@ Each view should be labeled clearly. The character design must be consistent acr
         });
       }
     } else {
-      // Gemini models with retry for cross-region resilience
+      // Gemini models — single attempt
       let response: Response | null = null;
 
       // Build multimodal parts: text + optional reference image (done once, reused on retry)
@@ -197,8 +197,6 @@ Each view should be labeled clearly. The character design must be consistent acr
         }
       }
 
-      const RETRY_DELAY = 2000;
-      const MAX_ATTEMPTS = 2;
       const requestBody = JSON.stringify({
         contents: [{ role: "user", parts }],
         generationConfig: {
@@ -207,44 +205,27 @@ Each view should be labeled clearly. The character design must be consistent acr
         },
       });
 
-      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-        if (attempt > 0) {
-          console.log(`generate-character Gemini: retry attempt ${attempt}`);
-          await new Promise(r => setTimeout(r, RETRY_DELAY));
-        }
-        const ctrl = new AbortController();
-        const tmout = setTimeout(() => ctrl.abort(), 200_000);
-        try {
-          response = await fetch(
-            `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent/`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },
-              signal: ctrl.signal,
-              body: requestBody,
-            },
-          );
-          clearTimeout(tmout);
-          if (response.ok) break;
-          if (response.status >= 500) {
-            console.error(`Gemini returned ${response.status}, will retry...`);
-            await response.text(); // consume body
-            response = null;
-            continue;
-          }
-          break; // client error, don't retry
-        } catch (fetchErr) {
-          clearTimeout(tmout);
-          const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-          console.error(`Attempt ${attempt} failed:`, msg);
-          if (attempt >= MAX_ATTEMPTS - 1) {
-            const isTimeout = msg.includes("abort") || (fetchErr instanceof Error && fetchErr.name === "AbortError");
-            return new Response(JSON.stringify({ error: isTimeout ? "AI 生成超时，请重试" : `网络错误: ${msg}` }), {
-              status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
-          }
-          response = null;
-        }
+      const ctrl = new AbortController();
+      const tmout = setTimeout(() => ctrl.abort(), 200_000);
+      try {
+        response = await fetch(
+          `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent/`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },
+            signal: ctrl.signal,
+            body: requestBody,
+          },
+        );
+        clearTimeout(tmout);
+      } catch (fetchErr) {
+        clearTimeout(tmout);
+        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+        console.error("Fetch failed:", msg);
+        const isTimeout = msg.includes("abort") || (fetchErr instanceof Error && fetchErr.name === "AbortError");
+        return new Response(JSON.stringify({ error: isTimeout ? "AI 生成超时" : `网络错误: ${msg}` }), {
+          status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       if (!response) {
@@ -361,30 +342,16 @@ Each view should be labeled clearly. The character design must be consistent acr
 
     console.log(`Character image size: ${bytes.length} bytes`);
 
-    // Upload with retry (up to 3 attempts)
-    let uploadedFileName = "";
-    let lastUploadError: any = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const tryFileName = `characters/${crypto.randomUUID()}.${ext}`;
-      console.log(`Upload attempt ${attempt + 1}: ${tryFileName}`);
-      const { error } = await supabaseAdmin.storage
-        .from("generated-images")
-        .upload(tryFileName, bytes, { contentType: mimeType, upsert: false });
-      if (!error) {
-        uploadedFileName = tryFileName;
-        lastUploadError = null;
-        break;
-      }
-      lastUploadError = error;
-      console.error(`Storage upload attempt ${attempt + 1} failed:`, error.message);
-      if (attempt < 2) {
-        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-      }
-    }
+    // Upload to storage
+    const fileName = `characters/${crypto.randomUUID()}.${ext}`;
+    console.log(`Uploading: ${fileName}`);
+    const { error: uploadError } = await supabaseAdmin.storage
+      .from("generated-images")
+      .upload(fileName, bytes, { contentType: mimeType, upsert: false });
 
-    if (lastUploadError || !uploadedFileName) {
-      console.error("Storage upload failed after retries:", lastUploadError);
-      return new Response(JSON.stringify({ error: `图片上传失败: ${lastUploadError?.message || "unknown"}` }), {
+    if (uploadError) {
+      console.error("Storage upload failed:", uploadError.message);
+      return new Response(JSON.stringify({ error: `图片上传失败: ${uploadError.message}` }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -392,7 +359,7 @@ Each view should be labeled clearly. The character design must be consistent acr
 
     const { data: urlData } = supabaseAdmin.storage
       .from("generated-images")
-      .getPublicUrl(uploadedFileName);
+      .getPublicUrl(fileName);
 
     console.log("Image uploaded successfully:", urlData.publicUrl);
 
