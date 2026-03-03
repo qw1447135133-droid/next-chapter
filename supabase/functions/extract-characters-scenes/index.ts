@@ -91,15 +91,15 @@ serve(async (req) => {
 });
 
 async function extractCharactersAndScenes(body: any) {
-  const { script, model: requestedModel } = body;
+  const { script, model: requestedModel, geminiKey } = body;
 
   if (!script || typeof script !== "string") {
     throw new Error("缺少剧本内容");
   }
 
-  const apiKey = Deno.env.get("Gemini");
+  const apiKey = geminiKey || Deno.env.get("Gemini");
   if (!apiKey) {
-    throw new Error("API Key 未配置");
+    throw new Error("API Key 未配置，请在设置中配置 Gemini API Key");
   }
 
   const model = requestedModel || "gemini-3.1-pro-preview";

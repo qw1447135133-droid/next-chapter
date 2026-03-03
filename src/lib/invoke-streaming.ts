@@ -1,7 +1,10 @@
 /**
  * Invoke a Supabase Edge Function that uses streaming (heartbeat newlines + JSON line).
  * Reads chunks until a valid JSON line is found, then returns the parsed object.
+ * Automatically injects API keys from Settings.
  */
+import { buildFetchBodyWithKeys } from "@/lib/invoke-with-key";
+
 export async function invokeStreamingFunction<T = any>(
   functionName: string,
   body: Record<string, unknown>,
@@ -21,7 +24,7 @@ export async function invokeStreamingFunction<T = any>(
         "Authorization": `Bearer ${supabaseKey}`,
         "apikey": supabaseKey,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(buildFetchBodyWithKeys(functionName, body)),
       signal: controller.signal,
     });
 

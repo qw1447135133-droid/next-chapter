@@ -68,6 +68,7 @@ serve(async (req) => {
   }
 
   try {
+    const body = await req.json();
     const {
       description,
       sceneName,
@@ -76,7 +77,7 @@ serve(async (req) => {
       prevDescription,
       nextDescription,
       hasRefImage,
-    } = await req.json();
+    } = body;
 
     if (!description) {
       return new Response(
@@ -85,7 +86,7 @@ serve(async (req) => {
       );
     }
 
-    const ZHANHU_API_KEY = Deno.env.get("Gemini");
+    const ZHANHU_API_KEY = body.geminiKey || Deno.env.get("Gemini");
     if (!ZHANHU_API_KEY) {
       console.warn("Gemini API Key not configured, returning original");
       return new Response(

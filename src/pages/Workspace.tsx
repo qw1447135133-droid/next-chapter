@@ -9,6 +9,7 @@ import { toast } from "@/hooks/use-toast";
 import { friendlyError } from "@/lib/friendly-error";
 import { compressImage } from "@/lib/image-compress";
 import { supabase } from "@/integrations/supabase/client";
+import { buildFetchBodyWithKeys, invokeFunction } from "@/lib/invoke-with-key";
 import type { Scene, CharacterSetting, SceneSetting, WorkspaceStep, ArtStyle, VideoModel, CostumeSetting } from "@/types/project";
 import { VIDEO_MODEL_API_MAP } from "@/types/project";
 import { useProjectPersistence } from "@/hooks/use-local-persistence";
@@ -295,7 +296,7 @@ const Workspace = () => {
             "Authorization": `Bearer ${supabaseKey}`,
             "apikey": supabaseKey,
           },
-          body: JSON.stringify({ script, model: decomposeModel }),
+          body: JSON.stringify(buildFetchBodyWithKeys("extract-characters-scenes", { script, model: decomposeModel })),
           signal: controller.signal,
         });
 
@@ -358,7 +359,7 @@ const Workspace = () => {
             "Authorization": `Bearer ${supabaseKey}`,
             "apikey": supabaseKey,
           },
-          body: JSON.stringify({ script, systemPrompt, model: decomposeModel }),
+          body: JSON.stringify(buildFetchBodyWithKeys("script-decompose", { script, systemPrompt, model: decomposeModel })),
           signal: controller.signal,
         });
 
@@ -584,7 +585,7 @@ const Workspace = () => {
           "Authorization": `Bearer ${supabaseKey}`,
           "apikey": supabaseKey,
         },
-        body: JSON.stringify({
+        body: JSON.stringify(buildFetchBodyWithKeys("generate-storyboard", {
           description: scene.description,
           characters: scene.characters,
           characterDescriptions: charDescs,
@@ -601,7 +602,7 @@ const Workspace = () => {
           model,
           scriptExcerpt: script?.slice(0, 2000) || "",
           neighborContext,
-        }),
+        })),
         signal: abortController.signal,
       });
       clearTimeout(timeoutId);
@@ -783,16 +784,14 @@ const Workspace = () => {
     const isManual = scene.isManualDuration && scene.recommendedDuration;
     let recommendedDuration: number = isManual ? scene.recommendedDuration! : Math.max(4, Math.min(maxDuration, scene.duration || 5));
     try {
-      const { data: enhanceData, error: enhanceError } = await supabase.functions.invoke("enhance-video-prompt", {
-        body: {
-          description: cleanBrackets(scene.description),
-          sceneName: scene.sceneName?.trim(),
-          characters: scene.characters.map((c) => String(c || "")).filter(Boolean),
-          dialogue: scene.dialogue ? cleanBrackets(scene.dialogue) : undefined,
-          prevDescription: prevScene ? cleanBrackets(prevScene.description) : undefined,
-          nextDescription: nextScene ? cleanBrackets(nextScene.description) : undefined,
-          hasRefImage,
-        },
+      const { data: enhanceData, error: enhanceError } = await invokeFunction("enhance-video-prompt", {
+        description: cleanBrackets(scene.description),
+        sceneName: scene.sceneName?.trim(),
+        characters: scene.characters.map((c) => String(c || "")).filter(Boolean),
+        dialogue: scene.dialogue ? cleanBrackets(scene.dialogue) : undefined,
+        prevDescription: prevScene ? cleanBrackets(prevScene.description) : undefined,
+        nextDescription: nextScene ? cleanBrackets(nextScene.description) : undefined,
+        hasRefImage,
       });
       if (!enhanceError && enhanceData?.enhanced) {
         enhancedDescription = enhanceData.enhanced;
@@ -849,9 +848,8 @@ const Workspace = () => {
         body.imageUrl = await compressImage(scene.storyboardUrl);
       }
 
-      const { data, error } = await supabase.functions.invoke("generate-video", { body });
+      const { data, error } = await invokeFunction("generate-video", body);
       if (error) throw error;
-      if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)));
 
       const taskId = data.task_id;
       const provider = data.provider; // "vidu" or "seedance"
@@ -880,9 +878,7 @@ const Workspace = () => {
     const poll = async () => {
       attempts++;
       try {
-        const { data, error } = await supabase.functions.invoke("generate-video", {
-          body: { action: "status", taskId, provider },
-        });
+        const { data, error } = await invokeFunction("generate-video", { action: "status", taskId, provider });
         if (error) throw error;
 
         const status = data?.status;

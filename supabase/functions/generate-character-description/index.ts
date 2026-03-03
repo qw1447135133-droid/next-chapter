@@ -62,15 +62,15 @@ serve(async (req) => {
 });
 
 async function generateCharacterDescription(body: any) {
-  const { characterName, script, costumes, model: requestedModel } = body;
+  const { characterName, script, costumes, model: requestedModel, geminiKey } = body;
 
   if (!characterName || !script) {
     throw new Error("缺少角色名称或剧本内容");
   }
 
-  const ZHANHU_API_KEY = Deno.env.get("Gemini");
+  const ZHANHU_API_KEY = geminiKey || Deno.env.get("Gemini");
   if (!ZHANHU_API_KEY) {
-    throw new Error("Gemini API Key 未配置");
+    throw new Error("Gemini API Key 未配置，请在设置中配置");
   }
 
   const hasCostumes = Array.isArray(costumes) && costumes.length > 0;

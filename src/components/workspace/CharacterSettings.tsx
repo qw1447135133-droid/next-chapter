@@ -19,6 +19,7 @@ const CHAR_IMAGE_MODEL_OPTIONS: { value: CharImageModel; label: string }[] = [
 ];
 import ImageHistoryDialog from "./ImageHistoryDialog";
 import { supabase } from "@/integrations/supabase/client";
+import { invokeFunction, buildFetchBodyWithKeys } from "@/lib/invoke-with-key";
 import { toast } from "@/hooks/use-toast";
 import { friendlyError } from "@/lib/friendly-error";
 import { ensureStorageUrl } from "@/lib/upload-base64-to-storage";
@@ -212,14 +213,12 @@ const CharacterSettings = ({
           const freshCos = freshChar?.costumes?.find(cc => cc.id === cos.id);
           const combinedDesc = `${character.name}，${freshCos?.label || cos.label}：${freshCos?.description || cos.description || freshChar?.description || character.description}`;
           const { data, error } = await withTimeout(
-            supabase.functions.invoke("generate-character", {
-              body: {
-                name: `${character.name} - ${freshCos?.label || cos.label}`,
-                description: combinedDesc,
-                style: artStyle,
-                model: charImageModel,
-                referenceImageUrl: isFirstCostume ? undefined : anchorImageUrl,
-              },
+            invokeFunction("generate-character", {
+              name: `${character.name} - ${freshCos?.label || cos.label}`,
+              description: combinedDesc,
+              style: artStyle,
+              model: charImageModel,
+              referenceImageUrl: isFirstCostume ? undefined : anchorImageUrl,
             }),
             CHAR_IMAGE_TIMEOUT_MS,
           );
@@ -290,9 +289,7 @@ const CharacterSettings = ({
       setGeneratingCharImgIds((prev) => new Set(prev).add(id));
       try {
         const { data, error } = await withTimeout(
-          supabase.functions.invoke("generate-character", {
-            body: { name: character.name, description: character.description, style: artStyle, model: charImageModel },
-          }),
+          invokeFunction("generate-character", { name: character.name, description: character.description, style: artStyle, model: charImageModel }),
           CHAR_IMAGE_TIMEOUT_MS,
         );
         if (error) throw error;
@@ -398,14 +395,12 @@ const CharacterSettings = ({
             const freshTv = freshScene?.timeVariants?.find(v => v.id === tv.id);
             const combinedDesc = `${scene.name}，${freshTv?.label || tv.label}：${freshTv?.description || tv.description || freshScene?.description || scene.description}`;
             const { data, error } = await withTimeout(
-              supabase.functions.invoke("generate-scene", {
-                body: {
-                  name: `${scene.name} - ${freshTv?.label || tv.label}`,
-                  description: combinedDesc,
-                  style: artStyle,
-                  model: charImageModel,
-                  referenceImageUrl: isFirstVariant ? undefined : anchorImageUrl,
-                },
+              invokeFunction("generate-scene", {
+                name: `${scene.name} - ${freshTv?.label || tv.label}`,
+                description: combinedDesc,
+                style: artStyle,
+                model: charImageModel,
+                referenceImageUrl: isFirstVariant ? undefined : anchorImageUrl,
               }),
               SCENE_IMAGE_TIMEOUT_MS,
             );
@@ -473,9 +468,7 @@ const CharacterSettings = ({
       setGeneratingSceneImgIds((prev) => new Set(prev).add(id));
       try {
         const { data, error } = await withTimeout(
-          supabase.functions.invoke("generate-scene", {
-            body: { name: scene.name, description: scene.description, style: artStyle, model: charImageModel },
-          }),
+          invokeFunction("generate-scene", { name: scene.name, description: scene.description, style: artStyle, model: charImageModel }),
           SCENE_IMAGE_TIMEOUT_MS,
         );
         if (error) throw error;
@@ -764,9 +757,7 @@ const CharacterSettings = ({
         try {
           const latest = charactersRef.current.find((ch) => ch.id === c.id);
           const { data, error } = await withTimeout(
-            supabase.functions.invoke("generate-character", {
-              body: { name: c.name, description: latest?.description || desc, style: artStyle, model: charImageModel },
-            }),
+            invokeFunction("generate-character", { name: c.name, description: latest?.description || desc, style: artStyle, model: charImageModel }),
             CHAR_IMAGE_TIMEOUT_MS,
           );
           if (error) throw error;
@@ -813,14 +804,12 @@ const CharacterSettings = ({
           const freshCos = localCostumes.find(cc => cc.id === cos.id);
           const combinedDesc = `${c.name}，${freshCos?.label || cos.label}：${freshCos?.description || cos.description || latestChar?.description || desc}`;
           const { data, error } = await withTimeout(
-            supabase.functions.invoke("generate-character", {
-              body: {
-                name: `${c.name} - ${freshCos?.label || cos.label}`,
-                description: combinedDesc,
-                style: artStyle,
-                model: charImageModel,
-                referenceImageUrl: isFirstCostume ? undefined : costumeAnchorUrl,
-              },
+            invokeFunction("generate-character", {
+              name: `${c.name} - ${freshCos?.label || cos.label}`,
+              description: combinedDesc,
+              style: artStyle,
+              model: charImageModel,
+              referenceImageUrl: isFirstCostume ? undefined : costumeAnchorUrl,
             }),
             CHAR_IMAGE_TIMEOUT_MS,
           );
@@ -918,9 +907,7 @@ const CharacterSettings = ({
         try {
           const latest = sceneSettingsRef.current.find((sc) => sc.id === s.id);
           const { data, error } = await withTimeout(
-            supabase.functions.invoke("generate-scene", {
-              body: { name: s.name, description: latest?.description || desc, style: artStyle, model: charImageModel },
-            }),
+            invokeFunction("generate-scene", { name: s.name, description: latest?.description || desc, style: artStyle, model: charImageModel }),
             SCENE_IMAGE_TIMEOUT_MS,
           );
           if (error) throw error;
@@ -965,14 +952,12 @@ const CharacterSettings = ({
           const freshTv = localVariants.find(v => v.id === tv.id);
           const combinedDesc = `${s.name}，${freshTv?.label || tv.label}：${freshTv?.description || tv.description || latestScene?.description || desc}`;
           const { data, error } = await withTimeout(
-            supabase.functions.invoke("generate-scene", {
-              body: {
-                name: `${s.name} - ${freshTv?.label || tv.label}`,
-                description: combinedDesc,
-                style: artStyle,
-                model: charImageModel,
-                referenceImageUrl: isFirstVariant ? undefined : tvAnchorUrl,
-              },
+            invokeFunction("generate-scene", {
+              name: `${s.name} - ${freshTv?.label || tv.label}`,
+              description: combinedDesc,
+              style: artStyle,
+              model: charImageModel,
+              referenceImageUrl: isFirstVariant ? undefined : tvAnchorUrl,
             }),
             SCENE_IMAGE_TIMEOUT_MS,
           );
@@ -1242,9 +1227,7 @@ const CharacterSettings = ({
               // Use base character image or first successful costume image as reference anchor
               const referenceImageUrl = c.imageUrl || (c.costumes || []).find(cos => cos.id !== costumeId && cos.imageUrl)?.imageUrl || undefined;
               const { data, error } = await withTimeout(
-                supabase.functions.invoke("generate-character", {
-                  body: { name: `${c.name} - ${costume.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl },
-                }),
+                invokeFunction("generate-character", { name: `${c.name} - ${costume.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl }),
                 CHAR_IMAGE_TIMEOUT_MS,
               );
               if (error) throw error;
@@ -1601,9 +1584,7 @@ const CharacterSettings = ({
               const combinedDesc = `${s.name}，${tv.label}：${tv.description || s.description}`;
               const referenceImageUrl = s.imageUrl || (s.timeVariants || []).find(v => v.id !== tvId && v.imageUrl)?.imageUrl || undefined;
               const { data, error } = await withTimeout(
-                supabase.functions.invoke("generate-scene", {
-                  body: { name: `${s.name} - ${tv.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl },
-                }),
+                invokeFunction("generate-scene", { name: `${s.name} - ${tv.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl }),
                 SCENE_IMAGE_TIMEOUT_MS,
               );
               if (error) throw error;

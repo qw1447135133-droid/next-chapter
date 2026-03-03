@@ -53,15 +53,15 @@ serve(async (req) => {
 });
 
 async function generateSceneDescription(body: any) {
-  const { sceneName, script, model: requestedModel } = body;
+  const { sceneName, script, model: requestedModel, geminiKey } = body;
 
   if (!sceneName || !script) {
     throw new Error("缺少场景名称或剧本内容");
   }
 
-  const ZHANHU_API_KEY = Deno.env.get("Gemini");
+  const ZHANHU_API_KEY = geminiKey || Deno.env.get("Gemini");
   if (!ZHANHU_API_KEY) {
-    throw new Error("Gemini API Key 未配置");
+    throw new Error("Gemini API Key 未配置，请在设置中配置");
   }
 
   const systemPrompt = `You are a professional film production designer. Your core task is: based on the script provided by the user and a specified scene name, produce a detailed environment description for AI image generation, aimed at creating a grand **Panoramic View** scene concept design.

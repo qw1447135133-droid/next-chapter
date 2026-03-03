@@ -176,21 +176,21 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { action, model } = body;
+    const { action, model, geminiKey, seedanceKey, viduKey: clientViduKey } = body;
     const useVidu = isViduModel(model || "");
 
-    // Resolve API key based on provider
+    // Resolve API key based on provider, prefer client-provided keys
     let apiKey: string | undefined;
     if (useVidu) {
-      apiKey = Deno.env.get("VIDU_API_KEY");
+      apiKey = clientViduKey || Deno.env.get("VIDU_API_KEY");
       if (!apiKey) {
-        return new Response(JSON.stringify({ error: "Vidu API Key 未配置" }),
+        return new Response(JSON.stringify({ error: "Vidu API Key 未配置，请在设置中配置" }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
     } else {
-      apiKey = Deno.env.get("JIMENG_API_KEY");
+      apiKey = seedanceKey || Deno.env.get("JIMENG_API_KEY");
       if (!apiKey) {
-        return new Response(JSON.stringify({ error: "Seedance API Key (JIMENG) 未配置" }),
+        return new Response(JSON.stringify({ error: "Seedance API Key 未配置，请在设置中配置" }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
     }
@@ -208,12 +208,12 @@ serve(async (req) => {
 
       let statusData;
       if (isViduTask) {
-        const viduKey = Deno.env.get("VIDU_API_KEY");
+        const viduKey = clientViduKey || Deno.env.get("VIDU_API_KEY");
         if (!viduKey) throw new Error("Vidu API Key 未配置");
         statusData = await viduStatus(viduKey, taskId);
       } else {
-        const seedKey = Deno.env.get("JIMENG_API_KEY");
-        if (!seedKey) throw new Error("Seedance API Key (JIMENG) 未配置");
+        const seedKey = seedanceKey || Deno.env.get("JIMENG_API_KEY");
+        if (!seedKey) throw new Error("Seedance API Key 未配置");
         statusData = await seedanceStatus(seedKey, taskId);
       }
 

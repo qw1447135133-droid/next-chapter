@@ -19,7 +19,7 @@ serve(async (req) => {
   }
 
   try {
-    const { name, description, style, model, referenceImageUrl } = await req.json();
+    const { name, description, style, model, referenceImageUrl, geminiKey, seedanceKey } = await req.json();
 
     if (!name) {
       return new Response(JSON.stringify({ error: "缺少角色名称" }), {
@@ -28,9 +28,9 @@ serve(async (req) => {
       });
     }
 
-    const ZHANHU_API_KEY = Deno.env.get("Gemini");
+    const ZHANHU_API_KEY = geminiKey || Deno.env.get("Gemini");
     if (!ZHANHU_API_KEY) {
-      return new Response(JSON.stringify({ error: "Gemini API Key 未配置" }), {
+      return new Response(JSON.stringify({ error: "Gemini API Key 未配置，请在设置中配置" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -76,10 +76,10 @@ Each view should be labeled clearly. The character design must be consistent acr
     let mimeType = "image/png";
 
     if (isSeedream) {
-      const jimengKey = Deno.env.get("JIMENG_API_KEY");
+      const jimengKey = seedanceKey || Deno.env.get("JIMENG_API_KEY");
       if (!jimengKey) {
         clearTimeout(timeout);
-        return new Response(JSON.stringify({ error: "JIMENG_API_KEY 未配置" }), {
+        return new Response(JSON.stringify({ error: "Seedance API Key 未配置，请在设置中配置" }), {
           status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
