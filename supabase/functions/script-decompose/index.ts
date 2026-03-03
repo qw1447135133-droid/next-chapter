@@ -207,8 +207,10 @@ async function decomposeScript(body: any) {
   const prompt = basePrompt + jsonEnforcement;
 
   const models = ["gemini-3.1-pro-preview", "gemini-3-pro-preview"];
-  // Global deadline: must finish within 130s to stay under platform wall-clock limit (~150s)
-  const FUNCTION_DEADLINE_MS = 130_000;
+  // Global deadline: must finish within 140s to stay under platform wall-clock limit (~150s)
+  const FUNCTION_DEADLINE_MS = 140_000;
+  // Per-model cap: leave enough time for fallback model
+  const PER_MODEL_CAP_MS = 90_000;
   const functionStart = Date.now();
   const promptText = `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}`;
 
@@ -222,7 +224,7 @@ async function decomposeScript(body: any) {
       console.log(`Only ${remaining}ms remaining, skipping model ${model}`);
       break;
     }
-    const perModelTimeout = Math.min(remaining - 5_000, 120_000);
+    const perModelTimeout = Math.min(remaining - 5_000, PER_MODEL_CAP_MS);
 
     const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model}:generateContent/`;
     const requestBody = JSON.stringify({
