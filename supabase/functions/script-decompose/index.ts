@@ -204,7 +204,7 @@ async function decomposeScript(body: any) {
   
   const prompt = basePrompt + jsonEnforcement;
 
-  const models = ["gemini-3-pro-preview-thinking", "gemini-3-pro-preview"];
+  const models = ["gemini-3.1-pro-preview", "gemini-3-pro-preview"];
   const TIMEOUT_MS = 180_000;
   const promptText = `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}`;
 
@@ -221,7 +221,6 @@ async function decomposeScript(body: any) {
         temperature: 0.3,
         maxOutputTokens: 65536,
         responseMimeType: "application/json",
-        thinkingConfig: { thinkingBudget: 8192 },
       },
     });
 
