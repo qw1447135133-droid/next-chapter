@@ -164,7 +164,7 @@ Each view should be labeled clearly. The character design must be consistent acr
                     const scale = maxDim / Math.max(img.width, img.height);
                     img.resize(Math.round(img.width * scale), Math.round(img.height * scale));
                   }
-                  compressed = await img.encodeJPEG(quality);
+                  compressed = new Uint8Array(await img.encodeJPEG(quality));
                   if (compressed.length > TARGET_SIZE) {
                     quality -= 10;
                     if (quality < 40) { maxDim -= 256; quality = 70; }
