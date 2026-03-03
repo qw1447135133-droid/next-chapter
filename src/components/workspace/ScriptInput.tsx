@@ -107,41 +107,41 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
-          <div>
-            <h2 className="text-xl font-semibold font-[Space_Grotesk] mb-1">输入剧本</h2>
-            <p className="text-sm text-muted-foreground">
-              粘贴文本或上传文档（TXT / PDF / Word），AI 将自动拆解为分镜列表
-            </p>
+        <div>
+          <div className="flex items-center gap-3 mb-1">
+            <h2 className="text-xl font-semibold font-[Space_Grotesk]">输入剧本</h2>
+            {/* Model Selector — pill style matching CharacterSettings */}
+            <div className="relative" ref={modelDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setModelOpen((v) => !v)}
+                disabled={isAnalyzing}
+                className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {currentModel.label}
+                <ChevronDown className={`h-3 w-3 transition-transform ${modelOpen ? "rotate-180" : ""}`} />
+              </button>
+              {modelOpen && (
+                <div className="absolute left-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border bg-popover shadow-lg py-1">
+                  {DECOMPOSE_MODEL_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => { onDecomposeModelChange(opt.value); setModelOpen(false); }}
+                      className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent ${
+                        opt.value === decomposeModel ? "text-primary font-semibold" : "text-popover-foreground"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-          {/* Model Selector — pill style matching CharacterSettings */}
-          <div className="relative" ref={modelDropdownRef}>
-            <button
-              type="button"
-              onClick={() => setModelOpen((v) => !v)}
-              disabled={isAnalyzing}
-              className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
-            >
-              {currentModel.label}
-              <ChevronDown className={`h-3 w-3 transition-transform ${modelOpen ? "rotate-180" : ""}`} />
-            </button>
-            {modelOpen && (
-              <div className="absolute left-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border bg-popover shadow-lg py-1">
-                {DECOMPOSE_MODEL_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => { onDecomposeModelChange(opt.value); setModelOpen(false); }}
-                    className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent ${
-                      opt.value === decomposeModel ? "text-primary font-semibold" : "text-popover-foreground"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <p className="text-sm text-muted-foreground">
+            粘贴文本或上传文档（TXT / PDF / Word），AI 将自动拆解为分镜列表
+          </p>
         </div>
         <div>
           <input
