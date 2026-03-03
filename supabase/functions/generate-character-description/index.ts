@@ -113,20 +113,64 @@ Write in vivid, visually precise English that can be used directly as an AI imag
       ? { responseMimeType: "application/json" }
       : {};
 
-    const response = await fetch(
-      `${ZHANHU_BASE_URL}/models/gemini-3-pro-preview:generateContent/`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${ZHANHU_API_KEY}`,
-        },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
-          ...(Object.keys(generationConfig).length > 0 ? { generationConfig } : {}),
-        }),
-      },
-    );
+    // Retry wrapper for cross-region network resilience
+    const MAX_RETRIES = 1;
+    const RETRY_DELAY_MS = 2000;
+    const TIMEOUT_MS = 120_000;
+    let response: Response | null = null;
+    let lastFetchError: Error | null = null;
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        console.log(`generate-character-description: retry attempt ${attempt} after ${RETRY_DELAY_MS}ms`);
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+      }
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+        response = await fetch(
+          `${ZHANHU_BASE_URL}/models/gemini-3-pro-preview:generateContent/`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${ZHANHU_API_KEY}`,
+            },
+            body: JSON.stringify({
+              contents: [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
+              ...(Object.keys(generationConfig).length > 0 ? { generationConfig } : {}),
+            }),
+            signal: controller.signal,
+          },
+        );
+        clearTimeout(timeoutId);
+        if (response.ok) break;
+        // Non-retryable client error
+        if (response.status >= 400 && response.status < 500) break;
+        lastFetchError = new Error(`API returned ${response.status}`);
+      } catch (err) {
+        lastFetchError = err instanceof Error ? err : new Error(String(err));
+        const isTimeout = lastFetchError.message.includes("abort") || lastFetchError.name === "AbortError";
+        console.error(`Attempt ${attempt} failed:`, lastFetchError.message);
+        if (!isTimeout && attempt >= MAX_RETRIES) {
+          return new Response(JSON.stringify({ error: `网络错误: ${lastFetchError.message}` }), {
+            status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        if (isTimeout && attempt >= MAX_RETRIES) {
+          return new Response(JSON.stringify({ error: "AI 生成超时，请重试" }), {
+            status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        response = null;
+      }
+    }
+
+    if (!response) {
+      return new Response(JSON.stringify({ error: lastFetchError?.message || "网络错误" }), {
+        status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     if (!response.ok) {
       const t = await response.text();

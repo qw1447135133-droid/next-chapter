@@ -67,7 +67,7 @@ serve(async (req) => {
 
   const heartbeat = setInterval(() => {
     writer.write(encoder.encode("\n")).catch(() => {});
-  }, 10_000);
+  }, 5_000);
 
   (async () => {
     try {

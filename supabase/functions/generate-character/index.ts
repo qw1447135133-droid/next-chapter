@@ -134,10 +134,10 @@ Each view should be labeled clearly. The character design must be consistent acr
         });
       }
     } else {
-      // Gemini models
-      let response: Response;
-      try {
-      // Build multimodal parts: text + optional reference image
+      // Gemini models with retry for cross-region resilience
+      let response: Response | null = null;
+
+      // Build multimodal parts: text + optional reference image (done once, reused on retry)
       const parts: any[] = [{ text: prompt }];
       if (referenceImageUrl) {
         try {
@@ -156,7 +156,6 @@ Each view should be labeled clearly. The character design must be consistent acr
               try {
                 console.log("Compressing reference image to ~1MB...");
                 const img = await Image.decode(refBytes);
-                // Scale down progressively until under 1MB
                 let maxDim = 1536;
                 let compressed = refBytes;
                 let quality = 80;
@@ -198,27 +197,58 @@ Each view should be labeled clearly. The character design must be consistent acr
         }
       }
 
-      response = await fetch(
-        `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent/`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },
-          signal: controller.signal,
-          body: JSON.stringify({
-            contents: [{ role: "user", parts }],
-            generationConfig: {
-              responseModalities: ["IMAGE", "TEXT"],
-              imageConfig: { aspectRatio: "16:9", imageSize: "2K" },
-            },
-          }),
+      const RETRY_DELAY = 2000;
+      const MAX_ATTEMPTS = 2;
+      const requestBody = JSON.stringify({
+        contents: [{ role: "user", parts }],
+        generationConfig: {
+          responseModalities: ["IMAGE", "TEXT"],
+          imageConfig: { aspectRatio: "16:9", imageSize: "2K" },
         },
-      );
-      } catch (fetchErr) {
-        clearTimeout(timeout);
-        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-        console.error("Fetch failed:", msg);
-        const isTimeout = msg.includes("abort");
-        return new Response(JSON.stringify({ error: isTimeout ? "AI 生成超时，请重试" : `网络错误: ${msg}` }), {
+      });
+
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        if (attempt > 0) {
+          console.log(`generate-character Gemini: retry attempt ${attempt}`);
+          await new Promise(r => setTimeout(r, RETRY_DELAY));
+        }
+        const ctrl = new AbortController();
+        const tmout = setTimeout(() => ctrl.abort(), 200_000);
+        try {
+          response = await fetch(
+            `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent/`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },
+              signal: ctrl.signal,
+              body: requestBody,
+            },
+          );
+          clearTimeout(tmout);
+          if (response.ok) break;
+          if (response.status >= 500) {
+            console.error(`Gemini returned ${response.status}, will retry...`);
+            await response.text(); // consume body
+            response = null;
+            continue;
+          }
+          break; // client error, don't retry
+        } catch (fetchErr) {
+          clearTimeout(tmout);
+          const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+          console.error(`Attempt ${attempt} failed:`, msg);
+          if (attempt >= MAX_ATTEMPTS - 1) {
+            const isTimeout = msg.includes("abort") || (fetchErr instanceof Error && fetchErr.name === "AbortError");
+            return new Response(JSON.stringify({ error: isTimeout ? "AI 生成超时，请重试" : `网络错误: ${msg}` }), {
+              status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          response = null;
+        }
+      }
+
+      if (!response) {
+        return new Response(JSON.stringify({ error: "AI 图像生成失败（网络错误）" }), {
           status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }

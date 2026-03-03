@@ -122,34 +122,85 @@ This is a wide establishing shot showing the full environment. Focus on atmosphe
         });
       }
     } else {
-      // Gemini models
-      let response: Response;
-      try {
-        response = await fetch(
-          `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent/`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },
-            signal: controller.signal,
-            body: JSON.stringify({
-              contents: [{ role: "user", parts: [{ text: prompt }] }],
-              generationConfig: {
-                responseModalities: ["IMAGE", "TEXT"],
-                imageConfig: { aspectRatio: "16:9", imageSize: "4K" },
+      // Gemini models with retry for cross-region resilience
+      let response: Response | null = null;
+      const RETRY_DELAY = 2000;
+      const MAX_ATTEMPTS = 2;
+
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        if (attempt > 0) {
+          console.log(`generate-scene Gemini: retry attempt ${attempt}`);
+          await new Promise(r => setTimeout(r, RETRY_DELAY));
+          // Reset abort controller for retry
+          const retryController = new AbortController();
+          const retryTimeout = setTimeout(() => retryController.abort(), 280000);
+          try {
+            response = await fetch(
+              `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent/`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },
+                signal: retryController.signal,
+                body: JSON.stringify({
+                  contents: [{ role: "user", parts: [{ text: prompt }] }],
+                  generationConfig: {
+                    responseModalities: ["IMAGE", "TEXT"],
+                    imageConfig: { aspectRatio: "16:9", imageSize: "4K" },
+                  },
+                }),
               },
-            }),
-          },
-        );
-      } catch (fetchErr) {
-        clearTimeout(timeout);
-        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-        console.error("Fetch failed:", msg);
-        const isTimeout = msg.includes("abort");
-        return new Response(JSON.stringify({ error: isTimeout ? "AI 生成超时，请重试" : `网络错误: ${msg}` }), {
+            );
+            clearTimeout(retryTimeout);
+            if (response.ok) break;
+          } catch (retryErr) {
+            clearTimeout(retryTimeout);
+            const msg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+            console.error(`Retry ${attempt} failed:`, msg);
+          }
+          continue;
+        }
+
+        try {
+          response = await fetch(
+            `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent/`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },
+              signal: controller.signal,
+              body: JSON.stringify({
+                contents: [{ role: "user", parts: [{ text: prompt }] }],
+                generationConfig: {
+                  responseModalities: ["IMAGE", "TEXT"],
+                  imageConfig: { aspectRatio: "16:9", imageSize: "4K" },
+                },
+              }),
+            },
+          );
+          clearTimeout(timeout);
+          if (response.ok) break;
+          // Server error — retry
+          if (response.status >= 500) {
+            console.error(`Gemini returned ${response.status}, will retry...`);
+            continue;
+          }
+        } catch (fetchErr) {
+          clearTimeout(timeout);
+          const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+          console.error("Fetch failed:", msg);
+          if (attempt >= MAX_ATTEMPTS - 1) {
+            const isTimeout = msg.includes("abort");
+            return new Response(JSON.stringify({ error: isTimeout ? "AI 生成超时，请重试" : `网络错误: ${msg}` }), {
+              status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+        }
+      }
+
+      if (!response) {
+        return new Response(JSON.stringify({ error: "AI 场景图生成失败（网络错误）" }), {
           status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      clearTimeout(timeout);
       console.log("ZhanHu API response status:", response.status);
 
       if (!response.ok) {

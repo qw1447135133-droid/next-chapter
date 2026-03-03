@@ -135,10 +135,10 @@ serve(async (req) => {
   const writer = writable.getWriter();
   const encoder = new TextEncoder();
 
-  // Heartbeat: send a newline every 10s to keep connection alive
+  // Heartbeat: send a newline every 5s to keep connection alive (cross-region optimization)
   const heartbeat = setInterval(() => {
     writer.write(encoder.encode("\n")).catch(() => {});
-  }, 10_000);
+  }, 5_000);
 
   // Run the actual generation in the background
   (async () => {
@@ -483,11 +483,15 @@ Maintain environment consistency (lighting, architecture, props) based on the sc
 
       console.log("Calling Seedream API, ref images:", refImages.length);
 
+      const seedreamController = new AbortController();
+      const seedreamTimeout = setTimeout(() => seedreamController.abort(), 280_000);
       const seedreamResp = await fetch(`${ZHANHU_BASE_URL.replace("/v1beta", "")}/v1/images/generations/`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${jimengKey}` },
         body: JSON.stringify(seedreamPayload),
+        signal: seedreamController.signal,
       });
+      clearTimeout(seedreamTimeout);
 
       if (!seedreamResp.ok) {
         const errText = await seedreamResp.text();
@@ -518,7 +522,8 @@ Maintain environment consistency (lighting, architecture, props) based on the sc
         throw new Error("Seedream 未返回图片");
       }
     } else {
-      // Gemini models
+      const geminiController = new AbortController();
+      const geminiTimeout = setTimeout(() => geminiController.abort(), 280_000);
       const apiUrl = `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent/`;
       const response = await fetch(apiUrl, {
         method: "POST",
@@ -527,7 +532,9 @@ Maintain environment consistency (lighting, architecture, props) based on the sc
           contents: [{ role: "user", parts }],
           generationConfig: { responseModalities: ["IMAGE", "TEXT"], imageSize: "2K" },
         }),
+        signal: geminiController.signal,
       });
+      clearTimeout(geminiTimeout);
 
       if (!response.ok) {
         const errText = await response.text();
