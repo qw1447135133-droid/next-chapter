@@ -210,60 +210,62 @@ const Settings = () => {
           </div>
         </div>
 
-        {/* Supabase 配置 - 仅在云端模式下显示 */}
-        {storageMode === "cloud" && (
-          <div className="space-y-4">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">数据库配置</CardTitle>
-                <CardDescription>连接你的 Supabase 项目以存储项目数据</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {supabaseFields.map((f) => {
-                  const isSensitive = SENSITIVE_KEYS.includes(f.key as keyof ApiConfig);
-                  const hasValue = !!(config[f.key as keyof ApiConfig]);
-                  const isEditing = editingField === f.key;
-                  return (
-                    <div key={f.key}>
-                      <Label className="text-sm">{f.label}</Label>
-                      <div className="relative mt-1">
-                        <Input
-                          type="password"
-                          value={isEditing || !isSensitive ? (config[f.key as keyof ApiConfig] || "") : (hasValue ? "••••••••" : "")}
-                          onChange={(e) => setConfig((p) => ({ ...p, [f.key]: e.target.value }))}
-                          onFocus={() => { if (isSensitive) { setEditingField(f.key); setConfig((p) => ({ ...p, [f.key]: "" })); } }}
-                          onBlur={() => setEditingField(null)}
-                          placeholder={hasValue && isSensitive ? "已配置，点击可重新输入" : f.placeholder}
-                          className="font-mono text-sm"
-                          autoComplete="off"
-                          onCopy={(e) => e.preventDefault()}
-                          onCut={(e) => e.preventDefault()}
-                          onDrag={(e) => e.preventDefault()}
-                        />
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">{f.desc}</p>
+        {/* Supabase 配置 - 用于 AI 功能调用 */}
+        <div className="space-y-4">
+          <h2 className="text-sm font-medium flex items-center gap-2">
+            <Database className="h-4 w-4" />
+            Supabase 配置
+          </h2>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">AI 后端配置</CardTitle>
+              <CardDescription>用于调用 AI Edge Functions（剧本拆解、分镜图生成、视频生成）</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {supabaseFields.map((f) => {
+                const isSensitive = SENSITIVE_KEYS.includes(f.key as keyof ApiConfig);
+                const hasValue = !!(config[f.key as keyof ApiConfig]);
+                const isEditing = editingField === f.key;
+                return (
+                  <div key={f.key}>
+                    <Label className="text-sm">{f.label}</Label>
+                    <div className="relative mt-1">
+                      <Input
+                        type="password"
+                        value={isEditing || !isSensitive ? (config[f.key as keyof ApiConfig] || "") : (hasValue ? "••••••••" : "")}
+                        onChange={(e) => setConfig((p) => ({ ...p, [f.key]: e.target.value }))}
+                        onFocus={() => { if (isSensitive) { setEditingField(f.key); setConfig((p) => ({ ...p, [f.key]: "" })); } }}
+                        onBlur={() => setEditingField(null)}
+                        placeholder={hasValue && isSensitive ? "已配置，点击可重新输入" : f.placeholder}
+                        className="font-mono text-sm"
+                        autoComplete="off"
+                        onCopy={(e) => e.preventDefault()}
+                        onCut={(e) => e.preventDefault()}
+                        onDrag={(e) => e.preventDefault()}
+                      />
                     </div>
-                  );
-                })}
-                
-                <div className="flex gap-2 items-center">
-                  <Button 
-                    variant="outline" 
-                    onClick={handleTestSupabase} 
-                    disabled={testing || !config.supabaseUrl || !config.supabaseKey}
-                  >
-                    {testing ? "测试中..." : "测试连接"}
-                  </Button>
-                  {testResult && (
-                    <span className={`text-sm ${testResult.success ? 'text-green-500' : 'text-red-500'}`}>
-                      {testResult.message}
-                    </span>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+                    <p className="text-xs text-muted-foreground mt-1">{f.desc}</p>
+                  </div>
+                );
+              })}
+              
+              <div className="flex gap-2 items-center">
+                <Button 
+                  variant="outline" 
+                  onClick={handleTestSupabase} 
+                  disabled={testing || !config.supabaseUrl || !config.supabaseKey}
+                >
+                  {testing ? "测试中..." : "测试连接"}
+                </Button>
+                {testResult && (
+                  <span className={`text-sm ${testResult.success ? 'text-green-500' : 'text-red-500'}`}>
+                    {testResult.message}
+                  </span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
         {/* AI API Keys */}
         <div className="space-y-4">
