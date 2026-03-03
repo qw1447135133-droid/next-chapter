@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Key, Eye, EyeOff, Save, Globe, Database, HardDrive, Cloud } from "lucide-react";
+import { ArrowLeft, Key, Save, Database, HardDrive, Cloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,6 +24,19 @@ export interface ApiConfig {
 
 const STORAGE_KEY = "storyforge_api_config";
 
+// Simple obfuscation for localStorage (not true encryption, but prevents casual reading)
+function obfuscate(value: string): string {
+  if (!value) return "";
+  try { return btoa(unescape(encodeURIComponent(value))); } catch { return value; }
+}
+function deobfuscate(value: string): string {
+  if (!value) return "";
+  try { return decodeURIComponent(escape(atob(value))); } catch { return value; }
+}
+
+// Keys that should be obfuscated in storage
+const SENSITIVE_KEYS: (keyof ApiConfig)[] = ["zhanhuKey", "seedance", "viduKey", "supabaseKey"];
+
 const DEFAULT_CONFIG: ApiConfig = {
   storageMode: "local",
   supabaseUrl: "",
@@ -37,7 +50,12 @@ export function getApiConfig(): ApiConfig {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
-      return { ...DEFAULT_CONFIG, ...JSON.parse(saved) };
+      const parsed = { ...DEFAULT_CONFIG, ...JSON.parse(saved) };
+      // Deobfuscate sensitive fields
+      for (const key of SENSITIVE_KEYS) {
+        if (parsed[key]) parsed[key] = deobfuscate(parsed[key]);
+      }
+      return parsed;
     }
   } catch { /* ignore */ }
   return DEFAULT_CONFIG;
@@ -46,7 +64,12 @@ export function getApiConfig(): ApiConfig {
 export function saveApiConfig(config: Partial<ApiConfig>): void {
   const current = getApiConfig();
   const updated = { ...current, ...config };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  // Obfuscate sensitive fields before storing
+  const toStore = { ...updated };
+  for (const key of SENSITIVE_KEYS) {
+    if (toStore[key]) (toStore as any)[key] = obfuscate(toStore[key]);
+  }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore));
 }
 
 export function initSupabase(): void {
@@ -60,9 +83,11 @@ export function initSupabase(): void {
 const Settings = () => {
   const navigate = useNavigate();
   const [config, setConfig] = useState<ApiConfig>(getApiConfig);
-  const [visible, setVisible] = useState<Record<string, boolean>>({});
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // For sensitive fields, we track whether user is actively editing (show real value) or not (show mask)
+  const [editingField, setEditingField] = useState<string | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -194,28 +219,32 @@ const Settings = () => {
                 <CardDescription>连接你的 Supabase 项目以存储项目数据</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {supabaseFields.map((f) => (
-                  <div key={f.key}>
-                    <Label className="text-sm">{f.label}</Label>
-                    <div className="relative mt-1">
-                      <Input
-                        type={visible[f.key] ? "text" : "password"}
-                        value={config[f.key as keyof ApiConfig] || ""}
-                        onChange={(e) => setConfig((p) => ({ ...p, [f.key]: e.target.value }))}
-                        placeholder={f.placeholder}
-                        className="pr-10 font-mono text-sm"
-                      />
-                      <button
-                        type="button"
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                        onClick={() => setVisible((p) => ({ ...p, [f.key]: !p[f.key] }))}
-                      >
-                        {visible[f.key] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
+                {supabaseFields.map((f) => {
+                  const isSensitive = SENSITIVE_KEYS.includes(f.key as keyof ApiConfig);
+                  const hasValue = !!(config[f.key as keyof ApiConfig]);
+                  const isEditing = editingField === f.key;
+                  return (
+                    <div key={f.key}>
+                      <Label className="text-sm">{f.label}</Label>
+                      <div className="relative mt-1">
+                        <Input
+                          type="password"
+                          value={isEditing || !isSensitive ? (config[f.key as keyof ApiConfig] || "") : (hasValue ? "••••••••" : "")}
+                          onChange={(e) => setConfig((p) => ({ ...p, [f.key]: e.target.value }))}
+                          onFocus={() => { if (isSensitive) { setEditingField(f.key); setConfig((p) => ({ ...p, [f.key]: "" })); } }}
+                          onBlur={() => setEditingField(null)}
+                          placeholder={hasValue && isSensitive ? "已配置，点击可重新输入" : f.placeholder}
+                          className="font-mono text-sm"
+                          autoComplete="off"
+                          onCopy={(e) => e.preventDefault()}
+                          onCut={(e) => e.preventDefault()}
+                          onDrag={(e) => e.preventDefault()}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">{f.desc}</p>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">{f.desc}</p>
-                  </div>
-                ))}
+                  );
+                })}
                 
                 <div className="flex gap-2 items-center">
                   <Button 
@@ -249,22 +278,24 @@ const Settings = () => {
                 <CardDescription>{f.desc}</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="relative">
-                  <Input
-                    type={visible[f.key] ? "text" : "password"}
-                    value={config[f.key as keyof ApiConfig] || ""}
-                    onChange={(e) => setConfig((p) => ({ ...p, [f.key]: e.target.value }))}
-                    placeholder={`输入 ${f.label}`}
-                    className="pr-10"
-                  />
-                  <button
-                    type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setVisible((p) => ({ ...p, [f.key]: !p[f.key] }))}
-                  >
-                    {visible[f.key] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
+                {(() => {
+                  const hasValue = !!(config[f.key as keyof ApiConfig]);
+                  const isEditing = editingField === f.key;
+                  return (
+                    <Input
+                      type="password"
+                      value={isEditing ? (config[f.key as keyof ApiConfig] || "") : (hasValue ? "••••••••" : "")}
+                      onChange={(e) => setConfig((p) => ({ ...p, [f.key]: e.target.value }))}
+                      onFocus={() => { setEditingField(f.key); setConfig((p) => ({ ...p, [f.key]: "" })); }}
+                      onBlur={() => setEditingField(null)}
+                      placeholder={hasValue ? "已配置，点击可重新输入" : `输入 ${f.label}`}
+                      autoComplete="off"
+                      onCopy={(e) => e.preventDefault()}
+                      onCut={(e) => e.preventDefault()}
+                      onDrag={(e) => e.preventDefault()}
+                    />
+                  );
+                })()}
               </CardContent>
             </Card>
           ))}
