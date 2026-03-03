@@ -506,7 +506,7 @@ const CharacterSettings = ({
   const LS_KEY = "generating-tasks";
   type TaskEntry = { id: string; type: "charDesc" | "charImg" | "sceneDesc" | "sceneImg"; startedAt: number };
   const TIMEOUT_MAP: Record<TaskEntry["type"], number> = {
-    charDesc: 60_000, charImg: CHAR_IMAGE_TIMEOUT_MS, sceneDesc: 60_000, sceneImg: SCENE_IMAGE_TIMEOUT_MS,
+    charDesc: 120_000, charImg: CHAR_IMAGE_TIMEOUT_MS, sceneDesc: 120_000, sceneImg: SCENE_IMAGE_TIMEOUT_MS,
   };
 
   const readTasks = useCallback((): TaskEntry[] => {
