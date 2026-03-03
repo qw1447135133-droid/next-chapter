@@ -11,7 +11,7 @@ import { compressImage } from "@/lib/image-compress";
 import { supabase } from "@/integrations/supabase/client";
 import type { Scene, CharacterSetting, SceneSetting, WorkspaceStep, ArtStyle, VideoModel, CostumeSetting } from "@/types/project";
 import { VIDEO_MODEL_API_MAP } from "@/types/project";
-import { useProjectPersistence } from "@/hooks/use-local-persistence";
+import { useProjectPersistence } from "@/hooks/use-project-persistence";
 import StepIndicator from "@/components/workspace/StepIndicator";
 import ScriptInput from "@/components/workspace/ScriptInput";
 import SceneList from "@/components/workspace/SceneList";

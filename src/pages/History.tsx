@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Film, Clock, Trash2, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useProjectPersistence } from "@/hooks/use-local-persistence";
+import { useProjectPersistence } from "@/hooks/use-project-persistence";
 import { STEP_LABELS, type WorkspaceStep } from "@/types/project";
 
 interface ProjectSummary {
