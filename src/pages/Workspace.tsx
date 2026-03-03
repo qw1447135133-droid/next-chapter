@@ -112,7 +112,7 @@ const Workspace = () => {
   });
   const setDecomposeModel = (v: DecomposeModel) => {
     setDecomposeModelState(v);
-    try { localStorage.setItem("decompose-model", v); } catch {}
+    try { localStorage.setItem("decompose-model", v); } catch { /* ignore */ }
   };
   // Persistent storyboard generating state
   const SB_TASK_LS_KEY = "generating-storyboard-tasks";
@@ -130,13 +130,13 @@ const Workspace = () => {
       const filtered = tasks.filter((t) => t.id !== id);
       filtered.push({ id, startedAt: Date.now() });
       localStorage.setItem(SB_TASK_LS_KEY, JSON.stringify(filtered));
-    } catch {}
+    } catch { /* ignore */ }
   }, []);
   const removeSbTask = useCallback((id: string) => {
     try {
       const tasks: { id: string; startedAt: number }[] = JSON.parse(localStorage.getItem(SB_TASK_LS_KEY) || "[]");
       localStorage.setItem(SB_TASK_LS_KEY, JSON.stringify(tasks.filter((t) => t.id !== id)));
-    } catch {}
+    } catch { /* ignore */ }
   }, []);
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [isAbortingVideo, setIsAbortingVideo] = useState(false);
@@ -224,7 +224,7 @@ const Workspace = () => {
             setGeneratingScenes((prev) => { const n = new Set(prev); n.delete(t.id); return n; });
           });
         }
-      } catch {}
+      } catch { /* ignore */ }
     }, 5000);
     return () => clearInterval(interval);
   }, []);
@@ -294,7 +294,7 @@ const Workspace = () => {
         if (!extractResponse.ok) {
           const errText = await extractResponse.text();
           let errMsg = `角色提取失败 (${extractResponse.status})`;
-          try { errMsg = JSON.parse(errText.trim().split("\n").pop()!).error || errMsg; } catch {}
+          try { errMsg = JSON.parse(errText.trim().split("\n").pop()!).error || errMsg; } catch { /* ignore */ }
           throw new Error(errMsg);
         }
 
@@ -357,7 +357,7 @@ const Workspace = () => {
         if (!response.ok) {
           const errText = await response.text();
           let errMsg = `剧本拆解失败 (${response.status})`;
-          try { errMsg = JSON.parse(errText.trim().split("\n").pop()!).error || errMsg; } catch {}
+          try { errMsg = JSON.parse(errText.trim().split("\n").pop()!).error || errMsg; } catch { /* ignore */ }
           throw new Error(errMsg);
         }
 
@@ -601,7 +601,7 @@ const Workspace = () => {
       if (!response.ok) {
         const errText = await response.text();
         let errMsg = `分镜图生成失败 (${response.status})`;
-        try { errMsg = JSON.parse(errText.trim().split("\n").pop()!).error || errMsg; } catch {}
+        try { errMsg = JSON.parse(errText.trim().split("\n").pop()!).error || errMsg; } catch { /* ignore */ }
         throw new Error(errMsg);
       }
 

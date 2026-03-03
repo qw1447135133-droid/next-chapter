@@ -113,7 +113,7 @@ const CharacterSettings = ({
   });
   const setCharImageModel = (v: CharImageModel) => {
     setCharImageModelState(v);
-    try { localStorage.setItem("char-image-model", v); } catch {}
+    try { localStorage.setItem("char-image-model", v); } catch { /* ignore */ }
   };
   const [charModelOpen, setCharModelOpen] = useState(false);
   const charModelDropdownRef = useRef<HTMLDivElement>(null);

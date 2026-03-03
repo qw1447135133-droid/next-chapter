@@ -22,7 +22,7 @@ const Settings = () => {
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
-      try { setKeys(JSON.parse(saved)); } catch {}
+      try { setKeys(JSON.parse(saved)); } catch { /* ignore */ }
     }
   }, []);
 

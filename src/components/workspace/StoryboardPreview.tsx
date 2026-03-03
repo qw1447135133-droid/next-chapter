@@ -55,7 +55,7 @@ const StoryboardPreview = ({
   });
   const setAspectRatio = (v: StoryboardAspectRatio) => {
     setAspectRatioState(v);
-    try { localStorage.setItem("storyboard-aspect-ratio", v); } catch {}
+    try { localStorage.setItem("storyboard-aspect-ratio", v); } catch { /* ignore */ }
   };
   const [arOpen, setArOpen] = useState(false);
   const [storyboardModel, setStoryboardModelState] = useState<StoryboardModel>(() => {
@@ -63,7 +63,7 @@ const StoryboardPreview = ({
   });
   const setStoryboardModel = (v: StoryboardModel) => {
     setStoryboardModelState(v);
-    try { localStorage.setItem("storyboard-model", v); } catch {}
+    try { localStorage.setItem("storyboard-model", v); } catch { /* ignore */ }
   };
   const [modelOpen, setModelOpen] = useState(false);
   const modelDropdownRef = useRef<HTMLDivElement>(null);

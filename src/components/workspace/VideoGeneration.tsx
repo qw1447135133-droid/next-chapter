@@ -65,7 +65,7 @@ const VideoGeneration = ({
   });
   const setAspectRatio = (v: StoryboardAspectRatio) => {
     setAspectRatioState(v);
-    try { localStorage.setItem("storyboard-aspect-ratio", v); } catch {}
+    try { localStorage.setItem("storyboard-aspect-ratio", v); } catch { /* ignore */ }
   };
   const [arOpen, setArOpen] = useState(false);
   const currentAR = ASPECT_RATIO_OPTIONS.find((o) => o.value === aspectRatio)!;
