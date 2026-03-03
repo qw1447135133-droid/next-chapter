@@ -139,31 +139,26 @@ async function seedanceCreate(apiKey: string, body: any) {
 }
 
 async function seedanceStatus(apiKey: string, taskId: string) {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-      const res = await fetch(`${ZHANHU_BASE_URL}/v1/videos/${taskId}`, {
-        method: "GET",
-        headers: { Authorization: `Bearer ${apiKey}` },
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  try {
+    const res = await fetch(`${ZHANHU_BASE_URL}/v1/videos/${taskId}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
 
-      if (!res.ok) {
-        const errText = await res.text();
-        console.error("Seedance status error:", res.status, errText);
-        throw new Error(`查询视频状态失败 (${res.status})`);
-      }
-      return await res.json();
-    } catch (fetchErr) {
-      console.error(`Status check attempt ${attempt + 1} failed:`, fetchErr);
-      if (attempt < 1) {
-        await new Promise((r) => setTimeout(r, 2000));
-        continue;
-      }
-      return { status: "processing", error_hint: "AI 服务连接超时，将自动重试" };
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("Seedance status error:", res.status, errText);
+      throw new Error(`查询视频状态失败 (${res.status})`);
     }
+    return await res.json();
+  } catch (fetchErr) {
+    clearTimeout(timeoutId);
+    console.error("Status check failed:", fetchErr);
+    return { status: "processing", error_hint: "AI 服务连接超时" };
   }
 }
 
