@@ -205,7 +205,7 @@ async function decomposeScript(body: any) {
   const prompt = basePrompt + jsonEnforcement;
 
   const model = requestedModel || "gemini-3.1-pro-preview";
-  const TIMEOUT_MS = 140_000; // Full timeout for single model
+  const TIMEOUT_MS = 290_000; // Extended timeout for single model
   const promptText = `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}`;
 
   console.log(`script-decompose using model: ${model}`);

@@ -270,7 +270,7 @@ const Workspace = () => {
       try {
         // Dynamic timeout based on script length
         const charCount = script.trim().length;
-        const timeoutMs = charCount <= 8000 ? 180_000 : charCount <= 15000 ? 360_000 : 600_000;
+        const timeoutMs = charCount <= 8000 ? 300_000 : charCount <= 15000 ? 480_000 : 600_000;
         const controller = new AbortController();
         analyzeAbortRef.current = controller;
 
@@ -299,7 +299,7 @@ const Workspace = () => {
         }
 
         // Read streaming response chunk-by-chunk; resolve as soon as JSON arrives
-        const extractData = await readStreamingJson(extractResponse, controller, 120_000);
+        const extractData = await readStreamingJson(extractResponse, controller, 300_000);
 
         // Process characters from phase 1
         const aiCharacters: Array<{ name: string; description: string; costumes?: Array<{ label: string; description: string }> }> = extractData.characters || [];
