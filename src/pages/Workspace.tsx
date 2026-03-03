@@ -265,8 +265,16 @@ const Workspace = () => {
     setIsAnalyzing(true);
     
     // Retry mechanism: up to 2 retries
+    const maxAttempts = 3;
     let lastError: Error | null = null;
     for (let attempt = 0; attempt <= 2; attempt++) {
+      if (attempt > 0) {
+        toast({
+          title: `第 ${attempt} 次尝试失败，正在重试 (${attempt + 1}/${maxAttempts})...`,
+          description: `错误: ${lastError?.message?.substring(0, 80) || "未知错误"}`,
+          duration: 5000,
+        });
+      }
       try {
         // Dynamic timeout based on script length
         const charCount = script.trim().length;
@@ -278,7 +286,7 @@ const Workspace = () => {
         const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
         // ========== Phase 1: Extract characters & scenes ==========
-        toast({ title: "阶段 1/2", description: "正在识别角色与场景..." });
+        toast({ title: "阶段 1/2", description: `正在识别角色与场景...${attempt > 0 ? ` (第 ${attempt + 1} 次尝试)` : ""}` });
         
         const extractResponse = await fetch(`${supabaseUrl}/functions/v1/extract-characters-scenes`, {
           method: "POST",
@@ -340,7 +348,7 @@ const Workspace = () => {
         toast({ title: "阶段 1/2 完成", description: `识别 ${autoCharacters.length} 个角色，${aiSceneSettings.length} 个场景` });
 
         // ========== Phase 2: Script decomposition (timing-focused) ==========
-        toast({ title: "阶段 2/2", description: "正在拆解分镜与时长分配..." });
+        toast({ title: "阶段 2/2", description: `正在拆解分镜与时长分配...${attempt > 0 ? ` (第 ${attempt + 1} 次尝试)` : ""}` });
 
         // Use a single timeout that covers both fetch AND body reading
         const response = await fetch(`${supabaseUrl}/functions/v1/script-decompose`, {
