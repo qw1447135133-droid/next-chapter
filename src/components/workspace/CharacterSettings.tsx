@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { CharacterSetting, SceneSetting, ArtStyle, ART_STYLE_LABELS, ImageHistoryEntry, CostumeSetting } from "@/types/project";
+import { CharacterSetting, SceneSetting, ArtStyle, ART_STYLE_LABELS, ImageHistoryEntry, CostumeSetting, TimeVariantSetting } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
-  Plus, Trash2, Upload, Sparkles, ArrowRight, User, MapPin, Loader2, ImageIcon, ChevronDown, Shirt, Square,
+  Plus, Trash2, Upload, Sparkles, ArrowRight, User, MapPin, Loader2, ImageIcon, ChevronDown, Shirt, Square, Clock,
 } from "lucide-react";
 import ImageThumbnail, { prewarmThumbnail } from "./ImageThumbnail";
 
@@ -70,6 +70,7 @@ const CharacterSettings = ({
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const sceneFileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [expandedCostumeCharIds, setExpandedCostumeCharIds] = useState<Set<string>>(new Set());
+  const [expandedTimeVariantSceneIds, setExpandedTimeVariantSceneIds] = useState<Set<string>>(new Set());
 
   // Auto-expand costume panel for characters that have multiple costumes (e.g. from script decomposition)
   const prevCharIdsRef = useRef<string>("");
@@ -86,6 +87,22 @@ const CharacterSettings = ({
       });
     }
   }, [characters]);
+
+  // Auto-expand time variant panel for scenes that have multiple time variants
+  const prevSceneIdsRef = useRef<string>("");
+  useEffect(() => {
+    const currentIds = sceneSettings.map(s => s.id).join(",");
+    if (currentIds === prevSceneIdsRef.current) return;
+    prevSceneIdsRef.current = currentIds;
+    const scenesWithTimeVariants = sceneSettings.filter(s => s.timeVariants && s.timeVariants.length > 1);
+    if (scenesWithTimeVariants.length > 0) {
+      setExpandedTimeVariantSceneIds(prev => {
+        const next = new Set(prev);
+        scenesWithTimeVariants.forEach(s => next.add(s.id));
+        return next;
+      });
+    }
+  }, [sceneSettings]);
 
   // Image model selector state (persisted to localStorage)
   const [charImageModel, setCharImageModelState] = useState<CharImageModel>(() => {
@@ -338,41 +355,147 @@ const CharacterSettings = ({
   };
 
   const handleGenerateScene = async (id: string) => {
-    if (generatingSceneImgIds.has(id)) return; // prevent duplicate calls
+    if (generatingSceneImgIds.has(id)) return;
     const scene = sceneSettings.find((s) => s.id === id);
     if (!scene || !String(scene.name || "").trim()) {
       toast({ title: "请先填写场景名称", variant: "destructive" });
       return;
     }
-    addTask(id, "sceneImg");
-    setGeneratingSceneImgIds((prev) => new Set(prev).add(id));
-    try {
-      const { data, error } = await withTimeout(
-        supabase.functions.invoke("generate-scene", {
-          body: { name: scene.name, description: scene.description, style: artStyle, model: charImageModel },
-        }),
-        SCENE_IMAGE_TIMEOUT_MS,
-      );
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      const rawUrl = data.imageUrl;
-      prewarmThumbnail(rawUrl);
-      const history = [...(scene.imageHistory || [])];
-      if (scene.imageUrl) {
-        history.push({ imageUrl: scene.imageUrl, description: scene.description || "", createdAt: new Date().toISOString() });
+
+    const hasTimeVariants = scene.timeVariants && scene.timeVariants.length > 0;
+
+    if (hasTimeVariants) {
+      // Generate all time variant images sequentially with anchor logic
+      setGeneratingSceneImgIds((prev) => new Set(prev).add(id));
+      const variants = scene.timeVariants!;
+      let localVariants = [...variants.map(v => ({ ...v }))];
+      try {
+        let successCount = 0;
+        let failCount = 0;
+        let anchorImageUrl: string | undefined;
+        let isFirstGenerated = false;
+
+        for (let vIdx = 0; vIdx < variants.length; vIdx++) {
+          const tv = variants[vIdx];
+          if (stopTimeVariantGenRef.current.has(id)) {
+            toast({ title: "已中止", description: `${scene.name} 时间变体生成已中止（已完成 ${successCount} 个）` });
+            break;
+          }
+          if (!tv.label?.trim()) continue;
+          updateSceneAsync(id, { activeTimeVariantId: tv.id });
+          const tvTaskKey = `timevariant-${tv.id}`;
+          addTask(tvTaskKey, "sceneImg");
+          setGeneratingSceneImgIds((prev) => new Set(prev).add(tvTaskKey));
+
+          const isFirstVariant = !isFirstGenerated;
+          let succeeded = false;
+
+          try {
+            const freshScene = sceneSettingsRef.current.find((sc) => sc.id === id);
+            const freshTv = freshScene?.timeVariants?.find(v => v.id === tv.id);
+            const combinedDesc = `${scene.name}，${freshTv?.label || tv.label}：${freshTv?.description || tv.description || freshScene?.description || scene.description}`;
+            const { data, error } = await withTimeout(
+              supabase.functions.invoke("generate-scene", {
+                body: {
+                  name: `${scene.name} - ${freshTv?.label || tv.label}`,
+                  description: combinedDesc,
+                  style: artStyle,
+                  model: charImageModel,
+                  referenceImageUrl: isFirstVariant ? undefined : anchorImageUrl,
+                },
+              }),
+              SCENE_IMAGE_TIMEOUT_MS,
+            );
+            if (error) throw error;
+            if (data?.error) throw new Error(data.error);
+            const rawUrl = data.imageUrl;
+            prewarmThumbnail(rawUrl);
+            if (isFirstVariant) {
+              anchorImageUrl = rawUrl;
+              isFirstGenerated = true;
+            }
+            localVariants = localVariants.map(v => {
+              if (v.id !== tv.id) return v;
+              const history = [...(v.imageHistory || [])];
+              if (v.imageUrl) {
+                history.push({ imageUrl: v.imageUrl, description: v.description || "", createdAt: new Date().toISOString() });
+              }
+              return { ...v, imageUrl: rawUrl, isAIGenerated: true, imageHistory: history };
+            });
+            updateSceneAsync(id, { timeVariants: [...localVariants] });
+            successCount++;
+            succeeded = true;
+            toast({ title: "生成成功", description: `${scene.name}「${freshTv?.label || tv.label}」场景图已生成（${successCount}/${variants.length}）` });
+            ensureStorageUrl(rawUrl, "scenes").then(finalUrl => {
+              if (finalUrl !== rawUrl) {
+                if (isFirstVariant) anchorImageUrl = finalUrl;
+                const latest = sceneSettingsRef.current.find(sc => sc.id === id);
+                const updVariants = (latest?.timeVariants || []).map(v =>
+                  v.id === tv.id ? { ...v, imageUrl: finalUrl } : v
+                );
+                updateSceneAsync(id, { timeVariants: updVariants });
+              }
+            }).catch(() => {});
+          } catch (e: any) {
+            console.error(`Time variant generation error for ${tv.label}:`, e);
+            failCount++;
+            const fe = friendlyError(e);
+            toast({ title: fe.title, description: `${scene.name}「${tv.label}」生成失败：${fe.description}`, variant: "destructive" });
+          }
+
+          removeTask(tvTaskKey, "sceneImg");
+          setGeneratingSceneImgIds((prev) => { const next = new Set(prev); next.delete(tvTaskKey); return next; });
+
+          if (isFirstVariant && !succeeded) {
+            toast({ title: "已中止", description: `${scene.name} 首个时间变体生成失败，后续变体已中止`, variant: "destructive" });
+            break;
+          }
+        }
+
+        if (successCount > 0) {
+          toast({ title: "全部时间变体生成完成", description: `${scene.name}：成功 ${successCount} 个${failCount > 0 ? `，失败 ${failCount} 个` : ""}` });
+        }
+      } finally {
+        stopTimeVariantGenRef.current.delete(id);
+        setGeneratingSceneImgIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          variants.forEach(tv => { next.delete(`timevariant-${tv.id}`); removeTask(`timevariant-${tv.id}`, "sceneImg"); });
+          return next;
+        });
       }
-      updateSceneAsync(id, { imageUrl: rawUrl, isAIGenerated: true, imageHistory: history });
-      toast({ title: "生成成功", description: `场景「${scene.name}」已生成` });
-      ensureStorageUrl(rawUrl, "scenes").then(finalUrl => {
-        if (finalUrl !== rawUrl) updateSceneAsync(id, { imageUrl: finalUrl });
-      }).catch(() => {});
-    } catch (e: any) {
-      console.error("Scene generation error:", e);
-      const fe = friendlyError(e);
-      toast({ title: fe.title, description: `场景「${sceneSettings.find(s => s.id === id)?.name || ""}」图像生成失败：${fe.description}`, variant: "destructive" });
-    } finally {
-      removeTask(id, "sceneImg");
-      setGeneratingSceneImgIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    } else {
+      // No time variants — original single scene image generation
+      addTask(id, "sceneImg");
+      setGeneratingSceneImgIds((prev) => new Set(prev).add(id));
+      try {
+        const { data, error } = await withTimeout(
+          supabase.functions.invoke("generate-scene", {
+            body: { name: scene.name, description: scene.description, style: artStyle, model: charImageModel },
+          }),
+          SCENE_IMAGE_TIMEOUT_MS,
+        );
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+        const rawUrl = data.imageUrl;
+        prewarmThumbnail(rawUrl);
+        const history = [...(scene.imageHistory || [])];
+        if (scene.imageUrl) {
+          history.push({ imageUrl: scene.imageUrl, description: scene.description || "", createdAt: new Date().toISOString() });
+        }
+        updateSceneAsync(id, { imageUrl: rawUrl, isAIGenerated: true, imageHistory: history });
+        toast({ title: "生成成功", description: `场景「${scene.name}」已生成` });
+        ensureStorageUrl(rawUrl, "scenes").then(finalUrl => {
+          if (finalUrl !== rawUrl) updateSceneAsync(id, { imageUrl: finalUrl });
+        }).catch(() => {});
+      } catch (e: any) {
+        console.error("Scene generation error:", e);
+        const fe = friendlyError(e);
+        toast({ title: fe.title, description: `场景「${sceneSettings.find(s => s.id === id)?.name || ""}」图像生成失败：${fe.description}`, variant: "destructive" });
+      } finally {
+        removeTask(id, "sceneImg");
+        setGeneratingSceneImgIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+      }
     }
   };
 
@@ -414,6 +537,7 @@ const CharacterSettings = ({
   const [generatingSceneImgIds, setGeneratingSceneImgIds] = useState<Set<string>>(() => initSet("sceneImg"));
   // isAutoDetectingAll, setIsAutoDetectingAll, autoDetectAbortRef are now props from Workspace
   const stopCostumeGenRef = useRef<Set<string>>(new Set()); // track which character IDs should stop costume gen
+  const stopTimeVariantGenRef = useRef<Set<string>>(new Set()); // track which scene IDs should stop time variant gen
 
   // Progress tracking for "全部生成"
   const [autoDetectProgress, setAutoDetectProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
@@ -551,7 +675,14 @@ const CharacterSettings = ({
       }
       return sum + 2; // desc + base img
     }, 0);
-    const totalSceneTasks = sceneSettingsRef.current.filter(s => String(s.name || "").trim()).length * 2; // desc + img
+    const totalSceneTasks = sceneSettingsRef.current.filter(s => String(s.name || "").trim()).reduce((sum, s) => {
+      const hasTimeVariants = s.timeVariants && s.timeVariants.length > 0;
+      if (hasTimeVariants) {
+        const tvCount = s.timeVariants!.filter(tv => tv.label?.trim() && !tv.imageUrl).length;
+        return sum + 1 + tvCount; // desc + time variant imgs (no base img)
+      }
+      return sum + 2; // desc + base img
+    }, 0);
     const totalTasks = totalCharTasks + totalSceneTasks;
     let doneCount = 0;
     setAutoDetectProgress({ done: 0, total: totalTasks });
@@ -752,7 +883,7 @@ const CharacterSettings = ({
       }
     };
 
-    // Process a single scene: description → image
+    // Process a single scene: description → image (or time variant images)
     const processScene = async (s: SceneSetting) => {
       if (!String(s.name || "").trim()) return;
 
@@ -783,40 +914,122 @@ const CharacterSettings = ({
       bumpDone();
       if (descOk) successCountRef.current++; else { failCountRef.current++; return; }
 
-      // --- Image phase ---
-      let imgOk = false;
-      if (autoDetectAbortRef.current) return;
-      await imageSem.acquire();
-      if (autoDetectAbortRef.current) { imageSem.release(); return; }
-      addTask(s.id, "sceneImg");
-      setGeneratingSceneImgIds((prev) => new Set(prev).add(s.id));
-      try {
-        const latest = sceneSettingsRef.current.find((sc) => sc.id === s.id);
-        const { data, error } = await withTimeout(
-          supabase.functions.invoke("generate-scene", {
-            body: { name: s.name, description: latest?.description || desc, style: artStyle, model: charImageModel },
-          }),
-          SCENE_IMAGE_TIMEOUT_MS,
-        );
-        if (error) throw error;
-        if (data?.error) throw new Error(data.error);
-        const scnUrl = await ensureStorageUrl(data.imageUrl, "scenes");
-        const latestAgain = sceneSettingsRef.current.find((sc) => sc.id === s.id);
-        const sceneHistory = [...(latestAgain?.imageHistory || [])];
-        if (latestAgain?.imageUrl) {
-          sceneHistory.push({ imageUrl: latestAgain.imageUrl, description: latestAgain.description || "", createdAt: new Date().toISOString() });
+      const latestScene = sceneSettingsRef.current.find((sc) => sc.id === s.id);
+      const hasTimeVariants = latestScene?.timeVariants && latestScene.timeVariants.length > 0;
+
+      if (!hasTimeVariants) {
+        // --- No time variants: generate single base image ---
+        let imgOk = false;
+        if (autoDetectAbortRef.current) return;
+        await imageSem.acquire();
+        if (autoDetectAbortRef.current) { imageSem.release(); return; }
+        addTask(s.id, "sceneImg");
+        setGeneratingSceneImgIds((prev) => new Set(prev).add(s.id));
+        try {
+          const latest = sceneSettingsRef.current.find((sc) => sc.id === s.id);
+          const { data, error } = await withTimeout(
+            supabase.functions.invoke("generate-scene", {
+              body: { name: s.name, description: latest?.description || desc, style: artStyle, model: charImageModel },
+            }),
+            SCENE_IMAGE_TIMEOUT_MS,
+          );
+          if (error) throw error;
+          if (data?.error) throw new Error(data.error);
+          const scnUrl = await ensureStorageUrl(data.imageUrl, "scenes");
+          const latestAgain = sceneSettingsRef.current.find((sc) => sc.id === s.id);
+          const sceneHistory = [...(latestAgain?.imageHistory || [])];
+          if (latestAgain?.imageUrl) {
+            sceneHistory.push({ imageUrl: latestAgain.imageUrl, description: latestAgain.description || "", createdAt: new Date().toISOString() });
+          }
+          updateSceneAsync(s.id, { imageUrl: scnUrl, isAIGenerated: true, imageHistory: sceneHistory });
+          imgOk = true;
+        } catch (e) {
+          console.error(`Scene img "${s.name}" failed:`, e);
+        } finally {
+          removeTask(s.id, "sceneImg");
+          setGeneratingSceneImgIds((prev) => { const next = new Set(prev); next.delete(s.id); return next; });
+          imageSem.release();
         }
-        updateSceneAsync(s.id, { imageUrl: scnUrl, isAIGenerated: true, imageHistory: sceneHistory });
-        imgOk = true;
-      } catch (e) {
-        console.error(`Scene img "${s.name}" failed:`, e);
-      } finally {
-        removeTask(s.id, "sceneImg");
-        setGeneratingSceneImgIds((prev) => { const next = new Set(prev); next.delete(s.id); return next; });
-        imageSem.release();
+        bumpDone();
+        if (imgOk) successCountRef.current++; else failCountRef.current++;
+        return;
       }
-      bumpDone();
-      if (imgOk) successCountRef.current++; else failCountRef.current++;
+
+      // --- Has time variants: skip base image, generate all time variant images ---
+      const variantsToGen = latestScene.timeVariants!.filter(tv => tv.label?.trim() && !tv.imageUrl);
+      let localVariants = [...(latestScene?.timeVariants || []).map(v => ({ ...v }))];
+      let tvAnchorUrl: string | undefined = latestScene?.imageUrl || undefined;
+      let isFirstTvGenerated = !!tvAnchorUrl;
+      for (const tv of variantsToGen) {
+        if (autoDetectAbortRef.current) return;
+        updateSceneAsync(s.id, { activeTimeVariantId: tv.id });
+        if (autoDetectAbortRef.current) return;
+        await imageSem.acquire();
+        if (autoDetectAbortRef.current) { imageSem.release(); return; }
+        const tvTaskKey = `timevariant-${tv.id}`;
+        addTask(tvTaskKey, "sceneImg");
+        setGeneratingSceneImgIds((prev) => new Set(prev).add(tvTaskKey));
+        let tvImgOk = false;
+        const isFirstVariant = !isFirstTvGenerated;
+        try {
+          const freshTv = localVariants.find(v => v.id === tv.id);
+          const combinedDesc = `${s.name}，${freshTv?.label || tv.label}：${freshTv?.description || tv.description || latestScene?.description || desc}`;
+          const { data, error } = await withTimeout(
+            supabase.functions.invoke("generate-scene", {
+              body: {
+                name: `${s.name} - ${freshTv?.label || tv.label}`,
+                description: combinedDesc,
+                style: artStyle,
+                model: charImageModel,
+                referenceImageUrl: isFirstVariant ? undefined : tvAnchorUrl,
+              },
+            }),
+            SCENE_IMAGE_TIMEOUT_MS,
+          );
+          if (error) throw error;
+          if (data?.error) throw new Error(data.error);
+          const rawUrl = data.imageUrl;
+          prewarmThumbnail(rawUrl);
+          if (isFirstVariant) {
+            tvAnchorUrl = rawUrl;
+            isFirstTvGenerated = true;
+          }
+          localVariants = localVariants.map(v => {
+            if (v.id !== tv.id) return v;
+            const history = [...(v.imageHistory || [])];
+            if (v.imageUrl) {
+              history.push({ imageUrl: v.imageUrl, description: v.description || "", createdAt: new Date().toISOString() });
+            }
+            return { ...v, imageUrl: rawUrl, isAIGenerated: true, imageHistory: history };
+          });
+          updateSceneAsync(s.id, { timeVariants: [...localVariants] });
+          tvImgOk = true;
+          ensureStorageUrl(rawUrl, "scenes").then(finalUrl => {
+            if (finalUrl !== rawUrl) {
+              if (isFirstVariant) tvAnchorUrl = finalUrl;
+              const latest = sceneSettingsRef.current.find(sc => sc.id === s.id);
+              const updVariants = (latest?.timeVariants || []).map(v =>
+                v.id === tv.id ? { ...v, imageUrl: finalUrl } : v
+              );
+              updateSceneAsync(s.id, { timeVariants: updVariants });
+            }
+          }).catch(() => {});
+        } catch (e) {
+          console.error(`Scene time variant img "${s.name} - ${tv.label}" failed:`, e);
+        } finally {
+          removeTask(tvTaskKey, "sceneImg");
+          setGeneratingSceneImgIds((prev) => { const next = new Set(prev); next.delete(tvTaskKey); return next; });
+          imageSem.release();
+        }
+        bumpDone();
+        if (tvImgOk) successCountRef.current++; else failCountRef.current++;
+        if (isFirstVariant && !tvImgOk) {
+          const remaining = variantsToGen.slice(variantsToGen.indexOf(tv) + 1);
+          remaining.forEach(() => bumpDone());
+          failCountRef.current += remaining.length;
+          break;
+        }
+      }
     };
 
     // Launch all tasks in parallel (concurrency controlled by semaphores)
@@ -1330,7 +1543,114 @@ const CharacterSettings = ({
           </Card>
         )}
 
-        {sceneSettings.map((s) => (
+        {sceneSettings.map((s) => {
+          const hasTimeVariants = s.timeVariants && s.timeVariants.length > 0;
+          const tvCount = s.timeVariants?.length || 0;
+          const isTimeVariantExpanded = expandedTimeVariantSceneIds.has(s.id);
+
+          const addTimeVariant = () => {
+            const newTv: TimeVariantSetting = {
+              id: crypto.randomUUID(),
+              label: "",
+              description: "",
+              isAIGenerated: false,
+            };
+            updateScene(s.id, {
+              timeVariants: [...(s.timeVariants || []), newTv],
+              activeTimeVariantId: s.activeTimeVariantId || newTv.id,
+            });
+          };
+
+          const updateTimeVariant = (tvId: string, updates: Partial<TimeVariantSetting>) => {
+            const variants = (s.timeVariants || []).map((tv) =>
+              tv.id === tvId ? { ...tv, ...updates } : tv
+            );
+            updateScene(s.id, { timeVariants: variants });
+          };
+
+          const removeTimeVariant = (tvId: string) => {
+            const variants = (s.timeVariants || []).filter((tv) => tv.id !== tvId);
+            const newActive = s.activeTimeVariantId === tvId
+              ? (variants[0]?.id || undefined)
+              : s.activeTimeVariantId;
+            updateScene(s.id, { timeVariants: variants, activeTimeVariantId: newActive });
+          };
+
+          const handleUploadTimeVariantImage = (tvId: string) => {
+            const key = `timevariant-${tvId}`;
+            sceneFileInputRefs.current[key]?.click();
+          };
+
+          const handleTimeVariantFileChange = async (tvId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("folder", "scenes");
+            try {
+              const { data, error } = await supabase.functions.invoke("upload-image", { body: formData });
+              if (error) throw error;
+              if (data?.error) throw new Error(data.error);
+              updateTimeVariant(tvId, { imageUrl: data.imageUrl, isAIGenerated: false });
+            } catch (err: any) {
+              const fe = friendlyError(err);
+              toast({ title: fe.title, description: fe.description, variant: "destructive" });
+            }
+          };
+
+          const handleGenerateTimeVariantImage = async (tvId: string) => {
+            const tv = (s.timeVariants || []).find((v) => v.id === tvId);
+            if (!tv || !tv.label.trim()) {
+              toast({ title: "请先填写时间名称", variant: "destructive" });
+              return;
+            }
+            const tvTaskKey = `timevariant-${tvId}`;
+            addTask(tvTaskKey, "sceneImg");
+            setGeneratingSceneImgIds((prev) => new Set(prev).add(tvTaskKey));
+            try {
+              const combinedDesc = `${s.name}，${tv.label}：${tv.description || s.description}`;
+              const referenceImageUrl = s.imageUrl || (s.timeVariants || []).find(v => v.id !== tvId && v.imageUrl)?.imageUrl || undefined;
+              const { data, error } = await withTimeout(
+                supabase.functions.invoke("generate-scene", {
+                  body: { name: `${s.name} - ${tv.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl },
+                }),
+                SCENE_IMAGE_TIMEOUT_MS,
+              );
+              if (error) throw error;
+              if (data?.error) throw new Error(data.error);
+              const rawUrl = data.imageUrl;
+              prewarmThumbnail(rawUrl);
+              const freshScene = sceneSettingsRef.current.find((sc) => sc.id === s.id);
+              const freshTv = freshScene?.timeVariants?.find(v => v.id === tvId);
+              const history = [...(freshTv?.imageHistory || [])];
+              if (freshTv?.imageUrl) {
+                history.push({ imageUrl: freshTv.imageUrl, description: freshTv.description || "", createdAt: new Date().toISOString() });
+              }
+              const updatedVariants = (freshScene?.timeVariants || []).map(v =>
+                v.id === tvId ? { ...v, imageUrl: rawUrl, isAIGenerated: true, imageHistory: history } : v
+              );
+              updateSceneAsync(s.id, { timeVariants: updatedVariants });
+              toast({ title: "生成成功", description: `${s.name}「${tv.label}」场景图已生成` });
+              ensureStorageUrl(rawUrl, "scenes").then(finalUrl => {
+                if (finalUrl !== rawUrl) {
+                  const latestScene = sceneSettingsRef.current.find(sc => sc.id === s.id);
+                  const upd = (latestScene?.timeVariants || []).map(v =>
+                    v.id === tvId ? { ...v, imageUrl: finalUrl } : v
+                  );
+                  updateSceneAsync(s.id, { timeVariants: upd });
+                }
+              }).catch(() => {});
+            } catch (e: any) {
+              console.error("Time variant generation error:", e);
+              const fe = friendlyError(e);
+              toast({ title: fe.title, description: `时间变体图生成失败：${fe.description}`, variant: "destructive" });
+            } finally {
+              removeTask(tvTaskKey, "sceneImg");
+              setGeneratingSceneImgIds((prev) => { const next = new Set(prev); next.delete(tvTaskKey); return next; });
+            }
+          };
+
+          return (
           <Card key={s.id} className="border-border/60 overflow-hidden">
             <CardContent className="p-0">
               <div className="flex gap-4 p-4">
@@ -1348,30 +1668,193 @@ const CharacterSettings = ({
                        {generatingDescIds.has(s.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                        自动识别
                     </Button>
+
+                    {/* Time variant toggle button */}
+                    <Button
+                      variant={isTimeVariantExpanded ? "secondary" : "outline"}
+                      size="sm"
+                      className="shrink-0 gap-1 text-xs"
+                      onClick={() => setExpandedTimeVariantSceneIds(prev => {
+                        const next = new Set(prev);
+                        if (isTimeVariantExpanded) next.delete(s.id); else next.add(s.id);
+                        return next;
+                      })}
+                    >
+                      <Clock className="h-3 w-3" />
+                      时间
+                      {tvCount > 0 && (
+                        <Badge variant="secondary" className="ml-0.5 h-4 min-w-[16px] px-1 text-[10px]">
+                          {tvCount}
+                        </Badge>
+                      )}
+                    </Button>
                   </div>
-                  <Textarea
-                    value={s.description}
-                    onChange={(e) => updateScene(s.id, { description: e.target.value })}
-                    placeholder="场景描述（环境、氛围、光线、时间等，越详细生成效果越好）"
-                    className="text-sm min-h-[60px] resize-none"
-                    rows={2}
-                  />
+                  {/* Hide base description when time variants are expanded */}
+                  {!(isTimeVariantExpanded && hasTimeVariants) && (
+                    <Textarea
+                      value={s.description}
+                      onChange={(e) => updateScene(s.id, { description: e.target.value })}
+                      placeholder="场景描述（环境、氛围、光线、时间等，越详细生成效果越好）"
+                      className="text-sm min-h-[60px] resize-none"
+                      rows={2}
+                    />
+                  )}
                   <div className="flex gap-2">
                     <input type="file" accept="image/*" className="hidden" ref={(el) => { sceneFileInputRefs.current[s.id] = el; }} onChange={(e) => handleSceneFileChange(s.id, e)} />
                     <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => handleUploadSceneImage(s.id)}>
                       <Upload className="h-3 w-3" /> 上传场景图
                     </Button>
-                    <Button size="sm" className="gap-1 text-xs" onClick={() => handleGenerateScene(s.id)} disabled={generatingSceneImgIds.has(s.id) || !String(s.name || "").trim()}>
-                      {generatingSceneImgIds.has(s.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                      AI 生成场景图
-                    </Button>
+                    {hasTimeVariants && generatingSceneImgIds.has(s.id) ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className={`gap-1 text-xs ${stopTimeVariantGenRef.current.has(s.id) ? "border-muted-foreground/40 text-muted-foreground opacity-60 cursor-not-allowed" : "border-destructive text-destructive hover:bg-destructive/10"}`}
+                        disabled={stopTimeVariantGenRef.current.has(s.id)}
+                        onClick={() => { stopTimeVariantGenRef.current.add(s.id); onSceneSettingsChange([...sceneSettings]); }}
+                      >
+                        <Loader2 className="h-3 w-3 animate-spin" /> {stopTimeVariantGenRef.current.has(s.id) ? "正在中止..." : "中止生成"}
+                      </Button>
+                    ) : (
+                      <Button size="sm" className="gap-1 text-xs" onClick={() => handleGenerateScene(s.id)} disabled={generatingSceneImgIds.has(s.id) || !String(s.name || "").trim()}>
+                        {generatingSceneImgIds.has(s.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                        {hasTimeVariants ? `AI 生成全部时间场景图 (${tvCount})` : "AI 生成场景图"}
+                      </Button>
+                    )}
                   </div>
                 </div>
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0" onClick={() => onSceneSettingsChange(sceneSettings.filter((sc) => sc.id !== s.id))}>
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
-              {s.imageUrl && (
+
+              {/* Time Variant Management Section */}
+              {isTimeVariantExpanded && (
+                <div className="border-t border-border/40 p-4 bg-accent/5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5" /> 时间变体
+                    </span>
+                    <Button variant="outline" size="sm" className="gap-1 text-xs h-7" onClick={addTimeVariant}>
+                      <Plus className="h-3 w-3" /> 新增时间
+                    </Button>
+                  </div>
+
+                  {(!s.timeVariants || s.timeVariants.length === 0) && (
+                    <p className="text-xs text-muted-foreground text-center py-3">
+                      暂无时间变体，点击"新增时间"添加不同时间段（如黄昏、夜间）
+                    </p>
+                  )}
+
+                  {/* Active time variant pill selector */}
+                  {hasTimeVariants && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {s.timeVariants!.map((tv) => (
+                        <button
+                          key={tv.id}
+                          type="button"
+                          onClick={() => updateScene(s.id, { activeTimeVariantId: tv.id })}
+                          className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors border ${
+                            s.activeTimeVariantId === tv.id
+                              ? tv.imageUrl
+                                ? "bg-green-600 text-white border-green-600"
+                                : "bg-primary text-primary-foreground border-primary"
+                              : tv.imageUrl
+                                ? "bg-green-50 text-green-700 border-green-300 hover:bg-green-100 dark:bg-green-950 dark:text-green-300 dark:border-green-700 dark:hover:bg-green-900"
+                                : "bg-muted/50 text-muted-foreground border-border hover:bg-muted"
+                          }`}
+                        >
+                          {tv.label || "未命名"}
+                          {tv.imageUrl && <ImageIcon className="h-2.5 w-2.5" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Active time variant editor */}
+                  {hasTimeVariants && s.activeTimeVariantId && (() => {
+                    const activeTv = s.timeVariants!.find((tv) => tv.id === s.activeTimeVariantId);
+                    if (!activeTv) return null;
+                    return (
+                      <div className="space-y-2 rounded-lg border border-border/40 bg-background p-3">
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={activeTv.label}
+                            onChange={(e) => updateTimeVariant(activeTv.id, { label: e.target.value })}
+                            placeholder="时间名称（如：黄昏、夜间、清晨）"
+                            className="text-xs h-8"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
+                            onClick={() => removeTimeVariant(activeTv.id)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                        <Textarea
+                          value={activeTv.description}
+                          onChange={(e) => updateTimeVariant(activeTv.id, { description: e.target.value })}
+                          placeholder="该时间段的场景描述（光线、氛围、色调等）"
+                          className="text-xs min-h-[50px] resize-none"
+                          rows={2}
+                        />
+                        <div className="flex gap-2 flex-wrap">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            ref={(el) => { sceneFileInputRefs.current[`timevariant-${activeTv.id}`] = el; }}
+                            onChange={(e) => handleTimeVariantFileChange(activeTv.id, e)}
+                          />
+                          <Button variant="outline" size="sm" className="gap-1 text-xs h-7" onClick={() => handleUploadTimeVariantImage(activeTv.id)}>
+                            <Upload className="h-3 w-3" /> 上传场景图
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="gap-1 text-xs h-7"
+                            onClick={() => handleGenerateTimeVariantImage(activeTv.id)}
+                            disabled={generatingSceneImgIds.has(`timevariant-${activeTv.id}`) || !activeTv.label.trim()}
+                          >
+                            {generatingSceneImgIds.has(`timevariant-${activeTv.id}`) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                            AI 生成场景图
+                          </Button>
+                        </div>
+                        {activeTv.imageUrl && (
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <ImageIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                                <span className="text-xs text-muted-foreground font-medium">{activeTv.isAIGenerated ? "AI 生成场景图" : "上传场景图"}</span>
+                              </div>
+                              <ImageHistoryDialog
+                                history={activeTv.imageHistory || []}
+                                label={`${s.name} - ${activeTv.label || "时间变体"}`}
+                                onRestore={(entry) => {
+                                  const updatedVariants = (s.timeVariants || []).map(tv => {
+                                    if (tv.id !== activeTv.id) return tv;
+                                    const history = [...(tv.imageHistory || [])];
+                                    if (tv.imageUrl) {
+                                      history.push({ imageUrl: tv.imageUrl, description: tv.description || "", createdAt: new Date().toISOString() });
+                                    }
+                                    return { ...tv, imageUrl: entry.imageUrl, imageHistory: history.filter(h => h.imageUrl !== entry.imageUrl) };
+                                  });
+                                  updateScene(s.id, { timeVariants: updatedVariants });
+                                }}
+                              />
+                            </div>
+                            <div className="rounded-lg overflow-hidden border border-border/40">
+                              <ImageThumbnail src={activeTv.imageUrl} alt={`${s.name} ${activeTv.label}`} className="w-full max-h-[400px] object-contain" maxDim={1000} />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {s.imageUrl && !(isTimeVariantExpanded && hasTimeVariants) && (
                 <div className="border-t border-border/40 p-4 bg-muted/30">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
@@ -1398,7 +1881,8 @@ const CharacterSettings = ({
               )}
             </CardContent>
           </Card>
-        ))}
+          );
+        })}
       </div>
 
     </div>

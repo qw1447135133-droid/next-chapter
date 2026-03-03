@@ -59,6 +59,15 @@ export interface CharacterSetting {
   activeCostumeId?: string;
 }
 
+export interface TimeVariantSetting {
+  id: string;
+  label: string;       // e.g. "黄昏", "夜间", "清晨"
+  description: string;
+  imageUrl?: string;
+  isAIGenerated: boolean;
+  imageHistory?: ImageHistoryEntry[];
+}
+
 export interface SceneSetting {
   id: string;
   name: string;
@@ -68,6 +77,8 @@ export interface SceneSetting {
   isGenerating?: boolean;
   source: 'auto' | 'manual';
   imageHistory?: ImageHistoryEntry[];
+  timeVariants?: TimeVariantSetting[];
+  activeTimeVariantId?: string;
 }
 
 export interface Project {
