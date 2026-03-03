@@ -661,7 +661,11 @@ const CharacterSettings = ({
       // --- Costume image phase: generate images for each costume variant ---
       const latestChar = charactersRef.current.find((ch) => ch.id === c.id);
       const costumesToGen = latestChar?.costumes?.filter(cos => cos.label?.trim() && !cos.imageUrl) || [];
-      const costumeAnchorUrl = latestChar?.imageUrl || undefined;
+      // Use localCostumes pattern to prevent React re-renders from resetting ref mid-loop
+      let localCostumes = [...(latestChar?.costumes || []).map(cc => ({ ...cc }))];
+      // Anchor logic: prefer base image; if unavailable, first successful costume becomes anchor
+      let costumeAnchorUrl: string | undefined = latestChar?.imageUrl || undefined;
+      let isFirstCostumeGenerated = !!costumeAnchorUrl;
       for (const cos of costumesToGen) {
         if (autoDetectAbortRef.current) return;
         updateCharacterAsync(c.id, { activeCostumeId: cos.id });
@@ -672,32 +676,53 @@ const CharacterSettings = ({
         addTask(cosTaskKey, "charImg");
         setGeneratingCharImgIds((prev) => new Set(prev).add(cosTaskKey));
         let cosImgOk = false;
+        const isFirstCostume = !isFirstCostumeGenerated;
         try {
-          const freshChar = charactersRef.current.find((ch) => ch.id === c.id);
-          const freshCos = freshChar?.costumes?.find(cc => cc.id === cos.id);
-          const combinedDesc = `${c.name}，${freshCos?.label || cos.label}：${freshCos?.description || cos.description || freshChar?.description || desc}`;
+          const freshCos = localCostumes.find(cc => cc.id === cos.id);
+          const combinedDesc = `${c.name}，${freshCos?.label || cos.label}：${freshCos?.description || cos.description || latestChar?.description || desc}`;
           const { data, error } = await withTimeout(
             supabase.functions.invoke("generate-character", {
-              body: { name: `${c.name} - ${freshCos?.label || cos.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl: costumeAnchorUrl },
+              body: {
+                name: `${c.name} - ${freshCos?.label || cos.label}`,
+                description: combinedDesc,
+                style: artStyle,
+                model: charImageModel,
+                referenceImageUrl: isFirstCostume ? undefined : costumeAnchorUrl,
+              },
             }),
             CHAR_IMAGE_TIMEOUT_MS,
           );
           if (error) throw error;
           if (data?.error) throw new Error(data.error);
-          const cosUrl = await ensureStorageUrl(data.imageUrl, "costumes");
-          const charNow = charactersRef.current.find((ch) => ch.id === c.id);
-          if (charNow) {
-            const updatedCostumes = (charNow.costumes || []).map(cc => {
-              if (cc.id !== cos.id) return cc;
-              const history = [...(cc.imageHistory || [])];
-              if (cc.imageUrl) {
-                history.push({ imageUrl: cc.imageUrl, description: cc.description || "", createdAt: new Date().toISOString() });
-              }
-              return { ...cc, imageUrl: cosUrl, isAIGenerated: true, imageHistory: history };
-            });
-            updateCharacterAsync(c.id, { costumes: updatedCostumes });
+          const rawUrl = data.imageUrl;
+          prewarmThumbnail(rawUrl);
+          // Set anchor from first successful costume if no base image
+          if (isFirstCostume) {
+            costumeAnchorUrl = rawUrl;
+            isFirstCostumeGenerated = true;
           }
+          // Update local copy to prevent stale reads in subsequent iterations
+          localCostumes = localCostumes.map(cc => {
+            if (cc.id !== cos.id) return cc;
+            const history = [...(cc.imageHistory || [])];
+            if (cc.imageUrl) {
+              history.push({ imageUrl: cc.imageUrl, description: cc.description || "", createdAt: new Date().toISOString() });
+            }
+            return { ...cc, imageUrl: rawUrl, isAIGenerated: true, imageHistory: history };
+          });
+          updateCharacterAsync(c.id, { costumes: [...localCostumes] });
           cosImgOk = true;
+          // Background upload to storage, then silently update URL
+          ensureStorageUrl(rawUrl, "costumes").then(finalUrl => {
+            if (finalUrl !== rawUrl) {
+              if (isFirstCostume) costumeAnchorUrl = finalUrl;
+              const latest = charactersRef.current.find(ch => ch.id === c.id);
+              const updCostumes = (latest?.costumes || []).map(cc =>
+                cc.id === cos.id ? { ...cc, imageUrl: finalUrl } : cc
+              );
+              updateCharacterAsync(c.id, { costumes: updCostumes });
+            }
+          }).catch(() => {});
         } catch (e) {
           console.error(`Costume img "${c.name} - ${cos.label}" failed:`, e);
         } finally {
@@ -707,6 +732,14 @@ const CharacterSettings = ({
         }
         bumpDone();
         if (cosImgOk) successCountRef.current++; else failCountRef.current++;
+        // Abort remaining costumes if first costume (anchor) failed
+        if (isFirstCostume && !cosImgOk) {
+          // Bump remaining costumes as done (skipped)
+          const remaining = costumesToGen.slice(costumesToGen.indexOf(cos) + 1);
+          remaining.forEach(() => bumpDone());
+          failCountRef.current += remaining.length;
+          break;
+        }
       }
     };
 
