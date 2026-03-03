@@ -12,7 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { buildFetchBodyWithKeys, invokeFunction } from "@/lib/invoke-with-key";
 import type { Scene, CharacterSetting, SceneSetting, WorkspaceStep, ArtStyle, VideoModel, CostumeSetting } from "@/types/project";
 import { VIDEO_MODEL_API_MAP } from "@/types/project";
-import { useProjectPersistence } from "@/hooks/use-local-persistence";
+import { useSmartPersistence } from "@/hooks/use-smart-persistence";
 import StepIndicator from "@/components/workspace/StepIndicator";
 import ScriptInput from "@/components/workspace/ScriptInput";
 import SceneList from "@/components/workspace/SceneList";
@@ -157,7 +157,7 @@ const Workspace = () => {
   const [rawAiOutput, setRawAiOutput] = useState<string>("");
   const isRestoringRef = useRef(false);
 
-  const { createProject, saveProject, loadProject, setProjectId, getProjectId } = useProjectPersistence();
+  const { createProject, saveProject, loadProject, setProjectId, getProjectId } = useSmartPersistence();
 
   // Load existing project or mark as ready for lazy creation
   useEffect(() => {

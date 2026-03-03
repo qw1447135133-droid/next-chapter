@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Film, Clock, Trash2, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useProjectPersistence } from "@/hooks/use-local-persistence";
+import { useSmartPersistence } from "@/hooks/use-smart-persistence";
 import { STEP_LABELS, type WorkspaceStep } from "@/types/project";
 
 interface ProjectSummary {
@@ -15,7 +15,7 @@ interface ProjectSummary {
 
 const History = () => {
   const navigate = useNavigate();
-  const { listProjects, deleteProject } = useProjectPersistence();
+  const { listProjects, deleteProject } = useSmartPersistence();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
 
