@@ -146,9 +146,11 @@ serve(async (req) => {
     } catch (e: any) {
       clearInterval(heartbeat);
       console.error("script-decompose error:", e);
-      await writer.write(encoder.encode(JSON.stringify({ error: e.message || "未知错误" }) + "\n"));
+      try {
+        await writer.write(encoder.encode(JSON.stringify({ error: e.message || "未知错误" }) + "\n"));
+      } catch {}
     } finally {
-      await writer.close();
+      try { await writer.close(); } catch {}
     }
   })();
 
@@ -205,13 +207,23 @@ async function decomposeScript(body: any) {
   const prompt = basePrompt + jsonEnforcement;
 
   const models = ["gemini-3.1-pro-preview", "gemini-3-pro-preview"];
-  const TIMEOUT_MS = 180_000;
+  // Global deadline: must finish within 130s to stay under platform wall-clock limit (~150s)
+  const FUNCTION_DEADLINE_MS = 130_000;
+  const functionStart = Date.now();
   const promptText = `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}`;
 
   let geminiResponse: Response | null = null;
   let lastError: Error | null = null;
 
   for (const model of models) {
+    const elapsed = Date.now() - functionStart;
+    const remaining = FUNCTION_DEADLINE_MS - elapsed;
+    if (remaining < 15_000) {
+      console.log(`Only ${remaining}ms remaining, skipping model ${model}`);
+      break;
+    }
+    const perModelTimeout = Math.min(remaining - 5_000, 120_000);
+
     const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model}:generateContent/`;
     const requestBody = JSON.stringify({
       contents: [
@@ -226,7 +238,7 @@ async function decomposeScript(body: any) {
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      const timeoutId = setTimeout(() => controller.abort(), perModelTimeout);
       const resp = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
