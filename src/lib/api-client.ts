@@ -24,7 +24,7 @@ export async function callAiApi<T = any>(
   } = {}
 ): Promise<T> {
   const config = getApiConfig();
-  const endpoint = options.endpoint || config.zhanhuEndpoint;
+  const endpoint = options.endpoint || "https://api.zhanhu.ai/v1";
   const path = options.path || "/chat/completions";
   const timeout = options.timeout || DEFAULT_TIMEOUT;
 
@@ -68,10 +68,10 @@ export async function callVideoApi<T = any>(
   } = {}
 ): Promise<T> {
   const config = getApiConfig();
-  const endpoint = config.seedanceEndpoint;
+  const endpoint = "https://api.zhanhu.ai/v1";
   const timeout = options.timeout || 600_000; // 视频生成可能需要更长时间
 
-  if (!config.seedanceKey) {
+  if (!config.seedance) {
     throw new Error("请先在设置中配置 Seedance API Key");
   }
 
@@ -83,7 +83,7 @@ export async function callVideoApi<T = any>(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.seedanceKey}`,
+        "Authorization": `Bearer ${config.seedance}`,
       },
       body: JSON.stringify(body),
       signal: controller.signal,
@@ -113,7 +113,7 @@ export async function* callAiStreamingApi(
   } = {}
 ): AsyncGenerator<string> {
   const config = getApiConfig();
-  const endpoint = options.endpoint || config.zhanhuEndpoint;
+  const endpoint = options.endpoint || "https://api.zhanhu.ai/v1";
   const path = options.path || "/chat/completions";
   const timeout = options.timeout || DEFAULT_TIMEOUT;
 
