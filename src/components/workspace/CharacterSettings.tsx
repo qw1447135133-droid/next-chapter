@@ -542,10 +542,14 @@ const CharacterSettings = ({
     setIsAbortingAutoDetect(false);
     setIsAutoDetectingAll(true);
 
-    // Calculate total tasks: per character = 1 desc + 1 base img + N costume imgs; per scene = 1 desc + 1 img
+    // Calculate total tasks: per character = 1 desc + (N costume imgs OR 1 base img); per scene = 1 desc + 1 img
     const totalCharTasks = charactersRef.current.filter(c => String(c.name || "").trim()).reduce((sum, c) => {
-      const costumeCount = c.costumes?.filter(cos => cos.label?.trim() && !cos.imageUrl).length || 0;
-      return sum + 2 + costumeCount; // desc + base img + costume imgs
+      const hasCostumes = c.costumes && c.costumes.length > 0;
+      if (hasCostumes) {
+        const costumeCount = c.costumes!.filter(cos => cos.label?.trim() && !cos.imageUrl).length;
+        return sum + 1 + costumeCount; // desc + costume imgs (no base img)
+      }
+      return sum + 2; // desc + base img
     }, 0);
     const totalSceneTasks = sceneSettingsRef.current.filter(s => String(s.name || "").trim()).length * 2; // desc + img
     const totalTasks = totalCharTasks + totalSceneTasks;
@@ -623,44 +627,49 @@ const CharacterSettings = ({
       bumpDone();
       if (descOk) successCountRef.current++; else { failCountRef.current++; return; }
 
-      // --- Image phase ---
-      let imgOk = false;
-      if (autoDetectAbortRef.current) return;
-      await imageSem.acquire();
-      if (autoDetectAbortRef.current) { imageSem.release(); return; }
-      addTask(c.id, "charImg");
-      setGeneratingCharImgIds((prev) => new Set(prev).add(c.id));
-      try {
-        const latest = charactersRef.current.find((ch) => ch.id === c.id);
-        const { data, error } = await withTimeout(
-          supabase.functions.invoke("generate-character", {
-            body: { name: c.name, description: latest?.description || desc, style: artStyle, model: charImageModel },
-          }),
-          CHAR_IMAGE_TIMEOUT_MS,
-        );
-        if (error) throw error;
-        if (data?.error) throw new Error(data.error);
-        const charUrl = await ensureStorageUrl(data.imageUrl, "characters");
-        const latestAgain = charactersRef.current.find((ch) => ch.id === c.id);
-        const history = [...(latestAgain?.imageHistory || [])];
-        if (latestAgain?.imageUrl) {
-          history.push({ imageUrl: latestAgain.imageUrl, description: latestAgain.description || "", createdAt: new Date().toISOString() });
-        }
-        updateCharacterAsync(c.id, { imageUrl: charUrl, isAIGenerated: true, imageHistory: history });
-        imgOk = true;
-      } catch (e) {
-        console.error(`Char img "${c.name}" failed:`, e);
-      } finally {
-        removeTask(c.id, "charImg");
-        setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(c.id); return next; });
-        imageSem.release();
-      }
-      bumpDone();
-      if (imgOk) successCountRef.current++; else failCountRef.current++;
-
-      // --- Costume image phase: generate images for each costume variant ---
       const latestChar = charactersRef.current.find((ch) => ch.id === c.id);
-      const costumesToGen = latestChar?.costumes?.filter(cos => cos.label?.trim() && !cos.imageUrl) || [];
+      const hasCostumes = latestChar?.costumes && latestChar.costumes.length > 0;
+
+      if (!hasCostumes) {
+        // --- No costumes: generate single base image (三视图) ---
+        let imgOk = false;
+        if (autoDetectAbortRef.current) return;
+        await imageSem.acquire();
+        if (autoDetectAbortRef.current) { imageSem.release(); return; }
+        addTask(c.id, "charImg");
+        setGeneratingCharImgIds((prev) => new Set(prev).add(c.id));
+        try {
+          const latest = charactersRef.current.find((ch) => ch.id === c.id);
+          const { data, error } = await withTimeout(
+            supabase.functions.invoke("generate-character", {
+              body: { name: c.name, description: latest?.description || desc, style: artStyle, model: charImageModel },
+            }),
+            CHAR_IMAGE_TIMEOUT_MS,
+          );
+          if (error) throw error;
+          if (data?.error) throw new Error(data.error);
+          const charUrl = await ensureStorageUrl(data.imageUrl, "characters");
+          const latestAgain = charactersRef.current.find((ch) => ch.id === c.id);
+          const history = [...(latestAgain?.imageHistory || [])];
+          if (latestAgain?.imageUrl) {
+            history.push({ imageUrl: latestAgain.imageUrl, description: latestAgain.description || "", createdAt: new Date().toISOString() });
+          }
+          updateCharacterAsync(c.id, { imageUrl: charUrl, isAIGenerated: true, imageHistory: history });
+          imgOk = true;
+        } catch (e) {
+          console.error(`Char img "${c.name}" failed:`, e);
+        } finally {
+          removeTask(c.id, "charImg");
+          setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(c.id); return next; });
+          imageSem.release();
+        }
+        bumpDone();
+        if (imgOk) successCountRef.current++; else failCountRef.current++;
+        return; // No costumes, done with this character
+      }
+
+      // --- Has costumes: skip base image, generate all costume images directly ---
+      const costumesToGen = latestChar.costumes!.filter(cos => cos.label?.trim() && !cos.imageUrl);
       // Use localCostumes pattern to prevent React re-renders from resetting ref mid-loop
       let localCostumes = [...(latestChar?.costumes || []).map(cc => ({ ...cc }))];
       // Anchor logic: prefer base image; if unavailable, first successful costume becomes anchor
