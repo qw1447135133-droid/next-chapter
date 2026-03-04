@@ -161,13 +161,20 @@ async function extractCharactersAndScenes(body: any) {
     throw new Error(isTimeout ? "AI 服务连接超时，请稍后重试" : `模型调用失败: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  const responseText = await geminiResponse.text();
+  console.log(`Gemini response status=${geminiResponse.status}, contentType=${geminiResponse.headers.get("content-type")}, bodyPreview=${responseText.substring(0, 300)}`);
+
   if (!geminiResponse.ok) {
-    const errText = await geminiResponse.text();
-    console.error(`Model ${model} returned ${geminiResponse.status}:`, errText);
+    console.error(`Model ${model} returned ${geminiResponse.status}:`, responseText);
     throw new Error(`模型 ${model} 调用失败 (${geminiResponse.status})`);
   }
 
-  const geminiData = await geminiResponse.json();
+  let geminiData;
+  try {
+    geminiData = JSON.parse(responseText);
+  } catch {
+    throw new Error(`模型返回非 JSON 响应 (status=${geminiResponse.status}): ${responseText.substring(0, 200)}`);
+  }
   const parts = geminiData?.candidates?.[0]?.content?.parts || [];
   const textContent = parts
     .filter((p: any) => !p.thought)
