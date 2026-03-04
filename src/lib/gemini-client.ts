@@ -261,9 +261,8 @@ export async function callSeedreamImage(
     return { base64: imgItem.b64_json, mimeType: "image/png" };
   }
   if (imgItem?.url) {
-    const imgResp = imgItem.url.startsWith("http://")
-      ? await proxiedFetch(imgItem.url, {})
-      : await fetch(imgItem.url);
+    // Always proxy external image URLs to avoid CORS issues
+    const imgResp = await proxiedFetch(imgItem.url, {});
     if (!imgResp.ok) throw new Error("Seedream 图片下载失败");
     const buf = await imgResp.arrayBuffer();
     const bytes = new Uint8Array(buf);
