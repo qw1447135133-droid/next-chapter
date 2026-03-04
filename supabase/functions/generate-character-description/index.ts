@@ -6,7 +6,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const ZHANHU_BASE_URL = "http://202.90.21.53:13003/v1beta";
+const DEFAULT_GEMINI_BASE_URL = "http://202.90.21.53:13003/v1beta";
 
 const ETHNICITY_RULE = `### Ethnicity & Cultural Consistency (HIGHEST PRIORITY)
 You MUST first determine the cultural/geographical setting of the script (e.g., Western/European, East Asian, Middle Eastern, African, Latin American, etc.).
@@ -62,7 +62,7 @@ serve(async (req) => {
 });
 
 async function generateCharacterDescription(body: any) {
-  const { characterName, script, costumes, model: requestedModel, geminiKey } = body;
+  const { characterName, script, costumes, model: requestedModel, geminiKey, geminiEndpoint } = body;
 
   if (!characterName || !script) {
     throw new Error("缺少角色名称或剧本内容");
@@ -152,13 +152,14 @@ Write in vivid, visually precise English that can be used directly as an AI imag
 
   console.log(`generate-character-description using model: ${useModel}`);
 
+  const baseUrl = geminiEndpoint || DEFAULT_GEMINI_BASE_URL;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
   let response: Response;
 
   try {
     response = await fetch(
-      `${ZHANHU_BASE_URL}/models/${useModel}:generateContent/`,
+      `${baseUrl}/models/${useModel}:generateContent/`,
       {
         method: "POST",
         headers: {

@@ -6,6 +6,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const DEFAULT_GEMINI_BASE_URL = "http://202.90.21.53:13003/v1beta";
+
 const EXTRACTION_PROMPT = `你是一位专业影视制作分析师，擅长从剧本中精确提取角色和场景信息。
 
 你的任务是仔细阅读用户提供的剧本，提取所有角色和场景设定。
@@ -91,7 +93,7 @@ serve(async (req) => {
 });
 
 async function extractCharactersAndScenes(body: any) {
-  const { script, model: requestedModel, geminiKey } = body;
+  const { script, model: requestedModel, geminiKey, geminiEndpoint } = body;
 
   if (!script || typeof script !== "string") {
     throw new Error("缺少剧本内容");
@@ -102,13 +104,14 @@ async function extractCharactersAndScenes(body: any) {
     throw new Error("API Key 未配置，请在设置中配置 Gemini API Key");
   }
 
+  const baseUrl = geminiEndpoint || DEFAULT_GEMINI_BASE_URL;
   const model = requestedModel || "gemini-3.1-pro-preview";
-  const TIMEOUT_MS = 290_000; // Extended timeout for single model
+  const TIMEOUT_MS = 290_000;
   const promptText = `${EXTRACTION_PROMPT}\n\n---\n\n以下是用户的剧本：\n\n${script}`;
 
-  console.log(`extract-characters-scenes using model: ${model}`);
+  console.log(`extract-characters-scenes using model: ${model}, endpoint: ${baseUrl}`);
 
-  const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model}:generateContent/`;
+  const apiUrl = `${baseUrl}/models/${model}:generateContent/`;
   const requestBody = JSON.stringify({
     contents: [
       { role: "user", parts: [{ text: promptText }] },

@@ -11,7 +11,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const ZHANHU_BASE_URL = "http://202.90.21.53:13003/v1beta";
+const DEFAULT_GEMINI_BASE_URL = "http://202.90.21.53:13003/v1beta";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -19,7 +19,7 @@ serve(async (req) => {
   }
 
   try {
-    const { name, description, style, model, referenceImageUrl, geminiKey, seedanceKey } = await req.json();
+    const { name, description, style, model, referenceImageUrl, geminiKey, seedanceKey, geminiEndpoint, seedanceEndpoint: clientSeedanceEndpoint } = await req.json();
 
     if (!name) {
       return new Response(JSON.stringify({ error: "缺少角色名称" }), {
@@ -85,7 +85,7 @@ Each view should be labeled clearly. The character design must be consistent acr
       }
 
       try {
-        const seedreamResp = await fetch(`${ZHANHU_BASE_URL.replace("/v1beta", "")}/v1/images/generations/`, {
+        const seedreamResp = await fetch(`${(clientSeedanceEndpoint || DEFAULT_GEMINI_BASE_URL).replace("/v1beta", "")}/v1/images/generations/`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${jimengKey}` },
           signal: controller.signal,
@@ -208,8 +208,9 @@ Each view should be labeled clearly. The character design must be consistent acr
       const ctrl = new AbortController();
       const tmout = setTimeout(() => ctrl.abort(), 200_000);
       try {
+        const baseUrl = geminiEndpoint || DEFAULT_GEMINI_BASE_URL;
         response = await fetch(
-          `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent/`,
+          `${baseUrl}/models/${selectedModel}:generateContent/`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },

@@ -6,7 +6,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const ZHANHU_BASE_URL = "http://202.90.21.53:13003";
+const DEFAULT_SEEDANCE_BASE_URL = "http://202.90.21.53:13003";
 const VIDU_BASE_URL = "https://api.vidu.cn";
 
 function isViduModel(model: string): boolean {
@@ -97,7 +97,7 @@ async function viduStatus(apiKey: string, taskId: string) {
 
 // ====== Seedance (ZhanHu) API handlers ======
 
-async function seedanceCreate(apiKey: string, body: any) {
+async function seedanceCreate(apiKey: string, body: any, baseUrl: string) {
   const { prompt, imageUrl, duration, model, aspectRatio } = body;
 
   const formData = new FormData();
@@ -121,7 +121,7 @@ async function seedanceCreate(apiKey: string, body: any) {
 
   console.log("Seedance create, model:", model, "prompt length:", prompt.length, "has image:", !!imageUrl);
 
-  const res = await fetch(`${ZHANHU_BASE_URL}/v1/videos`, {
+  const res = await fetch(`${baseUrl}/v1/videos`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}` },
     body: formData,
@@ -138,11 +138,11 @@ async function seedanceCreate(apiKey: string, body: any) {
   return { task_id: data.id, status: data.status, progress: data.progress };
 }
 
-async function seedanceStatus(apiKey: string, taskId: string) {
+async function seedanceStatus(apiKey: string, taskId: string, baseUrl: string) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30000);
   try {
-    const res = await fetch(`${ZHANHU_BASE_URL}/v1/videos/${taskId}`, {
+    const res = await fetch(`${baseUrl}/v1/videos/${taskId}`, {
       method: "GET",
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: controller.signal,
@@ -171,7 +171,9 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { action, model, geminiKey, seedanceKey, viduKey: clientViduKey } = body;
+    const { action, model, geminiKey, seedanceKey, viduKey: clientViduKey, seedanceEndpoint: clientSeedanceEndpoint } = body;
+    const useVidu = isViduModel(model || "");
+    const seedanceBaseUrl = clientSeedanceEndpoint || DEFAULT_SEEDANCE_BASE_URL;
     const useVidu = isViduModel(model || "");
 
     // Resolve API key based on provider, prefer client-provided keys
@@ -209,7 +211,7 @@ serve(async (req) => {
       } else {
         const seedKey = seedanceKey;
         if (!seedKey) throw new Error("Seedance API Key 未配置");
-        statusData = await seedanceStatus(seedKey, taskId);
+        statusData = await seedanceStatus(seedKey, taskId, seedanceBaseUrl);
       }
 
       return new Response(JSON.stringify(statusData),
@@ -218,7 +220,7 @@ serve(async (req) => {
 
     // ===== Action: models =====
     if (action === "models") {
-      const modelsRes = await fetch(`${ZHANHU_BASE_URL}/v1/models`, {
+      const modelsRes = await fetch(`${seedanceBaseUrl}/v1/models`, {
         method: "GET",
         headers: { Authorization: `Bearer ${apiKey}` },
       });
@@ -242,7 +244,7 @@ serve(async (req) => {
     if (useVidu) {
       result = { ...(await viduCreate(apiKey, body)), provider: "vidu" };
     } else {
-      result = { ...(await seedanceCreate(apiKey, body)), provider: "seedance" };
+      result = { ...(await seedanceCreate(apiKey, body, seedanceBaseUrl)), provider: "seedance" };
     }
 
     return new Response(JSON.stringify(result),

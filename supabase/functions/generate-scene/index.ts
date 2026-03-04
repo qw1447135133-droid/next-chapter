@@ -7,7 +7,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const ZHANHU_BASE_URL = "http://202.90.21.53:13003/v1beta";
+const DEFAULT_GEMINI_BASE_URL = "http://202.90.21.53:13003/v1beta";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -16,7 +16,7 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { name, description, style, model } = body;
+    const { name, description, style, model, geminiEndpoint, seedanceEndpoint: clientSeedanceEndpoint } = body;
 
     if (!name) {
       return new Response(JSON.stringify({ error: "缺少场景名称" }), {
@@ -74,7 +74,7 @@ This is a wide establishing shot showing the full environment. Focus on atmosphe
       }
 
       try {
-        const seedreamResp = await fetch(`${ZHANHU_BASE_URL.replace("/v1beta", "")}/v1/images/generations/`, {
+        const seedreamResp = await fetch(`${(clientSeedanceEndpoint || DEFAULT_GEMINI_BASE_URL).replace("/v1beta", "")}/v1/images/generations/`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${jimengKey}` },
           signal: controller.signal,
@@ -124,9 +124,10 @@ This is a wide establishing shot showing the full environment. Focus on atmosphe
       }
     } else {
       // Gemini models — single attempt, no retry
+      const baseUrl = geminiEndpoint || DEFAULT_GEMINI_BASE_URL;
       try {
         response = await fetch(
-          `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent/`,
+          `${baseUrl}/models/${selectedModel}:generateContent/`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },

@@ -6,6 +6,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const DEFAULT_GEMINI_BASE_URL = "http://202.90.21.53:13003/v1beta";
+
 const SYSTEM_PROMPT = `你是专业电影分镜师。将剧本拆解为AI视频生成用的15秒分段分镜脚本。
 
 规则：
@@ -42,7 +44,7 @@ serve(async (req) => {
     );
   }
 
-  const { script, systemPrompt, model: requestedModel, geminiKey } = body;
+  const { script, systemPrompt, model: requestedModel, geminiKey, geminiEndpoint } = body;
 
   if (!script || typeof script !== "string") {
     return new Response(
@@ -59,16 +61,17 @@ serve(async (req) => {
     );
   }
 
+  const baseUrl = geminiEndpoint || DEFAULT_GEMINI_BASE_URL;
   const prompt = (systemPrompt && typeof systemPrompt === "string") ? systemPrompt : SYSTEM_PROMPT;
   const model = requestedModel || "gemini-3.1-pro-preview";
   const TIMEOUT_MS = 290_000;
 
   const userText = `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}`;
 
-  console.log(`script-decompose streaming, model: ${model}`);
+  console.log(`script-decompose streaming, model: ${model}, endpoint: ${baseUrl}`);
 
   // Use streamGenerateContent for real-time token streaming
-  const apiUrl = `http://202.90.21.53:13003/v1beta/models/${model}:streamGenerateContent?alt=sse`;
+  const apiUrl = `${baseUrl}/models/${model}:streamGenerateContent?alt=sse`;
   const requestBody = JSON.stringify({
     contents: [{ role: "user", parts: [{ text: userText }] }],
     generationConfig: {

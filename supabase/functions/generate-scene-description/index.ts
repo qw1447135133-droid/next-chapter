@@ -6,7 +6,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const ZHANHU_BASE_URL = "http://202.90.21.53:13003/v1beta";
+const DEFAULT_GEMINI_BASE_URL = "http://202.90.21.53:13003/v1beta";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -53,7 +53,7 @@ serve(async (req) => {
 });
 
 async function generateSceneDescription(body: any) {
-  const { sceneName, script, model: requestedModel, geminiKey } = body;
+  const { sceneName, script, model: requestedModel, geminiKey, geminiEndpoint } = body;
 
   if (!sceneName || !script) {
     throw new Error("缺少场景名称或剧本内容");
@@ -105,13 +105,14 @@ Write in vivid, detail-rich English that can be used directly as an AI image gen
 
   console.log(`generate-scene-description using model: ${useModel}, thinking: ${isThinking}`);
 
+  const baseUrl = geminiEndpoint || DEFAULT_GEMINI_BASE_URL;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
   let response: Response;
 
   try {
     response = await fetch(
-      `${ZHANHU_BASE_URL}/models/${useModel}:generateContent/`,
+      `${baseUrl}/models/${useModel}:generateContent/`,
       {
         method: "POST",
         headers: {

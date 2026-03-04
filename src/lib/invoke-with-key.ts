@@ -28,6 +28,14 @@ function getKeysForFunction(functionName: string): Record<string, string> {
     keys.viduKey = config.viduKey;
   }
 
+  // 端点配置 — 传递给 Edge Functions
+  if (config.zhanhuEndpoint) {
+    keys.geminiEndpoint = config.zhanhuEndpoint;
+  }
+  if (config.seedanceEndpoint) {
+    keys.seedanceEndpoint = config.seedanceEndpoint;
+  }
+
   return keys;
 }
 
