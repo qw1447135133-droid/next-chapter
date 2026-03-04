@@ -8,6 +8,7 @@ import {
   CHAR_STYLE_MAP, SCENE_STYLE_MAP, STORYBOARD_STYLE_MAP,
   getSeedanceConfig, getViduConfig, VIDU_BASE_URL,
 } from "@/lib/gemini-client";
+import { compressImage } from "@/lib/image-compress";
 
 // ===== PROMPTS =====
 
@@ -619,14 +620,24 @@ async function localGenerateVideo(body: any) {
     };
 
     if (body.imageUrl && typeof body.imageUrl === "string") {
+      let imageDataUri: string | null = null;
       if (body.imageUrl.startsWith("data:")) {
-        fields.first_frame_image = body.imageUrl;
+        imageDataUri = body.imageUrl;
       } else {
         // Download the image and convert to data URI (Seedance server can't access external URLs)
         const fetched = await fetchImageAsBase64(body.imageUrl);
         if (fetched) {
-          fields.first_frame_image = `data:${fetched.mimeType};base64,${fetched.data}`;
+          imageDataUri = `data:${fetched.mimeType};base64,${fetched.data}`;
         }
+      }
+      if (imageDataUri) {
+        // Compress to avoid proxy buffer overflow (max ~1MB, 720px)
+        try {
+          imageDataUri = await compressImage(imageDataUri, 1 * 1024 * 1024, { maxDim: 720, minQuality: 0.3 });
+        } catch (e) {
+          console.warn("图片压缩失败，使用原图:", e);
+        }
+        fields.first_frame_image = imageDataUri;
       }
     }
 
