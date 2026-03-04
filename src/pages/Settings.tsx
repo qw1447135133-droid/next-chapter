@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Key, Save, Database, HardDrive, Cloud, Globe, RotateCcw } from "lucide-react";
+import { ArrowLeft, Key, Save, Database, HardDrive, Cloud, Globe, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -390,10 +390,24 @@ const Settings = () => {
           </CardContent>
         </Card>
 
-        <Button onClick={handleSave} className="w-full gap-2">
-          <Save className="h-4 w-4" />
-          保存配置
-        </Button>
+        <div className="flex gap-3">
+          <Button onClick={handleSave} className="flex-1 gap-2">
+            <Save className="h-4 w-4" />
+            保存配置
+          </Button>
+          <Button
+            variant="destructive"
+            className="gap-2"
+            onClick={() => {
+              localStorage.removeItem(STORAGE_KEY);
+              setConfig({ ...DEFAULT_CONFIG });
+              toast({ title: "已清除", description: "所有 API 配置已清除，请重新输入" });
+            }}
+          >
+            <Trash2 className="h-4 w-4" />
+            清除缓存
+          </Button>
+        </div>
       </main>
     </div>
   );
