@@ -28,6 +28,9 @@ export interface ApiConfig {
   zhanhuEndpoint: string;
   seedanceEndpoint: string;
   viduEndpoint: string;
+  // 视频首帧图片压缩参数
+  firstFrameMaxDim: number;
+  firstFrameMaxKB: number;
 }
 
 const STORAGE_KEY = "storyforge_api_config";
@@ -63,6 +66,8 @@ const DEFAULT_CONFIG: ApiConfig = {
   zhanhuEndpoint: "http://202.90.21.53:13003/v1beta",
   seedanceEndpoint: "https://api.minimax.chat/v1",
   viduEndpoint: "https://api.genmo.ai/v1",
+  firstFrameMaxDim: 720,
+  firstFrameMaxKB: 800,
 };
 
 export function getApiConfig(): ApiConfig {
@@ -472,6 +477,48 @@ const Settings = () => {
               </CardContent>
             </Card>
           ))}
+        </div>
+
+        {/* 视频首帧压缩参数 */}
+        <div className="space-y-4">
+          <h2 className="text-sm font-medium flex items-center gap-2">
+            <Globe className="h-4 w-4" />
+            视频首帧图片压缩
+          </h2>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">压缩参数</CardTitle>
+              <CardDescription>控制发送给视频生成 API 的首帧图片质量与大小</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label className="text-sm">最大分辨率（像素）</Label>
+                <Input
+                  type="number"
+                  min={256}
+                  max={2048}
+                  step={64}
+                  value={config.firstFrameMaxDim ?? 720}
+                  onChange={(e) => setConfig((p) => ({ ...p, firstFrameMaxDim: Number(e.target.value) || 720 }))}
+                  className="mt-1 w-40 font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground mt-1">图片最长边不超过此值，范围 256–2048</p>
+              </div>
+              <div>
+                <Label className="text-sm">最大文件大小（KB）</Label>
+                <Input
+                  type="number"
+                  min={100}
+                  max={5000}
+                  step={100}
+                  value={config.firstFrameMaxKB ?? 800}
+                  onChange={(e) => setConfig((p) => ({ ...p, firstFrameMaxKB: Number(e.target.value) || 800 }))}
+                  className="mt-1 w-40 font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground mt-1">压缩后图片不超过此大小，范围 100–5000 KB</p>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* 说明 */}

@@ -634,9 +634,12 @@ async function localGenerateVideo(body: any) {
         }
       }
       if (imageDataUri) {
-        // Compress to keep size reasonable (max ~800KB, 720px)
+        // Compress using configurable parameters from settings
+        const cfg = getApiConfig();
+        const maxBytes = (cfg.firstFrameMaxKB || 800) * 1024;
+        const maxDim = cfg.firstFrameMaxDim || 720;
         try {
-          imageDataUri = await compressImage(imageDataUri, 800 * 1024, { maxDim: 720, minQuality: 0.3 });
+          imageDataUri = await compressImage(imageDataUri, maxBytes, { maxDim, minQuality: 0.3 });
         } catch (e) {
           console.warn("图片压缩失败，使用原图:", e);
         }
