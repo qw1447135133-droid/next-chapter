@@ -7,7 +7,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const ZHANHU_BASE_URL = "http://202.90.21.53:13003/v1beta";
+const DEFAULT_GEMINI_BASE_URL = "http://202.90.21.53:13003/v1beta";
 
 /** Fetch an image URL and return { mimeType, base64 } */
 async function fetchImageAsBase64(url: string): Promise<{ mimeType: string; data: string } | null> {
@@ -485,7 +485,7 @@ Maintain environment consistency (lighting, architecture, props) based on the sc
 
       const seedreamController = new AbortController();
       const seedreamTimeout = setTimeout(() => seedreamController.abort(), 280_000);
-      const seedreamResp = await fetch(`${ZHANHU_BASE_URL.replace("/v1beta", "")}/v1/images/generations/`, {
+      const seedreamResp = await fetch(`${(body.seedanceEndpoint || DEFAULT_GEMINI_BASE_URL).replace("/v1beta", "")}/v1/images/generations/`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${jimengKey}` },
         body: JSON.stringify(seedreamPayload),
@@ -524,7 +524,8 @@ Maintain environment consistency (lighting, architecture, props) based on the sc
     } else {
       const geminiController = new AbortController();
       const geminiTimeout = setTimeout(() => geminiController.abort(), 280_000);
-      const apiUrl = `${ZHANHU_BASE_URL}/models/${selectedModel}:generateContent/`;
+      const baseUrl = body.geminiEndpoint || DEFAULT_GEMINI_BASE_URL;
+      const apiUrl = `${baseUrl}/models/${selectedModel}:generateContent/`;
       const response = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },

@@ -6,7 +6,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const ZHANHU_BASE_URL = "http://202.90.21.53:13003/v1beta";
+const DEFAULT_GEMINI_BASE_URL = "http://202.90.21.53:13003/v1beta";
 
 const SYSTEM_PROMPT = `你是一位专业的影视视频生成提示词工程师。你的任务是将简短的分镜描述扩展为丰富、具体、富有画面感的视频生成提示词。
 
@@ -77,6 +77,7 @@ serve(async (req) => {
       prevDescription,
       nextDescription,
       hasRefImage,
+      geminiEndpoint,
     } = body;
 
     if (!description) {
@@ -110,8 +111,9 @@ serve(async (req) => {
 
     const userPrompt = parts.join("\n");
 
+    const baseUrl = geminiEndpoint || DEFAULT_GEMINI_BASE_URL;
     const response = await fetch(
-      `${ZHANHU_BASE_URL}/models/gemini-3-flash-preview:generateContent/`,
+      `${baseUrl}/models/gemini-3-flash-preview:generateContent/`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ZHANHU_API_KEY}` },
