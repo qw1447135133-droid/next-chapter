@@ -95,7 +95,7 @@ serve(async (req) => {
     contents: [{ role: "user", parts: [{ text: userText }] }],
     generationConfig: {
       temperature: 0.3,
-      maxOutputTokens: 8192, // 减少到合理范围
+      maxOutputTokens: 40960, // 减少到合理范围
     },
   });
 
