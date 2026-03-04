@@ -29,12 +29,31 @@ export async function proxiedFetch(
     "x-target-headers": JSON.stringify(targetHeaders),
   };
 
-  return fetch(PROXY_URL, {
-    method: body ? "POST" : "GET",
-    headers: proxyHeaders,
-    body,
-    signal,
-  });
+  const MAX_RETRIES = 3;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const resp = await fetch(PROXY_URL, {
+        method: body ? "POST" : "GET",
+        headers: proxyHeaders,
+        body,
+        signal,
+      });
+      // Retry on 502/503/504 gateway errors
+      if (attempt < MAX_RETRIES && (resp.status === 502 || resp.status === 503 || resp.status === 504)) {
+        console.warn(`Proxy returned ${resp.status}, retrying (${attempt + 1}/${MAX_RETRIES})...`);
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+      return resp;
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      if (attempt >= MAX_RETRIES) throw err;
+      console.warn(`Proxy fetch failed, retrying (${attempt + 1}/${MAX_RETRIES})...`, err);
+      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+    }
+  }
+  // Should not reach here, but satisfy TypeScript
+  throw new Error("proxiedFetch: max retries exceeded");
 }
 
 // ===== Request Building =====
