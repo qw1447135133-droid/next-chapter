@@ -147,8 +147,8 @@ const Settings = () => {
   };
 
   const keyFields = [
-    { key: "zhanhuKey", label: "Gemini API Key（站狐）", desc: "用于剧本拆解与分镜图 AI 生成" },
-    { key: "seedance", label: "Seedance API Key（站狐）", desc: "用于视频片段生成" },
+    { key: "zhanhuKey", label: "Gemini API Key", desc: "用于剧本拆解与分镜图 AI 生成" },
+    { key: "seedance", label: "Seedance API Key", desc: "用于视频片段生成" },
     { key: "viduKey", label: "Vidu API Key", desc: "用于 Vidu 视频生成" },
   ];
 
@@ -285,7 +285,7 @@ const Settings = () => {
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <Label className="text-sm">站狐 API 端点</Label>
+                <Label className="text-sm">Gemini API 端点</Label>
                 <Input
                   value={config.zhanhuEndpoint || ""}
                   onChange={(e) => setConfig((p) => ({ ...p, zhanhuEndpoint: e.target.value }))}
