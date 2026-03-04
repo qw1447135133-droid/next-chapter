@@ -43,8 +43,9 @@ function getKeysForFunction(functionName: string): Record<string, string> {
  * 判断是否配置了 Supabase
  */
 function hasSupabaseConfig(): boolean {
-  const config = getApiConfig();
-  return !!(config.supabaseUrl && config.supabaseKey);
+  // Lovable Cloud 项目始终有 Supabase 可用（通过环境变量自动配置）
+  // 不再依赖 localStorage 中的手动配置
+  return true;
 }
 
 /**
