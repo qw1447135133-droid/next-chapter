@@ -619,17 +619,14 @@ async function localGenerateVideo(body: any) {
     };
 
     if (body.imageUrl && typeof body.imageUrl === "string") {
-      let b64Data: string | null = null;
       if (body.imageUrl.startsWith("data:")) {
-        // Extract raw base64 from data URI
-        b64Data = body.imageUrl.split(",")[1] || null;
+        fields.first_frame_image = body.imageUrl;
       } else {
-        // Download the image and convert to base64 (Seedance server can't access external URLs)
+        // Download the image and convert to data URI (Seedance server can't access external URLs)
         const fetched = await fetchImageAsBase64(body.imageUrl);
-        if (fetched) b64Data = fetched.data;
-      }
-      if (b64Data) {
-        fields.first_frame_image = b64Data;
+        if (fetched) {
+          fields.first_frame_image = `data:${fetched.mimeType};base64,${fetched.data}`;
+        }
       }
     }
 
