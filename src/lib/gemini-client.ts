@@ -1,6 +1,6 @@
 /**
- * 本地 Gemini API 客户端 - 直接从浏览器调用 Gemini API
- * 不经过 Supabase Edge Functions
+ * 本地 Gemini API 客户端 - 通过轻量级代理 Edge Function 调用外部 API
+ * 代理仅做请求转发，所有提示词逻辑在前端完成
  */
 import { getApiConfig } from "@/pages/Settings";
 import { supabase } from "@/integrations/supabase/client";
@@ -8,6 +8,34 @@ import { supabase } from "@/integrations/supabase/client";
 export const DEFAULT_GEMINI_BASE_URL = "http://202.90.21.53:13003/v1beta";
 export const DEFAULT_SEEDANCE_BASE_URL = "http://202.90.21.53:13003";
 export const VIDU_BASE_URL = "https://api.vidu.cn";
+
+const PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api-proxy`;
+
+// ===== Proxied Fetch =====
+
+/**
+ * All external API calls go through the proxy Edge Function
+ * to avoid HTTPS→HTTP mixed content and CORS issues.
+ */
+export async function proxiedFetch(
+  targetUrl: string,
+  targetHeaders: Record<string, string>,
+  body?: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const proxyHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    "x-target-url": targetUrl,
+    "x-target-headers": JSON.stringify(targetHeaders),
+  };
+
+  return fetch(PROXY_URL, {
+    method: body ? "POST" : "GET",
+    headers: proxyHeaders,
+    body,
+    signal,
+  });
+}
 
 // ===== Request Building =====
 
@@ -67,12 +95,7 @@ export async function callGemini(
     body.generationConfig = generationConfig;
   }
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-    signal,
-  });
+  const response = await proxiedFetch(url, headers, JSON.stringify(body), signal);
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -131,7 +154,11 @@ export async function extractImageBase64(data: any): Promise<{ base64: string; m
 
 export async function fetchImageAsBase64(url: string): Promise<{ data: string; mimeType: string } | null> {
   try {
-    const resp = await fetch(url);
+    // Use proxy for HTTP URLs to avoid mixed content issues
+    const needsProxy = url.startsWith("http://");
+    const resp = needsProxy
+      ? await proxiedFetch(url, {}, undefined)
+      : await fetch(url);
     if (!resp.ok) return null;
     const buf = await resp.arrayBuffer();
     const bytes = new Uint8Array(buf);
@@ -218,12 +245,10 @@ export async function callSeedreamImage(
     payload.sequential_image_generation = "disabled";
   }
 
-  const resp = await fetch(`${baseUrl}/v1/images/generations/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify(payload),
-    signal: options.signal,
-  });
+  const resp = await proxiedFetch(`${baseUrl}/v1/images/generations/`, {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+  }, JSON.stringify(payload), options.signal);
 
   if (!resp.ok) {
     const errText = await resp.text();
@@ -236,7 +261,9 @@ export async function callSeedreamImage(
     return { base64: imgItem.b64_json, mimeType: "image/png" };
   }
   if (imgItem?.url) {
-    const imgResp = await fetch(imgItem.url);
+    const imgResp = imgItem.url.startsWith("http://")
+      ? await proxiedFetch(imgItem.url, {})
+      : await fetch(imgItem.url);
     if (!imgResp.ok) throw new Error("Seedream 图片下载失败");
     const buf = await imgResp.arrayBuffer();
     const bytes = new Uint8Array(buf);

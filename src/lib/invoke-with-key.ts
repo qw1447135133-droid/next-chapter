@@ -4,7 +4,7 @@
 import { getApiConfig } from "@/pages/Settings";
 import {
   callGemini, extractText, extractImageBase64, getInlineData, fetchImageAsBase64,
-  uploadImageToStorage, callSeedreamImage, rewriteToFirstFrame,
+  uploadImageToStorage, callSeedreamImage, rewriteToFirstFrame, proxiedFetch,
   CHAR_STYLE_MAP, SCENE_STYLE_MAP, STORYBOARD_STYLE_MAP,
   getSeedanceConfig, getViduConfig, VIDU_BASE_URL,
 } from "@/lib/gemini-client";
@@ -549,8 +549,8 @@ async function localGenerateVideo(body: any) {
     if (provider === "vidu") {
       const { apiKey } = getViduConfig();
       if (!apiKey) throw new Error("Vidu API Key 未配置");
-      const res = await fetch(`${VIDU_BASE_URL}/ent/v2/tasks/${taskId}/creations`, {
-        headers: { Authorization: `Token ${apiKey}` },
+      const res = await proxiedFetch(`${VIDU_BASE_URL}/ent/v2/tasks/${taskId}/creations`, {
+        Authorization: `Token ${apiKey}`,
       });
       if (!res.ok) throw new Error(`查询 Vidu 状态失败 (${res.status})`);
       const data = await res.json();
@@ -560,8 +560,8 @@ async function localGenerateVideo(body: any) {
     } else {
       const { apiKey, endpoint } = getSeedanceConfig();
       if (!apiKey) throw new Error("Seedance API Key 未配置");
-      const res = await fetch(`${endpoint}/v1/videos/${taskId}`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
+      const res = await proxiedFetch(`${endpoint}/v1/videos/${taskId}`, {
+        Authorization: `Bearer ${apiKey}`,
       });
       if (!res.ok) throw new Error(`查询视频状态失败 (${res.status})`);
       return await res.json();
@@ -571,8 +571,8 @@ async function localGenerateVideo(body: any) {
   if (action === "models") {
     const { apiKey, endpoint } = getSeedanceConfig();
     if (!apiKey) throw new Error("Seedance API Key 未配置");
-    const res = await fetch(`${endpoint}/v1/models`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
+    const res = await proxiedFetch(`${endpoint}/v1/models`, {
+      Authorization: `Bearer ${apiKey}`,
     });
     if (!res.ok) throw new Error(`查询模型列表失败 (${res.status})`);
     return await res.json();
@@ -596,11 +596,10 @@ async function localGenerateVideo(body: any) {
     };
     if (body.imageUrl) payload.images = [body.imageUrl];
 
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: { Authorization: `Token ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    const res = await proxiedFetch(endpoint, {
+      Authorization: `Token ${apiKey}`,
+      "Content-Type": "application/json",
+    }, JSON.stringify(payload));
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(`Vidu 视频生成任务创建失败 (${res.status}): ${errText}`);
@@ -611,29 +610,26 @@ async function localGenerateVideo(body: any) {
     const { apiKey, endpoint } = getSeedanceConfig();
     if (!apiKey) throw new Error("Seedance API Key 未配置，请在设置中配置");
 
-    const formData = new FormData();
-    formData.append("model", model || "doubao-seedance-1-5-pro_1080p");
-    formData.append("prompt", body.prompt);
-    formData.append("seconds", String(Math.max(4, Math.min(15, Number(body.duration) || 5))));
-    formData.append("size", body.aspectRatio || "16:9");
+    const payload: any = {
+      model: model || "doubao-seedance-1-5-pro_1080p",
+      prompt: body.prompt,
+      seconds: Math.max(4, Math.min(15, Number(body.duration) || 5)),
+      size: body.aspectRatio || "16:9",
+    };
 
     if (body.imageUrl && typeof body.imageUrl === "string") {
       if (body.imageUrl.startsWith("data:")) {
-        const [header, b64] = body.imageUrl.split(",");
-        const mime = header.match(/data:(.*?);/)?.[1] || "image/jpeg";
-        const binary = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-        const blob = new Blob([binary], { type: mime });
-        formData.append("first_frame_image", blob, "frame.jpg");
+        const [, b64] = body.imageUrl.split(",");
+        payload.first_frame_image = b64;
       } else {
-        formData.append("first_frame_image", body.imageUrl);
+        payload.first_frame_image = body.imageUrl;
       }
     }
 
-    const res = await fetch(`${endpoint}/v1/videos`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: formData,
-    });
+    const res = await proxiedFetch(`${endpoint}/v1/videos`, {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    }, JSON.stringify(payload));
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(`视频生成任务创建失败 (${res.status}): ${errText}`);
