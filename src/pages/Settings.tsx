@@ -177,38 +177,24 @@ const Settings = () => {
       let testUrl: string;
       let headers: Record<string, string> = {};
 
+      // Only test connectivity — hit the base URL. Any response (even 4xx) means the server is reachable.
       if (name === "gemini") {
-        const base = endpoint || DEFAULT_CONFIG.zhanhuEndpoint;
-        const isProxy = base.includes("202.90.21.53");
-        const isGoogle = base.includes("generativelanguage.googleapis.com");
-        testUrl = `${base}/models`;
-        if (isProxy && apiKey) {
-          headers["Authorization"] = `Bearer ${apiKey}`;
-        } else if (isGoogle && apiKey) {
-          headers["x-goog-api-key"] = apiKey;
-        } else if (apiKey) {
-          testUrl = `${base}/models?key=${apiKey}`;
-        }
+        testUrl = endpoint || DEFAULT_CONFIG.zhanhuEndpoint;
       } else if (name === "seedance") {
-        // Test Seedance by listing models
-        const base = (endpoint || DEFAULT_CONFIG.seedanceEndpoint).replace("/v1beta", "").replace(/\/v1\/?$/, "");
-        testUrl = `${base}/v1/models`;
-        if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+        testUrl = endpoint || DEFAULT_CONFIG.seedanceEndpoint;
       } else {
-        // Vidu — simple GET
         testUrl = endpoint || DEFAULT_CONFIG.viduEndpoint;
-        if (apiKey) headers["Authorization"] = `Token ${apiKey}`;
       }
 
       const resp = await proxiedFetch(testUrl, headers, undefined, controller.signal);
       clearTimeout(timeout);
 
-      if (resp.ok || resp.status === 401 || resp.status === 403) {
-        // 401/403 means server is reachable but auth failed — connectivity is OK
-        const msg = resp.ok ? "连接成功 ✓" : `服务器可达（${resp.status}），请检查 API Key`;
-        setEndpointResults((p) => ({ ...p, [name]: { success: resp.ok, message: msg } }));
+      // Any HTTP response means the server is reachable
+      const status = resp.status;
+      if (status >= 200 && status < 500) {
+        setEndpointResults((p) => ({ ...p, [name]: { success: true, message: `连接成功 ✓（${status}）` } }));
       } else {
-        setEndpointResults((p) => ({ ...p, [name]: { success: false, message: `服务器返回 ${resp.status}` } }));
+        setEndpointResults((p) => ({ ...p, [name]: { success: false, message: `服务器返回 ${status}` } }));
       }
     } catch (e: any) {
       clearTimeout(timeout);
