@@ -690,6 +690,9 @@ const Workspace = () => {
       pollVideoTask(sceneId, taskId, provider);
     } catch (e: any) {
       console.error("Video generation error:", e);
+      setScenes((prev) =>
+        prev.map((s) => (s.id === sceneId ? { ...s, videoStatus: "failed", videoTaskId: undefined } : s))
+      );
       const fe = friendlyError(e);
       toast({ title: fe.title, description: `视频生成失败：${fe.description}`, variant: "destructive" });
     }
