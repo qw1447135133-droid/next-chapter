@@ -755,6 +755,17 @@ const Workspace = () => {
         }
       } catch (e: any) {
         console.error("Poll error:", e);
+        const errMsg = e?.message || String(e);
+        // Terminal errors that won't recover with retries
+        const isTerminal = /task_not_exist|not.?found|invalid.*task|forbidden|unauthorized|4[0-9]{2}/i.test(errMsg);
+        if (isTerminal) {
+          setScenes((prev) =>
+            prev.map((s) => s.id === sceneId ? { ...s, videoStatus: "failed", videoTaskId: undefined } : s)
+          );
+          const fe = friendlyError(errMsg);
+          toast({ title: fe.title, description: `视频生成失败：${fe.description}`, variant: "destructive" });
+          return;
+        }
         consecutiveErrors++;
         if (consecutiveErrors >= maxConsecutiveErrors) {
           setScenes((prev) =>
@@ -764,7 +775,7 @@ const Workspace = () => {
           return;
         }
         if (attempts < maxAttempts) {
-          setTimeout(poll, 10000); // longer delay on error
+          setTimeout(poll, 10000);
         }
       }
     };
