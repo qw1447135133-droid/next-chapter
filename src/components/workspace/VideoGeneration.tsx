@@ -377,16 +377,34 @@ const VideoGeneration = ({
                     </Badge>
                   )}
                   {scene.videoUrl ? (
-                    <video
-                      src={scene.videoUrl}
-                      muted
-                      loop
-                      playsInline
-                      className="h-full w-full object-cover"
-                      onClick={() => setEnlargedVideo(scene.videoUrl!)}
-                      onMouseEnter={(e) => e.currentTarget.play()}
-                      onMouseLeave={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = 0; }}
-                    />
+                    <>
+                      <video
+                        src={scene.videoUrl}
+                        muted
+                        loop
+                        playsInline
+                        className="h-full w-full object-cover"
+                        onClick={() => setEnlargedVideo(scene.videoUrl!)}
+                        onMouseEnter={(e) => e.currentTarget.play()}
+                        onMouseLeave={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = 0; }}
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          target.style.display = "none";
+                          const fallback = target.nextElementSibling as HTMLElement | null;
+                          if (fallback) fallback.style.display = "flex";
+                        }}
+                        onLoadedData={(e) => {
+                          const target = e.currentTarget;
+                          target.style.display = "";
+                          const fallback = target.nextElementSibling as HTMLElement | null;
+                          if (fallback) fallback.style.display = "none";
+                        }}
+                      />
+                      <div className="absolute inset-0 flex-col items-center justify-center gap-2 bg-muted" style={{ display: "none" }}>
+                        <XCircle className="h-5 w-5 text-muted-foreground/50" />
+                        <span className="text-xs text-muted-foreground">视频加载失败，点击放大查看</span>
+                      </div>
+                    </>
                   ) : isSceneProcessing ? (
                     <div className="flex flex-col items-center gap-2">
                       <Loader2 className={`${isPortrait ? "h-5 w-5" : "h-8 w-8"} text-primary animate-spin`} />
