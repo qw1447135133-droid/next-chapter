@@ -560,7 +560,7 @@ async function localGenerateVideo(body: any) {
     } else {
       const { apiKey, endpoint } = getSeedanceConfig();
       if (!apiKey) throw new Error("Seedance API Key 未配置");
-      const res = await proxiedFetch(`${endpoint}/v1/videos/${taskId}`, {
+      const res = await proxiedFetch(`${endpoint}/videos/${taskId}`, {
         Authorization: `Bearer ${apiKey}`,
       });
       if (!res.ok) throw new Error(`查询视频状态失败 (${res.status})`);
@@ -571,7 +571,7 @@ async function localGenerateVideo(body: any) {
   if (action === "models") {
     const { apiKey, endpoint } = getSeedanceConfig();
     if (!apiKey) throw new Error("Seedance API Key 未配置");
-    const res = await proxiedFetch(`${endpoint}/v1/models`, {
+    const res = await proxiedFetch(`${endpoint}/models`, {
       Authorization: `Bearer ${apiKey}`,
     });
     if (!res.ok) throw new Error(`查询模型列表失败 (${res.status})`);
@@ -634,7 +634,7 @@ async function localGenerateVideo(body: any) {
     }
     formBody += `--${boundary}--\r\n`;
 
-    const res = await proxiedFetch(`${endpoint}/v1/videos`, {
+    const res = await proxiedFetch(`${endpoint}/videos`, {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": `multipart/form-data; boundary=${boundary}`,
     }, formBody);
