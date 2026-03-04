@@ -14,8 +14,9 @@ const PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api-proxy`;
 // ===== Proxied / Direct Fetch =====
 
 /**
- * Smart fetch: uses proxy Edge Function or direct fetch based on directMode setting.
- * Direct mode bypasses the proxy — useful when endpoints support CORS or are on a local network.
+ * Smart fetch: uses direct fetch or proxy Edge Function based on directMode setting.
+ * When direct mode is enabled but the request fails (e.g. mixed content, CORS),
+ * automatically falls back to the proxy.
  */
 export async function proxiedFetch(
   targetUrl: string,
@@ -26,19 +27,22 @@ export async function proxiedFetch(
   const config = getApiConfig();
 
   if (config.directMode) {
-    // Direct mode: call the API endpoint directly from the browser
-    const headers: Record<string, string> = {
-      ...targetHeaders,
-    };
-    if (!headers["Content-Type"] && body) {
-      headers["Content-Type"] = "application/json";
+    try {
+      const headers: Record<string, string> = { ...targetHeaders };
+      if (!headers["Content-Type"] && body) {
+        headers["Content-Type"] = "application/json";
+      }
+      const resp = await fetch(targetUrl, {
+        method: body ? "POST" : "GET",
+        headers,
+        body,
+        signal,
+      });
+      return resp;
+    } catch (directErr) {
+      // Direct mode failed (mixed content, network error, CORS) — fall back to proxy
+      console.warn("[proxiedFetch] 直连失败，自动回退到代理模式:", (directErr as Error).message);
     }
-    return fetch(targetUrl, {
-      method: body ? "POST" : "GET",
-      headers,
-      body,
-      signal,
-    });
   }
 
   // Proxy mode: route through Edge Function
