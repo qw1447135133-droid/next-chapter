@@ -307,6 +307,7 @@ const Settings = () => {
                   placeholder="https://api.minimaxi.com/anthropic"
                   className="font-mono text-sm mt-1"
                 />
+                <p className="text-xs text-muted-foreground mt-1">只需填写 Base URL，路径会自动拼接。例如：<code className="bg-muted px-1 rounded">https://api.apifox.com/v1beta</code></p>
               </div>
               <div>
                 <Label className="text-sm">Seedance API 端点</Label>
@@ -316,6 +317,7 @@ const Settings = () => {
                   placeholder="https://api.minimax.chat/v1"
                   className="font-mono text-sm mt-1"
                 />
+                <p className="text-xs text-muted-foreground mt-1">只需填写 Base URL，如 <code className="bg-muted px-1 rounded">{`{base}/v1/videos`}</code> 会自动拼接</p>
               </div>
               <div>
                 <Label className="text-sm">Vidu API 端点</Label>
@@ -325,6 +327,7 @@ const Settings = () => {
                   placeholder="https://api.genmo.ai/v1"
                   className="font-mono text-sm mt-1"
                 />
+                <p className="text-xs text-muted-foreground mt-1">只需填写 Base URL，路径会自动拼接</p>
               </div>
             </CardContent>
           </Card>
