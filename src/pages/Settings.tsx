@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Key, Save, Database, HardDrive, Cloud, Globe } from "lucide-react";
+import { ArrowLeft, Key, Save, Database, HardDrive, Cloud, Globe, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -280,7 +280,22 @@ const Settings = () => {
           </h2>
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">自定义端点</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">自定义端点</CardTitle>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setConfig((p) => ({
+                    ...p,
+                    zhanhuEndpoint: DEFAULT_CONFIG.zhanhuEndpoint,
+                    seedanceEndpoint: DEFAULT_CONFIG.seedanceEndpoint,
+                    viduEndpoint: DEFAULT_CONFIG.viduEndpoint,
+                  }))}
+                >
+                  <RotateCcw className="h-3.5 w-3.5 mr-1" />
+                  恢复默认值
+                </Button>
+              </div>
               <CardDescription>可自定义 API 端点地址（高级选项）</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
