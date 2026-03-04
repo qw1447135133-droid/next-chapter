@@ -590,9 +590,8 @@ async function localGenerateVideo(body: any) {
     const payload: any = {
       model: model || "viduq3-pro",
       prompt: truncatedPrompt,
-      duration: Math.max(4, Math.min(16, body.duration || 5)),
+      duration: Math.max(1, Math.min(16, body.duration || 5)),
       resolution: "1080p",
-      aspect_ratio: body.aspectRatio || "16:9",
       audio: true,
     };
     if (body.imageUrl) payload.images = [body.imageUrl];
