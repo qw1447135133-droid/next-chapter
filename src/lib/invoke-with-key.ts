@@ -88,20 +88,40 @@ async function invokeDirectApi<T = any>(
   body: Record<string, unknown>,
 ): Promise<{ data: T; error: null } | { data: null; error: Error }> {
   const config = getApiConfig();
+  const endpoint = config.zhanhuEndpoint || "http://202.90.21.53:13003/v1beta";
+
+  // 判断端点类型：Google Gemini 使用 generateContent，MiniMax 使用 chat/completions
+  const isGoogleEndpoint = endpoint.includes("googleapis.com") || endpoint.includes("generativelanguage.googleapis.com") || endpoint.includes(":13003/v1beta");
 
   try {
     switch (functionName) {
       case "script-decompose": {
         // 剧本拆解
-        const response = await callLocalAiApi({
-          model: "MiniMax-M2.5",
-          messages: [
-            { role: "system", content: body.systemPrompt as string || "你是一个专业的剧本分析助手。请根据用户提供的剧本，识别出所有角色和场景，并拆解成详细的分镜列表。" },
-            { role: "user", content: body.script as string }
-          ],
-          temperature: 0.7,
-        });
-        return { data: response as T, error: null };
+        if (isGoogleEndpoint) {
+          // Google Gemini 格式
+          const response = await fetch(`${endpoint}/models/gemini-2.0-flash:generateContent?key=${config.zhanhuKey}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: body.systemPrompt + "\n\n" + body.script }] }],
+              generationConfig: { temperature: 0.7 }
+            })
+          });
+          const data = await response.json();
+          if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+          return { data: { choices: [{ message: { content: data.candidates?.[0]?.content?.parts?.[0]?.text || "" } }] } as T, error: null };
+        } else {
+          // MiniMax 格式
+          const response = await callLocalAiApi({
+            model: "MiniMax-M2.5",
+            messages: [
+              { role: "system", content: body.systemPrompt as string || "你是一个专业的剧本分析助手。请根据用户提供的剧本，识别出所有角色和场景，并拆解成详细的分镜列表。" },
+              { role: "user", content: body.script as string }
+            ],
+            temperature: 0.7,
+          });
+          return { data: response as T, error: null };
+        }
       }
 
       case "enhance-video-prompt": {
