@@ -29,13 +29,20 @@ export interface ApiConfig {
 const STORAGE_KEY = "storyforge_api_config";
 
 // Simple obfuscation for localStorage (not true encryption, but prevents casual reading)
+// Use a prefix to detect if a value is obfuscated, preventing snowball re-encoding
+const OBF_PREFIX = "obf:";
+
 function obfuscate(value: string): string {
   if (!value) return "";
-  try { return btoa(unescape(encodeURIComponent(value))); } catch { return value; }
+  // Already obfuscated — don't double-encode
+  if (value.startsWith(OBF_PREFIX)) return value;
+  try { return OBF_PREFIX + btoa(unescape(encodeURIComponent(value))); } catch { return value; }
 }
 function deobfuscate(value: string): string {
   if (!value) return "";
-  try { return decodeURIComponent(escape(atob(value))); } catch { return value; }
+  // Not obfuscated — return as-is (prevents snowball)
+  if (!value.startsWith(OBF_PREFIX)) return value;
+  try { return decodeURIComponent(escape(atob(value.slice(OBF_PREFIX.length)))); } catch { return value; }
 }
 
 // Keys that should be obfuscated in storage
