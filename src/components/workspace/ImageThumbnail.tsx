@@ -165,14 +165,18 @@ interface ImageThumbnailProps {
  * Shows a download button on hover to save the original full-size image.
  */
 const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDim = 512 }: ImageThumbnailProps) => {
-  // Show src immediately as preview; replace with compressed version when ready
-  const [thumbUrl, setThumbUrl] = useState<string | null>(src || null);
+  // Check mem cache synchronously for instant display; otherwise null (skeleton)
+  const initialThumb = src ? memCache.get(src) ?? null : null;
+  // For small base64 images, show immediately
+  const isSmallBase64 = src?.startsWith("data:image") && 
+    Math.ceil((src.length - src.indexOf(",") - 1) * 0.75) <= maxBytes;
+  
+  const [thumbUrl, setThumbUrl] = useState<string | null>(initialThumb ?? (isSmallBase64 ? src : null));
   const [hovered, setHovered] = useState(false);
   const [enlarged, setEnlarged] = useState(false);
 
   useEffect(() => {
-    // Always show src immediately
-    setThumbUrl(src);
+    if (!src) { setThumbUrl(null); return; }
 
     let cancelled = false;
 
@@ -180,6 +184,13 @@ const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDi
     const mem = memCache.get(src);
     if (mem) {
       setThumbUrl(mem);
+      return;
+    }
+
+    // Small base64 — already showing
+    if (isSmallBase64) {
+      memCache.set(src, src);
+      idbSet(src, src);
       return;
     }
 
@@ -230,21 +241,18 @@ const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDi
     const doCompress = () => {
       if (cancelled) return;
       if (src.startsWith("data:image")) {
-        const byteSize = Math.ceil((src.length - src.indexOf(",") - 1) * 0.75);
-        if (byteSize <= maxBytes) {
-          setAndCache(src);
-          return;
-        }
         const img = new Image();
         img.onload = () => compressWithCanvas(img);
         img.src = src;
       } else {
-        // For storage URLs, the browser is already showing the image via src
-        // Compress in background for memory optimization
+        // For storage URLs — fetch via Image element for canvas compression
         const img = new Image();
         img.crossOrigin = "anonymous";
         img.onload = () => compressWithCanvas(img);
-        img.onerror = () => setAndCache(src);
+        img.onerror = () => {
+          // Fallback: show original if compression fails
+          if (!cancelled) setThumbUrl(src);
+        };
         img.src = src;
       }
     };
