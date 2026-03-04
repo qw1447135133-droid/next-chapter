@@ -177,7 +177,13 @@ const Workspace = () => {
 
   const ensureProjectExists = useCallback(async () => {
     if (getProjectId()) return;
-    await createProject({ title: projectTitle });
+    const newId = await createProject({ title: projectTitle });
+    // Update URL so navigating away and back preserves the project
+    if (newId) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("id", newId);
+      window.history.replaceState({}, "", url.toString());
+    }
   }, [createProject, getProjectId, projectTitle]);
 
   // Auto-save on state changes (after initial load, skip during restoration)
