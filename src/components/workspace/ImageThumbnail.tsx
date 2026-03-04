@@ -96,7 +96,7 @@ async function idbSet(key: string, value: string): Promise<void> {
  * Pre-warm the thumbnail cache for a given image URL.
  * Call this after generation so that when the user switches tabs the thumbnail is already ready.
  */
-export function prewarmThumbnail(src: string, maxDim = 512, maxBytes = 500 * 1024): void {
+export function prewarmThumbnail(src: string, maxDim = 800, maxBytes = 500 * 1024): void {
   if (!src) return;
   // Already cached
   if (memCache.has(src)) return;
@@ -155,7 +155,7 @@ interface ImageThumbnailProps {
   alt: string;
   className?: string;
   maxBytes?: number;
-  /** Maximum dimension (width/height) for the thumbnail canvas. Default 2048. */
+  /** Maximum dimension (width/height) for the thumbnail canvas. Default 800. */
   maxDim?: number;
 }
 
@@ -164,7 +164,7 @@ interface ImageThumbnailProps {
  * or the original URL for storage-hosted images.
  * Shows a download button on hover to save the original full-size image.
  */
-const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDim = 512 }: ImageThumbnailProps) => {
+const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDim = 800 }: ImageThumbnailProps) => {
   // Check mem cache synchronously for instant display; otherwise null (skeleton)
   const initialThumb = src ? memCache.get(src) ?? null : null;
   // For small base64 images, show immediately

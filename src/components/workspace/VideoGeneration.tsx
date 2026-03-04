@@ -8,6 +8,7 @@ import { Slider } from "@/components/ui/slider";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Play, RefreshCw, Loader2, ArrowRight, CheckCircle, XCircle, ChevronDown, History, RotateCcw, Clock, RectangleHorizontal, RectangleVertical } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import ImageThumbnail from "@/components/workspace/ImageThumbnail";
 import type { StoryboardAspectRatio } from "./StoryboardPreview";
 
 const ASPECT_RATIO_OPTIONS: { value: StoryboardAspectRatio; label: string; icon: typeof RectangleHorizontal }[] = [
@@ -394,7 +395,7 @@ const VideoGeneration = ({
                       </span>
                     </div>
                   ) : scene.storyboardUrl ? (
-                    <img src={scene.storyboardUrl} className="h-full w-full object-cover opacity-50" alt="" />
+                    <ImageThumbnail src={scene.storyboardUrl} alt="" className="h-full w-full object-cover opacity-50" maxDim={800} />
                   ) : (
                     <div className="text-center text-muted-foreground/40">
                       <Play className={`${isPortrait ? "h-4 w-4" : "h-6 w-6"} mx-auto mb-1`} />

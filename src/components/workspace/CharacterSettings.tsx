@@ -1449,7 +1449,7 @@ const CharacterSettings = ({
                               />
                             </div>
                             <div className="rounded-lg overflow-hidden border border-border/40">
-                              <ImageThumbnail src={activeCostume.imageUrl} alt={`${c.name} ${activeCostume.label}`} className="w-full max-h-[400px] object-contain" maxDim={1000} />
+                              <ImageThumbnail src={activeCostume.imageUrl} alt={`${c.name} ${activeCostume.label}`} className="w-full max-h-[400px] object-contain" maxDim={800} />
                             </div>
                           </div>
                         )}
@@ -1481,7 +1481,7 @@ const CharacterSettings = ({
                     />
                   </div>
                   <div className="rounded-lg overflow-hidden border border-border/40 bg-background">
-                    <ImageThumbnail src={c.imageUrl} alt={`${c.name} 人设图`} className="w-full max-h-[400px] object-contain" maxDim={1000} />
+                    <ImageThumbnail src={c.imageUrl} alt={`${c.name} 人设图`} className="w-full max-h-[400px] object-contain" maxDim={800} />
                   </div>
                 </div>
               )}
@@ -1811,7 +1811,7 @@ const CharacterSettings = ({
                               />
                             </div>
                             <div className="rounded-lg overflow-hidden border border-border/40">
-                              <ImageThumbnail src={activeTv.imageUrl} alt={`${s.name} ${activeTv.label}`} className="w-full max-h-[400px] object-contain" maxDim={1000} />
+                              <ImageThumbnail src={activeTv.imageUrl} alt={`${s.name} ${activeTv.label}`} className="w-full max-h-[400px] object-contain" maxDim={800} />
                             </div>
                           </div>
                         )}
@@ -1842,7 +1842,7 @@ const CharacterSettings = ({
                     />
                   </div>
                   <div className="rounded-lg overflow-hidden border border-border/40 bg-background">
-                    <ImageThumbnail src={s.imageUrl} alt={`${s.name} 场景图`} className="w-full max-h-[300px] object-cover rounded-lg" maxDim={1000} />
+                    <ImageThumbnail src={s.imageUrl} alt={`${s.name} 场景图`} className="w-full max-h-[300px] object-cover rounded-lg" maxDim={800} />
                   </div>
                 </div>
               )}
