@@ -96,7 +96,13 @@ const Workspace = () => {
   const autoDetectAbortRef = useRef(false);
   const analyzeAbortRef = useRef<AbortController | null>(null);
   const [skipStoryboard, setSkipStoryboard] = useState(false);
-  const [videoModel, setVideoModel] = useState<VideoModel>("seedance-1.5-pro");
+  const [videoModel, setVideoModelState] = useState<VideoModel>(() => {
+    try { return (localStorage.getItem("workspace-video-model") as VideoModel) || "seedance-1.5-pro"; } catch { return "seedance-1.5-pro"; }
+  });
+  const setVideoModel = (m: VideoModel) => {
+    setVideoModelState(m);
+    try { localStorage.setItem("workspace-video-model", m); } catch { /* ignore */ }
+  };
   const [projectTitle, setProjectTitle] = useState("未命名项目");
   const [isLoaded, setIsLoaded] = useState(false);
   const [rawAiOutput, setRawAiOutput] = useState<string>("");
