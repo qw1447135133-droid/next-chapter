@@ -318,7 +318,7 @@ This is a wide establishing shot showing the full environment. Focus on atmosphe
   } else {
     const data = await callGemini(selectedModel,
       [{ role: "user", parts: [{ text: prompt }] }],
-      { responseModalities: ["IMAGE", "TEXT"], imageConfig: { aspectRatio: "16:9", imageSize: "4K" } },
+      { responseModalities: ["IMAGE", "TEXT"], imageConfig: { aspectRatio: "16:9", imageSize: "2K" } },
     );
 
     const img = await extractImageBase64(data);
