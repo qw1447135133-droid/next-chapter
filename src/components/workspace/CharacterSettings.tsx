@@ -19,7 +19,7 @@ const CHAR_IMAGE_MODEL_OPTIONS: { value: CharImageModel; label: string }[] = [
 ];
 import ImageHistoryDialog from "./ImageHistoryDialog";
 import { supabase } from "@/integrations/supabase/client";
-import { invokeFunction, buildFetchBodyWithKeys } from "@/lib/invoke-with-key";
+import { invokeFunction } from "@/lib/invoke-with-key";
 import { toast } from "@/hooks/use-toast";
 import { friendlyError } from "@/lib/friendly-error";
 import { ensureStorageUrl } from "@/lib/upload-base64-to-storage";
@@ -155,14 +155,13 @@ const CharacterSettings = ({
   const handleFileChange = async (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("folder", "characters");
     try {
-      const { data, error } = await supabase.functions.invoke("upload-image", { body: formData });
+      const ext = file.name.split(".").pop() || "png";
+      const fileName = `characters/${crypto.randomUUID()}.${ext}`;
+      const { error } = await supabase.storage.from("generated-images").upload(fileName, file, { contentType: file.type, upsert: false });
       if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      updateCharacter(id, { imageUrl: data.imageUrl, isAIGenerated: false });
+      const { data: urlData } = supabase.storage.from("generated-images").getPublicUrl(fileName);
+      updateCharacter(id, { imageUrl: urlData.publicUrl, isAIGenerated: false });
     } catch (err: any) {
       const fe = friendlyError(err);
       toast({ title: fe.title, description: fe.description, variant: "destructive" });
@@ -340,14 +339,13 @@ const CharacterSettings = ({
   const handleSceneFileChange = async (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("folder", "scenes");
     try {
-      const { data, error } = await supabase.functions.invoke("upload-image", { body: formData });
+      const ext = file.name.split(".").pop() || "png";
+      const fileName = `scenes/${crypto.randomUUID()}.${ext}`;
+      const { error } = await supabase.storage.from("generated-images").upload(fileName, file, { contentType: file.type, upsert: false });
       if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      updateScene(id, { imageUrl: data.imageUrl, isAIGenerated: false });
+      const { data: urlData } = supabase.storage.from("generated-images").getPublicUrl(fileName);
+      updateScene(id, { imageUrl: urlData.publicUrl, isAIGenerated: false });
     } catch (err: any) {
       const fe = friendlyError(err);
       toast({ title: fe.title, description: fe.description, variant: "destructive" });
@@ -1199,14 +1197,13 @@ const CharacterSettings = ({
           const handleCostumeFileChange = async (costumeId: string, e: React.ChangeEvent<HTMLInputElement>) => {
             const file = e.target.files?.[0];
             if (!file) return;
-            const formData = new FormData();
-            formData.append("file", file);
-            formData.append("folder", "costumes");
             try {
-              const { data, error } = await supabase.functions.invoke("upload-image", { body: formData });
+              const ext = file.name.split(".").pop() || "png";
+              const fileName = `costumes/${crypto.randomUUID()}.${ext}`;
+              const { error } = await supabase.storage.from("generated-images").upload(fileName, file, { contentType: file.type, upsert: false });
               if (error) throw error;
-              if (data?.error) throw new Error(data.error);
-              updateCostume(costumeId, { imageUrl: data.imageUrl, isAIGenerated: false });
+              const { data: urlData } = supabase.storage.from("generated-images").getPublicUrl(fileName);
+              updateCostume(costumeId, { imageUrl: urlData.publicUrl, isAIGenerated: false });
             } catch (err: any) {
               const fe = friendlyError(err);
               toast({ title: fe.title, description: fe.description, variant: "destructive" });
@@ -1557,14 +1554,13 @@ const CharacterSettings = ({
           const handleTimeVariantFileChange = async (tvId: string, e: React.ChangeEvent<HTMLInputElement>) => {
             const file = e.target.files?.[0];
             if (!file) return;
-            const formData = new FormData();
-            formData.append("file", file);
-            formData.append("folder", "scenes");
             try {
-              const { data, error } = await supabase.functions.invoke("upload-image", { body: formData });
+              const ext = file.name.split(".").pop() || "png";
+              const fileName = `scenes/${crypto.randomUUID()}.${ext}`;
+              const { error } = await supabase.storage.from("generated-images").upload(fileName, file, { contentType: file.type, upsert: false });
               if (error) throw error;
-              if (data?.error) throw new Error(data.error);
-              updateTimeVariant(tvId, { imageUrl: data.imageUrl, isAIGenerated: false });
+              const { data: urlData } = supabase.storage.from("generated-images").getPublicUrl(fileName);
+              updateTimeVariant(tvId, { imageUrl: urlData.publicUrl, isAIGenerated: false });
             } catch (err: any) {
               const fe = friendlyError(err);
               toast({ title: fe.title, description: fe.description, variant: "destructive" });

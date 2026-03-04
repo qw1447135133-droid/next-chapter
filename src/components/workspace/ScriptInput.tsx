@@ -80,19 +80,9 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
       const formData = new FormData();
       formData.append("file", file);
 
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-document`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
-          body: formData,
-        }
-      );
-
-      const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || "解析失败");
+      const { data, error } = await supabase.functions.invoke("parse-document", { body: formData });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error || "解析失败");
 
       onScriptChange(data.text);
       toast({ title: "导入成功", description: `已导入 ${file.name}` });

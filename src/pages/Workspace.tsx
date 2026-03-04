@@ -8,8 +8,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { friendlyError } from "@/lib/friendly-error";
 import { compressImage } from "@/lib/image-compress";
-import { supabase } from "@/integrations/supabase/client";
-import { buildFetchBodyWithKeys, invokeFunction } from "@/lib/invoke-with-key";
+import { invokeFunction } from "@/lib/invoke-with-key";
 import type { Scene, CharacterSetting, SceneSetting, WorkspaceStep, ArtStyle, VideoModel, CostumeSetting } from "@/types/project";
 import { VIDEO_MODEL_API_MAP } from "@/types/project";
 import { useSmartPersistence } from "@/hooks/use-smart-persistence";
@@ -39,60 +38,6 @@ const createSemaphore = (max: number) => {
  * Resolves as soon as the last non-empty line contains valid JSON,
  * without waiting for the stream to fully close.
  */
-async function readStreamingJson(
-  response: Response,
-  controller: AbortController,
-  timeoutMs: number,
-): Promise<any> {
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  const reader = response.body?.getReader();
-  if (!reader) {
-    clearTimeout(timeoutId);
-    throw new Error("无法读取响应流");
-  }
-
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (value) buffer += decoder.decode(value, { stream: true });
-
-      // Try to parse the last non-empty line as JSON
-      const lines = buffer.split("\n").filter((l) => l.trim());
-      if (lines.length > 0) {
-        const candidate = lines[lines.length - 1].trim();
-        try {
-          const parsed = JSON.parse(candidate);
-          // Successfully parsed JSON — we're done, don't wait for stream close
-          clearTimeout(timeoutId);
-          reader.cancel().catch(() => {});
-          if (parsed?.error) {
-            const err = parsed.error;
-            throw new Error(typeof err === "string" ? err : err.message || JSON.stringify(err));
-          }
-          return parsed;
-        } catch {
-          // Not valid JSON yet, continue reading
-          if (done) {
-            throw new Error("响应流已结束但无法解析 JSON: " + candidate.substring(0, 200));
-          }
-        }
-      }
-
-      if (done) break;
-    }
-  } catch (err) {
-    clearTimeout(timeoutId);
-    reader.cancel().catch(() => {});
-    throw err;
-  }
-
-  clearTimeout(timeoutId);
-  throw new Error("响应流结束但未收到有效数据");
-}
-
 const Workspace = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -266,38 +211,14 @@ const Workspace = () => {
     setIsAnalyzing(true);
     
     try {
-        // Dynamic timeout based on script length
-        const charCount = script.trim().length;
-        const timeoutMs = charCount <= 8000 ? 300_000 : charCount <= 15000 ? 480_000 : 600_000;
         const controller = new AbortController();
         analyzeAbortRef.current = controller;
-
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
         // ========== Phase 1: Extract characters & scenes ==========
         toast({ title: "阶段 1/2", description: "正在识别角色与场景..." });
         
-        const extractResponse = await fetch(`${supabaseUrl}/functions/v1/extract-characters-scenes`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${supabaseKey}`,
-            "apikey": supabaseKey,
-          },
-          body: JSON.stringify(buildFetchBodyWithKeys({ script, model: decomposeModel })),
-          signal: controller.signal,
-        });
-
-        if (!extractResponse.ok) {
-          const errText = await extractResponse.text();
-          let errMsg = `角色提取失败 (${extractResponse.status})`;
-          try { errMsg = JSON.parse(errText.trim().split("\n").pop()!).error || errMsg; } catch { /* ignore */ }
-          throw new Error(errMsg);
-        }
-
-        // Read streaming response chunk-by-chunk; resolve as soon as JSON arrives
-        const extractData = await readStreamingJson(extractResponse, controller, 300_000);
+        const { data: extractData, error: extractError } = await invokeFunction("extract-characters-scenes", { script, model: decomposeModel });
+        if (extractError) throw extractError;
 
         // Process characters from phase 1
         const aiCharacters: Array<{ name: string; description: string; costumes?: Array<{ label: string; description: string }> }> = extractData.characters || [];
@@ -340,77 +261,12 @@ const Workspace = () => {
         // ========== Phase 2: Script decomposition (streaming) ==========
         toast({ title: "阶段 2/2", description: "正在拆解分镜与时长分配..." });
 
-        const response = await fetch(`${supabaseUrl}/functions/v1/script-decompose`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${supabaseKey}`,
-            "apikey": supabaseKey,
-          },
-          body: JSON.stringify(buildFetchBodyWithKeys({ script, systemPrompt, model: decomposeModel })),
-          signal: controller.signal,
-        });
+        const { data: decomposeData, error: decomposeError } = await invokeFunction("script-decompose", { script, systemPrompt, model: decomposeModel });
+        if (decomposeError) throw decomposeError;
 
-        if (!response.ok) {
-          const errText = await response.text();
-          let errMsg = `剧本拆解失败 (${response.status})`;
-          try { errMsg = JSON.parse(errText.trim()).error || errMsg; } catch { /* ignore */ }
-          throw new Error(errMsg);
-        }
-
-        // Stream raw JSON text tokens and parse incrementally
-        const reader = response.body?.getReader();
-        if (!reader) throw new Error("无法读取响应流");
-
-        const decoder = new TextDecoder();
-        let jsonBuffer = "";
-        let lastSceneCount = 0;
-        const streamTimeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (value) jsonBuffer += decoder.decode(value, { stream: true });
-
-            // Count how many complete scene objects we have so far using regex
-            const sceneMatches = jsonBuffer.match(/"sceneNumber"\s*:/g);
-            const currentCount = sceneMatches ? sceneMatches.length : 0;
-            if (currentCount > lastSceneCount) {
-              lastSceneCount = currentCount;
-              toast({ title: "阶段 2/2", description: `正在生成分镜... 已识别 ${currentCount} 个` });
-            }
-
-            if (done) break;
-          }
-        } finally {
-          clearTimeout(streamTimeoutId);
-        }
-
-        // Parse complete JSON
-        let cleanedText = jsonBuffer.trim();
-        if (cleanedText.startsWith("```")) {
-          cleanedText = cleanedText.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
-        }
-
-        // Check for error response
-        try {
-          const maybeError = JSON.parse(cleanedText);
-          if (maybeError?.error) throw new Error(typeof maybeError.error === "string" ? maybeError.error : JSON.stringify(maybeError.error));
-        } catch (e) {
-          if (e instanceof Error && e.message && !(e instanceof SyntaxError)) throw e;
-        }
-
-        let parsed: any;
-        try {
-          parsed = JSON.parse(cleanedText);
-        } catch {
-          // Try to extract JSON object
-          const match = cleanedText.match(/\{[\s\S]*\}/);
-          if (match) {
-            parsed = JSON.parse(match[0]);
-          } else {
-            throw new Error("无法解析返回的 JSON");
-          }
+        let parsed: any = decomposeData;
+        if (!parsed) {
+          throw new Error("无法解析返回的数据");
         }
 
         const rawScenes = Array.isArray(parsed) ? parsed : (parsed?.scenes || []);
@@ -601,51 +457,28 @@ const Workspace = () => {
       const abortController = new AbortController();
       timeoutId = setTimeout(() => abortController.abort(), 300_000);
 
-      // Use direct fetch with streaming to handle long-running generation
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-      const response = await fetch(`${supabaseUrl}/functions/v1/generate-storyboard`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${supabaseKey}`,
-          "apikey": supabaseKey,
-        },
-        body: JSON.stringify(buildFetchBodyWithKeys({
-          description: scene.description,
-          characters: scene.characters,
-          characterDescriptions: charDescs,
-          characterImages,
-          sceneImageUrl,
-          prevStoryboardUrl,
-          cameraDirection: scene.cameraDirection || "",
-          sceneName: scene.sceneName || "",
-          sceneDescription: sceneSetting?.description || "",
-          dialogue: scene.dialogue || "",
-          style: artStyle,
-          mode: "single",
-          aspectRatio,
-          model,
-          scriptExcerpt: script?.slice(0, 2000) || "",
-          neighborContext,
-        })),
-        signal: abortController.signal,
+      // Use local invokeFunction for storyboard generation
+      const { data, error: sbError } = await invokeFunction("generate-storyboard", {
+        description: scene.description,
+        characters: scene.characters,
+        characterDescriptions: charDescs,
+        characterImages,
+        sceneImageUrl,
+        prevStoryboardUrl,
+        cameraDirection: scene.cameraDirection || "",
+        sceneName: scene.sceneName || "",
+        sceneDescription: sceneSetting?.description || "",
+        dialogue: scene.dialogue || "",
+        style: artStyle,
+        mode: "single",
+        aspectRatio,
+        model,
+        scriptExcerpt: script?.slice(0, 2000) || "",
+        neighborContext,
       });
       clearTimeout(timeoutId);
 
-      if (!response.ok) {
-        const errText = await response.text();
-        let errMsg = `分镜图生成失败 (${response.status})`;
-        try { errMsg = JSON.parse(errText.trim().split("\n").pop()!).error || errMsg; } catch { /* ignore */ }
-        throw new Error(errMsg);
-      }
-
-      // Read streaming response: last non-empty line is the JSON result
-      const text = await response.text();
-      const lines = text.trim().split("\n").filter((l) => l.trim());
-      const lastLine = lines[lines.length - 1];
-      const data = JSON.parse(lastLine);
-
+      if (sbError) throw sbError;
       if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)));
       if (!data?.imageUrl) throw new Error("API 返回数据中缺少 imageUrl");
 
