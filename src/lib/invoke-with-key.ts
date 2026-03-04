@@ -610,26 +610,34 @@ async function localGenerateVideo(body: any) {
     const { apiKey, endpoint } = getSeedanceConfig();
     if (!apiKey) throw new Error("Seedance API Key 未配置，请在设置中配置");
 
-    const payload: any = {
+    // Build multipart/form-data as the API requires
+    const fields: Record<string, string> = {
       model: model || "doubao-seedance-1-5-pro_1080p",
       prompt: body.prompt,
-      seconds: Math.max(4, Math.min(15, Number(body.duration) || 5)),
+      seconds: String(Math.max(4, Math.min(15, Number(body.duration) || 5))),
       size: body.aspectRatio || "16:9",
     };
 
     if (body.imageUrl && typeof body.imageUrl === "string") {
       if (body.imageUrl.startsWith("data:")) {
         const [, b64] = body.imageUrl.split(",");
-        payload.first_frame_image = b64;
+        fields.first_frame_image = b64;
       } else {
-        payload.first_frame_image = body.imageUrl;
+        fields.first_frame_image = body.imageUrl;
       }
     }
 
+    const boundary = `----FormBoundary${Date.now()}${Math.random().toString(36).slice(2)}`;
+    let formBody = "";
+    for (const [key, value] of Object.entries(fields)) {
+      formBody += `--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${value}\r\n`;
+    }
+    formBody += `--${boundary}--\r\n`;
+
     const res = await proxiedFetch(`${endpoint}/v1/videos`, {
       Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    }, JSON.stringify(payload));
+      "Content-Type": `multipart/form-data; boundary=${boundary}`,
+    }, formBody);
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(`视频生成任务创建失败 (${res.status}): ${errText}`);

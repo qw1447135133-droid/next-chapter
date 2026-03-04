@@ -56,8 +56,8 @@ const DEFAULT_CONFIG: ApiConfig = {
   seedance: "",
   viduKey: "",
   zhanhuEndpoint: "",
-  seedanceEndpoint: "https://api.minimax.chat/v1",
-  viduEndpoint: "https://api.genmo.ai/v1",
+  seedanceEndpoint: "",
+  viduEndpoint: "",
 };
 
 export function getApiConfig(): ApiConfig {
