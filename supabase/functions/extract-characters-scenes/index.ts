@@ -10,17 +10,21 @@ const DEFAULT_GEMINI_BASE_URL = "http://202.90.21.53:13003/v1beta";
 
 /** Build URL and headers based on endpoint type */
 function buildGeminiRequest(baseUrl: string, path: string, apiKey: string) {
+  const isDefaultProxy = baseUrl === DEFAULT_GEMINI_BASE_URL || baseUrl.includes("202.90.21.53");
   const isGoogleOfficial = baseUrl.includes("generativelanguage.googleapis.com");
-  const url = `${baseUrl}${path}`;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (isGoogleOfficial) {
-    // Google 官方端点使用专用 header
+  let url: string;
+  if (isDefaultProxy) {
+    url = `${baseUrl}${path}`;
+    headers["Authorization"] = `Bearer ${apiKey}`;
+  } else if (isGoogleOfficial) {
+    url = `${baseUrl}${path}`;
     headers["x-goog-api-key"] = apiKey;
   } else {
-    // 默认代理及第三方代理（Apifox 等）统一使用 Bearer
-    headers["Authorization"] = `Bearer ${apiKey}`;
+    // 第三方代理（Apifox 等）使用 query parameter
+    url = `${baseUrl}${path}?key=${apiKey}`;
   }
-  console.log(`buildGeminiRequest: endpoint=${baseUrl}, keyLen=${apiKey?.length}, authMethod=${isGoogleOfficial ? "x-goog-api-key" : "Bearer"}`);
+  console.log(`buildGeminiRequest: endpoint=${baseUrl}, keyLen=${apiKey?.length}, authMethod=${isDefaultProxy ? "Bearer" : isGoogleOfficial ? "x-goog-api-key" : "query-param"}`);
   return { url, headers };
 }
 
