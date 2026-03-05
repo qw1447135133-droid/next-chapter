@@ -95,6 +95,7 @@ const Workspace = () => {
   const [isAbortingAutoDetect, setIsAbortingAutoDetect] = useState(false);
   const autoDetectAbortRef = useRef(false);
   const analyzeAbortRef = useRef<AbortController | null>(null);
+  const isAnalyzingRef = useRef(false);
   const [skipStoryboard, setSkipStoryboard] = useState(false);
   const [videoModel, setVideoModelState] = useState<VideoModel>(() => {
     try { return (localStorage.getItem("workspace-video-model") as VideoModel) || "seedance-1.5-pro"; } catch { return "seedance-1.5-pro"; }
@@ -214,12 +215,14 @@ const Workspace = () => {
   const handleCancelAnalyze = () => {
     analyzeAbortRef.current?.abort();
     analyzeAbortRef.current = null;
+    isAnalyzingRef.current = false;
     setIsAnalyzing(false);
     toast({ title: "已中止", description: "剧本分析已取消" });
   };
 
   const handleAnalyze = async () => {
-    if (!script.trim() || isAnalyzing) return;
+    if (!script.trim() || isAnalyzingRef.current) return;
+    isAnalyzingRef.current = true;
     setIsAnalyzing(true);
     
     try {
@@ -313,6 +316,7 @@ const Workspace = () => {
         // Check for empty result
         if (parsedScenes.length === 0) {
           toast({ title: "警告", description: "未能从剧本中识别出任何分镜，请检查剧本内容", variant: "destructive" });
+          isAnalyzingRef.current = false;
           setIsAnalyzing(false);
           return;
         }
@@ -361,12 +365,14 @@ const Workspace = () => {
 
         toast({ title: "拆解完成", description: `成功拆解为 ${parsedScenes.length} 个分镜，识别 ${autoCharacters.length + missingChars.length} 个角色` });
         
+        isAnalyzingRef.current = false;
         setIsAnalyzing(false);
         return;
         
       } catch (e: any) {
         // Ignore abort errors (user cancelled)
         if (e?.name === "AbortError" || e?.message?.includes("aborted")) {
+          isAnalyzingRef.current = false;
           setIsAnalyzing(false);
           return;
         }
@@ -380,6 +386,7 @@ const Workspace = () => {
           duration: 8000,
         });
       } finally {
+        isAnalyzingRef.current = false;
         setIsAnalyzing(false);
       }
     };
