@@ -871,8 +871,9 @@ const CharacterSettings = ({
     // Process a single scene: description → image (or time variant images)
     const processScene = async (s: SceneSetting) => {
       if (!String(s.name || "").trim()) return;
-
-      // --- Description phase ---
+      // Keep "自动识别" spinner active for the entire scene processing (desc + img)
+      setGeneratingDescIds((prev) => new Set(prev).add(s.id));
+      try {
       let desc = "";
       let descOk = false;
       if (autoDetectAbortRef.current) return;
