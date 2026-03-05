@@ -365,6 +365,7 @@ const Workspace = () => {
 
         toast({ title: "拆解完成", description: `成功拆解为 ${parsedScenes.length} 个分镜，识别 ${autoCharacters.length + missingChars.length} 个角色` });
         
+        isAnalyzingRef.current = false;
         setIsAnalyzing(false);
         return;
         
