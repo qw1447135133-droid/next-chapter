@@ -634,14 +634,29 @@ const CharacterSettings = ({
       toast({ title: "缺少剧本内容", description: "请先在第一步输入剧本", variant: "destructive" });
       return;
     }
+    const hasTimeVariants = scene.timeVariants && scene.timeVariants.length > 0;
     addTask(id, "sceneDesc");
     setGeneratingDescIds(prev => new Set(prev).add(id));
     try {
       const data = await invokeStreamingFunction("generate-scene-description", {
         sceneName: scene.name, script, model: decomposeModel,
+        discoverTimeVariants: !hasTimeVariants,
       });
-      updateSceneAsync(id, { description: data.description || "" });
-      toast({ title: "识别成功", description: `已为「${scene.name}」生成场景描述` });
+      const desc = data.description || "";
+      if (!hasTimeVariants && data.discoveredTimeVariants && Array.isArray(data.discoveredTimeVariants) && data.discoveredTimeVariants.length >= 2) {
+        const newVariants: TimeVariantSetting[] = data.discoveredTimeVariants.map((tv: any) => ({
+          id: crypto.randomUUID(),
+          label: tv.label || "未命名",
+          description: tv.description || "",
+          isAIGenerated: false,
+        }));
+        updateSceneAsync(id, { description: desc, timeVariants: newVariants, activeTimeVariantId: newVariants[0]?.id });
+        setExpandedTimeVariantSceneIds(prev => { const next = new Set(prev); next.add(id); return next; });
+        toast({ title: "识别成功", description: `已为「${scene.name}」生成描述，并发现 ${newVariants.length} 个时间变体` });
+      } else {
+        updateSceneAsync(id, { description: desc });
+        toast({ title: "识别成功", description: `已为「${scene.name}」生成场景描述` });
+      }
     } catch (e: any) {
       console.error("Auto describe error:", e);
       const fe = friendlyError(e);
