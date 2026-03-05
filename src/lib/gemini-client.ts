@@ -121,47 +121,18 @@ export async function callGemini(
     body.generationConfig = generationConfig;
   }
 
-  const MAX_RETRIES = 3;
   const jsonBody = JSON.stringify(body);
 
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    if (signal?.aborted) throw new Error("请求已取消");
+  if (signal?.aborted) throw new Error("请求已取消");
 
-    let response: Response;
-    try {
-      response = await proxiedFetch(url, headers, jsonBody, signal);
-    } catch (fetchErr) {
-      // Network-level failure (TypeError: Failed to fetch, AbortError, etc.)
-      if (signal?.aborted) throw new Error("请求已取消");
-      const isRetryable = fetchErr instanceof TypeError || (fetchErr instanceof Error && fetchErr.message.includes("fetch"));
-      if (isRetryable && attempt < MAX_RETRIES - 1) {
-        const delay = Math.min(3000 * Math.pow(2, attempt), 15000);
-        console.warn(`[callGemini] 第${attempt + 1}次网络请求失败，${delay / 1000}s 后重试...`, (fetchErr as Error).message);
-        await new Promise(r => setTimeout(r, delay));
-        continue;
-      }
-      throw new Error(`网络连接失败 (已重试${attempt}次): ${(fetchErr as Error).message}`);
-    }
+  const response = await proxiedFetch(url, headers, jsonBody, signal);
 
-    if (response.ok) {
-      return response.json();
-    }
-
-    const text = await response.text().catch(() => "");
-
-    // Retry on 500/502/503/429 (transient upstream errors)
-    const retryable = [500, 502, 503, 429].includes(response.status);
-    if (retryable && attempt < MAX_RETRIES - 1) {
-      const delay = Math.min(3000 * Math.pow(2, attempt), 15000);
-      console.warn(`[callGemini] 第${attempt + 1}次请求失败 (${response.status})，${delay / 1000}s 后重试...`);
-      await new Promise(r => setTimeout(r, delay));
-      continue;
-    }
-
-    throw new Error(`模型 ${model} 调用失败 (${response.status}): ${text.slice(0, 200)}`);
+  if (response.ok) {
+    return response.json();
   }
 
-  throw new Error(`模型 ${model} 调用失败: 超过最大重试次数`);
+  const text = await response.text().catch(() => "");
+  throw new Error(`模型 ${model} 调用失败 (${response.status}): ${text.slice(0, 200)}`);
 }
 
 // ===== Response Parsing =====
