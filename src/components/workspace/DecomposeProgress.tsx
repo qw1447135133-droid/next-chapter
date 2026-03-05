@@ -5,7 +5,7 @@ import { RotateCw, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 export interface ChunkStatus {
   index: number;
   label: string;
-  status: "pending" | "processing" | "done" | "failed";
+  status: "pending" | "processing" | "done" | "failed" | "cancelled";
   error?: string;
 }
 
