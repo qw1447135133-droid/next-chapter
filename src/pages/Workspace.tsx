@@ -273,7 +273,20 @@ const Workspace = () => {
         // ========== Phase 2: Script decomposition (streaming) ==========
         toast({ title: "阶段 2/2", description: "正在拆解分镜与时长分配..." });
 
-        const { data: decomposeData, error: decomposeError } = await invokeFunction("script-decompose", { script, systemPrompt, model: decomposeModel });
+        // Build costume info for multi-costume characters
+        const costumeInfo = autoCharacters
+          .filter(c => c.costumes && c.costumes.length >= 2)
+          .map(c => ({
+            name: c.name,
+            costumes: c.costumes!.map(cos => ({ label: cos.label, description: cos.description })),
+          }));
+
+        const { data: decomposeData, error: decomposeError } = await invokeFunction("script-decompose", {
+          script,
+          systemPrompt,
+          model: decomposeModel,
+          costumeInfo: costumeInfo.length > 0 ? costumeInfo : undefined,
+        });
         if (decomposeError) throw decomposeError;
 
         let parsed: any = decomposeData;
@@ -286,17 +299,37 @@ const Workspace = () => {
         // Store raw AI output for display
         setRawAiOutput(JSON.stringify(parsed, null, 2));
 
-        const parsedScenes: Scene[] = rawScenes.map((s: any, i: number) => ({
-          id: crypto.randomUUID(),
-          sceneNumber: s.sceneNumber ?? i + 1,
-          segmentLabel: s.segmentLabel ?? "",
-          sceneName: s.sceneName ?? "",
-          description: s.description ?? "",
-          characters: s.characters ?? [],
-          dialogue: s.dialogue ?? "",
-          cameraDirection: s.cameraDirection ?? "",
-          duration: s.duration ?? 5,
-        }));
+        const parsedScenes: Scene[] = rawScenes.map((s: any, i: number) => {
+          // Resolve AI-assigned costume labels to costume IDs
+          let characterCostumes: Record<string, string> | undefined;
+          if (s.characterCostumes && typeof s.characterCostumes === "object") {
+            characterCostumes = {};
+            for (const [charName, costumeLabel] of Object.entries(s.characterCostumes)) {
+              if (typeof costumeLabel !== "string") continue;
+              const char = autoCharacters.find(c => c.name === charName);
+              if (!char?.costumes) continue;
+              const costume = char.costumes.find(cos =>
+                cos.label === costumeLabel || cos.label.includes(costumeLabel) || costumeLabel.includes(cos.label)
+              );
+              if (costume) {
+                characterCostumes[charName] = costume.id;
+              }
+            }
+            if (Object.keys(characterCostumes).length === 0) characterCostumes = undefined;
+          }
+          return {
+            id: crypto.randomUUID(),
+            sceneNumber: s.sceneNumber ?? i + 1,
+            segmentLabel: s.segmentLabel ?? "",
+            sceneName: s.sceneName ?? "",
+            description: s.description ?? "",
+            characters: s.characters ?? [],
+            dialogue: s.dialogue ?? "",
+            cameraDirection: s.cameraDirection ?? "",
+            duration: s.duration ?? 5,
+            characterCostumes,
+          };
+        });
 
         // Check for empty result
         if (parsedScenes.length === 0) {
