@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { friendlyError } from "@/lib/friendly-error";
 import { compressImage } from "@/lib/image-compress";
-import { invokeFunction } from "@/lib/invoke-with-key";
+import { invokeFunction, retryDecomposeChunk } from "@/lib/invoke-with-key";
 import type { Scene, CharacterSetting, SceneSetting, WorkspaceStep, ArtStyle, VideoModel, CostumeSetting } from "@/types/project";
 import { VIDEO_MODEL_API_MAP } from "@/types/project";
 import { useSmartPersistence } from "@/hooks/use-smart-persistence";
