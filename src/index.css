@@ -104,3 +104,31 @@
     font-family: 'Space Grotesk', sans-serif;
   }
 }
+
+@layer utilities {
+  .shimmer-progress [data-state] {
+    position: relative;
+    overflow: hidden;
+  }
+  .shimmer-progress [data-state]::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 60%;
+    height: 100%;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      hsla(0, 0%, 100%, 0.25) 40%,
+      hsla(0, 0%, 100%, 0.5) 50%,
+      hsla(0, 0%, 100%, 0.25) 60%,
+      transparent 100%
+    );
+    animation: shimmer-slide 2.5s ease-in-out infinite;
+  }
+  @keyframes shimmer-slide {
+    0% { left: -60%; }
+    100% { left: 160%; }
+  }
+}
