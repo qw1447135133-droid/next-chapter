@@ -759,10 +759,21 @@ const CharacterSettings = ({
           }
         } else {
           const data = await invokeStreamingFunction("generate-character-description", {
-            characterName: c.name, script, model: decomposeModel,
+            characterName: c.name, script, discoverCostumes: true, model: decomposeModel,
           });
           desc = data.description || "";
-          updateCharacterAsync(c.id, { description: desc });
+          if (data.discoveredCostumes && Array.isArray(data.discoveredCostumes) && data.discoveredCostumes.length >= 2) {
+            const newCostumes: CostumeSetting[] = data.discoveredCostumes.map((cos: any) => ({
+              id: crypto.randomUUID(),
+              label: cos.label || "",
+              description: cos.description || "",
+              isAIGenerated: true,
+            }));
+            updateCharacterAsync(c.id, { description: desc, costumes: newCostumes });
+            setExpandedCostumeCharIds(prev => { const next = new Set(prev); next.add(c.id); return next; });
+          } else {
+            updateCharacterAsync(c.id, { description: desc });
+          }
         }
         descOk = true;
       } catch (e) {
