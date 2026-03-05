@@ -152,6 +152,7 @@ This rule overrides any other inference. Ethnicity must be explicitly stated in 
 
 export interface InvokeOptions {
   onProgress?: (partialData: any) => void;
+  abortSignal?: AbortSignal;
 }
 
 export async function invokeFunction<T = any>(
