@@ -216,6 +216,53 @@ const Workspace = () => {
   useEffect(() => { if (isLoaded) autoSave({ currentStep }); }, [currentStep]); // eslint-disable-line
   useEffect(() => { if (isLoaded) autoSave({ systemPrompt }); }, [systemPrompt]); // eslint-disable-line
 
+  const handleRetryChunk = async (chunkIndex: number) => {
+    const meta = lastDecomposeMetaRef.current;
+    if (!meta) {
+      toast({ title: "无法重试", description: "缺少拆解上下文信息", variant: "destructive" });
+      return;
+    }
+    setRetryingChunk(chunkIndex);
+    setDecomposeChunks(prev => prev.map(c => c.index === chunkIndex ? { ...c, status: "processing" as const, error: undefined } : c));
+
+    try {
+      const newScenes = await retryDecomposeChunk(chunkIndex, meta.episodes, meta.costumeContext, meta.model, meta.prompt);
+
+      // Re-number and merge into existing scenes
+      // Find the insertion point: after all scenes from previous chunks, before scenes from later chunks
+      const epPrefix = meta.episodes.length > 1 ? `${chunkIndex + 1}-` : "";
+      const mappedScenes: Scene[] = newScenes.map((s: any, i: number) => ({
+        id: crypto.randomUUID(),
+        sceneNumber: i + 1,
+        segmentLabel: s.segmentLabel ?? "",
+        sceneName: s.sceneName ?? "",
+        description: s.description ?? "",
+        characters: s.characters ?? [],
+        dialogue: s.dialogue ?? "",
+        cameraDirection: s.cameraDirection ?? "",
+        duration: s.duration ?? 5,
+      }));
+
+      // Insert new scenes into position (replace any existing scenes for this chunk prefix, or append)
+      setScenes(prev => {
+        const withoutThisChunk = epPrefix
+          ? prev.filter(s => !s.segmentLabel?.startsWith(epPrefix))
+          : prev;
+        const allScenes = [...withoutThisChunk, ...mappedScenes];
+        // Re-number all scenes
+        return allScenes.map((s, i) => ({ ...s, sceneNumber: i + 1 }));
+      });
+
+      setDecomposeChunks(prev => prev.map(c => c.index === chunkIndex ? { ...c, status: "done" as const } : c));
+      toast({ title: "重试成功", description: `第 ${chunkIndex + 1} 段已重新拆解，新增 ${mappedScenes.length} 个分镜` });
+    } catch (err: any) {
+      setDecomposeChunks(prev => prev.map(c => c.index === chunkIndex ? { ...c, status: "failed" as const, error: err?.message } : c));
+      toast({ title: "重试失败", description: err?.message || "未知错误", variant: "destructive" });
+    } finally {
+      setRetryingChunk(null);
+    }
+  };
+
   const handleCancelAnalyze = () => {
     analyzeAbortRef.current?.abort();
     analyzeAbortRef.current = null;
