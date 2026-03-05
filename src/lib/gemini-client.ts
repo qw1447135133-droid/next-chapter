@@ -5,7 +5,7 @@
 import { getApiConfig } from "@/pages/Settings";
 import { supabase } from "@/integrations/supabase/client";
 
-export const DEFAULT_GEMINI_BASE_URL = "http://202.90.21.53:13003/v1";
+export const DEFAULT_GEMINI_BASE_URL = "http://202.90.21.53:13003/v1beta";
 export const DEFAULT_SEEDANCE_BASE_URL = "http://202.90.21.53:13003/v1";
 export const DEFAULT_VIDU_BASE_URL = "https://api.vidu.cn/ent/v2";
 
