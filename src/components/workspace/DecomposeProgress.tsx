@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { RotateCw, CheckCircle2, XCircle, Loader2 } from "lucide-react";
@@ -17,20 +17,25 @@ interface DecomposeProgressProps {
 }
 
 /**
- * Animated progress that creeps toward the real value,
- * slowing down as it gets closer (eased fake progress).
+ * Animated progress with:
+ * - Slow creep toward ceiling (never reaches it, caps at ceil - 0.1)
+ * - Smooth rollback on failure
+ * - One decimal place
+ * - ~75s to traverse one chunk's range
  */
 function useAnimatedProgress(ceilPercent: number, floorPercent: number, hasProcessing: boolean) {
-  const [display, setDisplay] = useState(floorPercent);
+  const [display, setDisplay] = useState(0);
   const rafRef = useRef<number>();
   const lastTimeRef = useRef(performance.now());
+  const prevCeilRef = useRef(ceilPercent);
+
+  // Detect ceiling drop (chunk failed) → animate down smoothly
+  const ceilDropped = ceilPercent < prevCeilRef.current;
+  useEffect(() => {
+    prevCeilRef.current = ceilPercent;
+  }, [ceilPercent]);
 
   useEffect(() => {
-    if (!hasProcessing) {
-      setDisplay(floorPercent);
-      return;
-    }
-
     lastTimeRef.current = performance.now();
 
     const tick = (now: number) => {
@@ -38,15 +43,41 @@ function useAnimatedProgress(ceilPercent: number, floorPercent: number, hasProce
       lastTimeRef.current = now;
 
       setDisplay(prev => {
-        // Never exceed the ceiling (current processing chunk's upper bound)
-        if (prev >= ceilPercent) return ceilPercent;
-        // Never go below the floor (completed chunks)
+        // Hard cap: never exceed ceil - 0.1
+        const hardCap = Math.max(0, ceilPercent - 0.1);
+
+        if (!hasProcessing && !ceilDropped) {
+          // No processing: snap to floor
+          if (prev > floorPercent) {
+            // Smooth rollback
+            const diff = prev - floorPercent;
+            const rollSpeed = Math.max(1, diff * 0.08) * 12;
+            return Math.max(prev - rollSpeed * dt, floorPercent);
+          }
+          return floorPercent;
+        }
+
+        // If display is above hardCap (e.g. chunk failed, ceiling dropped), roll back smoothly
+        if (prev > hardCap) {
+          const diff = prev - hardCap;
+          const rollSpeed = Math.max(1, diff * 0.08) * 12;
+          return Math.max(prev - rollSpeed * dt, hardCap);
+        }
+
+        // Creep upward: ~75s to cover one chunk's range
+        // chunkRange = ceilPercent - floorPercent (e.g. 20 for 5 chunks)
+        // base speed = chunkRange / 75 ≈ 0.267 %/s for 5 chunks
         const base = Math.max(prev, floorPercent);
-        const gap = ceilPercent - base;
-        // Speed decays as gap shrinks — slows near ceiling
-        const speed = Math.max(0.3, gap * 0.15) * 8;
+        const gap = hardCap - base;
+        if (gap <= 0) return hardCap;
+
+        const chunkRange = ceilPercent - floorPercent;
+        const baseSpeed = chunkRange > 0 ? chunkRange / 75 : 0.2;
+        // Decay: slower as we approach ceiling
+        const ratio = gap / (chunkRange || 1);
+        const speed = baseSpeed * Math.max(0.05, ratio);
         const next = base + speed * dt;
-        return Math.min(next, ceilPercent);
+        return Math.min(next, hardCap);
       });
 
       rafRef.current = requestAnimationFrame(tick);
@@ -54,14 +85,15 @@ function useAnimatedProgress(ceilPercent: number, floorPercent: number, hasProce
 
     rafRef.current = requestAnimationFrame(tick);
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [ceilPercent, floorPercent, hasProcessing]);
+  }, [ceilPercent, floorPercent, hasProcessing, ceilDropped]);
 
-  // Snap up when floor rises (chunk completed)
+  // Jump up when floor rises (chunk completed)
   useEffect(() => {
     setDisplay(prev => Math.max(prev, floorPercent));
   }, [floorPercent]);
 
-  return Math.round(display);
+  // Round to 1 decimal
+  return Math.round(display * 10) / 10;
 }
 
 const DecomposeProgress = ({ chunks, onRetryChunk, isRetrying }: DecomposeProgressProps) => {
@@ -71,7 +103,6 @@ const DecomposeProgress = ({ chunks, onRetryChunk, isRetrying }: DecomposeProgre
   const failed = chunks.filter(c => c.status === "failed").length;
   const processing = chunks.some(c => c.status === "processing");
   const total = chunks.length;
-  // Ceiling = completed chunks + currently processing chunk (if any)
   const ceilingChunks = done + (processing ? 1 : 0);
   const ceilPercent = Math.round((ceilingChunks / total) * 100);
   const floorPercent = Math.round((done / total) * 100);
@@ -83,11 +114,11 @@ const DecomposeProgress = ({ chunks, onRetryChunk, isRetrying }: DecomposeProgre
         <span className="font-medium text-foreground">分镜拆解进度</span>
         <span className="text-muted-foreground tabular-nums">
           {done}/{total} 段完成{failed > 0 && <span className="text-destructive ml-1">（{failed} 段失败）</span>}
-          <span className="ml-2 font-semibold text-foreground">{percent}%</span>
+          <span className="ml-2 font-semibold text-foreground">{percent.toFixed(1)}%</span>
         </span>
       </div>
 
-      <Progress value={percent} className="h-2" />
+      <Progress value={percent} className="h-2 shimmer-progress" />
 
       <div className="flex flex-wrap gap-2">
         {chunks.map((chunk) => (
