@@ -279,6 +279,35 @@ async function localExtract(body: any) {
     else throw new Error("无法解析 AI 返回的 JSON");
   }
 
+  // === Post-filter: remove scene/location entries misclassified as characters ===
+  const sceneNames = new Set((parsed.sceneSettings || []).map((s: any) => s.name?.trim().toLowerCase()));
+  if (parsed.characters) {
+    const before = parsed.characters.length;
+    parsed.characters = parsed.characters.filter((c: any) => {
+      const name = c.name?.trim() || "";
+      const nameLower = name.toLowerCase();
+      // If this "character" also appears in sceneSettings, it's likely a scene
+      if (sceneNames.has(nameLower)) {
+        console.warn(`[localExtract] 过滤掉被误归为角色的场景: "${name}"`);
+        return false;
+      }
+      // Heuristic: if the name contains no letter characters and looks like a location
+      // (e.g. contains 室/厅/场/区/城/洞/林/山/海/湖/河/路/街/馆/院/楼/基地/总部/废墟)
+      const locationKeywords = /[室厅场区城洞林山海湖河路街馆院楼墟墟基地总部办公遗迹星球飞船空间站]/;
+      if (locationKeywords.test(name) && !bracketNames.has(name)) {
+        console.warn(`[localExtract] 过滤掉疑似场景名的角色: "${name}"`);
+        // Move to sceneSettings instead
+        if (!parsed.sceneSettings) parsed.sceneSettings = [];
+        parsed.sceneSettings.push({ name, description: c.description || "" });
+        return false;
+      }
+      return true;
+    });
+    if (parsed.characters.length < before) {
+      console.log(`[localExtract] 已过滤 ${before - parsed.characters.length} 个被误归为角色的条目`);
+    }
+  }
+
   // === Post-verification: ensure no missing characters ===
   const extractedNames = new Set((parsed.characters || []).map((c: any) => c.name?.trim()));
   const missingNames = [...bracketNames].filter(n => !extractedNames.has(n));
@@ -286,10 +315,9 @@ async function localExtract(body: any) {
   if (missingNames.length > 0) {
     console.warn(`[localExtract] AI 遗漏了 ${missingNames.length} 个角色，正在补充:`, missingNames);
     for (const name of missingNames) {
-      // Check if this missing character has known costumes
       const knownCostumes = costumeMap.get(name);
       const entry: any = { name, description: `（AI 未提取到该角色的详细描述，请根据剧本手动补充）` };
-      if (knownCostumes && knownCostumes.size >= 2) {
+      if (knownCostumes && knownCostumes.size >= 1) {
         entry.costumes = [...knownCostumes].map(label => ({
           id: crypto.randomUUID(),
           label,
@@ -303,17 +331,18 @@ async function localExtract(body: any) {
   // === Post-verification: ensure no missing costume variants ===
   for (const char of (parsed.characters || [])) {
     const knownCostumes = costumeMap.get(char.name?.trim());
-    if (!knownCostumes || knownCostumes.size < 2) continue;
+    if (!knownCostumes || knownCostumes.size < 1) continue;
 
-    // Ensure costumes array exists
+    // If pre-scan found costumes but AI didn't output costumes array
     if (!char.costumes || !Array.isArray(char.costumes)) {
-      // AI missed multi-costume entirely — create from pre-scan
-      console.warn(`[localExtract] 角色"${char.name}"应有 ${knownCostumes.size} 套服装但 AI 未输出 costumes 数组，正在补充`);
-      char.costumes = [...knownCostumes].map(label => ({
-        id: crypto.randomUUID(),
-        label,
-        description: `${char.description || ''}（${label}造型）`,
-      }));
+      if (knownCostumes.size >= 2) {
+        console.warn(`[localExtract] 角色"${char.name}"应有 ${knownCostumes.size} 套服装但 AI 未输出 costumes 数组，正在补充`);
+        char.costumes = [...knownCostumes].map(label => ({
+          id: crypto.randomUUID(),
+          label,
+          description: `${char.description || ''}（${label}造型）`,
+        }));
+      }
       continue;
     }
 
