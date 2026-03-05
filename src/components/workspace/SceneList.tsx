@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Trash2, Plus, ArrowRight, ChevronDown, ChevronRight, Link2, Shirt } from "lucide-react";
+import { Trash2, Plus, ArrowRight, ChevronDown, ChevronRight, Link2 } from "lucide-react";
 import { useState } from "react";
 
 /** Find the best matching costume label for a character in a given scene */
