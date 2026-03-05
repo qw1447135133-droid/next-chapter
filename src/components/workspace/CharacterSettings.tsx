@@ -788,13 +788,18 @@ const CharacterSettings = ({
           );
           if (error) throw error;
           if (data?.error) throw new Error(data.error);
-          const charUrl = await ensureStorageUrl(data.imageUrl, "characters");
+          const rawUrl = data.imageUrl;
+          prewarmThumbnail(rawUrl);
           const latestAgain = charactersRef.current.find((ch) => ch.id === c.id);
           const history = [...(latestAgain?.imageHistory || [])];
           if (latestAgain?.imageUrl) {
             history.push({ imageUrl: latestAgain.imageUrl, description: latestAgain.description || "", createdAt: new Date().toISOString() });
           }
-          updateCharacterAsync(c.id, { imageUrl: charUrl, isAIGenerated: true, imageHistory: history });
+          updateCharacterAsync(c.id, { imageUrl: rawUrl, isAIGenerated: true, imageHistory: history });
+          // Upload to storage in background
+          ensureStorageUrl(rawUrl, "characters").then(finalUrl => {
+            if (finalUrl !== rawUrl) updateCharacterAsync(c.id, { imageUrl: finalUrl });
+          }).catch(() => {});
           imgOk = true;
         } catch (e) {
           console.error(`Char img "${c.name}" failed:`, e);
