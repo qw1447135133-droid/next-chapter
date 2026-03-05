@@ -270,11 +270,29 @@ const Workspace = () => {
         // ========== Phase 2: Script decomposition (streaming) ==========
         toast({ title: "阶段 2/2", description: "正在拆解分镜与时长分配..." });
 
+        const handleDecomposeProgress = (partialData: any) => {
+          const { scenes: partialScenes, chunkIndex, totalChunks } = partialData;
+          toast({ title: "阶段 2/2", description: `已完成第 ${chunkIndex + 1}/${totalChunks} 段拆解，当前 ${partialScenes.length} 个分镜` });
+          // Progressively update scenes in UI
+          const progressScenes: Scene[] = partialScenes.map((s: any, i: number) => ({
+            id: crypto.randomUUID(),
+            sceneNumber: s.sceneNumber ?? i + 1,
+            segmentLabel: s.segmentLabel ?? "",
+            sceneName: s.sceneName ?? "",
+            description: s.description ?? "",
+            characters: s.characters ?? [],
+            dialogue: s.dialogue ?? "",
+            cameraDirection: s.cameraDirection ?? "",
+            duration: s.duration ?? 5,
+          }));
+          setScenes(progressScenes);
+        };
+
         const { data: decomposeData, error: decomposeError } = await invokeFunction("script-decompose", {
           script,
           systemPrompt,
           model: decomposeModel,
-        });
+        }, { onProgress: handleDecomposeProgress });
         if (decomposeError) throw decomposeError;
 
         let parsed: any = decomposeData;
