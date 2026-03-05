@@ -316,6 +316,7 @@ const Workspace = () => {
         // Check for empty result
         if (parsedScenes.length === 0) {
           toast({ title: "警告", description: "未能从剧本中识别出任何分镜，请检查剧本内容", variant: "destructive" });
+          isAnalyzingRef.current = false;
           setIsAnalyzing(false);
           return;
         }
