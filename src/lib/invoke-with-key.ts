@@ -482,10 +482,10 @@ ${lastScenesDesc}
   return { scenes };
 }
 
-const MAX_CHUNK_CHARS = 18000;
-const MIN_CHUNK_CHARS = 10000;
+const MAX_CHUNK_CHARS = 12000;
+const MIN_CHUNK_CHARS = 6000;
 
-/** Split a multi-episode script into chunks. Only splits if script > MAX_CHUNK_CHARS, each chunk MIN~MAX chars */
+/** Split a multi-episode script into chunks. Only splits if script > 8000 chars, each chunk 4000~8000 chars */
 function splitScriptByEpisodes(script: string): string[] {
   // Don't split short scripts
   if (script.length <= MAX_CHUNK_CHARS) return [script];
