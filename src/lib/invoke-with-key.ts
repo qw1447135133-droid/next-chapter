@@ -214,7 +214,7 @@ async function localDecompose(body: any) {
 
   const data = await callGemini(model,
     [{ role: "user", parts: [{ text: userText }] }],
-    { temperature: 0.3, maxOutputTokens: 40960 },
+    { temperature: 0.3, maxOutputTokens: 65536 },
   );
 
   const resultText = extractText(data);
