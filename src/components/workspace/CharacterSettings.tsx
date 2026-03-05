@@ -735,7 +735,7 @@ const CharacterSettings = ({
         console.error(`Char desc "${c.name}" failed:`, e);
       } finally {
         removeTask(c.id, "charDesc");
-        setGeneratingCharDescIds((prev) => { const next = new Set(prev); next.delete(c.id); return next; });
+        // Don't remove from generatingCharDescIds here — keep spinner active until full character processing completes
         textSem.release();
       }
       bumpDone();
