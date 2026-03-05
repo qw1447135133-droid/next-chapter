@@ -1265,10 +1265,32 @@ Return ONLY plain text character description. NO JSON, NO code blocks.`;
 }
 
 async function localSceneDesc(body: any) {
-  const { sceneName, script, model: requestedModel } = body;
+  const { sceneName, script, discoverTimeVariants, model: requestedModel } = body;
   if (!sceneName || !script) throw new Error("缺少场景名称或剧本内容");
 
-  const systemPrompt = `You are a professional film production designer. Based on the script and scene name, produce a detailed environment description for AI image generation — a grand Panoramic View scene concept.
+  const shouldDiscover = !!discoverTimeVariants;
+
+  const systemPrompt = shouldDiscover
+    ? `You are a professional film production designer. Based on the script and scene name:
+1. Produce a detailed environment description for AI image generation — a grand Panoramic View scene concept (spatial features only, NO time-specific details).
+2. Carefully analyze the script to identify ALL distinct time periods/conditions under which this scene appears.
+
+### Core Principles
+1. Panoramic perspective with depth and grandeur.
+2. Pure environment — NO active characters. Static scene elements only.
+3. Infer details from context: era, genre, geography.
+
+### Time Variant Discovery Rules
+- Look for: different times of day (dawn, day, dusk, night), weather changes (rain, snow, fog), seasonal differences, lighting changes
+- Each variant should have a concise label (e.g. "夜晚", "黄昏", "暴风雨中", "冬季") and detailed description
+- Description should cover: lighting, mood, color palette, weather, atmosphere differences
+- If the scene genuinely appears at only ONE time/condition, set "timeVariants" to an empty array
+- **Only include variants that are clearly different** in the script context
+
+### Output Format
+Return JSON: {"description": "base spatial description in English", "timeVariants": [{"label": "concise label", "description": "detailed time-specific description in English"}]}
+Return ONLY valid JSON.`
+    : `You are a professional film production designer. Based on the script and scene name, produce a detailed environment description for AI image generation — a grand Panoramic View scene concept.
 
 ### Core Principles
 1. Panoramic perspective with depth and grandeur.
@@ -1283,16 +1305,35 @@ async function localSceneDesc(body: any) {
 ### Output Format
 Return ONLY plain text description in English. NO JSON.`;
 
-  const userContent = `Script:\n${script}\n\nGenerate environment description for scene "${sceneName}".`;
+  const userContent = shouldDiscover
+    ? `Script:\n${script}\n\nScene: "${sceneName}"\nPlease identify all time/condition variants for this scene from the script.`
+    : `Script:\n${script}\n\nGenerate environment description for scene "${sceneName}".`;
 
   const useModel = requestedModel || "gemini-3-pro-preview";
   const isThinking = useModel.toLowerCase().includes("thinking");
-  const generationConfig: any = isThinking ? { thinkingConfig: { thinkingBudget: 2048 } } : {};
+  const generationConfig: any = {
+    ...(shouldDiscover ? { responseMimeType: "application/json" } : {}),
+    ...(isThinking ? { thinkingConfig: { thinkingBudget: 2048 } } : {}),
+  };
 
   const data = await callGemini(useModel,
     [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
     generationConfig,
   );
 
-  return { description: extractText(data) };
+  const rawText = extractText(data);
+
+  if (shouldDiscover) {
+    try {
+      const parsed = JSON.parse(rawText);
+      return {
+        description: parsed.description || "",
+        discoveredTimeVariants: Array.isArray(parsed.timeVariants) ? parsed.timeVariants : [],
+      };
+    } catch {
+      return { description: rawText };
+    }
+  }
+
+  return { description: rawText };
 }
