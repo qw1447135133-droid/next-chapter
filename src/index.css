@@ -106,11 +106,11 @@
 }
 
 @layer utilities {
-  .shimmer-progress [data-state] {
+  .shimmer-progress > [data-state] > [data-state] {
     position: relative;
     overflow: hidden;
   }
-  .shimmer-progress [data-state]::after {
+  .shimmer-progress > [data-state] > [data-state]::after {
     content: '';
     position: absolute;
     top: 0;
