@@ -192,42 +192,47 @@ async function localExtract(body: any) {
 
   const model = requestedModel || "gemini-3.1-pro-preview";
 
-  // Pre-scan: extract character names from brackets and dialogue prefixes
-  const bracketNames = new Set<string>();
+  // Pre-scan: extract CONFIRMED character names from costume-annotated brackets
+  // These are highly reliable — only brackets with · separator like [Name·Age·Costume]
+  const confirmedNames = new Set<string>();
+  // Hint names from dialogue prefixes — used for AI prompt only, NOT for post-verification
+  const hintNames = new Set<string>();
 
-  // Match brackets with · separator to extract base character names
   const costumePattern = /\[([^\]·]+)[·・]([^\]]+)\]/g;
   let m: RegExpExecArray | null;
   while ((m = costumePattern.exec(script)) !== null) {
     const baseName = m[1].trim();
-    if (baseName && baseName.length <= 30) bracketNames.add(baseName);
+    if (baseName && baseName.length <= 30) confirmedNames.add(baseName);
   }
 
-  // NOTE: Do NOT scan bare brackets [Name] — they are overwhelmingly scene headings,
-  // not character names. Only · annotated brackets and dialogue prefixes are reliable.
-
-  // Dialogue prefixes
-  const dialoguePattern = /^[\s]*([^\s:：（(\[]{1,20})[：:]\s*[""「\S]/gm;
+  // Dialogue prefixes — hints only, may include scene headings
+  const dialoguePattern = /^[\s]*([^\s:：（(\[/]{1,20})[：:]\s*[""「\S]/gm;
   while ((m = dialoguePattern.exec(script)) !== null) {
     const name = m[1].trim();
     if (name && name.length <= 20 && !/^[\d第片段场景分镜EP]/.test(name)) {
-      bracketNames.add(name);
+      hintNames.add(name);
     }
   }
 
-  // Filter out location-like names from pre-scan
-  const locationSuffixes = /(办公室|实验室|会议室|休息室|控制室|大厅|走廊|基地|总部|废墟|遗迹|空间站|飞船|星球|广场|码头|港口|机场|车站|公寓|医院|学校|教堂|监狱|工厂|仓库|酒吧|餐厅|咖啡馆|修车厂|拍卖[会行]|博物馆|图书馆|甲板|沙滩|海滩|丛林|悬崖|深潭|岩壁|巷道?|街道)[\s\-/]*[\u4e00-\u9fff]*$/;
+  // Remove confirmed names from hints (no duplication)
+  for (const n of confirmedNames) hintNames.delete(n);
+
+  // Filter out obvious locations from hints
+  const locationSuffixes = /(办公室|实验室|会议室|休息室|控制室|大厅|走廊|基地|总部|废墟|遗迹|空间站|飞船|星球|广场|码头|港口|机场|车站|公寓|医院|学校|教堂|监狱|工厂|仓库|酒吧|餐厅|咖啡馆|修车厂|拍卖[会行]|博物馆|图书馆|甲板|沙滩|海滩|丛林|悬崖|深潭|岩壁|巷道?|街道|特写|游艇|海中|海上)[\s\-/]*[\u4e00-\u9fff]*$/;
   const locationPrefixes = /^(第.+集|EP\s*\d|场景|分镜|片段)/i;
-  for (const name of bracketNames) {
-    if (locationSuffixes.test(name) || locationPrefixes.test(name)) {
-      bracketNames.delete(name);
+  for (const name of hintNames) {
+    if (locationSuffixes.test(name) || locationPrefixes.test(name) || name.includes('/')) {
+      hintNames.delete(name);
     }
   }
+
+  // Combine all names for the AI prompt hint (but only confirmedNames trigger post-verification)
+  const allHintNames = new Set([...confirmedNames, ...hintNames]);
 
   // Build pre-scan hints
   let preScanHint = "";
-  if (bracketNames.size > 0) {
-    preScanHint = `\n\n---\n\n【系统预扫描提示】以下角色名在剧本中被检测到，请确保全部包含在输出中：\n${[...bracketNames].join('、')}\n`;
+  if (allHintNames.size > 0) {
+    preScanHint = `\n\n---\n\n【系统预扫描提示】以下名称在剧本中被检测到可能是角色名，请核实后将真正的角色包含在输出中（注意区分角色与场景/物品）：\n${[...allHintNames].join('、')}\n`;
   }
 
   const promptText = `${EXTRACTION_PROMPT}\n\n---\n\n以下是用户的剧本：\n\n${script}${preScanHint}`;
@@ -264,7 +269,7 @@ async function localExtract(body: any) {
         console.warn(`[localExtract] 过滤掉被误归为角色的场景: "${name}"`);
         return false;
       }
-      const isLikelyLocation = (locationSuffixes.test(name) || locationPrefixes.test(name)) && !bracketNames.has(name);
+      const isLikelyLocation = locationSuffixes.test(name) || locationPrefixes.test(name) || name.includes('/');
       if (isLikelyLocation) {
         console.warn(`[localExtract] 过滤掉疑似场景名的角色: "${name}"`);
         if (!parsed.sceneSettings) parsed.sceneSettings = [];
@@ -278,13 +283,13 @@ async function localExtract(body: any) {
     }
   }
 
-  // === Post-verification: ensure no missing characters ===
+  // === Post-verification: only for CONFIRMED names (from · brackets), not dialogue hints ===
   const extractedNames = new Set((parsed.characters || []).map((c: any) => c.name?.trim()));
-  const missingNames = [...bracketNames].filter(n => !extractedNames.has(n));
+  const missingConfirmed = [...confirmedNames].filter(n => !extractedNames.has(n));
   
-  if (missingNames.length > 0) {
-    console.warn(`[localExtract] AI 遗漏了 ${missingNames.length} 个角色，正在补充:`, missingNames);
-    for (const name of missingNames) {
+  if (missingConfirmed.length > 0) {
+    console.warn(`[localExtract] AI 遗漏了 ${missingConfirmed.length} 个确认角色，正在补充:`, missingConfirmed);
+    for (const name of missingConfirmed) {
       parsed.characters.push({ name, description: `（AI 未提取到该角色的详细描述，请根据剧本手动补充）` });
     }
   }
