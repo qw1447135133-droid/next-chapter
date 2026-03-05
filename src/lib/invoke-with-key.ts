@@ -6,7 +6,7 @@ import {
   callGemini, extractText, extractImageBase64, getInlineData, fetchImageAsBase64,
   uploadImageToStorage, callSeedreamImage, rewriteToFirstFrame, proxiedFetch,
   CHAR_STYLE_MAP, SCENE_STYLE_MAP, STORYBOARD_STYLE_MAP,
-  getSeedanceConfig, getViduConfig, VIDU_BASE_URL,
+  getSeedanceConfig, getViduConfig,
 } from "@/lib/gemini-client";
 import { compressImage } from "@/lib/image-compress";
 
@@ -548,9 +548,9 @@ async function localGenerateVideo(body: any) {
   if (action === "status") {
     if (!taskId) throw new Error("缺少 taskId");
     if (provider === "vidu") {
-      const { apiKey } = getViduConfig();
+      const { apiKey, endpoint } = getViduConfig();
       if (!apiKey) throw new Error("Vidu API Key 未配置");
-      const res = await proxiedFetch(`${VIDU_BASE_URL}/ent/v2/tasks/${taskId}/creations`, {
+      const res = await proxiedFetch(`${endpoint}/tasks/${taskId}/creations`, {
         Authorization: `Token ${apiKey}`,
       });
       if (!res.ok) throw new Error(`查询 Vidu 状态失败 (${res.status})`);
@@ -583,9 +583,9 @@ async function localGenerateVideo(body: any) {
   if (!body.prompt) throw new Error("缺少视频描述 (prompt)");
 
   if (isVidu) {
-    const { apiKey } = getViduConfig();
+    const { apiKey, endpoint } = getViduConfig();
     if (!apiKey) throw new Error("Vidu API Key 未配置，请在设置中配置");
-    const endpoint = body.imageUrl ? `${VIDU_BASE_URL}/ent/v2/img2video` : `${VIDU_BASE_URL}/ent/v2/text2video`;
+    const viduUrl = body.imageUrl ? `${endpoint}/img2video` : `${endpoint}/text2video`;
     const truncatedPrompt = (body.prompt || "").length > 4900 ? body.prompt.substring(0, 4900) : body.prompt;
     const payload: any = {
       model: model || "viduq3-pro",
@@ -596,7 +596,7 @@ async function localGenerateVideo(body: any) {
     };
     if (body.imageUrl) payload.images = [body.imageUrl];
 
-    const res = await proxiedFetch(endpoint, {
+    const res = await proxiedFetch(viduUrl, {
       Authorization: `Token ${apiKey}`,
       "Content-Type": "application/json",
     }, JSON.stringify(payload));

@@ -5,9 +5,9 @@
 import { getApiConfig } from "@/pages/Settings";
 import { supabase } from "@/integrations/supabase/client";
 
-export const DEFAULT_GEMINI_BASE_URL = "http://202.90.21.53:13003/v1beta";
-export const DEFAULT_SEEDANCE_BASE_URL = "http://202.90.21.53:13003";
-export const VIDU_BASE_URL = "https://api.vidu.cn";
+export const DEFAULT_GEMINI_BASE_URL = "http://202.90.21.53:13003/v1";
+export const DEFAULT_SEEDANCE_BASE_URL = "http://202.90.21.53:13003/v1";
+export const DEFAULT_VIDU_BASE_URL = "https://api.vidu.cn/ent/v2";
 
 const PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api-proxy`;
 
@@ -98,7 +98,10 @@ export function getSeedanceConfig() {
 
 export function getViduConfig() {
   const config = getApiConfig();
-  return { apiKey: config.viduKey };
+  return {
+    apiKey: config.viduKey,
+    endpoint: config.viduEndpoint || DEFAULT_VIDU_BASE_URL,
+  };
 }
 
 // ===== Core API Call =====

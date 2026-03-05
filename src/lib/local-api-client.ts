@@ -21,7 +21,7 @@ export async function callLocalAiApi<T = any>(
   const config = getApiConfig();
   
   // 使用站狐 API 端点
-  const endpoint = config.zhanhuEndpoint || "https://api.minimaxi.com/anthropic";
+  const endpoint = config.zhanhuEndpoint || "http://202.90.21.53:13003/v1";
   const path = options.path || "/chat/completions";
   const timeout = options.timeout || DEFAULT_TIMEOUT;
 
@@ -65,7 +65,7 @@ export async function callLocalVideoApi<T = any>(
   } = {}
 ): Promise<T> {
   const config = getApiConfig();
-  const endpoint = config.seedanceEndpoint || "https://api.minimax.chat/v1";
+  const endpoint = config.seedanceEndpoint || "http://202.90.21.53:13003/v1";
   const timeout = options.timeout || 600_000;
 
   if (!config.seedance) {
