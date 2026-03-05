@@ -437,8 +437,8 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
   return { scenes };
 }
 
-const MAX_CHUNK_CHARS = 8000;
-const MIN_CHUNK_CHARS = 4000;
+const MAX_CHUNK_CHARS = 12000;
+const MIN_CHUNK_CHARS = 6000;
 
 /** Split a multi-episode script into chunks. Only splits if script > 8000 chars, each chunk 4000~8000 chars */
 function splitScriptByEpisodes(script: string): string[] {
