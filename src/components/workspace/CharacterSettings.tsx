@@ -189,8 +189,7 @@ const CharacterSettings = ({
       try {
       let successCount = 0;
       let failCount = 0;
-      let anchorImageUrl: string | undefined; // Set after first costume succeeds
-      let isFirstGenerated = false; // tracks whether we've generated the anchor
+      let anchorImageUrl: string | undefined;
 
       for (let cosIdx = 0; cosIdx < costumes.length; cosIdx++) {
         const cos = costumes[cosIdx];
