@@ -425,9 +425,11 @@ const Workspace = () => {
           };
         });
 
-        // Check for empty result
+        // Check for empty result (skip error if user aborted)
         if (parsedScenes.length === 0) {
-          toast({ title: "警告", description: "未能从剧本中识别出任何分镜，请检查剧本内容", variant: "destructive" });
+          if (!controller.signal.aborted) {
+            toast({ title: "警告", description: "未能从剧本中识别出任何分镜，请检查剧本内容", variant: "destructive" });
+          }
           resetAnalyzing();
           return;
         }
