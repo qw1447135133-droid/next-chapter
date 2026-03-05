@@ -109,6 +109,9 @@ const Workspace = () => {
   const [isLoaded, setIsLoaded] = useState(false);
   const [rawAiOutput, setRawAiOutput] = useState<string>("");
   const isRestoringRef = useRef(false);
+  const [decomposeChunks, setDecomposeChunks] = useState<ChunkStatus[]>([]);
+  const [retryingChunk, setRetryingChunk] = useState<number | null>(null);
+  const lastDecomposeMetaRef = useRef<{ episodes: string[]; costumeContext: string; model: string; prompt: string } | null>(null);
 
   const { createProject, saveProject, loadProject, setProjectId, getProjectId } = useSmartPersistence();
 
