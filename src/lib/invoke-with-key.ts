@@ -196,14 +196,31 @@ async function localExtract(body: any) {
 
   const model = requestedModel || "gemini-3.1-pro-preview";
 
-  // Pre-scan: extract all potential character names from bracket annotations to help AI
+  // Pre-scan: extract all character names AND their costume variants from bracket annotations
   const bracketNames = new Set<string>();
-  const bracketPattern = /\[([^\]·]+?)(?:·[^\]]+)?\]/g;
+  // Map: baseName -> Set of costume suffixes (e.g. "32岁·探险装备")
+  const costumeMap = new Map<string, Set<string>>();
+
+  // Match [Name] or [Name·suffix1·suffix2...]
+  const bracketPattern = /\[([^\]]+)\]/g;
   let m: RegExpExecArray | null;
   while ((m = bracketPattern.exec(script)) !== null) {
-    const name = m[1].trim();
-    if (name && name.length <= 30) bracketNames.add(name);
+    const full = m[1].trim();
+    const parts = full.split(/[·・]/);
+    const baseName = parts[0].trim();
+    if (!baseName || baseName.length > 30) continue;
+    bracketNames.add(baseName);
+
+    // If there are suffixes beyond the name, record as costume variant
+    if (parts.length >= 2) {
+      const suffix = parts.slice(1).map(p => p.trim()).join('·');
+      if (suffix) {
+        if (!costumeMap.has(baseName)) costumeMap.set(baseName, new Set());
+        costumeMap.get(baseName)!.add(suffix);
+      }
+    }
   }
+
   // Also scan for dialogue prefixes like "角色名："
   const dialoguePattern = /^[\s]*([^\s:：（(]{1,20})[：:]\s*[""「\S]/gm;
   while ((m = dialoguePattern.exec(script)) !== null) {
@@ -213,9 +230,19 @@ async function localExtract(body: any) {
     }
   }
 
+  // Build pre-scan hints
   let preScanHint = "";
   if (bracketNames.size > 0) {
-    preScanHint = `\n\n---\n\n【系统预扫描提示】以下角色名在剧本中被检测到，请确保全部包含在输出中（如有遗漏则补充）：\n${[...bracketNames].join('、')}\n`;
+    preScanHint = `\n\n---\n\n【系统预扫描提示】以下角色名在剧本中被检测到，请确保全部包含在输出中：\n${[...bracketNames].join('、')}\n`;
+  }
+  // Costume variants hint — critical for preventing omissions
+  const multiCostumeChars = [...costumeMap.entries()].filter(([, v]) => v.size >= 2);
+  if (multiCostumeChars.length > 0) {
+    preScanHint += `\n【服装变体预扫描】以下角色在剧本中检测到多套服装，必须全部作为 costumes 数组输出，严禁遗漏任何一套：\n`;
+    for (const [name, costumes] of multiCostumeChars) {
+      preScanHint += `  - ${name}：${[...costumes].map(c => `"${c}"`).join('、')}\n`;
+    }
+    preScanHint += `\n请逐一核对上述服装变体，确保每个都出现在对应角色的 costumes 数组中。\n`;
   }
 
   const promptText = `${EXTRACTION_PROMPT}\n\n---\n\n以下是用户的剧本：\n\n${script}${preScanHint}`;
@@ -242,18 +269,55 @@ async function localExtract(body: any) {
     else throw new Error("无法解析 AI 返回的 JSON");
   }
 
-  // Verify: check if pre-scanned names are all present in AI output
+  // === Post-verification: ensure no missing characters ===
   const extractedNames = new Set((parsed.characters || []).map((c: any) => c.name?.trim()));
   const missingNames = [...bracketNames].filter(n => !extractedNames.has(n));
   
   if (missingNames.length > 0) {
     console.warn(`[localExtract] AI 遗漏了 ${missingNames.length} 个角色，正在补充:`, missingNames);
-    // Add stub entries for missing characters so they aren't lost
     for (const name of missingNames) {
-      parsed.characters.push({
-        name,
-        description: `（AI 未提取到该角色的详细描述，请根据剧本手动补充）`,
-      });
+      // Check if this missing character has known costumes
+      const knownCostumes = costumeMap.get(name);
+      const entry: any = { name, description: `（AI 未提取到该角色的详细描述，请根据剧本手动补充）` };
+      if (knownCostumes && knownCostumes.size >= 2) {
+        entry.costumes = [...knownCostumes].map(label => ({
+          id: crypto.randomUUID(),
+          label,
+          description: `（${name} 的"${label}"造型，请手动补充描述）`,
+        }));
+      }
+      parsed.characters.push(entry);
+    }
+  }
+
+  // === Post-verification: ensure no missing costume variants ===
+  for (const char of (parsed.characters || [])) {
+    const knownCostumes = costumeMap.get(char.name?.trim());
+    if (!knownCostumes || knownCostumes.size < 2) continue;
+
+    // Ensure costumes array exists
+    if (!char.costumes || !Array.isArray(char.costumes)) {
+      // AI missed multi-costume entirely — create from pre-scan
+      console.warn(`[localExtract] 角色"${char.name}"应有 ${knownCostumes.size} 套服装但 AI 未输出 costumes 数组，正在补充`);
+      char.costumes = [...knownCostumes].map(label => ({
+        id: crypto.randomUUID(),
+        label,
+        description: `${char.description || ''}（${label}造型）`,
+      }));
+      continue;
+    }
+
+    // Check each known costume is present
+    const existingLabels = new Set(char.costumes.map((c: any) => c.label?.trim()));
+    for (const label of knownCostumes) {
+      if (!existingLabels.has(label)) {
+        console.warn(`[localExtract] 角色"${char.name}"缺少服装变体"${label}"，正在补充`);
+        char.costumes.push({
+          id: crypto.randomUUID(),
+          label,
+          description: `${char.description || ''}（${label}造型，请手动补充详细描述）`,
+        });
+      }
     }
   }
 
