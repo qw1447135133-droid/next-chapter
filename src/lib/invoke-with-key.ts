@@ -344,7 +344,44 @@ async function localDecompose(body: any) {
     }
     costumeContext += "请在每个分镜的 characterCostumes 字段中，为上述角色指定当前穿着的服装label。务必根据剧本上下文精确判断。\n";
   }
+
+  // Split by episodes if script is large to reduce per-request payload
+  const episodes = splitScriptByEpisodes(script);
   
+  if (episodes.length > 1) {
+    console.log(`[localDecompose] 检测到 ${episodes.length} 集剧本，将分集拆解`);
+    const allScenes: any[] = [];
+    let globalSceneNumber = 1;
+
+    for (let epIdx = 0; epIdx < episodes.length; epIdx++) {
+      const ep = episodes[epIdx];
+      console.log(`[localDecompose] 正在拆解第 ${epIdx + 1}/${episodes.length} 集...`);
+      const epPrefix = episodes.length > 1 ? `${epIdx + 1}-` : "";
+      const userText = `${prompt}\n\n---\n\n以下是第${epIdx + 1}集剧本：\n\n${ep}${costumeContext}`;
+
+      const data = await callGemini(model,
+        [{ role: "user", parts: [{ text: userText }] }],
+        { temperature: 0.3, maxOutputTokens: 65536 },
+      );
+
+      const resultText = extractText(data);
+      if (!resultText) throw new Error(`第${epIdx + 1}集拆解失败：AI 未返回内容`);
+
+      const epScenes = parseDecomposeResult(resultText);
+      // Re-number scenes and prefix segmentLabels for multi-episode
+      for (const scene of epScenes) {
+        scene.sceneNumber = globalSceneNumber++;
+        if (epPrefix) {
+          scene.segmentLabel = `${epPrefix}${scene.segmentLabel || ''}`;
+        }
+      }
+      allScenes.push(...epScenes);
+    }
+
+    return { scenes: allScenes };
+  }
+
+  // Single episode or couldn't split - send as one request
   const userText = `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}${costumeContext}`;
 
   const data = await callGemini(model,
@@ -355,7 +392,37 @@ async function localDecompose(body: any) {
   const resultText = extractText(data);
   if (!resultText) throw new Error("AI 未返回内容");
 
-  // Parse the JSON response
+  const scenes = parseDecomposeResult(resultText);
+  return { scenes };
+}
+
+/** Split a multi-episode script into individual episodes */
+function splitScriptByEpisodes(script: string): string[] {
+  // Match common episode markers: EP1, EP2, 第一集, 第1集, Episode 1, etc.
+  const epPattern = /(?:^|\n)\s*(?:EP\s*(\d+)|第\s*(\d+)\s*[集话期章]|Episode\s+(\d+))\b/gi;
+  const markers: { index: number; label: string }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = epPattern.exec(script)) !== null) {
+    markers.push({ index: m.index, label: m[0].trim() });
+  }
+  
+  if (markers.length <= 1) return [script]; // Single or no episode markers
+
+  const episodes: string[] = [];
+  for (let i = 0; i < markers.length; i++) {
+    const start = markers[i].index;
+    const end = i < markers.length - 1 ? markers[i + 1].index : script.length;
+    const ep = script.slice(start, end).trim();
+    if (ep.length > 100) { // Only count substantial chunks
+      episodes.push(ep);
+    }
+  }
+
+  return episodes.length > 1 ? episodes : [script];
+}
+
+/** Parse decompose JSON result from AI text */
+function parseDecomposeResult(resultText: string): any[] {
   let cleanedText = resultText.trim();
   if (cleanedText.startsWith("```")) {
     cleanedText = cleanedText.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
@@ -370,8 +437,7 @@ async function localDecompose(body: any) {
     else throw new Error("无法解析返回的 JSON");
   }
 
-  const scenes = Array.isArray(parsed) ? parsed : (parsed?.scenes || []);
-  return { scenes };
+  return Array.isArray(parsed) ? parsed : (parsed?.scenes || []);
 }
 
 async function localGenerateCharacter(body: any) {

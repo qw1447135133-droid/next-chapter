@@ -127,7 +127,21 @@ export async function callGemini(
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     if (signal?.aborted) throw new Error("请求已取消");
 
-    const response = await proxiedFetch(url, headers, jsonBody, signal);
+    let response: Response;
+    try {
+      response = await proxiedFetch(url, headers, jsonBody, signal);
+    } catch (fetchErr) {
+      // Network-level failure (TypeError: Failed to fetch, AbortError, etc.)
+      if (signal?.aborted) throw new Error("请求已取消");
+      const isRetryable = fetchErr instanceof TypeError || (fetchErr instanceof Error && fetchErr.message.includes("fetch"));
+      if (isRetryable && attempt < MAX_RETRIES - 1) {
+        const delay = Math.min(3000 * Math.pow(2, attempt), 15000);
+        console.warn(`[callGemini] 第${attempt + 1}次网络请求失败，${delay / 1000}s 后重试...`, (fetchErr as Error).message);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw new Error(`网络连接失败 (已重试${attempt}次): ${(fetchErr as Error).message}`);
+    }
 
     if (response.ok) {
       return response.json();
@@ -138,7 +152,7 @@ export async function callGemini(
     // Retry on 500/502/503/429 (transient upstream errors)
     const retryable = [500, 502, 503, 429].includes(response.status);
     if (retryable && attempt < MAX_RETRIES - 1) {
-      const delay = Math.min(2000 * Math.pow(2, attempt), 10000);
+      const delay = Math.min(3000 * Math.pow(2, attempt), 15000);
       console.warn(`[callGemini] 第${attempt + 1}次请求失败 (${response.status})，${delay / 1000}s 后重试...`);
       await new Promise(r => setTimeout(r, delay));
       continue;
