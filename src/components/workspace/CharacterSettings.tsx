@@ -1255,13 +1255,23 @@ const CharacterSettings = ({
               toast({ title: "请先填写服装名称", variant: "destructive" });
               return;
             }
+            const costumes = c.costumes || [];
+            const firstCostume = costumes[0];
+            const isFirst = firstCostume?.id === costumeId;
+            // Non-first costumes must reference the first costume's image
+            if (!isFirst) {
+              const firstImageUrl = firstCostume?.imageUrl;
+              if (!firstImageUrl) {
+                toast({ title: "请先生成首张图片", description: "后续服装图需要以首套服装图作为参考", variant: "destructive" });
+                return;
+              }
+            }
+            const referenceImageUrl = isFirst ? undefined : (firstCostume?.imageUrl || undefined);
             const costumeTaskKey = `costume-${costumeId}`;
             addTask(costumeTaskKey, "charImg");
             setGeneratingCharImgIds((prev) => new Set(prev).add(costumeTaskKey));
             try {
               const combinedDesc = `${c.name}，${costume.label}：${costume.description || c.description}`;
-              // Use base character image or first successful costume image as reference anchor
-              const referenceImageUrl = c.imageUrl || (c.costumes || []).find(cos => cos.id !== costumeId && cos.imageUrl)?.imageUrl || undefined;
               const { data, error } = await withTimeout(
                 invokeFunction("generate-character", { name: `${c.name} - ${costume.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl }),
                 CHAR_IMAGE_TIMEOUT_MS,
