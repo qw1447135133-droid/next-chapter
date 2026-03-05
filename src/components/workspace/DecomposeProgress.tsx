@@ -97,16 +97,16 @@ function useAnimatedProgress(ceilPercent: number, floorPercent: number, hasProce
 }
 
 const DecomposeProgress = ({ chunks, onRetryChunk, isRetrying }: DecomposeProgressProps) => {
-  if (chunks.length <= 1) return null;
-
   const done = chunks.filter(c => c.status === "done").length;
   const failed = chunks.filter(c => c.status === "failed").length;
   const processing = chunks.some(c => c.status === "processing");
   const total = chunks.length;
   const ceilingChunks = done + (processing ? 1 : 0);
-  const ceilPercent = Math.round((ceilingChunks / total) * 100);
-  const floorPercent = Math.round((done / total) * 100);
+  const ceilPercent = total > 0 ? Math.round((ceilingChunks / total) * 100) : 0;
+  const floorPercent = total > 0 ? Math.round((done / total) * 100) : 0;
   const percent = useAnimatedProgress(ceilPercent, floorPercent, processing);
+
+  const isComplete = total > 1 && done === total && failed === 0;
 
   const isComplete = done === total && failed === 0;
   const [showCelebration, setShowCelebration] = useState(false);
