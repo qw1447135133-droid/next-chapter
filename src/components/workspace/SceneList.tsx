@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Trash2, Plus, ArrowRight, ChevronDown, ChevronRight, Link2, Shirt } from "lucide-react";
+import { Trash2, Plus, ArrowRight, ChevronDown, ChevronRight, Link2 } from "lucide-react";
 import { useState } from "react";
 
 /** Find the best matching costume label for a character in a given scene */
@@ -230,44 +230,13 @@ const SceneList = ({ scenes, onScenesChange, onNext, characters = [] }: SceneLis
                                     className="min-h-[32px] text-sm py-1 px-2 resize-none border-transparent hover:border-border focus:border-border bg-transparent"
                                     rows={1}
                                   />
-                                  {/* Character link badges + costume match labels */}
-                                  {scene.characters.length > 0 && (() => {
-                                    // Compute costume matches for each character in this scene
-                                    const costumeMatches: { charName: string; costumeLabel: string; source: 'ai' | 'manual' | 'auto' }[] = [];
-                                    for (const charName of scene.characters) {
-                                      const name = typeof charName === 'string' ? charName : (charName as any)?.name || '';
-                                      if (!name) continue;
-                                      const charSetting = characters.find(c => c.name === name);
-                                      if (charSetting) {
-                                        const match = matchCostumeLabel(charSetting, scene);
-                                        if (match) costumeMatches.push({ charName: name, costumeLabel: match.label, source: match.source });
-                                      }
-                                    }
-                                    return (
-                                      <span className="inline-flex items-center gap-1 mt-0.5 shrink-0 flex-wrap">
-                                        <span className="inline-flex items-center gap-0.5 text-muted-foreground">
-                                          <Link2 className="h-3 w-3" />
-                                          <span className="text-[10px]">+{scene.characters.length}</span>
-                                        </span>
-                                        {costumeMatches.map(({ charName, costumeLabel, source }) => (
-                                          <span
-                                            key={`${charName}-${costumeLabel}`}
-                                            className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0 text-[10px] border ${
-                                              source === 'ai'
-                                                ? 'bg-primary/15 text-primary border-primary/30'
-                                                : source === 'manual'
-                                                ? 'bg-accent/50 text-accent-foreground border-accent-foreground/20'
-                                                : 'bg-muted text-muted-foreground border-border/40'
-                                            }`}
-                                            title={`${charName} → ${costumeLabel}${source === 'ai' ? ' (AI分配)' : source === 'manual' ? ' (手动)' : ' (文本匹配)'}`}
-                                          >
-                                            <Shirt className="h-2.5 w-2.5" />
-                                            {costumeLabel}
-                                          </span>
-                                        ))}
-                                      </span>
-                                    );
-                                  })()}
+                                  {/* Character link badge */}
+                                  {scene.characters.length > 0 && (
+                                    <span className="inline-flex items-center gap-0.5 mt-0.5 shrink-0 text-muted-foreground">
+                                      <Link2 className="h-3 w-3" />
+                                      <span className="text-[10px]">+{scene.characters.length}</span>
+                                    </span>
+                                  )}
                                 </div>
 
                                 {/* Dialogue if present */}
