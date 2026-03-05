@@ -203,15 +203,8 @@ async function localExtract(body: any) {
     if (baseName && baseName.length <= 30) bracketNames.add(baseName);
   }
 
-  // Also match simple brackets [Name]
-  const simpleBracket = /\[([^\]]{1,30})\]/g;
-  while ((m = simpleBracket.exec(script)) !== null) {
-    const name = m[1].trim();
-    // Skip if contains · (already handled above) or looks like a scene heading
-    if (!name || name.includes('·') || name.includes('・')) continue;
-    // Will be filtered by location check below
-    bracketNames.add(name);
-  }
+  // NOTE: Do NOT scan bare brackets [Name] — they are overwhelmingly scene headings,
+  // not character names. Only · annotated brackets and dialogue prefixes are reliable.
 
   // Dialogue prefixes
   const dialoguePattern = /^[\s]*([^\s:：（(\[]{1,20})[：:]\s*[""「\S]/gm;
