@@ -8,17 +8,21 @@ import { Trash2, Plus, ArrowRight, ChevronDown, ChevronRight, Link2, Shirt } fro
 import { useState } from "react";
 
 /** Find the best matching costume label for a character in a given scene */
-function matchCostumeLabel(character: CharacterSetting, scene: Scene): string | null {
-  if (!character.costumes || character.costumes.length <= 1) return null; // Skip if 0 or 1 costume
+function matchCostumeLabel(character: CharacterSetting, scene: Scene): { label: string; source: 'ai' | 'manual' | 'auto' } | null {
+  if (!character.costumes || character.costumes.length <= 1) return null;
 
-  // Check scene-level manual assignment first
+  // Check scene-level assignment (could be AI-assigned or manual)
   const costumeId = scene.characterCostumes?.[character.name];
   if (costumeId) {
     const costume = character.costumes.find(cos => cos.id === costumeId);
-    if (costume) return costume.label || null;
+    if (costume) {
+      // If the scene has _manualCostumes tracking, it's manual; otherwise it's AI-assigned
+      const isManual = (scene as any)._manualCostumes?.[character.name];
+      return { label: costume.label, source: isManual ? 'manual' : 'ai' };
+    }
   }
 
-  // Auto-match by scene text
+  // Auto-match by scene text (fallback)
   const sceneText = `${scene.description} ${scene.dialogue}`.toLowerCase();
   let bestLabel: string | null = null;
   let bestScore = 0;
@@ -44,7 +48,7 @@ function matchCostumeLabel(character: CharacterSetting, scene: Scene): string | 
       if (score > bestScore) { bestScore = score; bestLabel = cos.label; }
     }
   }
-  return bestLabel;
+  return bestLabel ? { label: bestLabel, source: 'auto' } : null;
 }
 
 interface SceneListProps {
@@ -212,14 +216,14 @@ const SceneList = ({ scenes, onScenesChange, onNext, characters = [] }: SceneLis
                                   {/* Character link badges + costume match labels */}
                                   {scene.characters.length > 0 && (() => {
                                     // Compute costume matches for each character in this scene
-                                    const costumeMatches: { charName: string; costumeLabel: string }[] = [];
+                                    const costumeMatches: { charName: string; costumeLabel: string; source: 'ai' | 'manual' | 'auto' }[] = [];
                                     for (const charName of scene.characters) {
                                       const name = typeof charName === 'string' ? charName : (charName as any)?.name || '';
                                       if (!name) continue;
                                       const charSetting = characters.find(c => c.name === name);
                                       if (charSetting) {
-                                        const label = matchCostumeLabel(charSetting, scene);
-                                        if (label) costumeMatches.push({ charName: name, costumeLabel: label });
+                                        const match = matchCostumeLabel(charSetting, scene);
+                                        if (match) costumeMatches.push({ charName: name, costumeLabel: match.label, source: match.source });
                                       }
                                     }
                                     return (
@@ -228,11 +232,17 @@ const SceneList = ({ scenes, onScenesChange, onNext, characters = [] }: SceneLis
                                           <Link2 className="h-3 w-3" />
                                           <span className="text-[10px]">+{scene.characters.length}</span>
                                         </span>
-                                        {costumeMatches.map(({ charName, costumeLabel }) => (
+                                        {costumeMatches.map(({ charName, costumeLabel, source }) => (
                                           <span
                                             key={`${charName}-${costumeLabel}`}
-                                            className="inline-flex items-center gap-0.5 rounded-full bg-accent/50 px-1.5 py-0 text-[10px] text-accent-foreground border border-border/40"
-                                            title={`${charName} → ${costumeLabel}`}
+                                            className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0 text-[10px] border ${
+                                              source === 'ai'
+                                                ? 'bg-primary/15 text-primary border-primary/30'
+                                                : source === 'manual'
+                                                ? 'bg-accent/50 text-accent-foreground border-accent-foreground/20'
+                                                : 'bg-muted text-muted-foreground border-border/40'
+                                            }`}
+                                            title={`${charName} → ${costumeLabel}${source === 'ai' ? ' (AI分配)' : source === 'manual' ? ' (手动)' : ' (文本匹配)'}`}
                                           >
                                             <Shirt className="h-2.5 w-2.5" />
                                             {costumeLabel}
