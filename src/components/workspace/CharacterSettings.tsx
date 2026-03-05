@@ -1439,7 +1439,7 @@ const CharacterSettings = ({
                           value={activeCostume.description}
                           onChange={(e) => updateCostume(activeCostume.id, { description: e.target.value })}
                           placeholder="服装外观描述（颜色、款式、配饰等）"
-                          className="text-xs min-h-[50px] resize-none"
+                          className="text-sm min-h-[50px] resize-none"
                           rows={2}
                         />
                         <div className="flex gap-2 flex-wrap">
