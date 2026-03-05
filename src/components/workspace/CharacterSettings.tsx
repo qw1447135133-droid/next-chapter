@@ -1786,7 +1786,7 @@ const CharacterSettings = ({
                             value={activeTv.label}
                             onChange={(e) => updateTimeVariant(activeTv.id, { label: e.target.value })}
                             placeholder="时间名称（如：黄昏、夜间、清晨）"
-                            className="text-xs h-8"
+                            className="text-sm h-8"
                           />
                           <Button
                             variant="ghost"
