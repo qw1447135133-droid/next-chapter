@@ -819,10 +819,10 @@ const CharacterSettings = ({
       const costumesToGen = latestChar.costumes!.filter(cos => cos.label?.trim());
       // Use localCostumes pattern to prevent React re-renders from resetting ref mid-loop
       let localCostumes = [...(latestChar?.costumes || []).map(cc => ({ ...cc }))];
-      // Anchor logic: prefer base image; if unavailable, first successful costume becomes anchor
-      let costumeAnchorUrl: string | undefined = latestChar?.imageUrl || undefined;
-      let isFirstCostumeGenerated = !!costumeAnchorUrl;
-      for (const cos of costumesToGen) {
+      // Anchor logic: first costume generates without reference; subsequent costumes use first's image
+      let costumeAnchorUrl: string | undefined;
+      for (let cosIdx = 0; cosIdx < costumesToGen.length; cosIdx++) {
+        const cos = costumesToGen[cosIdx];
         if (autoDetectAbortRef.current) return;
         updateCharacterAsync(c.id, { activeCostumeId: cos.id });
         if (autoDetectAbortRef.current) return;
@@ -832,7 +832,7 @@ const CharacterSettings = ({
         addTask(cosTaskKey, "charImg");
         setGeneratingCharImgIds((prev) => new Set(prev).add(cosTaskKey));
         let cosImgOk = false;
-        const isFirstCostume = !isFirstCostumeGenerated;
+        const isFirstCostume = cosIdx === 0;
         try {
           const freshCos = localCostumes.find(cc => cc.id === cos.id);
           const combinedDesc = `${c.name}，${freshCos?.label || cos.label}：${freshCos?.description || cos.description || latestChar?.description || desc}`;
