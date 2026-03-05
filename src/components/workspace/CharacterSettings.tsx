@@ -1424,7 +1424,7 @@ const CharacterSettings = ({
                             value={activeCostume.label}
                             onChange={(e) => updateCostume(activeCostume.id, { label: e.target.value })}
                             placeholder="服装名称（如：护士装、女仆装）"
-                            className="text-xs h-8"
+                            className="text-sm h-8"
                           />
                           <Button
                             variant="ghost"
@@ -1439,7 +1439,7 @@ const CharacterSettings = ({
                           value={activeCostume.description}
                           onChange={(e) => updateCostume(activeCostume.id, { description: e.target.value })}
                           placeholder="服装外观描述（颜色、款式、配饰等）"
-                          className="text-xs min-h-[50px] resize-none"
+                          className="text-sm min-h-[50px] resize-none"
                           rows={2}
                         />
                         <div className="flex gap-2 flex-wrap">
@@ -1786,7 +1786,7 @@ const CharacterSettings = ({
                             value={activeTv.label}
                             onChange={(e) => updateTimeVariant(activeTv.id, { label: e.target.value })}
                             placeholder="时间名称（如：黄昏、夜间、清晨）"
-                            className="text-xs h-8"
+                            className="text-sm h-8"
                           />
                           <Button
                             variant="ghost"
@@ -1801,7 +1801,7 @@ const CharacterSettings = ({
                           value={activeTv.description}
                           onChange={(e) => updateTimeVariant(activeTv.id, { description: e.target.value })}
                           placeholder="该时间段的场景描述（光线、氛围、色调等）"
-                          className="text-xs min-h-[50px] resize-none"
+                          className="text-sm min-h-[50px] resize-none"
                           rows={2}
                         />
                         <div className="flex gap-2 flex-wrap">
