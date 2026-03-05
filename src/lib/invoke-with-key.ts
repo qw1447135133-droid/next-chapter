@@ -1162,13 +1162,16 @@ async function localEnhancePrompt(body: any) {
 }
 
 async function localCharDesc(body: any) {
-  const { characterName, script, costumes, model: requestedModel } = body;
+  const { characterName, script, costumes, discoverCostumes, model: requestedModel } = body;
   if (!characterName || !script) throw new Error("缺少角色名称或剧本内容");
 
   const hasCostumes = Array.isArray(costumes) && costumes.length > 0;
+  // discoverCostumes: when true and no existing costumes, AI should detect costume variants from script
+  const shouldDiscover = discoverCostumes && !hasCostumes;
 
-  const systemPrompt = hasCostumes
-    ? `You are a professional film character designer. Based on the script and character name, produce:
+  let systemPrompt: string;
+  if (hasCostumes) {
+    systemPrompt = `You are a professional film character designer. Based on the script and character name, produce:
 1. A brief base character description (gender, age, build, facial features, hairstyle, skin tone — NO clothing).
 2. For EACH costume variant, produce a detailed AI-ready appearance description for a character design sheet.
 
@@ -1180,8 +1183,31 @@ ${ETHNICITY_RULE}
 
 ### Output Format
 Return JSON: {"description": "base description", "costumeDescriptions": [{"label": "...", "description": "..."}]}
-Return ONLY valid JSON.`
-    : `You are a professional film character designer. Based on the script and character name, produce a detailed AI-ready appearance description for a character design sheet.
+Return ONLY valid JSON.`;
+  } else if (shouldDiscover) {
+    systemPrompt = `You are a professional film character designer. Based on the script and character name:
+1. Produce a brief base character description (gender, age, build, facial features, hairstyle, skin tone — NO clothing).
+2. Carefully analyze the script to identify ALL distinct costume/outfit/appearance changes for this character across different scenes, time periods, or age stages.
+
+${ETHNICITY_RULE}
+
+### Costume Discovery Rules
+- Look for: explicit outfit descriptions, age changes (e.g. "young" vs "old"), occupation-based attire, situational clothing changes, disguises
+- Look at bracket annotations like [CharName·Age·Outfit], narrative descriptions of what they wear, contextual clues
+- Each costume variant should have a concise label (e.g. "32岁·探险装备", "青年·日常便装", "老年·病服") and detailed description
+- Include clothing style, color, material, accessories, overall styling
+- If the character genuinely has only ONE outfit throughout the entire script, set "costumes" to an empty array
+- **Only include costumes that are clearly different** — minor accessory changes don't count
+
+### Layout Constraints
+- Character Design Sheet with multiple angles (front, side, back) and face close-up.
+- NO text labels. Pure white background. Neutral expression.
+
+### Output Format
+Return JSON: {"description": "base description", "costumes": [{"label": "concise label", "description": "detailed costume description"}]}
+Return ONLY valid JSON.`;
+  } else {
+    systemPrompt = `You are a professional film character designer. Based on the script and character name, produce a detailed AI-ready appearance description for a character design sheet.
 
 ${ETHNICITY_RULE}
 
@@ -1191,15 +1217,19 @@ ${ETHNICITY_RULE}
 
 ### Output Format
 Return ONLY plain text character description. NO JSON, NO code blocks.`;
+  }
 
   const userContent = hasCostumes
     ? `Script:\n${script}\n\nCharacter: "${characterName}"\nCostumes: ${JSON.stringify(costumes)}`
+    : shouldDiscover
+    ? `Script:\n${script}\n\nCharacter: "${characterName}"\nPlease identify all costume/outfit variants for this character from the script.`
     : `Script:\n${script}\n\nGenerate appearance description for "${characterName}".`;
 
   const useModel = requestedModel || "gemini-3-pro-preview";
   const isThinking = useModel.toLowerCase().includes("thinking");
+  const needsJson = hasCostumes || shouldDiscover;
   const generationConfig: any = {
-    ...(hasCostumes ? { responseMimeType: "application/json" } : {}),
+    ...(needsJson ? { responseMimeType: "application/json" } : {}),
     ...(isThinking ? { thinkingConfig: { thinkingBudget: 2048 } } : {}),
   };
 
@@ -1218,6 +1248,19 @@ Return ONLY plain text character description. NO JSON, NO code blocks.`;
       return { description: rawText };
     }
   }
+
+  if (shouldDiscover) {
+    try {
+      const parsed = JSON.parse(rawText);
+      return {
+        description: parsed.description || "",
+        discoveredCostumes: Array.isArray(parsed.costumes) ? parsed.costumes : [],
+      };
+    } catch {
+      return { description: rawText };
+    }
+  }
+
   return { description: rawText };
 }
 
