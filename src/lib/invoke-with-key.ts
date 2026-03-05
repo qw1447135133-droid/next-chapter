@@ -375,9 +375,13 @@ async function localDecompose(body: any) {
 }
 
 const MAX_CHUNK_CHARS = 8000;
+const MIN_CHUNK_CHARS = 4000;
 
-/** Split a multi-episode script into chunks, each ≤ 8000 chars */
+/** Split a multi-episode script into chunks. Only splits if script > 8000 chars, each chunk 4000~8000 chars */
 function splitScriptByEpisodes(script: string): string[] {
+  // Don't split short scripts
+  if (script.length <= MAX_CHUNK_CHARS) return [script];
+
   // First try to split by episode markers
   const epPattern = /(?:^|\n)\s*(?:EP\s*(\d+)|第\s*(\d+)\s*[集话期章]|Episode\s+(\d+))\b/gi;
   const markers: { index: number }[] = [];
@@ -400,24 +404,35 @@ function splitScriptByEpisodes(script: string): string[] {
     rawChunks = [script];
   }
 
-  // Further split any chunk exceeding MAX_CHUNK_CHARS
+  // Further split any chunk exceeding MAX_CHUNK_CHARS, targeting 4000~8000 per chunk
   const finalChunks: string[] = [];
   for (const chunk of rawChunks) {
     if (chunk.length <= MAX_CHUNK_CHARS) {
       finalChunks.push(chunk);
       continue;
     }
-    // Split by paragraph boundaries (double newline) trying to stay under limit
+    // Split by paragraph boundaries (double newline) targeting MIN~MAX range
     const paragraphs = chunk.split(/\n{2,}/);
     let current = "";
-    for (const para of paragraphs) {
-      if (current.length + para.length + 2 > MAX_CHUNK_CHARS && current.length > 0) {
+    for (let i = 0; i < paragraphs.length; i++) {
+      const para = paragraphs[i];
+      const wouldBe = current.length + (current ? 2 : 0) + para.length;
+      // If adding this paragraph would exceed MAX and we already have enough content (>= MIN), flush
+      if (wouldBe > MAX_CHUNK_CHARS && current.length >= MIN_CHUNK_CHARS) {
         finalChunks.push(current.trim());
-        current = "";
+        current = para;
+      } else {
+        current += (current ? "\n\n" : "") + para;
       }
-      current += (current ? "\n\n" : "") + para;
     }
-    if (current.trim()) finalChunks.push(current.trim());
+    if (current.trim()) {
+      // If last chunk is too small, merge with previous
+      if (current.trim().length < MIN_CHUNK_CHARS && finalChunks.length > 0) {
+        finalChunks[finalChunks.length - 1] += "\n\n" + current.trim();
+      } else {
+        finalChunks.push(current.trim());
+      }
+    }
   }
 
   return finalChunks.length > 1 ? finalChunks : [script];
