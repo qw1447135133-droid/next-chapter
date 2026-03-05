@@ -292,9 +292,9 @@ const Workspace = () => {
         const { data: extractData, error: extractError } = await invokeFunction("extract-characters-scenes", { script, model: decomposeModel });
         if (extractError) throw extractError;
 
-        // Process characters from phase 1 (no costumes in this phase)
-        const aiCharacters: Array<{ name: string; description: string }> = extractData.characters || [];
-        const aiSceneSettings: Array<{ name: string; description: string }> = extractData.sceneSettings || [];
+        // Process characters from phase 1 (now includes costumes)
+        const aiCharacters: Array<{ name: string; description: string; costumes?: Array<{ label: string; description: string }> }> = extractData.characters || [];
+        const aiSceneSettings: Array<{ name: string; description: string; timeVariants?: Array<{ label: string; description: string }> }> = extractData.sceneSettings || [];
 
         const autoCharacters: CharacterSetting[] = aiCharacters.map((aiChar) => ({
           id: crypto.randomUUID(),
@@ -302,6 +302,12 @@ const Workspace = () => {
           description: aiChar?.description || "",
           isAIGenerated: false,
           source: "auto" as const,
+          costumes: aiChar.costumes?.map((cos) => ({
+            id: crypto.randomUUID(),
+            label: cos.label,
+            description: cos.description || "",
+            isAIGenerated: false,
+          })),
         }));
         setCharacters(autoCharacters);
 
@@ -312,11 +318,22 @@ const Workspace = () => {
             description: s.description || "",
             isAIGenerated: false,
             source: "auto" as const,
+            timeVariants: s.timeVariants?.map((tv) => ({
+              id: crypto.randomUUID(),
+              label: tv.label,
+              description: tv.description || "",
+              isAIGenerated: false,
+            })),
           }));
           setSceneSettings(autoScenes);
         }
 
-        toast({ title: "阶段 1/2 完成", description: `识别 ${autoCharacters.length} 个角色，${aiSceneSettings.length} 个场景` });
+        const costumeCount = autoCharacters.filter(c => c.costumes && c.costumes.length >= 2).length;
+        const tvCount = aiSceneSettings.filter(s => s.timeVariants && s.timeVariants.length >= 2).length;
+        let phase1Desc = `识别 ${autoCharacters.length} 个角色，${aiSceneSettings.length} 个场景`;
+        if (costumeCount > 0) phase1Desc += `，${costumeCount} 个角色有服装变体`;
+        if (tvCount > 0) phase1Desc += `，${tvCount} 个场景有时间变体`;
+        toast({ title: "阶段 1/2 完成", description: phase1Desc });
 
         // ========== Phase 2: Script decomposition (streaming) ==========
         toast({ title: "阶段 2/2", description: "正在拆解分镜与时长分配..." });
@@ -366,10 +383,16 @@ const Workspace = () => {
           }
         };
 
+        // Build costume info for Phase 2
+        const costumeInfo = autoCharacters
+          .filter(c => c.costumes && c.costumes.length >= 2)
+          .map(c => ({ name: c.name, costumes: c.costumes!.map(cos => ({ label: cos.label, description: cos.description })) }));
+
         const { data: decomposeData, error: decomposeError } = await invokeFunction("script-decompose", {
           script,
           systemPrompt,
           model: decomposeModel,
+          costumeInfo: costumeInfo.length > 0 ? costumeInfo : undefined,
         }, { onProgress: handleDecomposeProgress, abortSignal: controller.signal });
         if (decomposeError) throw decomposeError;
 
