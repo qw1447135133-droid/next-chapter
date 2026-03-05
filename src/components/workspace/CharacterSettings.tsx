@@ -969,9 +969,9 @@ const CharacterSettings = ({
       setGeneratingSceneImgIds((prev) => new Set(prev).add(s.id));
       const variantsToGen = latestScene.timeVariants!.filter(tv => tv.label?.trim());
       let localVariants = [...(latestScene?.timeVariants || []).map(v => ({ ...v }))];
-      let tvAnchorUrl: string | undefined = latestScene?.imageUrl || undefined;
-      let isFirstTvGenerated = !!tvAnchorUrl;
-      for (const tv of variantsToGen) {
+      let tvAnchorUrl: string | undefined;
+      for (let tvIdx = 0; tvIdx < variantsToGen.length; tvIdx++) {
+        const tv = variantsToGen[tvIdx];
         if (autoDetectAbortRef.current) return;
         updateSceneAsync(s.id, { activeTimeVariantId: tv.id });
         if (autoDetectAbortRef.current) return;
@@ -981,7 +981,7 @@ const CharacterSettings = ({
         addTask(tvTaskKey, "sceneImg");
         setGeneratingSceneImgIds((prev) => new Set(prev).add(tvTaskKey));
         let tvImgOk = false;
-        const isFirstVariant = !isFirstTvGenerated;
+        const isFirstVariant = tvIdx === 0;
         try {
           const freshTv = localVariants.find(v => v.id === tv.id);
           const combinedDesc = `${s.name}，${freshTv?.label || tv.label}：${freshTv?.description || tv.description || latestScene?.description || desc}`;
