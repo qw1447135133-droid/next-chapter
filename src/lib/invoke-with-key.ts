@@ -150,12 +150,17 @@ This rule overrides any other inference. Ethnicity must be explicitly stated in 
 
 // ===== MAIN INTERFACE =====
 
+export interface InvokeOptions {
+  onProgress?: (partialData: any) => void;
+}
+
 export async function invokeFunction<T = any>(
   functionName: string,
   body: Record<string, unknown>,
+  options?: InvokeOptions,
 ): Promise<{ data: T; error: null } | { data: null; error: Error }> {
   try {
-    const data = await routeFunction(functionName, body);
+    const data = await routeFunction(functionName, body, options);
     return { data: data as T, error: null };
   } catch (e) {
     return { data: null, error: e instanceof Error ? e : new Error(String(e)) };
@@ -169,10 +174,10 @@ export function buildFetchBodyWithKeys(body: Record<string, unknown>) {
 
 // ===== ROUTER =====
 
-async function routeFunction(functionName: string, body: any): Promise<any> {
+async function routeFunction(functionName: string, body: any, options?: InvokeOptions): Promise<any> {
   switch (functionName) {
     case "extract-characters-scenes": return localExtract(body);
-    case "script-decompose": return localDecompose(body);
+    case "script-decompose": return localDecompose(body, options?.onProgress);
     case "generate-character": return localGenerateCharacter(body);
     case "generate-scene": return localGenerateScene(body);
     case "generate-storyboard": return localGenerateStoryboard(body);
@@ -304,7 +309,7 @@ async function localExtract(body: any) {
   return { characters: parsed.characters || [], sceneSettings: parsed.sceneSettings || [] };
 }
 
-async function localDecompose(body: any) {
+async function localDecompose(body: any, onProgress?: (partialData: any) => void) {
   const { script, systemPrompt, model: requestedModel, costumeInfo } = body;
   if (!script) throw new Error("缺少剧本内容");
 
@@ -358,6 +363,11 @@ async function localDecompose(body: any) {
         }
       }
       allScenes.push(...epScenes);
+
+      // Progressive callback: send accumulated scenes after each chunk
+      if (onProgress) {
+        onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length });
+      }
     }
 
     return { scenes: allScenes };
