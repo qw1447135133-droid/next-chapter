@@ -378,6 +378,18 @@ const Workspace = () => {
           resetAnalyzing();
           return;
         }
+
+        // Timeout errors
+        if (e?.name === "TimeoutError" || e?.message?.includes("timed out") || e?.message?.includes("timeout")) {
+          toast({
+            title: "请求超时",
+            description: "剧本拆解耗时过长，请尝试缩短剧本或重新拆解",
+            variant: "destructive",
+            duration: 8000,
+          });
+          resetAnalyzing();
+          return;
+        }
         
         console.error("Script decompose error:", e);
         const fe = friendlyError(e);

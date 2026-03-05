@@ -237,9 +237,11 @@ async function localExtract(body: any) {
 
   const promptText = `${EXTRACTION_PROMPT}\n\n---\n\n以下是用户的剧本：\n\n${script}${preScanHint}`;
 
+  const extractSignal = AbortSignal.timeout(5 * 60_000); // 5 min timeout for extraction
   const data = await callGemini(model,
     [{ role: "user", parts: [{ text: promptText }] }],
     { temperature: 0.1, maxOutputTokens: 16384, responseMimeType: "application/json" },
+    extractSignal,
   );
 
   const textContent = extractText(data);
@@ -337,9 +339,11 @@ async function localDecompose(body: any) {
       const epPrefix = episodes.length > 1 ? `${epIdx + 1}-` : "";
       const userText = `${prompt}\n\n---\n\n以下是第${epIdx + 1}集剧本：\n\n${ep}${costumeContext}`;
 
+      const chunkSignal = AbortSignal.timeout(10 * 60_000); // 10 min timeout per chunk
       const data = await callGemini(model,
         [{ role: "user", parts: [{ text: userText }] }],
         { temperature: 0.3, maxOutputTokens: 65536 },
+        chunkSignal,
       );
 
       const resultText = extractText(data);
@@ -362,9 +366,11 @@ async function localDecompose(body: any) {
   // Single episode or couldn't split - send as one request
   const userText = `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}${costumeContext}`;
 
+  const decomposeSignal = AbortSignal.timeout(10 * 60_000); // 10 min timeout for decomposition
   const data = await callGemini(model,
     [{ role: "user", parts: [{ text: userText }] }],
     { temperature: 0.3, maxOutputTokens: 65536 },
+    decomposeSignal,
   );
 
   const resultText = extractText(data);
