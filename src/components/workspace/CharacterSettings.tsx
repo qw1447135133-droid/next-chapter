@@ -1332,10 +1332,10 @@ const CharacterSettings = ({
                        size="sm"
                        className="shrink-0 gap-1 text-xs"
                        onClick={() => handleAutoDescribeCharacter(c.id)}
-                       disabled={generatingCharDescIds.has(c.id) || !String(c.name || "").trim()}
-                     >
-                       {generatingCharDescIds.has(c.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                       自动识别
+                       disabled={generatingCharDescIds.has(c.id) || generatingCharImgIds.has(c.id) || !String(c.name || "").trim()}
+                      >
+                        {(generatingCharDescIds.has(c.id) || generatingCharImgIds.has(c.id)) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                        自动识别
                      </Button>
 
                      {/* Costume toggle button */}
