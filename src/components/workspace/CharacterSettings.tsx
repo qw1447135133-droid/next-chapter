@@ -369,7 +369,7 @@ const CharacterSettings = ({
         let successCount = 0;
         let failCount = 0;
         let anchorImageUrl: string | undefined;
-        let isFirstGenerated = false;
+        
 
         for (let vIdx = 0; vIdx < variants.length; vIdx++) {
           const tv = variants[vIdx];
