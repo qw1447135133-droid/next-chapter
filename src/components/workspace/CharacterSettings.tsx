@@ -685,8 +685,8 @@ const CharacterSettings = ({
     const totalCharTasks = charactersRef.current.filter(c => String(c.name || "").trim()).reduce((sum, c) => {
       const hasCostumes = c.costumes && c.costumes.length > 0;
       if (hasCostumes) {
-        const costumeCount = c.costumes!.filter(cos => cos.label?.trim() && !cos.imageUrl).length;
-        return sum + 1 + costumeCount; // desc + costume imgs (no base img)
+        const costumeCount = c.costumes!.filter(cos => cos.label?.trim()).length;
+        return sum + 1 + costumeCount; // desc + all costume imgs
       }
       return sum + 2; // desc + base img
     }, 0);
