@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { friendlyError } from "@/lib/friendly-error";
 import { compressImage } from "@/lib/image-compress";
-import { invokeFunction } from "@/lib/invoke-with-key";
+import { invokeFunction, retryDecomposeChunk } from "@/lib/invoke-with-key";
 import type { Scene, CharacterSetting, SceneSetting, WorkspaceStep, ArtStyle, VideoModel, CostumeSetting } from "@/types/project";
 import { VIDEO_MODEL_API_MAP } from "@/types/project";
 import { useSmartPersistence } from "@/hooks/use-smart-persistence";
@@ -19,6 +19,7 @@ import CharacterSettings from "@/components/workspace/CharacterSettings";
 import StoryboardPreview from "@/components/workspace/StoryboardPreview";
 import VideoGeneration from "@/components/workspace/VideoGeneration";
 import VideoPreview from "@/components/workspace/VideoPreview";
+import DecomposeProgress, { type ChunkStatus } from "@/components/workspace/DecomposeProgress";
 
 // Helper for concurrency control
 const createSemaphore = (max: number) => {
@@ -108,6 +109,9 @@ const Workspace = () => {
   const [isLoaded, setIsLoaded] = useState(false);
   const [rawAiOutput, setRawAiOutput] = useState<string>("");
   const isRestoringRef = useRef(false);
+  const [decomposeChunks, setDecomposeChunks] = useState<ChunkStatus[]>([]);
+  const [retryingChunk, setRetryingChunk] = useState<number | null>(null);
+  const lastDecomposeMetaRef = useRef<{ episodes: string[]; costumeContext: string; model: string; prompt: string } | null>(null);
 
   const { createProject, saveProject, loadProject, setProjectId, getProjectId } = useSmartPersistence();
 
@@ -212,6 +216,53 @@ const Workspace = () => {
   useEffect(() => { if (isLoaded) autoSave({ currentStep }); }, [currentStep]); // eslint-disable-line
   useEffect(() => { if (isLoaded) autoSave({ systemPrompt }); }, [systemPrompt]); // eslint-disable-line
 
+  const handleRetryChunk = async (chunkIndex: number) => {
+    const meta = lastDecomposeMetaRef.current;
+    if (!meta) {
+      toast({ title: "无法重试", description: "缺少拆解上下文信息", variant: "destructive" });
+      return;
+    }
+    setRetryingChunk(chunkIndex);
+    setDecomposeChunks(prev => prev.map(c => c.index === chunkIndex ? { ...c, status: "processing" as const, error: undefined } : c));
+
+    try {
+      const newScenes = await retryDecomposeChunk(chunkIndex, meta.episodes, meta.costumeContext, meta.model, meta.prompt);
+
+      // Re-number and merge into existing scenes
+      // Find the insertion point: after all scenes from previous chunks, before scenes from later chunks
+      const epPrefix = meta.episodes.length > 1 ? `${chunkIndex + 1}-` : "";
+      const mappedScenes: Scene[] = newScenes.map((s: any, i: number) => ({
+        id: crypto.randomUUID(),
+        sceneNumber: i + 1,
+        segmentLabel: s.segmentLabel ?? "",
+        sceneName: s.sceneName ?? "",
+        description: s.description ?? "",
+        characters: s.characters ?? [],
+        dialogue: s.dialogue ?? "",
+        cameraDirection: s.cameraDirection ?? "",
+        duration: s.duration ?? 5,
+      }));
+
+      // Insert new scenes into position (replace any existing scenes for this chunk prefix, or append)
+      setScenes(prev => {
+        const withoutThisChunk = epPrefix
+          ? prev.filter(s => !s.segmentLabel?.startsWith(epPrefix))
+          : prev;
+        const allScenes = [...withoutThisChunk, ...mappedScenes];
+        // Re-number all scenes
+        return allScenes.map((s, i) => ({ ...s, sceneNumber: i + 1 }));
+      });
+
+      setDecomposeChunks(prev => prev.map(c => c.index === chunkIndex ? { ...c, status: "done" as const } : c));
+      toast({ title: "重试成功", description: `第 ${chunkIndex + 1} 段已重新拆解，新增 ${mappedScenes.length} 个分镜` });
+    } catch (err: any) {
+      setDecomposeChunks(prev => prev.map(c => c.index === chunkIndex ? { ...c, status: "failed" as const, error: err?.message } : c));
+      toast({ title: "重试失败", description: err?.message || "未知错误", variant: "destructive" });
+    } finally {
+      setRetryingChunk(null);
+    }
+  };
+
   const handleCancelAnalyze = () => {
     analyzeAbortRef.current?.abort();
     analyzeAbortRef.current = null;
@@ -269,23 +320,50 @@ const Workspace = () => {
 
         // ========== Phase 2: Script decomposition (streaming) ==========
         toast({ title: "阶段 2/2", description: "正在拆解分镜与时长分配..." });
+        setDecomposeChunks([]);
 
         const handleDecomposeProgress = (partialData: any) => {
-          const { scenes: partialScenes, chunkIndex, totalChunks } = partialData;
-          toast({ title: "阶段 2/2", description: `已完成第 ${chunkIndex + 1}/${totalChunks} 段拆解，当前 ${partialScenes.length} 个分镜` });
-          // Progressively update scenes in UI
-          const progressScenes: Scene[] = partialScenes.map((s: any, i: number) => ({
-            id: crypto.randomUUID(),
-            sceneNumber: s.sceneNumber ?? i + 1,
-            segmentLabel: s.segmentLabel ?? "",
-            sceneName: s.sceneName ?? "",
-            description: s.description ?? "",
-            characters: s.characters ?? [],
-            dialogue: s.dialogue ?? "",
-            cameraDirection: s.cameraDirection ?? "",
-            duration: s.duration ?? 5,
-          }));
-          setScenes(progressScenes);
+          const { scenes: partialScenes, chunkIndex, totalChunks, status, failedChunks = [], error } = partialData;
+
+          // Initialize chunk status list
+          if (status === "init") {
+            setDecomposeChunks(Array.from({ length: totalChunks }, (_, i) => ({
+              index: i,
+              label: `第 ${i + 1} 段`,
+              status: "pending" as const,
+            })));
+            return;
+          }
+
+          // Update chunk status
+          setDecomposeChunks(prev => prev.map(c =>
+            c.index === chunkIndex
+              ? { ...c, status: status as ChunkStatus["status"], error }
+              : c
+          ));
+
+          if (status === "done" || status === "failed") {
+            if (status === "done") {
+              toast({ title: "阶段 2/2", description: `已完成第 ${chunkIndex + 1}/${totalChunks} 段拆解，当前 ${partialScenes.length} 个分镜` });
+            } else {
+              toast({ title: "拆解失败", description: `第 ${chunkIndex + 1} 段拆解失败：${error || "未知错误"}，可点击重试`, variant: "destructive" });
+            }
+            // Progressively update scenes
+            if (partialScenes.length > 0) {
+              const progressScenes: Scene[] = partialScenes.map((s: any, i: number) => ({
+                id: crypto.randomUUID(),
+                sceneNumber: s.sceneNumber ?? i + 1,
+                segmentLabel: s.segmentLabel ?? "",
+                sceneName: s.sceneName ?? "",
+                description: s.description ?? "",
+                characters: s.characters ?? [],
+                dialogue: s.dialogue ?? "",
+                cameraDirection: s.cameraDirection ?? "",
+                duration: s.duration ?? 5,
+              }));
+              setScenes(progressScenes);
+            }
+          }
         };
 
         const { data: decomposeData, error: decomposeError } = await invokeFunction("script-decompose", {
@@ -294,6 +372,16 @@ const Workspace = () => {
           model: decomposeModel,
         }, { onProgress: handleDecomposeProgress });
         if (decomposeError) throw decomposeError;
+
+        // Store metadata for retries
+        if (decomposeData?.episodes) {
+          lastDecomposeMetaRef.current = {
+            episodes: decomposeData.episodes,
+            costumeContext: decomposeData.costumeContext || "",
+            model: decomposeData.model || decomposeModel,
+            prompt: decomposeData.prompt || "",
+          };
+        }
 
         let parsed: any = decomposeData;
         if (!parsed) {
@@ -931,6 +1019,9 @@ const Workspace = () => {
                   {rawAiOutput}
                 </pre>
               </details>
+            )}
+            {decomposeChunks.length > 1 && (
+              <DecomposeProgress chunks={decomposeChunks} onRetryChunk={handleRetryChunk} isRetrying={retryingChunk} />
             )}
             {scenes.length > 0 && (
               <SceneList scenes={scenes} onScenesChange={setScenes} onNext={() => setCurrentStep(2)} characters={characters} />

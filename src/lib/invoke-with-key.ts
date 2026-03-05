@@ -167,6 +167,35 @@ export async function invokeFunction<T = any>(
   }
 }
 
+/** Retry a single failed chunk during decomposition */
+export async function retryDecomposeChunk(
+  chunkIndex: number,
+  episodes: string[],
+  costumeContext: string,
+  model: string,
+  prompt: string,
+): Promise<any[]> {
+  const ep = episodes[chunkIndex];
+  if (!ep) throw new Error(`无效的分块索引: ${chunkIndex}`);
+  const epPrefix = episodes.length > 1 ? `${chunkIndex + 1}-` : "";
+  const userText = `${prompt}\n\n---\n\n以下是第${chunkIndex + 1}集剧本：\n\n${ep}${costumeContext}`;
+  const chunkSignal = AbortSignal.timeout(5 * 60_000);
+  const data = await callGemini(model,
+    [{ role: "user", parts: [{ text: userText }] }],
+    { temperature: 0.3, maxOutputTokens: 65536 },
+    chunkSignal,
+  );
+  const resultText = extractText(data);
+  if (!resultText) throw new Error(`第${chunkIndex + 1}集重试失败：AI 未返回内容`);
+  const epScenes = parseDecomposeResult(resultText);
+  for (const scene of epScenes) {
+    if (epPrefix) {
+      scene.segmentLabel = `${epPrefix}${scene.segmentLabel || ''}`;
+    }
+  }
+  return epScenes;
+}
+
 export function buildFetchBodyWithKeys(body: Record<string, unknown>) {
   // No longer needed for Edge Functions, but kept for backward compatibility
   return { ...body };
@@ -336,41 +365,59 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
   if (episodes.length > 1) {
     console.log(`[localDecompose] 检测到 ${episodes.length} 集剧本，将分集拆解`);
     const allScenes: any[] = [];
+    const failedChunks: number[] = [];
     let globalSceneNumber = 1;
+
+    // Notify frontend of chunk count immediately
+    if (onProgress) {
+      onProgress({ scenes: allScenes, chunkIndex: -1, totalChunks: episodes.length, status: "init", failedChunks });
+    }
 
     for (let epIdx = 0; epIdx < episodes.length; epIdx++) {
       const ep = episodes[epIdx];
       console.log(`[localDecompose] 正在拆解第 ${epIdx + 1}/${episodes.length} 集...`);
       const epPrefix = episodes.length > 1 ? `${epIdx + 1}-` : "";
-      const userText = `${prompt}\n\n---\n\n以下是第${epIdx + 1}集剧本：\n\n${ep}${costumeContext}`;
 
-      const chunkSignal = AbortSignal.timeout(5 * 60_000); // 5 min timeout per chunk
-      const data = await callGemini(model,
-        [{ role: "user", parts: [{ text: userText }] }],
-        { temperature: 0.3, maxOutputTokens: 65536 },
-        chunkSignal,
-      );
-
-      const resultText = extractText(data);
-      if (!resultText) throw new Error(`第${epIdx + 1}集拆解失败：AI 未返回内容`);
-
-      const epScenes = parseDecomposeResult(resultText);
-      // Re-number scenes and prefix segmentLabels for multi-episode
-      for (const scene of epScenes) {
-        scene.sceneNumber = globalSceneNumber++;
-        if (epPrefix) {
-          scene.segmentLabel = `${epPrefix}${scene.segmentLabel || ''}`;
-        }
-      }
-      allScenes.push(...epScenes);
-
-      // Progressive callback: send accumulated scenes after each chunk
+      // Notify: chunk started
       if (onProgress) {
-        onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length });
+        onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length, status: "processing", failedChunks });
+      }
+
+      try {
+        const userText = `${prompt}\n\n---\n\n以下是第${epIdx + 1}集剧本：\n\n${ep}${costumeContext}`;
+
+        const chunkSignal = AbortSignal.timeout(5 * 60_000);
+        const data = await callGemini(model,
+          [{ role: "user", parts: [{ text: userText }] }],
+          { temperature: 0.3, maxOutputTokens: 65536 },
+          chunkSignal,
+        );
+
+        const resultText = extractText(data);
+        if (!resultText) throw new Error(`第${epIdx + 1}集拆解失败：AI 未返回内容`);
+
+        const epScenes = parseDecomposeResult(resultText);
+        for (const scene of epScenes) {
+          scene.sceneNumber = globalSceneNumber++;
+          if (epPrefix) {
+            scene.segmentLabel = `${epPrefix}${scene.segmentLabel || ''}`;
+          }
+        }
+        allScenes.push(...epScenes);
+
+        if (onProgress) {
+          onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length, status: "done", failedChunks });
+        }
+      } catch (err: any) {
+        console.error(`[localDecompose] 第${epIdx + 1}集拆解失败:`, err);
+        failedChunks.push(epIdx);
+        if (onProgress) {
+          onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length, status: "failed", failedChunks, error: err?.message });
+        }
       }
     }
 
-    return { scenes: allScenes };
+    return { scenes: allScenes, failedChunks, episodes, costumeContext, model, prompt };
   }
 
   // Single episode or couldn't split - send as one request
