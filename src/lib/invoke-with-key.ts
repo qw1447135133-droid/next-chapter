@@ -374,6 +374,9 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
       onProgress({ scenes: allScenes, chunkIndex: -1, totalChunks: episodes.length, status: "init", failedChunks });
     }
 
+    // Track previous chunk context for cross-chunk consistency
+    let prevChunkContext = "";
+
     for (let epIdx = 0; epIdx < episodes.length; epIdx++) {
       // Check abort before starting each chunk
       if (abortSignal?.aborted) {
@@ -395,8 +398,34 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
         onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length, status: "processing", failedChunks });
       }
 
+      // Build cross-chunk context from previous results
+      let chunkContextBlock = "";
+      if (epIdx > 0 && allScenes.length > 0) {
+        // Collect unique characters and scene names from previous chunks
+        const prevCharacters = [...new Set(allScenes.flatMap((s: any) => s.characters || []))];
+        const prevSceneNames = [...new Set(allScenes.map((s: any) => s.sceneName).filter(Boolean))];
+        // Get last 3 scenes as bridge context
+        const lastScenes = allScenes.slice(-3);
+        const lastScenesDesc = lastScenes.map((s: any) =>
+          `[分镜${s.sceneNumber}] 片段${s.segmentLabel} | 场景：${s.sceneName} | 角色：${(s.characters || []).join('、')} | ${s.description}`
+        ).join('\n');
+
+        chunkContextBlock = `\n\n---\n\n【跨段落上下文（必须保持一致性）】
+前面段落已出现的角色：${prevCharacters.join('、')}
+前面段落已出现的场景：${prevSceneNames.join('、')}
+
+前一段落最后几个分镜（请保持叙事连贯，角色名和场景名必须与之前完全一致）：
+${lastScenesDesc}
+
+重要：
+- 角色名必须与前面段落保持完全一致，不要改变拼写或格式
+- 场景名如果是同一地点，必须使用相同名称
+- segmentLabel 编号请从前面段落之后继续递增
+- 前面段落最后的全局分镜序号为 ${allScenes[allScenes.length - 1].sceneNumber}，请从 ${allScenes[allScenes.length - 1].sceneNumber + 1} 开始编号`;
+      }
+
       try {
-        const userText = `${prompt}\n\n---\n\n以下是第${epIdx + 1}集剧本：\n\n${ep}${costumeContext}`;
+        const userText = `${prompt}\n\n---\n\n以下是第${epIdx + 1}集剧本（共${episodes.length}集）：\n\n${ep}${costumeContext}${chunkContextBlock}`;
 
         // Combine abort signal with per-chunk timeout
         const chunkTimeout = AbortSignal.timeout(5 * 60_000);

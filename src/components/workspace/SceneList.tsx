@@ -66,6 +66,11 @@ interface Segment {
   totalDuration: number;
 }
 
+/** Strip any bracket wrappers (【】[]（）) from a string */
+function stripBrackets(s: string): string {
+  return s.replace(/^[【\[（(]+/, '').replace(/[】\]）)]+$/, '').trim();
+}
+
 const SceneList = ({ scenes, onScenesChange, onNext, characters = [] }: SceneListProps) => {
   const [collapsedSegments, setCollapsedSegments] = useState<Set<string>>(new Set());
 
@@ -197,9 +202,9 @@ const SceneList = ({ scenes, onScenesChange, onNext, characters = [] }: SceneLis
                 {charTags.length > 0 && (
                   <div className="flex items-start gap-1 mt-2 flex-wrap">
                     <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">场景/人物标签：</span>
-                    <span className="text-xs text-primary font-medium">[{segment.sceneName}]</span>
+                    <span className="text-xs text-primary font-medium">【{stripBrackets(segment.sceneName)}】</span>
                     {charTags.map((tag, i) => (
-                      <span key={`${tag.display}-${i}`} className="text-xs text-primary font-medium">[{tag.display}]</span>
+                      <span key={`${tag.display}-${i}`} className="text-xs text-primary font-medium">【{stripBrackets(tag.display)}】</span>
                     ))}
                   </div>
                 )}
