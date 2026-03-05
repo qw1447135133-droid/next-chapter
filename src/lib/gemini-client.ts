@@ -121,14 +121,33 @@ export async function callGemini(
     body.generationConfig = generationConfig;
   }
 
-  const response = await proxiedFetch(url, headers, JSON.stringify(body), signal);
+  const MAX_RETRIES = 3;
+  const jsonBody = JSON.stringify(body);
 
-  if (!response.ok) {
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    if (signal?.aborted) throw new Error("请求已取消");
+
+    const response = await proxiedFetch(url, headers, jsonBody, signal);
+
+    if (response.ok) {
+      return response.json();
+    }
+
     const text = await response.text().catch(() => "");
+
+    // Retry on 500/502/503/429 (transient upstream errors)
+    const retryable = [500, 502, 503, 429].includes(response.status);
+    if (retryable && attempt < MAX_RETRIES - 1) {
+      const delay = Math.min(2000 * Math.pow(2, attempt), 10000);
+      console.warn(`[callGemini] 第${attempt + 1}次请求失败 (${response.status})，${delay / 1000}s 后重试...`);
+      await new Promise(r => setTimeout(r, delay));
+      continue;
+    }
+
     throw new Error(`模型 ${model} 调用失败 (${response.status}): ${text.slice(0, 200)}`);
   }
 
-  return response.json();
+  throw new Error(`模型 ${model} 调用失败: 超过最大重试次数`);
 }
 
 // ===== Response Parsing =====
