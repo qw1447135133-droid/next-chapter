@@ -725,9 +725,6 @@ const CharacterSettings = ({
     // Process a single character: description (with retry) → image (with retry) → costume images
     const processCharacter = async (c: CharacterSetting) => {
       if (!String(c.name || "").trim()) return;
-      // Keep "自动识别" spinner active for the entire character processing (desc + img)
-      setGeneratingCharDescIds((prev) => new Set(prev).add(c.id));
-      try {
 
       const hasCostumesToDescribe = c.costumes && c.costumes.length > 0;
 
