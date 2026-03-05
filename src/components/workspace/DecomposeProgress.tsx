@@ -44,6 +44,8 @@ const DecomposeProgress = ({ chunks, onRetryChunk, isRetrying }: DecomposeProgre
                 ? "bg-primary/10 text-primary border-primary/20"
                 : chunk.status === "failed"
                 ? "bg-destructive/10 text-destructive border-destructive/20"
+                : chunk.status === "cancelled"
+                ? "bg-muted text-muted-foreground border-border line-through opacity-60"
                 : chunk.status === "processing"
                 ? "bg-accent text-accent-foreground border-border animate-pulse"
                 : "bg-muted text-muted-foreground border-border"
