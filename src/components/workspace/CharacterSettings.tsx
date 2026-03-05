@@ -853,7 +853,6 @@ const CharacterSettings = ({
           // Set anchor from first successful costume if no base image
           if (isFirstCostume) {
             costumeAnchorUrl = rawUrl;
-            isFirstCostumeGenerated = true;
           }
           // Update local copy to prevent stale reads in subsequent iterations
           localCostumes = localCostumes.map(cc => {
