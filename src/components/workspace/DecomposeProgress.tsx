@@ -132,10 +132,33 @@ const DecomposeProgress = ({ chunks, onRetryChunk, isRetrying }: DecomposeProgre
           分镜拆解进度
           {isComplete && <span className="ml-1.5 text-accent">✓ 完成</span>}
         </span>
-        <span className="text-muted-foreground tabular-nums">
-          {done}/{total} 段完成{failed > 0 && <span className="text-destructive ml-1">（{failed} 段失败）</span>}
-          <span className="ml-2 font-semibold text-foreground">{percent.toFixed(1)}%</span>
-        </span>
+        <AnimatePresence mode="wait">
+          {isComplete ? (
+            <motion.span
+              key="complete"
+              initial={{ opacity: 0, y: 8, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.4, ease: "easeOut" }}
+              className="text-accent font-semibold flex items-center gap-1"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              拆解完成
+            </motion.span>
+          ) : (
+            <motion.span
+              key="progress"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.3 }}
+              className="text-muted-foreground tabular-nums"
+            >
+              {done}/{total} 段完成{failed > 0 && <span className="text-destructive ml-1">（{failed} 段失败）</span>}
+              <span className="ml-2 font-semibold text-foreground">{percent.toFixed(1)}%</span>
+            </motion.span>
+          )}
+        </AnimatePresence>
       </div>
 
       <div className="relative">
