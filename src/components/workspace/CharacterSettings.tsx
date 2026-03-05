@@ -895,6 +895,8 @@ const CharacterSettings = ({
           break;
         }
       }
+      // Clear character-level generating flag after all costumes done
+      setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(c.id); return next; });
     };
 
     // Process a single scene: description → image (or time variant images)
