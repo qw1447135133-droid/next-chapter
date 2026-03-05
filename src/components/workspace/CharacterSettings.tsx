@@ -685,16 +685,16 @@ const CharacterSettings = ({
     const totalCharTasks = charactersRef.current.filter(c => String(c.name || "").trim()).reduce((sum, c) => {
       const hasCostumes = c.costumes && c.costumes.length > 0;
       if (hasCostumes) {
-        const costumeCount = c.costumes!.filter(cos => cos.label?.trim() && !cos.imageUrl).length;
-        return sum + 1 + costumeCount; // desc + costume imgs (no base img)
+        const costumeCount = c.costumes!.filter(cos => cos.label?.trim()).length;
+        return sum + 1 + costumeCount; // desc + all costume imgs
       }
       return sum + 2; // desc + base img
     }, 0);
     const totalSceneTasks = sceneSettingsRef.current.filter(s => String(s.name || "").trim()).reduce((sum, s) => {
       const hasTimeVariants = s.timeVariants && s.timeVariants.length > 0;
       if (hasTimeVariants) {
-        const tvCount = s.timeVariants!.filter(tv => tv.label?.trim() && !tv.imageUrl).length;
-        return sum + 1 + tvCount; // desc + time variant imgs (no base img)
+        const tvCount = s.timeVariants!.filter(tv => tv.label?.trim()).length;
+        return sum + 1 + tvCount; // desc + all time variant imgs
       }
       return sum + 2; // desc + base img
     }, 0);
@@ -814,7 +814,7 @@ const CharacterSettings = ({
       }
 
       // --- Has costumes: skip base image, generate all costume images directly ---
-      const costumesToGen = latestChar.costumes!.filter(cos => cos.label?.trim() && !cos.imageUrl);
+      const costumesToGen = latestChar.costumes!.filter(cos => cos.label?.trim());
       // Use localCostumes pattern to prevent React re-renders from resetting ref mid-loop
       let localCostumes = [...(latestChar?.costumes || []).map(cc => ({ ...cc }))];
       // Anchor logic: prefer base image; if unavailable, first successful costume becomes anchor
@@ -962,7 +962,7 @@ const CharacterSettings = ({
       }
 
       // --- Has time variants: skip base image, generate all time variant images ---
-      const variantsToGen = latestScene.timeVariants!.filter(tv => tv.label?.trim() && !tv.imageUrl);
+      const variantsToGen = latestScene.timeVariants!.filter(tv => tv.label?.trim());
       let localVariants = [...(latestScene?.timeVariants || []).map(v => ({ ...v }))];
       let tvAnchorUrl: string | undefined = latestScene?.imageUrl || undefined;
       let isFirstTvGenerated = !!tvAnchorUrl;
