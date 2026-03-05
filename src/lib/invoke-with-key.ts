@@ -237,7 +237,7 @@ async function localExtract(body: any) {
 
   const promptText = `${EXTRACTION_PROMPT}\n\n---\n\n以下是用户的剧本：\n\n${script}${preScanHint}`;
 
-  const extractSignal = AbortSignal.timeout(5 * 60_000); // 5 min timeout for extraction
+  const extractSignal = AbortSignal.timeout(3 * 60_000); // 3 min timeout for extraction
   const data = await callGemini(model,
     [{ role: "user", parts: [{ text: promptText }] }],
     { temperature: 0.1, maxOutputTokens: 16384, responseMimeType: "application/json" },
