@@ -322,8 +322,7 @@ const Workspace = () => {
         // Check for empty result
         if (parsedScenes.length === 0) {
           toast({ title: "警告", description: "未能从剧本中识别出任何分镜，请检查剧本内容", variant: "destructive" });
-          isAnalyzingRef.current = false;
-          setIsAnalyzing(false);
+          resetAnalyzing();
           return;
         }
 
@@ -370,16 +369,13 @@ const Workspace = () => {
         }
 
         toast({ title: "拆解完成", description: `成功拆解为 ${parsedScenes.length} 个分镜，识别 ${autoCharacters.length + missingChars.length} 个角色` });
-        
-        isAnalyzingRef.current = false;
-        setIsAnalyzing(false);
+        resetAnalyzing();
         return;
         
       } catch (e: any) {
         // Ignore abort errors (user cancelled)
         if (e?.name === "AbortError" || e?.message?.includes("aborted")) {
-          isAnalyzingRef.current = false;
-          setIsAnalyzing(false);
+          resetAnalyzing();
           return;
         }
         
@@ -391,9 +387,7 @@ const Workspace = () => {
           variant: "destructive",
           duration: 8000,
         });
-      } finally {
-        isAnalyzingRef.current = false;
-        setIsAnalyzing(false);
+        resetAnalyzing();
       }
     };
 
