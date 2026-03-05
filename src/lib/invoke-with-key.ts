@@ -1122,12 +1122,31 @@ async function localEnhancePrompt(body: any) {
 }
 
 async function localCharDesc(body: any) {
-  const { characterName, script, costumes, model: requestedModel } = body;
+  const { characterName, script, costumes, discoverCostumes, model: requestedModel } = body;
   if (!characterName || !script) throw new Error("缺少角色名称或剧本内容");
 
   const hasCostumes = Array.isArray(costumes) && costumes.length > 0;
+  // discoverCostumes: when true and no costumes exist, ask AI to also discover costume variants
+  const shouldDiscover = discoverCostumes && !hasCostumes;
 
-  const systemPrompt = hasCostumes
+  const systemPrompt = shouldDiscover
+    ? `You are a professional film character designer. Based on the script and character name:
+1. Produce a brief base character description (gender, age, build, facial features, hairstyle, skin tone — NO clothing).
+2. Analyze the script and identify ALL distinct costume/outfit variants this character wears throughout the story.
+   - Only include variants if the character clearly has 2 or more distinct outfits/looks in the script.
+   - Each variant needs a short label (e.g. "校服", "晚礼服", "休闲装") and a detailed description.
+   - If the character only has one outfit or no clear outfit changes, return an empty array for discoveredCostumes.
+
+${ETHNICITY_RULE}
+
+### Layout Constraints
+- Character Design Sheet with multiple angles (front, side, back) and face close-up.
+- NO text labels. Pure white background. Neutral expression, upright standing pose.
+
+### Output Format
+Return JSON: {"description": "base description", "discoveredCostumes": [{"label": "outfit name", "description": "detailed outfit description"}]}
+Return ONLY valid JSON.`
+    : hasCostumes
     ? `You are a professional film character designer. Based on the script and character name, produce:
 1. A brief base character description (gender, age, build, facial features, hairstyle, skin tone — NO clothing).
 2. For EACH costume variant, produce a detailed AI-ready appearance description for a character design sheet.
@@ -1154,12 +1173,14 @@ Return ONLY plain text character description. NO JSON, NO code blocks.`;
 
   const userContent = hasCostumes
     ? `Script:\n${script}\n\nCharacter: "${characterName}"\nCostumes: ${JSON.stringify(costumes)}`
+    : shouldDiscover
+    ? `Script:\n${script}\n\nCharacter: "${characterName}"\nAnalyze the script and discover all distinct costume/outfit variants for this character.`
     : `Script:\n${script}\n\nGenerate appearance description for "${characterName}".`;
 
   const useModel = requestedModel || "gemini-3-pro-preview";
   const isThinking = useModel.toLowerCase().includes("thinking");
   const generationConfig: any = {
-    ...(hasCostumes ? { responseMimeType: "application/json" } : {}),
+    ...((hasCostumes || shouldDiscover) ? { responseMimeType: "application/json" } : {}),
     ...(isThinking ? { thinkingConfig: { thinkingBudget: 2048 } } : {}),
   };
 
@@ -1170,10 +1191,14 @@ Return ONLY plain text character description. NO JSON, NO code blocks.`;
 
   const rawText = extractText(data);
 
-  if (hasCostumes) {
+  if (hasCostumes || shouldDiscover) {
     try {
       const parsed = JSON.parse(rawText);
-      return { description: parsed.description || "", costumeDescriptions: parsed.costumeDescriptions || [] };
+      return {
+        description: parsed.description || "",
+        costumeDescriptions: parsed.costumeDescriptions || [],
+        discoveredCostumes: parsed.discoveredCostumes || [],
+      };
     } catch {
       return { description: rawText };
     }
