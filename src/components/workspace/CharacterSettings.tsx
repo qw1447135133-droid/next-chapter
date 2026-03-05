@@ -814,6 +814,8 @@ const CharacterSettings = ({
       }
 
       // --- Has costumes: skip base image, generate all costume images directly ---
+      // Add character-level generating flag so the main button spins
+      setGeneratingCharImgIds((prev) => new Set(prev).add(c.id));
       const costumesToGen = latestChar.costumes!.filter(cos => cos.label?.trim());
       // Use localCostumes pattern to prevent React re-renders from resetting ref mid-loop
       let localCostumes = [...(latestChar?.costumes || []).map(cc => ({ ...cc }))];
