@@ -920,11 +920,24 @@ const CharacterSettings = ({
       addTask(s.id, "sceneDesc");
       setGeneratingDescIds((prev) => new Set(prev).add(s.id));
       try {
+        const latestS = sceneSettingsRef.current.find((sc) => sc.id === s.id);
+        const alreadyHasVariants = latestS?.timeVariants && latestS.timeVariants.length > 0;
         const data = await invokeStreamingFunction("generate-scene-description", {
-          sceneName: s.name, script, model: decomposeModel,
+          sceneName: s.name, script, discoverTimeVariants: !alreadyHasVariants, model: decomposeModel,
         });
         desc = data.description || "";
-        updateSceneAsync(s.id, { description: desc });
+        if (!alreadyHasVariants && data.discoveredTimeVariants && Array.isArray(data.discoveredTimeVariants) && data.discoveredTimeVariants.length >= 2) {
+          const newVariants: TimeVariantSetting[] = data.discoveredTimeVariants.map((tv: any) => ({
+            id: crypto.randomUUID(),
+            label: tv.label || "",
+            description: tv.description || "",
+            isAIGenerated: true,
+          }));
+          updateSceneAsync(s.id, { description: desc, timeVariants: newVariants });
+          setExpandedTimeVariantSceneIds(prev => { const next = new Set(prev); next.add(s.id); return next; });
+        } else {
+          updateSceneAsync(s.id, { description: desc });
+        }
         descOk = true;
       } catch (e) {
         console.error(`Scene desc "${s.name}" failed:`, e);
