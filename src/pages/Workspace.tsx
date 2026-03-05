@@ -219,7 +219,7 @@ const Workspace = () => {
   };
 
   const handleAnalyze = async () => {
-    if (!script.trim()) return;
+    if (!script.trim() || isAnalyzing) return;
     setIsAnalyzing(true);
     
     try {
