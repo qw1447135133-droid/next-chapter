@@ -136,9 +136,9 @@ export function getSegmentsForDuration(duration: EpisodeDuration, customSeconds?
 export type VideoPace = 'slow' | 'medium' | 'fast';
 
 export const VIDEO_PACE_OPTIONS: { value: VideoPace; label: string; desc: string }[] = [
-  { value: 'slow', label: '慢速', desc: '传统影视' },
-  { value: 'medium', label: '中等', desc: '标准短剧' },
-  { value: 'fast', label: '快速', desc: '抖音视频' },
+  { value: 'slow', label: '慢速', desc: '≤15字/片段' },
+  { value: 'medium', label: '中等', desc: '≤22字/片段' },
+  { value: 'fast', label: '快速', desc: '≤32字/片段' },
 ];
 
 export type WorkspaceStep = 1 | 2 | 3 | 4 | 5;
