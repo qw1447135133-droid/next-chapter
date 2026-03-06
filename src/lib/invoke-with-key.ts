@@ -624,7 +624,9 @@ The image should be a clean character turnaround sheet with 4 views arranged in 
 - Bottom-left: BACK VIEW (full body, facing away)
 - Bottom-right: FACE CLOSE-UP (detailed head/face portrait)
 
-Each view should be labeled clearly. The character design must be consistent across all 4 views. The entire image MUST be in ${styleDesc} style.${refImageNote}`;
+Each view should be labeled clearly. The character design must be consistent across all 4 views. The entire image MUST be in ${styleDesc} style.
+
+CRITICAL: The character's clothing, armor, and accessories MUST match the era and setting described above. If the description mentions medieval, fantasy, ancient, or any specific historical period, ALL clothing must be era-appropriate. NEVER use modern clothing (suits, t-shirts, jeans, sneakers) for historical/fantasy characters.${refImageNote}`;
 
   const selectedModel = model || "gemini-3-pro-image-preview";
   const isSeedream = selectedModel.startsWith("doubao-seedream");
