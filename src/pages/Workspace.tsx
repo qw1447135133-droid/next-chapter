@@ -1165,7 +1165,15 @@ const Workspace = () => {
               </details>
             )}
             {decomposeChunks.length > 1 && (
-              <DecomposeProgress chunks={decomposeChunks} onRetryChunk={handleRetryChunk} isRetrying={retryingChunk} />
+              <DecomposeProgress
+                chunks={decomposeChunks}
+                onRetryChunk={handleRetryChunk}
+                isRetrying={retryingChunk}
+                onScrollToEpisode={(epIndex) => {
+                  const el = document.getElementById(`episode-group-ep-${epIndex + 1}`);
+                  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }}
+              />
             )}
             {scenes.length > 0 && (
               <SceneList scenes={scenes} onScenesChange={setScenes} onNext={() => setCurrentStep(2)} characters={characters} />
