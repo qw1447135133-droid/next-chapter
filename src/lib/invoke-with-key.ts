@@ -618,17 +618,35 @@ interface SplitResult {
 }
 
 
-/** Split a multi-episode script into chunks. Only splits if script > 12000 chars */
-function splitScriptByEpisodes(script: string): SplitResult {
-  // Don't split short scripts
-  if (script.length <= MAX_CHUNK_CHARS) return { chunks: [script], isRealEpisodes: false, originallyEpisodes: false };
+/** Convert Chinese numeral string to number */
+function chineseToNumber(s: string): number {
+  const digitMap: Record<string, number> = { '零':0,'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10,'百':100,'千':1000,'壹':1,'贰':2,'叁':3,'肆':4,'伍':5,'陆':6,'柒':7,'捌':8,'玖':9,'拾':10,'佰':100,'仟':1000 };
+  let result = 0, current = 0;
+  for (const ch of s) {
+    const val = digitMap[ch];
+    if (val === undefined) continue;
+    if (val >= 10) {
+      result += (current || 1) * val;
+      current = 0;
+    } else {
+      current = current * 10 + val;
+    }
+  }
+  return result + current;
+}
 
-  // First try to split by episode markers
-  const epPattern = /(?:^|\n)\s*(?:EP\s*(\d+)|第\s*(\d+)\s*[集话期章]|Episode\s+(\d+))\b/gi;
-  const markers: { index: number }[] = [];
+/** Split a multi-episode script into chunks */
+function splitScriptByEpisodes(script: string): SplitResult {
+  // First try to detect episode markers before checking length
+
+  // First try to split by episode markers (supports Arabic digits and Chinese numerals)
+  const epPattern = /(?:^|\n)\s*(?:EP\s*(\d+)|第\s*([零一二三四五六七八九十百千万\d]+)\s*[集话期章]|Episode\s+(\d+))\b/gi;
+  const markers: { index: number; num: number }[] = [];
   let m: RegExpExecArray | null;
   while ((m = epPattern.exec(script)) !== null) {
-    markers.push({ index: m.index });
+    const numStr = m[1] || m[2] || m[3] || '0';
+    const num = /^\d+$/.test(numStr) ? parseInt(numStr) : chineseToNumber(numStr);
+    markers.push({ index: m.index, num });
   }
 
   let rawChunks: string[] = [];
@@ -639,15 +657,18 @@ function splitScriptByEpisodes(script: string): SplitResult {
       const start = markers[i].index;
       const end = i < markers.length - 1 ? markers[i + 1].index : script.length;
       const ep = script.slice(start, end).trim();
-      if (ep.length > 100) rawChunks.push(ep);
+      if (ep.length > 20) rawChunks.push(ep);
     }
     if (rawChunks.length > 1) {
       isRealEpisodes = true;
       detectedEpisodes = true;
     } else {
+      if (script.length <= MAX_CHUNK_CHARS) return { chunks: [script], isRealEpisodes: false, originallyEpisodes: false };
       rawChunks = [script];
     }
   } else {
+    // No episode markers found - only split by length if script is large
+    if (script.length <= MAX_CHUNK_CHARS) return { chunks: [script], isRealEpisodes: false, originallyEpisodes: false };
     rawChunks = [script];
   }
 
