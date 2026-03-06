@@ -511,7 +511,7 @@ const Workspace = () => {
       setPhase1Info(`识别 ${autoCharacters.length} 个角色，${aiSceneSettings.length} 个场景`);
 
       // Store phase 1 results for potential phase 2 retry
-      phase1ResultsRef.current = { autoCharacters, aiSceneSettings };
+      savePhase1Results({ autoCharacters, aiSceneSettings });
 
       // ========== Phase 2 ==========
       await runPhase2(autoCharacters, aiSceneSettings, controller, resetAnalyzing);
