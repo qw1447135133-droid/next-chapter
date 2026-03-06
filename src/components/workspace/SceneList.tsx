@@ -66,6 +66,13 @@ interface Segment {
   totalDuration: number;
 }
 
+interface EpisodeGroup {
+  episodeKey: string;
+  episodeLabel: string;
+  segments: Segment[];
+  totalScenes: number;
+}
+
 /** Strip any bracket wrappers (【】[]（）) from a string */
 function stripBrackets(s: string): string {
   return s.replace(/^[【\[（(]+/, '').replace(/[】\]）)]+$/, '').trim();
