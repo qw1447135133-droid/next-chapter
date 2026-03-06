@@ -1020,6 +1020,9 @@ const Workspace = () => {
     setIsAbortingVideo(false);
     setIsGeneratingVideo(true);
 
+    const REQUEST_INTERVAL = 2000; // 2s delay between requests
+    const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
     const successCountRef = { current: 0 };
     const failCountRef = { current: 0 };
 
@@ -1058,6 +1061,8 @@ const Workspace = () => {
         }
         if (succeeded) successCountRef.current++; else { failCountRef.current++; failedVideoIds.add(scene.id); }
         release();
+        // Interval between requests
+        if (!stopVideoGenRef.current) await delay(REQUEST_INTERVAL);
       }
     };
 
