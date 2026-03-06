@@ -924,6 +924,7 @@ const CharacterSettings = ({
         removeTask(s.id, "sceneDesc");
         setGeneratingDescIds(prev => { const next = new Set(prev); next.delete(s.id); return next; });
         textSem.release();
+        if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
       }
       bumpDone();
       if (descOk) successCountRef.current++; else { failCountRef.current++; return; }
