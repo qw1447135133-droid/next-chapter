@@ -962,6 +962,7 @@ const CharacterSettings = ({
           removeTask(s.id, "sceneImg");
           setGeneratingSceneImgIds((prev) => { const next = new Set(prev); next.delete(s.id); return next; });
           imageSem.release();
+          if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
         }
         bumpDone();
         if (imgOk) successCountRef.current++; else failCountRef.current++;
