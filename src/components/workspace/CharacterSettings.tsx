@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import {
   Plus, Trash2, Upload, Sparkles, ArrowRight, User, MapPin, Loader2, ImageIcon, ChevronDown, Shirt, Square, Clock,
@@ -694,7 +695,7 @@ const CharacterSettings = ({
     }
   };
 
-  const handleAutoDetectAll = async () => {
+  const handleAutoDetectAll = async (mode: "full" | "imagesOnly" = "full") => {
     if (isAutoDetectingAll) {
       autoDetectAbortRef.current = true;
       setIsAbortingAutoDetect(true);
@@ -708,22 +709,24 @@ const CharacterSettings = ({
     setIsAbortingAutoDetect(false);
     setIsAutoDetectingAll(true);
 
-    // Calculate total tasks: per character = 1 desc + (N costume imgs OR 1 base img); per scene = 1 desc + 1 img
+    const skipDesc = mode === "imagesOnly";
+
+    // Calculate total tasks
     const totalCharTasks = charactersRef.current.filter(c => String(c.name || "").trim()).reduce((sum, c) => {
       const hasCostumes = c.costumes && c.costumes.length > 0;
       if (hasCostumes) {
         const costumeCount = c.costumes!.filter(cos => cos.label?.trim()).length;
-        return sum + 1 + costumeCount; // desc + all costume imgs
+        return sum + (skipDesc ? 0 : 1) + costumeCount; // desc (if not skipped) + all costume imgs
       }
-      return sum + 2; // desc + base img
+      return sum + (skipDesc ? 1 : 2); // desc (if not skipped) + base img
     }, 0);
     const totalSceneTasks = sceneSettingsRef.current.filter(s => String(s.name || "").trim()).reduce((sum, s) => {
       const hasTimeVariants = s.timeVariants && s.timeVariants.length > 0;
       if (hasTimeVariants) {
         const tvCount = s.timeVariants!.filter(tv => tv.label?.trim()).length;
-        return sum + 1 + tvCount; // desc + all time variant imgs
+        return sum + (skipDesc ? 0 : 1) + tvCount; // desc (if not skipped) + all time variant imgs
       }
-      return sum + 2; // desc + base img
+      return sum + (skipDesc ? 1 : 2); // desc (if not skipped) + base img
     }, 0);
     const totalTasks = totalCharTasks + totalSceneTasks;
     let doneCount = 0;
@@ -758,47 +761,50 @@ const CharacterSettings = ({
 
       const hasCostumesToDescribe = c.costumes && c.costumes.length > 0;
 
-      // --- Description phase ---
-      let desc = "";
-      let descOk = false;
-      if (autoDetectAbortRef.current) return;
-      await textSem.acquire();
-      if (autoDetectAbortRef.current) { textSem.release(); return; }
-      addTask(c.id, "charDesc");
-      setGeneratingCharDescIds((prev) => new Set(prev).add(c.id));
-      try {
-        if (hasCostumesToDescribe) {
-          const data = await invokeStreamingFunction("generate-character-description", {
-            characterName: c.name, script, costumes: c.costumes!.map(cos => cos.label || "未命名"), model: decomposeModel,
-          });
-          desc = data.description || "";
-          if (data.costumeDescriptions && Array.isArray(data.costumeDescriptions)) {
-            const updatedCostumes = c.costumes!.map((cos, i) => ({
-              ...cos,
-              description: data.costumeDescriptions[i]?.description || cos.description,
-            }));
-            updateCharacterAsync(c.id, { description: desc, costumes: updatedCostumes });
+      // --- Description phase (skip if imagesOnly) ---
+      let desc = c.description || "";
+      let descOk = skipDesc ? true : false;
+      if (!skipDesc) {
+        if (autoDetectAbortRef.current) return;
+        await textSem.acquire();
+        if (autoDetectAbortRef.current) { textSem.release(); return; }
+        addTask(c.id, "charDesc");
+        setGeneratingCharDescIds((prev) => new Set(prev).add(c.id));
+        try {
+          if (hasCostumesToDescribe) {
+            const data = await invokeStreamingFunction("generate-character-description", {
+              characterName: c.name, script, costumes: c.costumes!.map(cos => cos.label || "未命名"), model: decomposeModel,
+            });
+            desc = data.description || "";
+            if (data.costumeDescriptions && Array.isArray(data.costumeDescriptions)) {
+              const updatedCostumes = c.costumes!.map((cos, i) => ({
+                ...cos,
+                description: data.costumeDescriptions[i]?.description || cos.description,
+              }));
+              updateCharacterAsync(c.id, { description: desc, costumes: updatedCostumes });
+            } else {
+              updateCharacterAsync(c.id, { description: desc });
+            }
           } else {
+            const data = await invokeStreamingFunction("generate-character-description", {
+              characterName: c.name, script, model: decomposeModel,
+            });
+            desc = data.description || "";
             updateCharacterAsync(c.id, { description: desc });
           }
-        } else {
-          const data = await invokeStreamingFunction("generate-character-description", {
-            characterName: c.name, script, model: decomposeModel,
-          });
-          desc = data.description || "";
-          updateCharacterAsync(c.id, { description: desc });
+          descOk = true;
+        } catch (e) {
+          console.error(`Char desc "${c.name}" failed:`, e);
+        } finally {
+          removeTask(c.id, "charDesc");
+          setGeneratingCharDescIds(prev => { const next = new Set(prev); next.delete(c.id); return next; });
+          textSem.release();
+          if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
         }
-        descOk = true;
-      } catch (e) {
-        console.error(`Char desc "${c.name}" failed:`, e);
-      } finally {
-        removeTask(c.id, "charDesc");
-        setGeneratingCharDescIds(prev => { const next = new Set(prev); next.delete(c.id); return next; });
-        textSem.release();
-        if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
+        bumpDone();
+        if (!descOk) { failCountRef.current++; return; }
+        successCountRef.current++;
       }
-      bumpDone();
-      if (descOk) successCountRef.current++; else { failCountRef.current++; return; }
 
       const latestChar = charactersRef.current.find((ch) => ch.id === c.id);
       const hasCostumes = latestChar?.costumes && latestChar.costumes.length > 0;
@@ -937,30 +943,33 @@ const CharacterSettings = ({
     // Process a single scene: description → image (or time variant images)
     const processScene = async (s: SceneSetting) => {
       if (!String(s.name || "").trim()) return;
-      let desc = "";
-      let descOk = false;
-      if (autoDetectAbortRef.current) return;
-      await textSem.acquire();
-      if (autoDetectAbortRef.current) { textSem.release(); return; }
-      addTask(s.id, "sceneDesc");
-      setGeneratingDescIds((prev) => new Set(prev).add(s.id));
-      try {
-        const data = await invokeStreamingFunction("generate-scene-description", {
-          sceneName: s.name, script, model: decomposeModel,
-        });
-        desc = data.description || "";
-        updateSceneAsync(s.id, { description: desc });
-        descOk = true;
-      } catch (e) {
-        console.error(`Scene desc "${s.name}" failed:`, e);
-      } finally {
-        removeTask(s.id, "sceneDesc");
-        setGeneratingDescIds(prev => { const next = new Set(prev); next.delete(s.id); return next; });
-        textSem.release();
-        if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
+      let desc = s.description || "";
+      let descOk = skipDesc ? true : false;
+      if (!skipDesc) {
+        if (autoDetectAbortRef.current) return;
+        await textSem.acquire();
+        if (autoDetectAbortRef.current) { textSem.release(); return; }
+        addTask(s.id, "sceneDesc");
+        setGeneratingDescIds((prev) => new Set(prev).add(s.id));
+        try {
+          const data = await invokeStreamingFunction("generate-scene-description", {
+            sceneName: s.name, script, model: decomposeModel,
+          });
+          desc = data.description || "";
+          updateSceneAsync(s.id, { description: desc });
+          descOk = true;
+        } catch (e) {
+          console.error(`Scene desc "${s.name}" failed:`, e);
+        } finally {
+          removeTask(s.id, "sceneDesc");
+          setGeneratingDescIds(prev => { const next = new Set(prev); next.delete(s.id); return next; });
+          textSem.release();
+          if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
+        }
+        bumpDone();
+        if (!descOk) { failCountRef.current++; return; }
+        successCountRef.current++;
       }
-      bumpDone();
-      if (descOk) successCountRef.current++; else { failCountRef.current++; return; }
 
       const latestScene = sceneSettingsRef.current.find((sc) => sc.id === s.id);
       const hasTimeVariants = latestScene?.timeVariants && latestScene.timeVariants.length > 0;
@@ -1145,15 +1154,73 @@ const CharacterSettings = ({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            onClick={handleAutoDetectAll}
-            variant={isAutoDetectingAll ? "destructive" : "default"}
-            disabled={isAbortingAutoDetect || (!isAutoDetectingAll && (!script?.trim() || (characters.length === 0 && sceneSettings.length === 0)))}
-            className="gap-1.5"
-          >
-            {isAutoDetectingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {isAutoDetectingAll ? (isAbortingAutoDetect ? "正在中止..." : "中止生成") : "全部生成"}
-          </Button>
+          {(() => {
+            const allDescsFilled = characters.every(c => {
+              if (!String(c.name || "").trim()) return true;
+              if (!c.description?.trim()) return false;
+              if (c.costumes && c.costumes.length > 0) {
+                return c.costumes.every(cos => !cos.label?.trim() || cos.description?.trim());
+              }
+              return true;
+            }) && sceneSettings.every(s => {
+              if (!String(s.name || "").trim()) return true;
+              if (!s.description?.trim()) return false;
+              if (s.timeVariants && s.timeVariants.length > 0) {
+                return s.timeVariants.every(tv => !tv.label?.trim() || tv.description?.trim());
+              }
+              return true;
+            });
+            const isDisabled = isAbortingAutoDetect || (!isAutoDetectingAll && (!script?.trim() || (characters.length === 0 && sceneSettings.length === 0)));
+
+            if (isAutoDetectingAll) {
+              return (
+                <Button
+                  onClick={() => handleAutoDetectAll()}
+                  variant="destructive"
+                  disabled={isAbortingAutoDetect}
+                  className="gap-1.5"
+                >
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {isAbortingAutoDetect ? "正在中止..." : "中止生成"}
+                </Button>
+              );
+            }
+
+            if (allDescsFilled) {
+              return (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button disabled={isDisabled} className="gap-1.5">
+                      <Sparkles className="h-4 w-4" />
+                      全部生成
+                      <ChevronDown className="h-3.5 w-3.5 ml-0.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => handleAutoDetectAll("imagesOnly")}>
+                      <ImageIcon className="h-4 w-4 mr-2" />
+                      仅生成设定图
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleAutoDetectAll("full")}>
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      提示词 + 设定图
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              );
+            }
+
+            return (
+              <Button
+                onClick={() => handleAutoDetectAll("full")}
+                disabled={isDisabled}
+                className="gap-1.5"
+              >
+                <Sparkles className="h-4 w-4" />
+                全部生成
+              </Button>
+            );
+          })()}
           <Button size="sm" onClick={onNext} className="gap-1">
             下一步
             <ArrowRight className="h-3.5 w-3.5" />
