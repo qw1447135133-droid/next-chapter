@@ -479,7 +479,7 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
 
     // Notify frontend of chunk count immediately
     if (onProgress) {
-      onProgress({ scenes: allScenes, chunkIndex: -1, totalChunks: episodes.length, status: "init", failedChunks, chunkSegmentCounts, isRealEpisodes: splitResult.isRealEpisodes, originallyEpisodes: splitResult.originallyEpisodes });
+      onProgress({ scenes: allScenes, chunkIndex: -1, totalChunks: episodes.length, status: "init", failedChunks, chunkSegmentCounts, isRealEpisodes: true, originallyEpisodes: splitResult.originallyEpisodes });
     }
 
     // Track previous chunk context for cross-chunk consistency
@@ -501,7 +501,7 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
       const ep = episodes[epIdx];
       const chunkSegments = chunkSegmentCounts[epIdx];
       console.log(`[localDecompose] 正在拆解第 ${epIdx + 1}/${episodes.length} ${splitResult.isRealEpisodes ? '集' : '段'}（需要${chunkSegments}个片段）...`);
-      const epPrefix = splitResult.isRealEpisodes && episodes.length > 1 ? `${epIdx + 1}-` : "";
+      const epPrefix = episodes.length > 1 ? `${epIdx + 1}-` : "";
 
       // Build prompt with correct segment count for this chunk
       const chunkPrompt = buildDecomposePrompt(videoPace, chunkSegments);
@@ -531,14 +531,14 @@ ${lastScenesDesc}
 重要：
 - 角色名必须与前面段落保持完全一致，不要改变拼写或格式
 - 场景名如果是同一地点，必须使用相同名称
-- segmentLabel 编号请从 "1-${lastSegmentNum + 1}" 开始继续递增
+- segmentLabel 编号请从 "${epIdx + 1}-1" 开始（本集使用"${epIdx + 1}-N"格式）
 - 前面段落最后的全局分镜序号为 ${allScenes[allScenes.length - 1].sceneNumber}，请从 ${allScenes[allScenes.length - 1].sceneNumber + 1} 开始编号`;
       }
 
       try {
         const chunkLabel = splitResult.isRealEpisodes
           ? `以下是第${epIdx + 1}集剧本（共${episodes.length}集）`
-          : `以下是剧本的第${epIdx + 1}部分（共${episodes.length}部分，属于同一集，本部分需要恰好${chunkSegments}个片段）`;
+          : `以下是剧本的第${epIdx + 1}集（共${episodes.length}集，本集需要恰好${chunkSegments}个片段）。segmentLabel请使用"${epIdx + 1}-N"格式（如"${epIdx + 1}-1","${epIdx + 1}-2"等）`;
         const userText = `${chunkPrompt}\n\n---\n\n${chunkLabel}：\n\n${ep}${costumeContext}${chunkContextBlock}`;
 
         const chunkTimeout = AbortSignal.timeout(5 * 60_000);
