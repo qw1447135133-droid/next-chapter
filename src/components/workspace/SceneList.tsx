@@ -202,7 +202,7 @@ const SceneList = ({ scenes, onScenesChange, onNext, characters = [] }: SceneLis
           const isEpisodeCollapsed = collapsedSegments.has(epGroup.episodeKey);
 
           return (
-            <div key={epGroup.episodeKey} className="space-y-3">
+            <div key={epGroup.episodeKey} id={`episode-group-${epGroup.episodeKey}`} className="space-y-3">
               {/* Episode header */}
               {showEpisodeHeader && (
                 <div

@@ -16,6 +16,7 @@ interface DecomposeProgressProps {
   chunks: ChunkStatus[];
   onRetryChunk: (chunkIndex: number) => void;
   isRetrying?: number | null;
+  onScrollToEpisode?: (episodeIndex: number) => void;
 }
 
 /**
@@ -100,7 +101,7 @@ function useAnimatedProgress(ceilPercent: number, floorPercent: number, hasProce
 const COLLAPSE_THRESHOLD = 12; // Show grid with expand/collapse when more than this
 
 /** Compact grid for episode chunks */
-const ChunkGrid = ({ chunks, onRetryChunk, isRetrying }: { chunks: ChunkStatus[]; onRetryChunk: (i: number) => void; isRetrying?: number | null }) => {
+const ChunkGrid = ({ chunks, onRetryChunk, isRetrying, onScrollToEpisode }: { chunks: ChunkStatus[]; onRetryChunk: (i: number) => void; isRetrying?: number | null; onScrollToEpisode?: (i: number) => void }) => {
   const [expanded, setExpanded] = useState(false);
   const isLargeSet = chunks.length > COLLAPSE_THRESHOLD;
   const visibleChunks = isLargeSet && !expanded ? chunks.slice(0, COLLAPSE_THRESHOLD) : chunks;
@@ -112,9 +113,10 @@ const ChunkGrid = ({ chunks, onRetryChunk, isRetrying }: { chunks: ChunkStatus[]
         {visibleChunks.map((chunk) => (
           <div
             key={chunk.index}
-            className={`group relative flex items-center justify-center gap-1 px-1.5 py-1 rounded text-[11px] font-medium border transition-colors cursor-default ${
+            onClick={() => chunk.status === "done" && onScrollToEpisode?.(chunk.index)}
+            className={`group relative flex items-center justify-center gap-1 px-1.5 py-1 rounded text-[11px] font-medium border transition-colors ${
               chunk.status === "done"
-                ? "bg-primary/10 text-primary border-primary/20"
+                ? "bg-primary/10 text-primary border-primary/20 cursor-pointer hover:bg-primary/20"
                 : chunk.status === "failed"
                 ? "bg-destructive/10 text-destructive border-destructive/20"
                 : chunk.status === "cancelled"
@@ -163,7 +165,7 @@ const ChunkGrid = ({ chunks, onRetryChunk, isRetrying }: { chunks: ChunkStatus[]
   );
 };
 
-const DecomposeProgress = ({ chunks, onRetryChunk, isRetrying }: DecomposeProgressProps) => {
+const DecomposeProgress = ({ chunks, onRetryChunk, isRetrying, onScrollToEpisode }: DecomposeProgressProps) => {
   const done = chunks.filter(c => c.status === "done").length;
   const failed = chunks.filter(c => c.status === "failed").length;
   const processing = chunks.some(c => c.status === "processing");
@@ -236,7 +238,7 @@ const DecomposeProgress = ({ chunks, onRetryChunk, isRetrying }: DecomposeProgre
       </div>
 
       {/* Collapsible grid for many chunks */}
-      <ChunkGrid chunks={chunks} onRetryChunk={onRetryChunk} isRetrying={isRetrying} />
+      <ChunkGrid chunks={chunks} onRetryChunk={onRetryChunk} isRetrying={isRetrying} onScrollToEpisode={onScrollToEpisode} />
     </div>
   );
 };
