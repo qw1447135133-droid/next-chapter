@@ -715,6 +715,9 @@ const CharacterSettings = ({
       };
     };
 
+    const REQUEST_INTERVAL = 2000; // 2s delay between requests to avoid rate limiting
+    const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
     const textSem = createSemaphore(3);
     const imageSem = createSemaphore(2);
     const allTasks: Promise<void>[] = [];
