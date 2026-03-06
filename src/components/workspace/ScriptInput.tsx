@@ -42,10 +42,13 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
       if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
         setModelOpen(false);
       }
+      if (paceDropdownRef.current && !paceDropdownRef.current.contains(e.target as Node)) {
+        setPaceOpen(false);
+      }
     };
-    if (modelOpen) document.addEventListener("mousedown", handleClickOutside);
+    if (modelOpen || paceOpen) document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [modelOpen]);
+  }, [modelOpen, paceOpen]);
 
   const currentModel = DECOMPOSE_MODEL_OPTIONS.find((o) => o.value === decomposeModel)!;
 
