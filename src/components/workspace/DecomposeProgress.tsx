@@ -16,6 +16,7 @@ interface DecomposeProgressProps {
   chunks: ChunkStatus[];
   onRetryChunk: (chunkIndex: number) => void;
   isRetrying?: number | null;
+  onScrollToEpisode?: (episodeIndex: number) => void;
 }
 
 /**
