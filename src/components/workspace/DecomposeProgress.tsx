@@ -189,14 +189,18 @@ const DecomposeProgress = ({ chunks, onRetryChunk, isRetrying }: DecomposeProgre
             {chunk.status === "failed" && <XCircle className="h-3 w-3" />}
             {chunk.status === "processing" && <Loader2 className="h-3 w-3 animate-spin" />}
             <span>{chunk.label}</span>
-            {(chunk.status === "failed" || chunk.status === "cancelled") && (
+            {(chunk.status === "failed" || chunk.status === "cancelled" || chunk.status === "done") && (
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-5 w-5 ml-0.5"
                 onClick={() => onRetryChunk(chunk.index)}
                 disabled={isRetrying != null}
-                title={chunk.status === "cancelled" ? "点击重试已取消的段落" : (chunk.error || "点击重试")}
+                title={
+                  chunk.status === "done" ? "点击重新拆解此段"
+                  : chunk.status === "cancelled" ? "点击重试已取消的段落"
+                  : (chunk.error || "点击重试")
+                }
               >
                 {isRetrying === chunk.index ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
