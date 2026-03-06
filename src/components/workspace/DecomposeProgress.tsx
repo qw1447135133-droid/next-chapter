@@ -170,52 +170,8 @@ const DecomposeProgress = ({ chunks, onRetryChunk, isRetrying }: DecomposeProgre
         />
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {chunks.map((chunk) => (
-          <div
-            key={chunk.index}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
-              chunk.status === "done"
-                ? "bg-primary/10 text-primary border-primary/20"
-                : chunk.status === "failed"
-                ? "bg-destructive/10 text-destructive border-destructive/20"
-                : chunk.status === "cancelled"
-                ? "bg-muted text-muted-foreground border-border line-through opacity-60"
-                : chunk.status === "processing"
-                ? "bg-accent text-accent-foreground border-border animate-pulse"
-                : "bg-muted text-muted-foreground border-border"
-            }`}
-          >
-            {chunk.status === "done" && <CheckCircle2 className="h-3 w-3" />}
-            {chunk.status === "failed" && <XCircle className="h-3 w-3" />}
-            {chunk.status === "processing" && <Loader2 className="h-3 w-3 animate-spin" />}
-            <span>{chunk.label}</span>
-            {chunk.segmentCount != null && (
-              <span className="text-muted-foreground font-normal opacity-70">({chunk.segmentCount})</span>
-            )}
-            {(chunk.status === "failed" || chunk.status === "cancelled" || chunk.status === "done") && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-5 w-5 ml-0.5"
-                onClick={() => onRetryChunk(chunk.index)}
-                disabled={isRetrying != null}
-                title={
-                  chunk.status === "done" ? "点击重新拆解此段"
-                  : chunk.status === "cancelled" ? "点击重试已取消的段落"
-                  : (chunk.error || "点击重试")
-                }
-              >
-                {isRetrying === chunk.index ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <RotateCw className="h-3 w-3" />
-                )}
-              </Button>
-            )}
-          </div>
-        ))}
-      </div>
+      {/* Collapsible grid for many chunks */}
+      <ChunkGrid chunks={chunks} onRetryChunk={onRetryChunk} isRetrying={isRetrying} />
     </div>
   );
 };
