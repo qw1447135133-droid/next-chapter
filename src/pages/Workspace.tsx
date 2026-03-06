@@ -263,7 +263,11 @@ const Workspace = () => {
     setDecomposeChunks(prev => prev.map(c => c.index === chunkIndex ? { ...c, status: "processing" as const, error: undefined } : c));
 
     try {
-      const newScenes = await retryDecomposeChunk(chunkIndex, meta.episodes, meta.costumeContext, meta.model, meta.prompt);
+      const newScenes = await retryDecomposeChunk(chunkIndex, meta.episodes, meta.costumeContext, meta.model, meta.prompt, {
+        chunkSegments: meta.chunkSegmentCounts?.[chunkIndex],
+        isRealEpisodes: meta.isRealEpisodes,
+        videoPace: meta.videoPace,
+      });
 
       // Re-number and merge into existing scenes
       // Find the insertion point: after all scenes from previous chunks, before scenes from later chunks
