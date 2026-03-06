@@ -657,7 +657,7 @@ function splitScriptByEpisodes(script: string): SplitResult {
       const start = markers[i].index;
       const end = i < markers.length - 1 ? markers[i + 1].index : script.length;
       const ep = script.slice(start, end).trim();
-      if (ep.length > 100) rawChunks.push(ep);
+      if (ep.length > 20) rawChunks.push(ep);
     }
     if (rawChunks.length > 1) {
       isRealEpisodes = true;
