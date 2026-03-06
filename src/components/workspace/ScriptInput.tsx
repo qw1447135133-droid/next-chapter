@@ -29,11 +29,13 @@ interface ScriptInputProps {
 
 const ACCEPTED_TYPES = ".txt,.pdf,.doc,.docx";
 
-const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAnalyzing, decomposeModel, onDecomposeModelChange }: ScriptInputProps) => {
+const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAnalyzing, decomposeModel, onDecomposeModelChange, videoPace, onVideoPaceChange }: ScriptInputProps) => {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const isUploading = useRef(false);
   const [modelOpen, setModelOpen] = useState(false);
+  const [paceOpen, setPaceOpen] = useState(false);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const paceDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
