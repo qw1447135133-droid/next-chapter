@@ -389,7 +389,8 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
   if (!script) throw new Error("缺少剧本内容");
 
   const model = requestedModel || "gemini-3.1-pro-preview";
-  const prompt = (systemPrompt && typeof systemPrompt === "string") ? systemPrompt : buildDecomposePrompt(videoPace, segmentsPerEpisode);
+  // Always rebuild prompt with current pace/segments settings; ignore saved systemPrompt
+  const prompt = buildDecomposePrompt(videoPace, segmentsPerEpisode);
   
   // Build costume context if available
   let costumeContext = "";
