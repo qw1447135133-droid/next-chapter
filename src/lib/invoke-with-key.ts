@@ -531,7 +531,7 @@ ${lastScenesDesc}
 重要：
 - 角色名必须与前面段落保持完全一致，不要改变拼写或格式
 - 场景名如果是同一地点，必须使用相同名称
-- segmentLabel 编号请从 "1-${lastSegmentNum + 1}" 开始继续递增
+- segmentLabel 编号请从 "${epIdx + 1}-1" 开始（本集使用"${epIdx + 1}-N"格式）
 - 前面段落最后的全局分镜序号为 ${allScenes[allScenes.length - 1].sceneNumber}，请从 ${allScenes[allScenes.length - 1].sceneNumber + 1} 开始编号`;
       }
 
