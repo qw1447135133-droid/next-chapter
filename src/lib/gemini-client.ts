@@ -45,19 +45,50 @@ export async function proxiedFetch(
     }
   }
 
-  // Proxy mode: route through Edge Function
-  const proxyHeaders: Record<string, string> = {
-    "Content-Type": "application/json",
-    "x-target-url": targetUrl,
-    "x-target-headers": JSON.stringify(targetHeaders),
+  // Proxy mode: route through Edge Function with retry on transient network errors
+  const MAX_RETRIES = 2;
+  const RETRY_DELAY_MS = 3000;
+
+  const doProxyFetch = () => {
+    const proxyHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+      "x-target-url": targetUrl,
+      "x-target-headers": JSON.stringify(targetHeaders),
+    };
+    return fetch(PROXY_URL, {
+      method: body ? "POST" : "GET",
+      headers: proxyHeaders,
+      body,
+      signal,
+    });
   };
 
-  return fetch(PROXY_URL, {
-    method: body ? "POST" : "GET",
-    headers: proxyHeaders,
-    body,
-    signal,
-  });
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      if (signal?.aborted) throw new Error("请求已取消");
+      const resp = await doProxyFetch();
+      // Retry on 502 (proxy connection failure) but not other errors
+      if (resp.status === 502 && attempt < MAX_RETRIES) {
+        const errBody = await resp.text().catch(() => "");
+        console.warn(`[proxiedFetch] 代理返回502，第${attempt + 1}次重试 (${RETRY_DELAY_MS}ms后)...`, errBody.slice(0, 150));
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+        continue;
+      }
+      return resp;
+    } catch (fetchErr) {
+      // Network-level failure (Failed to fetch, timeout, etc.)
+      if (signal?.aborted) throw fetchErr;
+      if (attempt < MAX_RETRIES) {
+        console.warn(`[proxiedFetch] 网络错误，第${attempt + 1}次重试 (${RETRY_DELAY_MS}ms后):`, (fetchErr as Error).message);
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+        continue;
+      }
+      throw fetchErr;
+    }
+  }
+
+  // Should not reach here, but TypeScript needs it
+  return doProxyFetch();
 }
 
 // ===== Request Building =====
