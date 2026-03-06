@@ -271,7 +271,7 @@ const Workspace = () => {
 
       // Re-number and merge into existing scenes
       // Find the insertion point: after all scenes from previous chunks, before scenes from later chunks
-      const epPrefix = meta.episodes.length > 1 ? `${chunkIndex + 1}-` : "";
+      const epPrefix = meta.isRealEpisodes && meta.episodes.length > 1 ? `${chunkIndex + 1}-` : "";
       const mappedScenes: Scene[] = newScenes.map((s: any, i: number) => ({
         id: crypto.randomUUID(),
         sceneNumber: i + 1,
