@@ -606,13 +606,18 @@ const MIN_CHUNK_CHARS = 6000;
 
 interface SplitResult {
   chunks: string[];
-  isRealEpisodes: boolean; // true = split by episode markers; false = split by length
+  isRealEpisodes: boolean;
+  /** True if original split was by episode markers, even if sub-split occurred */
+  originallyEpisodes: boolean;
 }
+
+const MAX_CHUNK_CHARS = 12000;
+const MIN_CHUNK_CHARS = 6000;
 
 /** Split a multi-episode script into chunks. Only splits if script > 12000 chars */
 function splitScriptByEpisodes(script: string): SplitResult {
   // Don't split short scripts
-  if (script.length <= MAX_CHUNK_CHARS) return { chunks: [script], isRealEpisodes: false };
+  if (script.length <= MAX_CHUNK_CHARS) return { chunks: [script], isRealEpisodes: false, originallyEpisodes: false };
 
   // First try to split by episode markers
   const epPattern = /(?:^|\n)\s*(?:EP\s*(\d+)|第\s*(\d+)\s*[集话期章]|Episode\s+(\d+))\b/gi;
@@ -624,6 +629,7 @@ function splitScriptByEpisodes(script: string): SplitResult {
 
   let rawChunks: string[] = [];
   let isRealEpisodes = false;
+  let detectedEpisodes = false;
   if (markers.length > 1) {
     for (let i = 0; i < markers.length; i++) {
       const start = markers[i].index;
@@ -633,6 +639,7 @@ function splitScriptByEpisodes(script: string): SplitResult {
     }
     if (rawChunks.length > 1) {
       isRealEpisodes = true;
+      detectedEpisodes = true;
     } else {
       rawChunks = [script];
     }
@@ -680,8 +687,8 @@ function splitScriptByEpisodes(script: string): SplitResult {
   if (hadSubSplit && isRealEpisodes) isRealEpisodes = false;
 
   return finalChunks.length > 1
-    ? { chunks: finalChunks, isRealEpisodes }
-    : { chunks: [script], isRealEpisodes: false };
+    ? { chunks: finalChunks, isRealEpisodes, originallyEpisodes: detectedEpisodes }
+    : { chunks: [script], isRealEpisodes: false, originallyEpisodes: false };
 }
 
 /** Parse decompose JSON result from AI text */
