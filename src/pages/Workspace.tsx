@@ -120,9 +120,9 @@ const Workspace = () => {
   const [phase2RetryCount, setPhase2RetryCount] = useState(0);
   // Store phase 1 results for phase 2 retry — persisted to localStorage
   const PHASE1_LS_KEY = "phase1-results";
-  const phase1ResultsRef = useRef<{ autoCharacters: CharacterSetting[]; aiSceneSettings: Array<{ name: string; description: string }> } | null>(() => {
-    try { const raw = localStorage.getItem(PHASE1_LS_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; }
-  });
+  const phase1ResultsRef = useRef<{ autoCharacters: CharacterSetting[]; aiSceneSettings: Array<{ name: string; description: string }> } | null>(
+    (() => { try { const raw = localStorage.getItem(PHASE1_LS_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; } })()
+  );
   const savePhase1Results = (data: typeof phase1ResultsRef.current) => {
     phase1ResultsRef.current = data;
     try { if (data) localStorage.setItem(PHASE1_LS_KEY, JSON.stringify(data)); else localStorage.removeItem(PHASE1_LS_KEY); } catch { /* ignore */ }
