@@ -145,13 +145,25 @@ const ENHANCE_PROMPT = `你是一位专业的影视视频生成提示词工程�
 
 最终时长 = clamp(基准 + 对白加成 + 情绪调整, 4, 8)`;
 
-const ETHNICITY_RULE = `### Ethnicity & Cultural Consistency (HIGHEST PRIORITY)
-You MUST first determine the cultural/geographical setting of the script (e.g., Western/European, East Asian, Middle Eastern, African, Latin American, etc.).
+const ETHNICITY_RULE = `### Ethnicity, Era & Cultural Consistency (HIGHEST PRIORITY)
+You MUST first determine TWO things from the script:
+1. The cultural/geographical setting (e.g., Western/European, East Asian, Middle Eastern, etc.)
+2. The historical era / time period (e.g., medieval, modern, futuristic, ancient, 1920s, etc.)
+
+**Ethnicity rules:**
 - ALL characters MUST default to the ethnicity, skin tone, and facial features typical of that setting UNLESS the script explicitly states otherwise.
 - For a Western/European story: characters should have Caucasian features by default.
 - For an East Asian story: characters should have East Asian features by default.
 - Apply the same logic for any other cultural setting.
-This rule overrides any other inference. Ethnicity must be explicitly stated in every description.`;
+- Ethnicity must be explicitly stated in every description.
+
+**Era & costume rules (EQUALLY IMPORTANT):**
+- ALL clothing, armor, accessories, hairstyles, and props MUST be historically/setting-appropriate for the identified era.
+- For a medieval/fantasy setting: use period-appropriate garments (robes, tunics, armor, cloaks, leather gear, etc.). NEVER use modern clothing (suits, t-shirts, jeans, sneakers, etc.).
+- For a futuristic setting: use sci-fi appropriate attire. NEVER use anachronistic historical clothing.
+- When the script is set in a specific era, EVERY costume variant must respect that era. No exceptions.
+- Explicitly state the era-appropriate clothing style in every description.
+This rule overrides any other inference.`;
 
 // ===== MAIN INTERFACE =====
 
@@ -612,7 +624,9 @@ The image should be a clean character turnaround sheet with 4 views arranged in 
 - Bottom-left: BACK VIEW (full body, facing away)
 - Bottom-right: FACE CLOSE-UP (detailed head/face portrait)
 
-Each view should be labeled clearly. The character design must be consistent across all 4 views. The entire image MUST be in ${styleDesc} style.${refImageNote}`;
+Each view should be labeled clearly. The character design must be consistent across all 4 views. The entire image MUST be in ${styleDesc} style.
+
+CRITICAL: The character's clothing, armor, and accessories MUST match the era and setting described above. If the description mentions medieval, fantasy, ancient, or any specific historical period, ALL clothing must be era-appropriate. NEVER use modern clothing (suits, t-shirts, jeans, sneakers) for historical/fantasy characters.${refImageNote}`;
 
   const selectedModel = model || "gemini-3-pro-image-preview";
   const isSeedream = selectedModel.startsWith("doubao-seedream");
