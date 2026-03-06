@@ -101,6 +101,12 @@ const DECOMPOSE_PROMPT_BASE = `你是专业电影分镜师。将剧本拆解为A
   {"sceneNumber":3,"segmentLabel":"1-1","sceneName":"战场","description":"特写：刀刃碰撞火花四溅","characters":["角色A","角色B"],"dialogue":"","cameraDirection":"无字幕、无水印、无背景音","duration":15,"characterCostumes":{"角色A":"青年·战甲"}}
 ]
 
+
+⚠️ 最终检查清单（输出前必须逐条验证）：
+1. 每条对话是否都在字数上限之内？超过则必须拆分片段。
+2. 每个片段是否有{SHOTS_PER_SEGMENT}个分镜？
+3. 片段总数是否接近{SEGMENTS_PER_EPISODE}？（因台词拆分可以略多，但不可少于{SEGMENTS_PER_EPISODE}）
+
 直接输出JSON，无思考过程。`;
 
 const PACE_CONFIG: Record<string, {
