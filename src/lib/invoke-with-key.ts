@@ -611,8 +611,6 @@ interface SplitResult {
   originallyEpisodes: boolean;
 }
 
-const MAX_CHUNK_CHARS = 12000;
-const MIN_CHUNK_CHARS = 6000;
 
 /** Split a multi-episode script into chunks. Only splits if script > 12000 chars */
 function splitScriptByEpisodes(script: string): SplitResult {
