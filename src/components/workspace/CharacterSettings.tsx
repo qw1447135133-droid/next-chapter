@@ -823,13 +823,14 @@ const CharacterSettings = ({
       let localCostumes = [...(latestChar?.costumes || []).map(cc => ({ ...cc }))];
       // Anchor logic: first costume generates without reference; subsequent costumes use first's image
       let costumeAnchorUrl: string | undefined;
+      try {
       for (let cosIdx = 0; cosIdx < costumesToGen.length; cosIdx++) {
         const cos = costumesToGen[cosIdx];
-        if (autoDetectAbortRef.current) return;
+        if (autoDetectAbortRef.current) break;
         updateCharacterAsync(c.id, { activeCostumeId: cos.id });
-        if (autoDetectAbortRef.current) return;
+        if (autoDetectAbortRef.current) break;
         await imageSem.acquire();
-        if (autoDetectAbortRef.current) { imageSem.release(); return; }
+        if (autoDetectAbortRef.current) { imageSem.release(); break; }
         const cosTaskKey = `costume-${cos.id}`;
         addTask(cosTaskKey, "charImg");
         setGeneratingCharImgIds((prev) => new Set(prev).add(cosTaskKey));
@@ -897,8 +898,10 @@ const CharacterSettings = ({
           break;
         }
       }
-      // Clear character-level generating flag after all costumes done
-      setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(c.id); return next; });
+      } finally {
+        // Always clear character-level generating flag, even on abort/error
+        setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(c.id); return next; });
+      }
     };
 
     // Process a single scene: description → image (or time variant images)
