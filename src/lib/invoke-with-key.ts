@@ -635,10 +635,9 @@ function chineseToNumber(s: string): number {
   return result + current;
 }
 
-/** Split a multi-episode script into chunks. Only splits if script > 12000 chars */
+/** Split a multi-episode script into chunks */
 function splitScriptByEpisodes(script: string): SplitResult {
-  // Don't split short scripts
-  if (script.length <= MAX_CHUNK_CHARS) return { chunks: [script], isRealEpisodes: false, originallyEpisodes: false };
+  // First try to detect episode markers before checking length
 
   // First try to split by episode markers (supports Arabic digits and Chinese numerals)
   const epPattern = /(?:^|\n)\s*(?:EP\s*(\d+)|第\s*([零一二三四五六七八九十百千万\d]+)\s*[集话期章]|Episode\s+(\d+))\b/gi;
