@@ -134,7 +134,7 @@ const Workspace = () => {
   const isRestoringRef = useRef(false);
   const [decomposeChunks, setDecomposeChunks] = useState<ChunkStatus[]>([]);
   const [retryingChunk, setRetryingChunk] = useState<number | null>(null);
-  const lastDecomposeMetaRef = useRef<{ episodes: string[]; costumeContext: string; model: string; prompt: string } | null>(null);
+  const lastDecomposeMetaRef = useRef<{ episodes: string[]; costumeContext: string; model: string; prompt: string; chunkSegmentCounts?: number[]; isRealEpisodes?: boolean; videoPace?: string } | null>(null);
   const [analyzePhase, setAnalyzePhase] = useState<AnalyzePhase>("idle");
   const [phase1Info, setPhase1Info] = useState("");
   const [phase2Info, setPhase2Info] = useState("");
@@ -263,11 +263,15 @@ const Workspace = () => {
     setDecomposeChunks(prev => prev.map(c => c.index === chunkIndex ? { ...c, status: "processing" as const, error: undefined } : c));
 
     try {
-      const newScenes = await retryDecomposeChunk(chunkIndex, meta.episodes, meta.costumeContext, meta.model, meta.prompt);
+      const newScenes = await retryDecomposeChunk(chunkIndex, meta.episodes, meta.costumeContext, meta.model, meta.prompt, {
+        chunkSegments: meta.chunkSegmentCounts?.[chunkIndex],
+        isRealEpisodes: meta.isRealEpisodes,
+        videoPace: meta.videoPace,
+      });
 
       // Re-number and merge into existing scenes
       // Find the insertion point: after all scenes from previous chunks, before scenes from later chunks
-      const epPrefix = meta.episodes.length > 1 ? `${chunkIndex + 1}-` : "";
+      const epPrefix = meta.isRealEpisodes && meta.episodes.length > 1 ? `${chunkIndex + 1}-` : "";
       const mappedScenes: Scene[] = newScenes.map((s: any, i: number) => ({
         id: crypto.randomUUID(),
         sceneNumber: i + 1,
@@ -389,6 +393,9 @@ const Workspace = () => {
             costumeContext: decomposeData.costumeContext || "",
             model: decomposeData.model || decomposeModel,
             prompt: decomposeData.prompt || "",
+            chunkSegmentCounts: decomposeData.chunkSegmentCounts,
+            isRealEpisodes: decomposeData.isRealEpisodes,
+            videoPace: decomposeData.videoPace,
           };
         }
 

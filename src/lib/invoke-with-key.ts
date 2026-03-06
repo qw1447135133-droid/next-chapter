@@ -220,11 +220,21 @@ export async function retryDecomposeChunk(
   costumeContext: string,
   model: string,
   prompt: string,
+  options?: { chunkSegments?: number; isRealEpisodes?: boolean; videoPace?: string },
 ): Promise<any[]> {
   const ep = episodes[chunkIndex];
   if (!ep) throw new Error(`无效的分块索引: ${chunkIndex}`);
-  const epPrefix = episodes.length > 1 ? `${chunkIndex + 1}-` : "";
-  const userText = `${prompt}\n\n---\n\n以下是第${chunkIndex + 1}集剧本：\n\n${ep}${costumeContext}`;
+  
+  // Use chunk-specific prompt if segment count is provided
+  const actualPrompt = options?.chunkSegments
+    ? buildDecomposePrompt(options.videoPace, options.chunkSegments)
+    : prompt;
+  
+  const epPrefix = options?.isRealEpisodes && episodes.length > 1 ? `${chunkIndex + 1}-` : "";
+  const chunkLabel = options?.isRealEpisodes
+    ? `以下是第${chunkIndex + 1}集剧本`
+    : `以下是剧本的第${chunkIndex + 1}部分（共${episodes.length}部分，属于同一集，本部分需要恰好${options?.chunkSegments || '?'}个片段）`;
+  const userText = `${actualPrompt}\n\n---\n\n${chunkLabel}：\n\n${ep}${costumeContext}`;
   const chunkSignal = AbortSignal.timeout(5 * 60_000);
   const data = await callGemini(model,
     [{ role: "user", parts: [{ text: userText }] }],
@@ -232,7 +242,7 @@ export async function retryDecomposeChunk(
     chunkSignal,
   );
   const resultText = extractText(data);
-  if (!resultText) throw new Error(`第${chunkIndex + 1}集重试失败：AI 未返回内容`);
+  if (!resultText) throw new Error(`第${chunkIndex + 1}${options?.isRealEpisodes ? '集' : '段'}重试失败：AI 未返回内容`);
   const epScenes = parseDecomposeResult(resultText);
   for (const scene of epScenes) {
     if (epPrefix) {
@@ -570,7 +580,7 @@ ${lastScenesDesc}
       }
     }
 
-    return { scenes: allScenes, failedChunks, episodes, costumeContext, model, prompt: buildDecomposePrompt(videoPace, segmentsPerEpisode) };
+    return { scenes: allScenes, failedChunks, episodes, costumeContext, model, prompt: buildDecomposePrompt(videoPace, segmentsPerEpisode), chunkSegmentCounts, isRealEpisodes: splitResult.isRealEpisodes, videoPace };
   }
 
   // Single episode or couldn't split - send as one request
