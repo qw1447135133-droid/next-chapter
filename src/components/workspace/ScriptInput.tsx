@@ -190,14 +190,14 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
               <ChevronDown className={`h-3 w-3 transition-transform ${durationOpen ? "rotate-180" : ""}`} />
             </button>
             {durationOpen && (
-              <div className="absolute right-0 bottom-full mb-1 z-50 w-full rounded-lg border border-border bg-popover shadow-lg py-1">
+              <div className="absolute right-0 bottom-full mb-1 z-50 w-full rounded-lg border border-border bg-popover shadow-lg py-0.5">
                 {EPISODE_DURATION_OPTIONS.map((opt) => (
                   <button
                     key={opt.value}
                     type="button"
                     onClick={() => { onEpisodeDurationChange(opt.value); if (opt.value !== 'custom') setDurationOpen(false); }}
-                    className={`w-full text-left px-4 py-2 text-sm transition-colors rounded-md ${
-                      opt.value === episodeDuration ? "bg-green-500 text-white" : "text-popover-foreground hover:bg-accent"
+                    className={`w-full text-left px-4 py-1 text-sm transition-colors rounded-md ${
+                      opt.value === episodeDuration ? "bg-blue-500 text-white" : "text-popover-foreground hover:bg-accent"
                     }`}
                   >
                     {opt.label}
