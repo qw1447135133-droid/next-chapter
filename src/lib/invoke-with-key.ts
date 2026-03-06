@@ -648,6 +648,7 @@ function splitScriptByEpisodes(script: string): SplitResult {
     const num = /^\d+$/.test(numStr) ? parseInt(numStr) : chineseToNumber(numStr);
     markers.push({ index: m.index, num });
   }
+  console.log(`[splitScriptByEpisodes] 检测到 ${markers.length} 个集数标记`, markers.slice(0, 5).map(m => ({ index: m.index, num: m.num, preview: script.slice(m.index, m.index + 30) })));
 
   let rawChunks: string[] = [];
   let isRealEpisodes = false;
