@@ -31,6 +31,9 @@ export interface ApiConfig {
   // 视频首帧图片压缩参数
   firstFrameMaxDim: number;
   firstFrameMaxKB: number;
+  // 网络重试参数
+  retryCount: number;
+  retryDelayMs: number;
 }
 
 const STORAGE_KEY = "storyforge_api_config";
