@@ -473,7 +473,7 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
 
     // Notify frontend of chunk count immediately
     if (onProgress) {
-      onProgress({ scenes: allScenes, chunkIndex: -1, totalChunks: episodes.length, status: "init", failedChunks, chunkSegmentCounts, isRealEpisodes: splitResult.isRealEpisodes });
+      onProgress({ scenes: allScenes, chunkIndex: -1, totalChunks: episodes.length, status: "init", failedChunks, chunkSegmentCounts, isRealEpisodes: splitResult.isRealEpisodes, originallyEpisodes: splitResult.originallyEpisodes });
     }
 
     // Track previous chunk context for cross-chunk consistency
