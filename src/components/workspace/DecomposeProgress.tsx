@@ -165,7 +165,7 @@ const ChunkGrid = ({ chunks, onRetryChunk, isRetrying, onScrollToEpisode }: { ch
   );
 };
 
-const DecomposeProgress = ({ chunks, onRetryChunk, isRetrying }: DecomposeProgressProps) => {
+const DecomposeProgress = ({ chunks, onRetryChunk, isRetrying, onScrollToEpisode }: DecomposeProgressProps) => {
   const done = chunks.filter(c => c.status === "done").length;
   const failed = chunks.filter(c => c.status === "failed").length;
   const processing = chunks.some(c => c.status === "processing");
