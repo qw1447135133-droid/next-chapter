@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Sparkles, Loader2, Upload, ChevronDown } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { VideoPace, VIDEO_PACE_OPTIONS } from "@/types/project";
+import { VideoPace, VIDEO_PACE_OPTIONS, EpisodeDuration, EPISODE_DURATION_OPTIONS } from "@/types/project";
+import { Input } from "@/components/ui/input";
 
 export type DecomposeModel = "gemini-3.1-pro-preview" | "gemini-3-pro-preview" | "gemini-3-pro-preview-thinking" | "gemini-3-flash-preview";
 
@@ -25,30 +26,33 @@ interface ScriptInputProps {
   onDecomposeModelChange: (model: DecomposeModel) => void;
   videoPace: VideoPace;
   onVideoPaceChange: (pace: VideoPace) => void;
+  episodeDuration: EpisodeDuration;
+  onEpisodeDurationChange: (d: EpisodeDuration) => void;
+  customDuration: string;
+  onCustomDurationChange: (v: string) => void;
 }
 
 const ACCEPTED_TYPES = ".txt,.pdf,.doc,.docx";
 
-const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAnalyzing, decomposeModel, onDecomposeModelChange, videoPace, onVideoPaceChange }: ScriptInputProps) => {
+const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAnalyzing, decomposeModel, onDecomposeModelChange, videoPace, onVideoPaceChange, episodeDuration, onEpisodeDurationChange, customDuration, onCustomDurationChange }: ScriptInputProps) => {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const isUploading = useRef(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [paceOpen, setPaceOpen] = useState(false);
+  const [durationOpen, setDurationOpen] = useState(false);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const paceDropdownRef = useRef<HTMLDivElement>(null);
+  const durationDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
-        setModelOpen(false);
-      }
-      if (paceDropdownRef.current && !paceDropdownRef.current.contains(e.target as Node)) {
-        setPaceOpen(false);
-      }
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) setModelOpen(false);
+      if (paceDropdownRef.current && !paceDropdownRef.current.contains(e.target as Node)) setPaceOpen(false);
+      if (durationDropdownRef.current && !durationDropdownRef.current.contains(e.target as Node)) setDurationOpen(false);
     };
-    if (modelOpen || paceOpen) document.addEventListener("mousedown", handleClickOutside);
+    if (modelOpen || paceOpen || durationOpen) document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [modelOpen, paceOpen]);
+  }, [modelOpen, paceOpen, durationOpen]);
 
   const currentModel = DECOMPOSE_MODEL_OPTIONS.find((o) => o.value === decomposeModel)!;
 
@@ -174,6 +178,49 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
           {script.length} 字
         </span>
         <div className="flex items-center gap-3">
+          {/* Episode Duration Selector */}
+          <div className="relative" ref={durationDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setDurationOpen((v) => !v)}
+              disabled={isAnalyzing}
+              className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+            >
+              单集时长：{episodeDuration === 'custom' ? (customDuration ? `${customDuration}s` : '自定义') : `${episodeDuration}s`}
+              <ChevronDown className={`h-3 w-3 transition-transform ${durationOpen ? "rotate-180" : ""}`} />
+            </button>
+            {durationOpen && (
+              <div className="absolute right-0 bottom-full mb-1 z-50 w-full rounded-lg border border-border bg-popover shadow-lg py-1">
+                {EPISODE_DURATION_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { onEpisodeDurationChange(opt.value); if (opt.value !== 'custom') setDurationOpen(false); }}
+                    className={`w-full text-left px-4 py-2 text-sm transition-colors rounded-md ${
+                      opt.value === episodeDuration ? "bg-green-500 text-white" : "text-popover-foreground hover:bg-accent"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+                {episodeDuration === 'custom' && (
+                  <div className="px-4 py-2">
+                    <Input
+                      type="number"
+                      min={15}
+                      max={600}
+                      step={15}
+                      placeholder="输入秒数"
+                      value={customDuration}
+                      onChange={(e) => onCustomDurationChange(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Video Pace Selector */}
           <div className="relative" ref={paceDropdownRef}>
             <button
@@ -192,7 +239,7 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
                     key={opt.value}
                     type="button"
                     onClick={() => { onVideoPaceChange(opt.value); setPaceOpen(false); }}
-                    className={`w-full text-left px-4 py-2 text-sm transition-colors rounded-md mx-auto ${
+                    className={`w-full text-left px-4 py-2 text-sm transition-colors rounded-md ${
                       opt.value === videoPace ? "bg-green-500 text-white" : "text-popover-foreground hover:bg-accent"
                     }`}
                   >

@@ -9,8 +9,8 @@ import { toast } from "@/hooks/use-toast";
 import { friendlyError } from "@/lib/friendly-error";
 import { compressImage } from "@/lib/image-compress";
 import { invokeFunction, retryDecomposeChunk } from "@/lib/invoke-with-key";
-import type { Scene, CharacterSetting, SceneSetting, WorkspaceStep, ArtStyle, VideoModel, CostumeSetting } from "@/types/project";
-import { VIDEO_MODEL_API_MAP } from "@/types/project";
+import type { Scene, CharacterSetting, SceneSetting, WorkspaceStep, ArtStyle, VideoModel, CostumeSetting, EpisodeDuration } from "@/types/project";
+import { VIDEO_MODEL_API_MAP, getSegmentsForDuration } from "@/types/project";
 import { useSmartPersistence } from "@/hooks/use-smart-persistence";
 import StepIndicator from "@/components/workspace/StepIndicator";
 import ScriptInput from "@/components/workspace/ScriptInput";
@@ -62,6 +62,20 @@ const Workspace = () => {
   const setVideoPace = (v: import("@/types/project").VideoPace) => {
     setVideoPaceState(v);
     try { localStorage.setItem("video-pace", v); } catch { /* ignore */ }
+  };
+  const [episodeDuration, setEpisodeDurationState] = useState<EpisodeDuration>(() => {
+    try { return (localStorage.getItem("episode-duration") as EpisodeDuration) || "60"; } catch { return "60"; }
+  });
+  const setEpisodeDuration = (v: EpisodeDuration) => {
+    setEpisodeDurationState(v);
+    try { localStorage.setItem("episode-duration", v); } catch { /* ignore */ }
+  };
+  const [customDuration, setCustomDurationState] = useState(() => {
+    try { return localStorage.getItem("episode-custom-duration") || ""; } catch { return ""; }
+  });
+  const setCustomDuration = (v: string) => {
+    setCustomDurationState(v);
+    try { localStorage.setItem("episode-custom-duration", v); } catch { /* ignore */ }
   };
   const [decomposeModel, setDecomposeModelState] = useState<DecomposeModel>(() => {
     try { return (localStorage.getItem("decompose-model") as DecomposeModel) || "gemini-3.1-pro-preview"; } catch { return "gemini-3.1-pro-preview"; }
@@ -359,11 +373,13 @@ const Workspace = () => {
           }
         };
 
+        const segmentsPerEpisode = getSegmentsForDuration(episodeDuration, customDuration ? Number(customDuration) : undefined);
         const { data: decomposeData, error: decomposeError } = await invokeFunction("script-decompose", {
           script,
           systemPrompt,
           model: decomposeModel,
           videoPace,
+          segmentsPerEpisode,
         }, { onProgress: handleDecomposeProgress, abortSignal: controller.signal });
         if (decomposeError) throw decomposeError;
 
@@ -1113,6 +1129,10 @@ const Workspace = () => {
               onDecomposeModelChange={setDecomposeModel}
               videoPace={videoPace}
               onVideoPaceChange={setVideoPace}
+              episodeDuration={episodeDuration}
+              onEpisodeDurationChange={setEpisodeDuration}
+              customDuration={customDuration}
+              onCustomDurationChange={setCustomDuration}
             />
             {analyzePhase !== "idle" && (
               <AnalyzeProgress
