@@ -103,20 +103,29 @@ const DECOMPOSE_PROMPT_BASE = `你是专业电影分镜师。将剧本拆解为A
 
 直接输出JSON，无思考过程。`;
 
-const PACE_CONFIG: Record<string, { shots: string; targetChars: number; maxChars: number }> = {
-  slow:   { shots: "2~4", targetChars: 12, maxChars: 15 },
-  medium: { shots: "3~5", targetChars: 15, maxChars: 22 },
-  fast:   { shots: "4~6", targetChars: 25, maxChars: 32 },
+const PACE_CONFIG: Record<string, {
+  shots: string;
+  chars1: [number, number]; // 1 dialogue: [min, max]
+  chars2: [number, number]; // 2 dialogues: per-line [min, max]
+  chars3: [number, number]; // 3 dialogues: per-line [min, max]
+}> = {
+  slow:   { shots: "2~4", chars1: [15, 22], chars2: [11, 18], chars3: [7, 14] },
+  medium: { shots: "3~5", chars1: [15, 27], chars2: [11, 22], chars3: [7, 17] },
+  fast:   { shots: "4~6", chars1: [15, 32], chars2: [11, 26], chars3: [7, 20] },
 };
 
 function buildDecomposePrompt(pace?: string, segmentsPerEpisode?: number | null): string {
   const cfg = PACE_CONFIG[pace || "medium"] || PACE_CONFIG.medium;
-  const segments = segmentsPerEpisode || 5; // default 5 segments (60s)
+  const segments = segmentsPerEpisode || 5;
   return DECOMPOSE_PROMPT_BASE
     .replace(/\{SEGMENTS_PER_EPISODE\}/g, String(segments))
     .replace(/\{SHOTS_PER_SEGMENT\}/g, cfg.shots)
-    .replace(/\{TARGET_DIALOGUE_CHARS\}/g, String(cfg.targetChars))
-    .replace(/\{MAX_DIALOGUE_CHARS\}/g, String(cfg.maxChars));
+    .replace(/\{CHARS_1_DIAL_MIN\}/g, String(cfg.chars1[0]))
+    .replace(/\{CHARS_1_DIAL_MAX\}/g, String(cfg.chars1[1]))
+    .replace(/\{CHARS_2_DIAL_MIN\}/g, String(cfg.chars2[0]))
+    .replace(/\{CHARS_2_DIAL_MAX\}/g, String(cfg.chars2[1]))
+    .replace(/\{CHARS_3_DIAL_MIN\}/g, String(cfg.chars3[0]))
+    .replace(/\{CHARS_3_DIAL_MAX\}/g, String(cfg.chars3[1]));
 }
 
 const ENHANCE_PROMPT = `你是一位专业的影视视频生成提示词工程师。你的任务是将简短的分镜描述扩展为丰富、具体、富有画面感的视频生成提示词。
