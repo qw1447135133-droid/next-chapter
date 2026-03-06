@@ -26,6 +26,10 @@ interface ScriptInputProps {
   onDecomposeModelChange: (model: DecomposeModel) => void;
   videoPace: VideoPace;
   onVideoPaceChange: (pace: VideoPace) => void;
+  episodeDuration: EpisodeDuration;
+  onEpisodeDurationChange: (d: EpisodeDuration) => void;
+  customDuration: string;
+  onCustomDurationChange: (v: string) => void;
 }
 
 const ACCEPTED_TYPES = ".txt,.pdf,.doc,.docx";
