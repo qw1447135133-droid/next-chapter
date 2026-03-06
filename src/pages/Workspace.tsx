@@ -1129,6 +1129,10 @@ const Workspace = () => {
               onDecomposeModelChange={setDecomposeModel}
               videoPace={videoPace}
               onVideoPaceChange={setVideoPace}
+              episodeDuration={episodeDuration}
+              onEpisodeDurationChange={setEpisodeDuration}
+              customDuration={customDuration}
+              onCustomDurationChange={setCustomDuration}
             />
             {analyzePhase !== "idle" && (
               <AnalyzeProgress
