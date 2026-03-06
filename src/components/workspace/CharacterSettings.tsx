@@ -1033,6 +1033,7 @@ const CharacterSettings = ({
           removeTask(tvTaskKey, "sceneImg");
           setGeneratingSceneImgIds((prev) => { const next = new Set(prev); next.delete(tvTaskKey); return next; });
           imageSem.release();
+          if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
         }
         bumpDone();
         if (tvImgOk) successCountRef.current++; else failCountRef.current++;
