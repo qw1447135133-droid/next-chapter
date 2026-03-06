@@ -9,6 +9,7 @@ export interface ChunkStatus {
   label: string;
   status: "pending" | "processing" | "done" | "failed" | "cancelled";
   error?: string;
+  segmentCount?: number;
 }
 
 interface DecomposeProgressProps {
