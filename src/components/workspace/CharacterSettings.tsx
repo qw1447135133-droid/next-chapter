@@ -765,6 +765,7 @@ const CharacterSettings = ({
         removeTask(c.id, "charDesc");
         setGeneratingCharDescIds(prev => { const next = new Set(prev); next.delete(c.id); return next; });
         textSem.release();
+        if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
       }
       bumpDone();
       if (descOk) successCountRef.current++; else { failCountRef.current++; return; }
