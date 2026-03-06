@@ -105,10 +105,54 @@ const SceneList = ({ scenes, onScenesChange, onNext, characters = [] }: SceneLis
         label: `片段 ${label}`,
         sceneName: sceneNames.join('、') || label,
         scenes: groupScenes,
-        totalDuration: groupScenes[0]?.duration || 15, // segment duration is fixed (not summed)
+        totalDuration: groupScenes[0]?.duration || 15,
       };
     });
   }, [scenes]);
+
+  // Group segments by episode (prefix before "-")
+  const episodeGroups: EpisodeGroup[] = useMemo(() => {
+    if (segments.length === 0) return [];
+
+    // Check if segmentLabels follow "N-M" pattern (episode-segment)
+    const hasEpisodePrefix = segments.some(seg => {
+      const raw = seg.label.replace('片段 ', '');
+      return /^\d+-\d+$/.test(raw);
+    });
+
+    if (!hasEpisodePrefix) {
+      // Single group, no episode headers needed
+      return [{
+        episodeKey: 'all',
+        episodeLabel: '',
+        segments,
+        totalScenes: segments.reduce((sum, s) => sum + s.scenes.length, 0),
+      }];
+    }
+
+    const groupMap = new Map<string, Segment[]>();
+    const groupOrder: string[] = [];
+
+    for (const seg of segments) {
+      const raw = seg.label.replace('片段 ', '');
+      const epNum = raw.split('-')[0] || '1';
+      if (!groupMap.has(epNum)) {
+        groupMap.set(epNum, []);
+        groupOrder.push(epNum);
+      }
+      groupMap.get(epNum)!.push(seg);
+    }
+
+    return groupOrder.map(epNum => {
+      const epSegments = groupMap.get(epNum)!;
+      return {
+        episodeKey: `ep-${epNum}`,
+        episodeLabel: `第 ${epNum} 集`,
+        segments: epSegments,
+        totalScenes: epSegments.reduce((sum, s) => sum + s.scenes.length, 0),
+      };
+    });
+  }, [segments]);
 
   const updateScene = (id: string, updates: Partial<Scene>) => {
     onScenesChange(scenes.map((s) => (s.id === id ? { ...s, ...updates } : s)));
