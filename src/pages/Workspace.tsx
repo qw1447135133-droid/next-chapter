@@ -63,6 +63,20 @@ const Workspace = () => {
     setVideoPaceState(v);
     try { localStorage.setItem("video-pace", v); } catch { /* ignore */ }
   };
+  const [episodeDuration, setEpisodeDurationState] = useState<EpisodeDuration>(() => {
+    try { return (localStorage.getItem("episode-duration") as EpisodeDuration) || "60"; } catch { return "60"; }
+  });
+  const setEpisodeDuration = (v: EpisodeDuration) => {
+    setEpisodeDurationState(v);
+    try { localStorage.setItem("episode-duration", v); } catch { /* ignore */ }
+  };
+  const [customDuration, setCustomDurationState] = useState(() => {
+    try { return localStorage.getItem("episode-custom-duration") || ""; } catch { return ""; }
+  });
+  const setCustomDuration = (v: string) => {
+    setCustomDurationState(v);
+    try { localStorage.setItem("episode-custom-duration", v); } catch { /* ignore */ }
+  };
   const [decomposeModel, setDecomposeModelState] = useState<DecomposeModel>(() => {
     try { return (localStorage.getItem("decompose-model") as DecomposeModel) || "gemini-3.1-pro-preview"; } catch { return "gemini-3.1-pro-preview"; }
   });
