@@ -106,9 +106,11 @@ const PACE_CONFIG: Record<string, { shots: string; targetChars: number; maxChars
   fast:   { shots: "4~6", targetChars: 32, maxChars: 38 },
 };
 
-function buildDecomposePrompt(pace?: string): string {
+function buildDecomposePrompt(pace?: string, segmentsPerEpisode?: number | null): string {
   const cfg = PACE_CONFIG[pace || "medium"] || PACE_CONFIG.medium;
+  const segments = segmentsPerEpisode || 5; // default 5 segments (60s)
   return DECOMPOSE_PROMPT_BASE
+    .replace(/\{SEGMENTS_PER_EPISODE\}/g, String(segments))
     .replace(/\{SHOTS_PER_SEGMENT\}/g, cfg.shots)
     .replace(/\{TARGET_DIALOGUE_CHARS\}/g, String(cfg.targetChars))
     .replace(/\{MAX_DIALOGUE_CHARS\}/g, String(cfg.maxChars));
