@@ -942,30 +942,33 @@ const CharacterSettings = ({
     // Process a single scene: description → image (or time variant images)
     const processScene = async (s: SceneSetting) => {
       if (!String(s.name || "").trim()) return;
-      let desc = "";
-      let descOk = false;
-      if (autoDetectAbortRef.current) return;
-      await textSem.acquire();
-      if (autoDetectAbortRef.current) { textSem.release(); return; }
-      addTask(s.id, "sceneDesc");
-      setGeneratingDescIds((prev) => new Set(prev).add(s.id));
-      try {
-        const data = await invokeStreamingFunction("generate-scene-description", {
-          sceneName: s.name, script, model: decomposeModel,
-        });
-        desc = data.description || "";
-        updateSceneAsync(s.id, { description: desc });
-        descOk = true;
-      } catch (e) {
-        console.error(`Scene desc "${s.name}" failed:`, e);
-      } finally {
-        removeTask(s.id, "sceneDesc");
-        setGeneratingDescIds(prev => { const next = new Set(prev); next.delete(s.id); return next; });
-        textSem.release();
-        if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
+      let desc = s.description || "";
+      let descOk = skipDesc ? true : false;
+      if (!skipDesc) {
+        if (autoDetectAbortRef.current) return;
+        await textSem.acquire();
+        if (autoDetectAbortRef.current) { textSem.release(); return; }
+        addTask(s.id, "sceneDesc");
+        setGeneratingDescIds((prev) => new Set(prev).add(s.id));
+        try {
+          const data = await invokeStreamingFunction("generate-scene-description", {
+            sceneName: s.name, script, model: decomposeModel,
+          });
+          desc = data.description || "";
+          updateSceneAsync(s.id, { description: desc });
+          descOk = true;
+        } catch (e) {
+          console.error(`Scene desc "${s.name}" failed:`, e);
+        } finally {
+          removeTask(s.id, "sceneDesc");
+          setGeneratingDescIds(prev => { const next = new Set(prev); next.delete(s.id); return next; });
+          textSem.release();
+          if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
+        }
+        bumpDone();
+        if (!descOk) { failCountRef.current++; return; }
+        successCountRef.current++;
       }
-      bumpDone();
-      if (descOk) successCountRef.current++; else { failCountRef.current++; return; }
 
       const latestScene = sceneSettingsRef.current.find((sc) => sc.id === s.id);
       const hasTimeVariants = latestScene?.timeVariants && latestScene.timeVariants.length > 0;
