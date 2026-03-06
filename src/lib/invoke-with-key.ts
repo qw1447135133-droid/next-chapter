@@ -501,7 +501,7 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
       const ep = episodes[epIdx];
       const chunkSegments = chunkSegmentCounts[epIdx];
       console.log(`[localDecompose] 正在拆解第 ${epIdx + 1}/${episodes.length} ${splitResult.isRealEpisodes ? '集' : '段'}（需要${chunkSegments}个片段）...`);
-      const epPrefix = splitResult.isRealEpisodes && episodes.length > 1 ? `${epIdx + 1}-` : "";
+      const epPrefix = episodes.length > 1 ? `${epIdx + 1}-` : "";
 
       // Build prompt with correct segment count for this chunk
       const chunkPrompt = buildDecomposePrompt(videoPace, chunkSegments);
