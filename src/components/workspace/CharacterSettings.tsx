@@ -1220,7 +1220,6 @@ const CharacterSettings = ({
               </Button>
             );
           })()}
-          </Button>
           <Button size="sm" onClick={onNext} className="gap-1">
             下一步
             <ArrowRight className="h-3.5 w-3.5" />
