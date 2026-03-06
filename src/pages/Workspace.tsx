@@ -568,14 +568,6 @@ const Workspace = () => {
       resetAnalyzing();
     }
   };
-          title: fe.title,
-          description: `剧本拆解失败：${fe.description}`,
-          variant: "destructive",
-          duration: 8000,
-        });
-        resetAnalyzing();
-      }
-    };
 
   const handleGenerateSceneStoryboard = async (sceneId: string, aspectRatio: string = "16:9", model: string = "gemini-3-pro-image-preview") => {
     const scene = scenes.find((s) => s.id === sceneId);
