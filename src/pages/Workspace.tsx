@@ -1110,6 +1110,8 @@ const Workspace = () => {
               isAnalyzing={isAnalyzing}
               decomposeModel={decomposeModel}
               onDecomposeModelChange={setDecomposeModel}
+              videoPace={videoPace}
+              onVideoPaceChange={setVideoPace}
             />
             {analyzePhase !== "idle" && (
               <AnalyzeProgress

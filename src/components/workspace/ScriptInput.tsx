@@ -173,25 +173,57 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
         <span className="text-xs text-muted-foreground">
           {script.length} 字
         </span>
-        {isAnalyzing && onCancelAnalyze ? (
-          <Button
-            variant="destructive"
-            onClick={onCancelAnalyze}
-            className="gap-2"
-          >
-            <Loader2 className="h-4 w-4 animate-spin" />
-            中止生成
-          </Button>
-        ) : (
-          <Button
-            onClick={onAnalyze}
-            disabled={!script.trim()}
-            className="gap-2"
-          >
-            <Sparkles className="h-4 w-4" />
-            AI 拆解分镜
-          </Button>
-        )}
+        <div className="flex items-center gap-3">
+          {/* Video Pace Selector */}
+          <div className="relative" ref={paceDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setPaceOpen((v) => !v)}
+              disabled={isAnalyzing}
+              className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+            >
+              视频节奏：{VIDEO_PACE_OPTIONS.find((o) => o.value === videoPace)?.label}
+              <ChevronDown className={`h-3 w-3 transition-transform ${paceOpen ? "rotate-180" : ""}`} />
+            </button>
+            {paceOpen && (
+              <div className="absolute right-0 bottom-full mb-1 z-50 min-w-[260px] rounded-lg border border-border bg-popover shadow-lg py-1">
+                {VIDEO_PACE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { onVideoPaceChange(opt.value); setPaceOpen(false); }}
+                    className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent ${
+                      opt.value === videoPace ? "text-primary font-semibold" : "text-popover-foreground"
+                    }`}
+                  >
+                    <span className="font-medium">{opt.label}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{opt.desc}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {isAnalyzing && onCancelAnalyze ? (
+            <Button
+              variant="destructive"
+              onClick={onCancelAnalyze}
+              className="gap-2"
+            >
+              <Loader2 className="h-4 w-4 animate-spin" />
+              中止生成
+            </Button>
+          ) : (
+            <Button
+              onClick={onAnalyze}
+              disabled={!script.trim()}
+              className="gap-2"
+            >
+              <Sparkles className="h-4 w-4" />
+              AI 拆解分镜
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
