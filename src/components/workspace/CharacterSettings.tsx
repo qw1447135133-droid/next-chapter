@@ -808,6 +808,7 @@ const CharacterSettings = ({
           removeTask(c.id, "charImg");
           setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(c.id); return next; });
           imageSem.release();
+          if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
         }
         bumpDone();
         if (imgOk) successCountRef.current++; else failCountRef.current++;
