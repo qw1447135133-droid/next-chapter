@@ -536,24 +536,31 @@ function splitScriptByEpisodes(script: string): string[] {
       finalChunks.push(chunk);
       continue;
     }
-    // Split by paragraph boundaries (double newline) targeting MIN~MAX range
-    const paragraphs = chunk.split(/\n{2,}/);
+    // Split by paragraph boundaries targeting MIN~MAX range
+    // Try double newline first; if that doesn't produce enough splits, fall back to single newline
+    let paragraphs = chunk.split(/\n{2,}/);
+    if (paragraphs.length < 3) {
+      // Not enough double-newline breaks — fall back to single newline
+      paragraphs = chunk.split(/\n/);
+    }
+    const sep = paragraphs.length === chunk.split(/\n{2,}/).length ? "\n\n" : "\n";
     let current = "";
     for (let i = 0; i < paragraphs.length; i++) {
       const para = paragraphs[i];
-      const wouldBe = current.length + (current ? 2 : 0) + para.length;
+      if (!para.trim()) continue; // skip empty lines
+      const wouldBe = current.length + (current ? sep.length : 0) + para.length;
       // If adding this paragraph would exceed MAX and we already have enough content (>= MIN), flush
       if (wouldBe > MAX_CHUNK_CHARS && current.length >= MIN_CHUNK_CHARS) {
         finalChunks.push(current.trim());
         current = para;
       } else {
-        current += (current ? "\n\n" : "") + para;
+        current += (current ? sep : "") + para;
       }
     }
     if (current.trim()) {
       // If last chunk is too small, merge with previous
       if (current.trim().length < MIN_CHUNK_CHARS && finalChunks.length > 0) {
-        finalChunks[finalChunks.length - 1] += "\n\n" + current.trim();
+        finalChunks[finalChunks.length - 1] += sep + current.trim();
       } else {
         finalChunks.push(current.trim());
       }
