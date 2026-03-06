@@ -373,11 +373,11 @@ async function localExtract(body: any) {
 }
 
 async function localDecompose(body: any, onProgress?: (partialData: any) => void, abortSignal?: AbortSignal) {
-  const { script, systemPrompt, model: requestedModel, costumeInfo, videoPace } = body;
+  const { script, systemPrompt, model: requestedModel, costumeInfo, videoPace, segmentsPerEpisode } = body;
   if (!script) throw new Error("缺少剧本内容");
 
   const model = requestedModel || "gemini-3.1-pro-preview";
-  const prompt = (systemPrompt && typeof systemPrompt === "string") ? systemPrompt : buildDecomposePrompt(videoPace);
+  const prompt = (systemPrompt && typeof systemPrompt === "string") ? systemPrompt : buildDecomposePrompt(videoPace, segmentsPerEpisode);
   
   // Build costume context if available
   let costumeContext = "";
