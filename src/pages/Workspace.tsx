@@ -134,7 +134,7 @@ const Workspace = () => {
   const isRestoringRef = useRef(false);
   const [decomposeChunks, setDecomposeChunks] = useState<ChunkStatus[]>([]);
   const [retryingChunk, setRetryingChunk] = useState<number | null>(null);
-  const lastDecomposeMetaRef = useRef<{ episodes: string[]; costumeContext: string; model: string; prompt: string } | null>(null);
+  const lastDecomposeMetaRef = useRef<{ episodes: string[]; costumeContext: string; model: string; prompt: string; chunkSegmentCounts?: number[]; isRealEpisodes?: boolean; videoPace?: string } | null>(null);
   const [analyzePhase, setAnalyzePhase] = useState<AnalyzePhase>("idle");
   const [phase1Info, setPhase1Info] = useState("");
   const [phase2Info, setPhase2Info] = useState("");
