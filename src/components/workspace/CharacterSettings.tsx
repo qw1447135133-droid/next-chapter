@@ -694,7 +694,7 @@ const CharacterSettings = ({
     }
   };
 
-  const handleAutoDetectAll = async () => {
+  const handleAutoDetectAll = async (mode: "full" | "imagesOnly" = "full") => {
     if (isAutoDetectingAll) {
       autoDetectAbortRef.current = true;
       setIsAbortingAutoDetect(true);
@@ -708,22 +708,24 @@ const CharacterSettings = ({
     setIsAbortingAutoDetect(false);
     setIsAutoDetectingAll(true);
 
-    // Calculate total tasks: per character = 1 desc + (N costume imgs OR 1 base img); per scene = 1 desc + 1 img
+    const skipDesc = mode === "imagesOnly";
+
+    // Calculate total tasks
     const totalCharTasks = charactersRef.current.filter(c => String(c.name || "").trim()).reduce((sum, c) => {
       const hasCostumes = c.costumes && c.costumes.length > 0;
       if (hasCostumes) {
         const costumeCount = c.costumes!.filter(cos => cos.label?.trim()).length;
-        return sum + 1 + costumeCount; // desc + all costume imgs
+        return sum + (skipDesc ? 0 : 1) + costumeCount; // desc (if not skipped) + all costume imgs
       }
-      return sum + 2; // desc + base img
+      return sum + (skipDesc ? 1 : 2); // desc (if not skipped) + base img
     }, 0);
     const totalSceneTasks = sceneSettingsRef.current.filter(s => String(s.name || "").trim()).reduce((sum, s) => {
       const hasTimeVariants = s.timeVariants && s.timeVariants.length > 0;
       if (hasTimeVariants) {
         const tvCount = s.timeVariants!.filter(tv => tv.label?.trim()).length;
-        return sum + 1 + tvCount; // desc + all time variant imgs
+        return sum + (skipDesc ? 0 : 1) + tvCount; // desc (if not skipped) + all time variant imgs
       }
-      return sum + 2; // desc + base img
+      return sum + (skipDesc ? 1 : 2); // desc (if not skipped) + base img
     }, 0);
     const totalTasks = totalCharTasks + totalSceneTasks;
     let doneCount = 0;
@@ -758,47 +760,50 @@ const CharacterSettings = ({
 
       const hasCostumesToDescribe = c.costumes && c.costumes.length > 0;
 
-      // --- Description phase ---
-      let desc = "";
-      let descOk = false;
-      if (autoDetectAbortRef.current) return;
-      await textSem.acquire();
-      if (autoDetectAbortRef.current) { textSem.release(); return; }
-      addTask(c.id, "charDesc");
-      setGeneratingCharDescIds((prev) => new Set(prev).add(c.id));
-      try {
-        if (hasCostumesToDescribe) {
-          const data = await invokeStreamingFunction("generate-character-description", {
-            characterName: c.name, script, costumes: c.costumes!.map(cos => cos.label || "未命名"), model: decomposeModel,
-          });
-          desc = data.description || "";
-          if (data.costumeDescriptions && Array.isArray(data.costumeDescriptions)) {
-            const updatedCostumes = c.costumes!.map((cos, i) => ({
-              ...cos,
-              description: data.costumeDescriptions[i]?.description || cos.description,
-            }));
-            updateCharacterAsync(c.id, { description: desc, costumes: updatedCostumes });
+      // --- Description phase (skip if imagesOnly) ---
+      let desc = c.description || "";
+      let descOk = skipDesc ? true : false;
+      if (!skipDesc) {
+        if (autoDetectAbortRef.current) return;
+        await textSem.acquire();
+        if (autoDetectAbortRef.current) { textSem.release(); return; }
+        addTask(c.id, "charDesc");
+        setGeneratingCharDescIds((prev) => new Set(prev).add(c.id));
+        try {
+          if (hasCostumesToDescribe) {
+            const data = await invokeStreamingFunction("generate-character-description", {
+              characterName: c.name, script, costumes: c.costumes!.map(cos => cos.label || "未命名"), model: decomposeModel,
+            });
+            desc = data.description || "";
+            if (data.costumeDescriptions && Array.isArray(data.costumeDescriptions)) {
+              const updatedCostumes = c.costumes!.map((cos, i) => ({
+                ...cos,
+                description: data.costumeDescriptions[i]?.description || cos.description,
+              }));
+              updateCharacterAsync(c.id, { description: desc, costumes: updatedCostumes });
+            } else {
+              updateCharacterAsync(c.id, { description: desc });
+            }
           } else {
+            const data = await invokeStreamingFunction("generate-character-description", {
+              characterName: c.name, script, model: decomposeModel,
+            });
+            desc = data.description || "";
             updateCharacterAsync(c.id, { description: desc });
           }
-        } else {
-          const data = await invokeStreamingFunction("generate-character-description", {
-            characterName: c.name, script, model: decomposeModel,
-          });
-          desc = data.description || "";
-          updateCharacterAsync(c.id, { description: desc });
+          descOk = true;
+        } catch (e) {
+          console.error(`Char desc "${c.name}" failed:`, e);
+        } finally {
+          removeTask(c.id, "charDesc");
+          setGeneratingCharDescIds(prev => { const next = new Set(prev); next.delete(c.id); return next; });
+          textSem.release();
+          if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
         }
-        descOk = true;
-      } catch (e) {
-        console.error(`Char desc "${c.name}" failed:`, e);
-      } finally {
-        removeTask(c.id, "charDesc");
-        setGeneratingCharDescIds(prev => { const next = new Set(prev); next.delete(c.id); return next; });
-        textSem.release();
-        if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
+        bumpDone();
+        if (!descOk) { failCountRef.current++; return; }
+        successCountRef.current++;
       }
-      bumpDone();
-      if (descOk) successCountRef.current++; else { failCountRef.current++; return; }
 
       const latestChar = charactersRef.current.find((ch) => ch.id === c.id);
       const hasCostumes = latestChar?.costumes && latestChar.costumes.length > 0;
