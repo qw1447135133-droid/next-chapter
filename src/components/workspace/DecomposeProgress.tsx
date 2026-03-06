@@ -190,6 +190,9 @@ const DecomposeProgress = ({ chunks, onRetryChunk, isRetrying }: DecomposeProgre
             {chunk.status === "failed" && <XCircle className="h-3 w-3" />}
             {chunk.status === "processing" && <Loader2 className="h-3 w-3 animate-spin" />}
             <span>{chunk.label}</span>
+            {chunk.segmentCount != null && (
+              <span className="text-muted-foreground font-normal opacity-70">({chunk.segmentCount})</span>
+            )}
             {(chunk.status === "failed" || chunk.status === "cancelled" || chunk.status === "done") && (
               <Button
                 variant="ghost"
