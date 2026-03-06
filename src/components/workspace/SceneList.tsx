@@ -185,7 +185,7 @@ const SceneList = ({ scenes, onScenesChange, onNext, characters = [] }: SceneLis
         <div>
           <h2 className="text-xl font-semibold font-[Space_Grotesk] mb-1">片段列表</h2>
           <p className="text-sm text-muted-foreground">
-            共 {segments.length} 个片段，{scenes.length} 个分镜，可编辑调整
+            {episodeGroups.length > 1 ? `共 ${episodeGroups.length} 集，` : ''}共 {segments.length} 个片段，{scenes.length} 个分镜，可编辑调整
           </p>
         </div>
         <div className="flex gap-2">
