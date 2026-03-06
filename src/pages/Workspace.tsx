@@ -373,11 +373,13 @@ const Workspace = () => {
           }
         };
 
+        const segmentsPerEpisode = getSegmentsForDuration(episodeDuration, customDuration ? Number(customDuration) : undefined);
         const { data: decomposeData, error: decomposeError } = await invokeFunction("script-decompose", {
           script,
           systemPrompt,
           model: decomposeModel,
           videoPace,
+          segmentsPerEpisode,
         }, { onProgress: handleDecomposeProgress, abortSignal: controller.signal });
         if (decomposeError) throw decomposeError;
 
