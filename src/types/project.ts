@@ -117,6 +117,22 @@ export const VIDEO_MODEL_API_MAP: Record<VideoModel, string> = {
   'vidu-q3': 'viduq3-pro',
 };
 
+export type EpisodeDuration = '60' | '90' | '120' | 'custom';
+
+export const EPISODE_DURATION_OPTIONS: { value: EpisodeDuration; label: string }[] = [
+  { value: '60', label: '60s' },
+  { value: '90', label: '90s' },
+  { value: '120', label: '120s' },
+  { value: 'custom', label: '自定义' },
+];
+
+export function getSegmentsForDuration(duration: EpisodeDuration, customSeconds?: number): number | null {
+  if (duration === 'custom') {
+    return customSeconds ? Math.floor(customSeconds / 15) + 1 : null;
+  }
+  return Math.floor(Number(duration) / 15) + 1;
+}
+
 export type VideoPace = 'slow' | 'medium' | 'fast';
 
 export const VIDEO_PACE_OPTIONS: { value: VideoPace; label: string; desc: string }[] = [

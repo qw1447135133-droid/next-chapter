@@ -178,6 +178,49 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
           {script.length} 字
         </span>
         <div className="flex items-center gap-3">
+          {/* Episode Duration Selector */}
+          <div className="relative" ref={durationDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setDurationOpen((v) => !v)}
+              disabled={isAnalyzing}
+              className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+            >
+              单集时长：{episodeDuration === 'custom' ? (customDuration ? `${customDuration}s` : '自定义') : `${episodeDuration}s`}
+              <ChevronDown className={`h-3 w-3 transition-transform ${durationOpen ? "rotate-180" : ""}`} />
+            </button>
+            {durationOpen && (
+              <div className="absolute right-0 bottom-full mb-1 z-50 w-full rounded-lg border border-border bg-popover shadow-lg py-1">
+                {EPISODE_DURATION_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { onEpisodeDurationChange(opt.value); if (opt.value !== 'custom') setDurationOpen(false); }}
+                    className={`w-full text-left px-4 py-2 text-sm transition-colors rounded-md ${
+                      opt.value === episodeDuration ? "bg-green-500 text-white" : "text-popover-foreground hover:bg-accent"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+                {episodeDuration === 'custom' && (
+                  <div className="px-4 py-2">
+                    <Input
+                      type="number"
+                      min={15}
+                      max={600}
+                      step={15}
+                      placeholder="输入秒数"
+                      value={customDuration}
+                      onChange={(e) => onCustomDurationChange(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Video Pace Selector */}
           <div className="relative" ref={paceDropdownRef}>
             <button
@@ -196,7 +239,7 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
                     key={opt.value}
                     type="button"
                     onClick={() => { onVideoPaceChange(opt.value); setPaceOpen(false); }}
-                    className={`w-full text-left px-4 py-2 text-sm transition-colors rounded-md mx-auto ${
+                    className={`w-full text-left px-4 py-2 text-sm transition-colors rounded-md ${
                       opt.value === videoPace ? "bg-green-500 text-white" : "text-popover-foreground hover:bg-accent"
                     }`}
                   >
