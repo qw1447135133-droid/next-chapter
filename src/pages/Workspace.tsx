@@ -276,64 +276,40 @@ const Workspace = () => {
     analyzeAbortRef.current = null;
     isAnalyzingRef.current = false;
     setIsAnalyzing(false);
+    setAnalyzePhase("idle");
     toast({ title: "已中止", description: "剧本分析已取消" });
   };
 
-  const handleAnalyze = async () => {
-    if (!script.trim() || isAnalyzingRef.current) return;
-    isAnalyzingRef.current = true;
-    setIsAnalyzing(true);
+  /** Run phase 2 decomposition. Can be called standalone for retry. */
+  const runPhase2 = async (
+    autoCharacters: CharacterSetting[],
+    aiSceneSettings: Array<{ name: string; description: string }>,
+    controller: AbortController,
+    resetAnalyzing: () => void,
+  ) => {
+    const config = getApiConfig();
+    const maxAutoRetries = config.retryCount ?? 2;
+    const retryDelay = config.retryDelayMs ?? 3000;
+    let lastError: any = null;
 
-    const resetAnalyzing = () => {
-      isAnalyzingRef.current = false;
-      setIsAnalyzing(false);
-      analyzeAbortRef.current = null;
-    };
-    
-    try {
-        const controller = new AbortController();
-        analyzeAbortRef.current = controller;
+    for (let attempt = 0; attempt <= maxAutoRetries; attempt++) {
+      if (controller.signal.aborted) throw new Error("请求已取消");
 
-        // ========== Phase 1: Extract characters & scenes ==========
-        toast({ title: "阶段 1/2", description: "正在识别角色与场景..." });
-        
-        const { data: extractData, error: extractError } = await invokeFunction("extract-characters-scenes", { script, model: decomposeModel });
-        if (extractError) throw extractError;
+      if (attempt > 0) {
+        setPhase2RetryCount(attempt);
+        setPhase2Info(`网络错误，${(retryDelay / 1000).toFixed(1)}s 后自动重试...`);
+        await new Promise(r => setTimeout(r, retryDelay));
+        if (controller.signal.aborted) throw new Error("请求已取消");
+        setPhase2Info(`第 ${attempt} 次重试中...`);
+      }
 
-        // Process characters from phase 1 (no costumes in this phase)
-        const aiCharacters: Array<{ name: string; description: string }> = extractData.characters || [];
-        const aiSceneSettings: Array<{ name: string; description: string }> = extractData.sceneSettings || [];
-
-        const autoCharacters: CharacterSetting[] = aiCharacters.map((aiChar) => ({
-          id: crypto.randomUUID(),
-          name: aiChar.name,
-          description: aiChar?.description || "",
-          isAIGenerated: false,
-          source: "auto" as const,
-        }));
-        setCharacters(autoCharacters);
-
-        if (aiSceneSettings.length > 0) {
-          const autoScenes: SceneSetting[] = aiSceneSettings.map((s) => ({
-            id: crypto.randomUUID(),
-            name: s.name,
-            description: s.description || "",
-            isAIGenerated: false,
-            source: "auto" as const,
-          }));
-          setSceneSettings(autoScenes);
-        }
-
-        toast({ title: "阶段 1/2 完成", description: `识别 ${autoCharacters.length} 个角色，${aiSceneSettings.length} 个场景` });
-
-        // ========== Phase 2: Script decomposition (streaming) ==========
-        toast({ title: "阶段 2/2", description: "正在拆解分镜与时长分配..." });
+      try {
+        setAnalyzePhase("phase2");
+        if (attempt === 0) setPhase2Info("正在拆解分镜与时长分配...");
         setDecomposeChunks([]);
 
         const handleDecomposeProgress = (partialData: any) => {
-          const { scenes: partialScenes, chunkIndex, totalChunks, status, failedChunks = [], error } = partialData;
-
-          // Initialize chunk status list
+          const { scenes: partialScenes, chunkIndex, totalChunks, status, error } = partialData;
           if (status === "init") {
             setDecomposeChunks(Array.from({ length: totalChunks }, (_, i) => ({
               index: i,
@@ -342,22 +318,16 @@ const Workspace = () => {
             })));
             return;
           }
-
-          // Update chunk status
           setDecomposeChunks(prev => prev.map(c =>
             c.index === chunkIndex
               ? { ...c, status: status as ChunkStatus["status"], error }
               : c
           ));
-
           if (status === "done" || status === "failed") {
             if (status === "done") {
-              toast({ title: "阶段 2/2", description: `已完成第 ${chunkIndex + 1}/${totalChunks} 段拆解，当前 ${partialScenes.length} 个分镜` });
-            } else {
-              toast({ title: "拆解失败", description: `第 ${chunkIndex + 1} 段拆解失败：${error || "未知错误"}，可点击重试`, variant: "destructive" });
+              setPhase2Info(`已完成第 ${chunkIndex + 1}/${totalChunks} 段拆解`);
             }
-            // Progressively update scenes
-            if (partialScenes.length > 0) {
+            if (partialScenes?.length > 0) {
               const progressScenes: Scene[] = partialScenes.map((s: any, i: number) => ({
                 id: crypto.randomUUID(),
                 sceneNumber: s.sceneNumber ?? i + 1,
@@ -381,7 +351,6 @@ const Workspace = () => {
         }, { onProgress: handleDecomposeProgress, abortSignal: controller.signal });
         if (decomposeError) throw decomposeError;
 
-        // Store metadata for retries
         if (decomposeData?.episodes) {
           lastDecomposeMetaRef.current = {
             episodes: decomposeData.episodes,
@@ -391,18 +360,13 @@ const Workspace = () => {
           };
         }
 
-        let parsed: any = decomposeData;
-        if (!parsed) {
-          throw new Error("无法解析返回的数据");
-        }
+        const parsed = decomposeData;
+        if (!parsed) throw new Error("无法解析返回的数据");
 
         const rawScenes = Array.isArray(parsed) ? parsed : (parsed?.scenes || []);
-
-        // Store raw AI output for display
         setRawAiOutput(JSON.stringify(parsed, null, 2));
 
         const parsedScenes: Scene[] = rawScenes.map((s: any, i: number) => {
-          // Resolve AI-assigned costume labels to costume IDs
           let characterCostumes: Record<string, string> | undefined;
           if (s.characterCostumes && typeof s.characterCostumes === "object") {
             characterCostumes = {};
@@ -413,9 +377,7 @@ const Workspace = () => {
               const costume = char.costumes.find(cos =>
                 cos.label === costumeLabel || cos.label.includes(costumeLabel) || costumeLabel.includes(cos.label)
               );
-              if (costume) {
-                characterCostumes[charName] = costume.id;
-              }
+              if (costume) characterCostumes[charName] = costume.id;
             }
             if (Object.keys(characterCostumes).length === 0) characterCostumes = undefined;
           }
@@ -433,83 +395,179 @@ const Workspace = () => {
           };
         });
 
-        // Check for empty result (skip error if user aborted)
         if (parsedScenes.length === 0) {
           if (!controller.signal.aborted) {
             toast({ title: "警告", description: "未能从剧本中识别出任何分镜，请检查剧本内容", variant: "destructive" });
           }
+          setAnalyzePhase("phase2-failed");
+          setPhase2Info("未识别到分镜");
           resetAnalyzing();
           return;
         }
 
         setScenes(parsedScenes);
 
-        // Merge any characters found in scenes but not in phase 1
         const existingNames = new Set(autoCharacters.map(c => c.name));
         const allCharNames = new Set<string>();
         parsedScenes.forEach((s) => s.characters.forEach((name) => allCharNames.add(name)));
         const missingChars: CharacterSetting[] = Array.from(allCharNames)
           .filter(name => !existingNames.has(name))
-          .map(name => ({
-            id: crypto.randomUUID(),
-            name,
-            description: "",
-            isAIGenerated: false,
-            source: "auto" as const,
-          }));
-        if (missingChars.length > 0) {
-          setCharacters(prev => [...prev, ...missingChars]);
-        }
+          .map(name => ({ id: crypto.randomUUID(), name, description: "", isAIGenerated: false, source: "auto" as const }));
+        if (missingChars.length > 0) setCharacters(prev => [...prev, ...missingChars]);
 
-        // If phase 1 didn't extract scene settings, derive from scenes
         if (aiSceneSettings.length === 0) {
           const sceneNameSet = new Set<string>();
-          parsedScenes.forEach((s) => {
-            if (s.sceneName && s.sceneName.trim()) sceneNameSet.add(s.sceneName.trim());
-          });
-          const autoScenes: SceneSetting[] = Array.from(sceneNameSet).map((name) => ({
-            id: crypto.randomUUID(),
-            name,
-            description: "",
-            isAIGenerated: false,
-            source: "auto" as const,
-          }));
-          setSceneSettings(autoScenes);
+          parsedScenes.forEach((s) => { if (s.sceneName?.trim()) sceneNameSet.add(s.sceneName.trim()); });
+          setSceneSettings(Array.from(sceneNameSet).map((name) => ({
+            id: crypto.randomUUID(), name, description: "", isAIGenerated: false, source: "auto" as const,
+          })));
         }
 
-        // Update project title from first line of script
         const firstLine = script.trim().split("\n")[0].slice(0, 30);
-        if (firstLine) {
-          setProjectTitle(firstLine);
-          autoSave({ title: firstLine });
-        }
+        if (firstLine) { setProjectTitle(firstLine); autoSave({ title: firstLine }); }
 
+        setAnalyzePhase("done");
+        setPhase2Info(`成功拆解 ${parsedScenes.length} 个分镜`);
+        setPhase2RetryCount(0);
         toast({ title: "拆解完成", description: `成功拆解为 ${parsedScenes.length} 个分镜，识别 ${autoCharacters.length + missingChars.length} 个角色` });
         resetAnalyzing();
         return;
-        
-      } catch (e: any) {
-        // Ignore abort errors (user cancelled)
-        if (e?.name === "AbortError" || e?.message?.includes("aborted")) {
-          resetAnalyzing();
-          return;
-        }
 
-        // Timeout errors
-        if (e?.name === "TimeoutError" || e?.message?.includes("timed out") || e?.message?.includes("timeout")) {
-          toast({
-            title: "请求超时",
-            description: "剧本拆解耗时过长，请尝试缩短剧本或重新拆解",
-            variant: "destructive",
-            duration: 8000,
-          });
-          resetAnalyzing();
-          return;
+      } catch (innerErr: any) {
+        lastError = innerErr;
+        // If aborted or timeout, don't retry
+        if (innerErr?.name === "AbortError" || innerErr?.message?.includes("aborted")) throw innerErr;
+        if (innerErr?.name === "TimeoutError" || innerErr?.message?.includes("timed out") || innerErr?.message?.includes("timeout")) {
+          if (attempt >= maxAutoRetries) throw innerErr;
+          // Continue to retry
         }
+        // Network errors — retry
+        const isNetworkError = innerErr?.message?.includes("Failed to fetch") || innerErr?.message?.includes("502") || innerErr?.message?.includes("网络");
+        if (!isNetworkError || attempt >= maxAutoRetries) throw innerErr;
+        console.warn(`[Phase2] 第 ${attempt + 1} 次自动重试...`, innerErr?.message);
+      }
+    }
+    throw lastError;
+  };
+
+  const handleAnalyze = async () => {
+    if (!script.trim() || isAnalyzingRef.current) return;
+    isAnalyzingRef.current = true;
+    setIsAnalyzing(true);
+    setAnalyzePhase("phase1");
+    setPhase1Info("正在识别角色与场景...");
+    setPhase2Info("");
+    setPhase2RetryCount(0);
+
+    const resetAnalyzing = () => {
+      isAnalyzingRef.current = false;
+      setIsAnalyzing(false);
+      analyzeAbortRef.current = null;
+    };
+    
+    try {
+      const controller = new AbortController();
+      analyzeAbortRef.current = controller;
+
+      // ========== Phase 1: Extract characters & scenes ==========
+      const { data: extractData, error: extractError } = await invokeFunction("extract-characters-scenes", { script, model: decomposeModel });
+      if (extractError) {
+        setAnalyzePhase("phase1-failed");
+        setPhase1Info("识别失败");
+        throw extractError;
+      }
+
+      const aiCharacters: Array<{ name: string; description: string }> = extractData.characters || [];
+      const aiSceneSettings: Array<{ name: string; description: string }> = extractData.sceneSettings || [];
+
+      const autoCharacters: CharacterSetting[] = aiCharacters.map((aiChar) => ({
+        id: crypto.randomUUID(),
+        name: aiChar.name,
+        description: aiChar?.description || "",
+        isAIGenerated: false,
+        source: "auto" as const,
+      }));
+      setCharacters(autoCharacters);
+
+      if (aiSceneSettings.length > 0) {
+        setSceneSettings(aiSceneSettings.map((s) => ({
+          id: crypto.randomUUID(),
+          name: s.name,
+          description: s.description || "",
+          isAIGenerated: false,
+          source: "auto" as const,
+        })));
+      }
+
+      setAnalyzePhase("phase1-done");
+      setPhase1Info(`识别 ${autoCharacters.length} 个角色，${aiSceneSettings.length} 个场景`);
+
+      // Store phase 1 results for potential phase 2 retry
+      phase1ResultsRef.current = { autoCharacters, aiSceneSettings };
+
+      // ========== Phase 2 ==========
+      await runPhase2(autoCharacters, aiSceneSettings, controller, resetAnalyzing);
         
-        console.error("Script decompose error:", e);
-        const fe = friendlyError(e);
-        toast({
+    } catch (e: any) {
+      if (e?.name === "AbortError" || e?.message?.includes("aborted")) {
+        setAnalyzePhase("idle");
+        resetAnalyzing();
+        return;
+      }
+      if (e?.name === "TimeoutError" || e?.message?.includes("timed out") || e?.message?.includes("timeout")) {
+        if (analyzePhase === "phase1" || analyzePhase === "phase1-failed") {
+          setAnalyzePhase("phase1-failed");
+          setPhase1Info("请求超时");
+        } else {
+          setAnalyzePhase("phase2-failed");
+          setPhase2Info("请求超时");
+        }
+        toast({ title: "请求超时", description: "剧本拆解耗时过长，请尝试缩短剧本或重新拆解", variant: "destructive", duration: 8000 });
+        resetAnalyzing();
+        return;
+      }
+      console.error("Script decompose error:", e);
+      const fe = friendlyError(e);
+      // Only set phase2-failed if phase1 already completed
+      if (phase1ResultsRef.current) {
+        setAnalyzePhase("phase2-failed");
+        setPhase2Info(fe.description);
+      }
+      toast({ title: fe.title, description: `剧本拆解失败：${fe.description}`, variant: "destructive", duration: 8000 });
+      resetAnalyzing();
+    }
+  };
+
+  const handleRetryPhase2 = async () => {
+    if (!phase1ResultsRef.current || isAnalyzingRef.current) return;
+    isAnalyzingRef.current = true;
+    setIsAnalyzing(true);
+    setPhase2RetryCount(0);
+
+    const resetAnalyzing = () => {
+      isAnalyzingRef.current = false;
+      setIsAnalyzing(false);
+      analyzeAbortRef.current = null;
+    };
+
+    try {
+      const controller = new AbortController();
+      analyzeAbortRef.current = controller;
+      const { autoCharacters, aiSceneSettings } = phase1ResultsRef.current;
+      await runPhase2(autoCharacters, aiSceneSettings, controller, resetAnalyzing);
+    } catch (e: any) {
+      if (e?.name === "AbortError" || e?.message?.includes("aborted")) {
+        resetAnalyzing();
+        return;
+      }
+      console.error("Phase 2 retry error:", e);
+      const fe = friendlyError(e);
+      setAnalyzePhase("phase2-failed");
+      setPhase2Info(fe.description);
+      toast({ title: fe.title, description: `阶段二重试失败：${fe.description}`, variant: "destructive", duration: 8000 });
+      resetAnalyzing();
+    }
+  };
           title: fe.title,
           description: `剧本拆解失败：${fe.description}`,
           variant: "destructive",
