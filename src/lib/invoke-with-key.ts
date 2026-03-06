@@ -101,9 +101,9 @@ const DECOMPOSE_PROMPT_BASE = `你是专业电影分镜师。将剧本拆解为A
 直接输出JSON，无思考过程。`;
 
 const PACE_CONFIG: Record<string, { shots: string; targetChars: number; maxChars: number }> = {
-  slow:   { shots: "2~4", targetChars: 22, maxChars: 25 },
-  medium: { shots: "3~5", targetChars: 27, maxChars: 32 },
-  fast:   { shots: "4~6", targetChars: 32, maxChars: 38 },
+  slow:   { shots: "2~4", targetChars: 12, maxChars: 15 },
+  medium: { shots: "3~5", targetChars: 15, maxChars: 22 },
+  fast:   { shots: "4~6", targetChars: 25, maxChars: 32 },
 };
 
 function buildDecomposePrompt(pace?: string, segmentsPerEpisode?: number | null): string {
