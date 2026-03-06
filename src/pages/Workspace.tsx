@@ -56,6 +56,13 @@ const Workspace = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [artStyle, setArtStyle] = useState<ArtStyle>("live-action");
   const [systemPrompt, setSystemPrompt] = useState("");
+  const [videoPace, setVideoPaceState] = useState<import("@/types/project").VideoPace>(() => {
+    try { return (localStorage.getItem("video-pace") as import("@/types/project").VideoPace) || "medium"; } catch { return "medium"; }
+  });
+  const setVideoPace = (v: import("@/types/project").VideoPace) => {
+    setVideoPaceState(v);
+    try { localStorage.setItem("video-pace", v); } catch { /* ignore */ }
+  };
   const [decomposeModel, setDecomposeModelState] = useState<DecomposeModel>(() => {
     try { return (localStorage.getItem("decompose-model") as DecomposeModel) || "gemini-3.1-pro-preview"; } catch { return "gemini-3.1-pro-preview"; }
   });
