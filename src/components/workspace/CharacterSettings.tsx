@@ -823,13 +823,14 @@ const CharacterSettings = ({
       let localCostumes = [...(latestChar?.costumes || []).map(cc => ({ ...cc }))];
       // Anchor logic: first costume generates without reference; subsequent costumes use first's image
       let costumeAnchorUrl: string | undefined;
+      try {
       for (let cosIdx = 0; cosIdx < costumesToGen.length; cosIdx++) {
         const cos = costumesToGen[cosIdx];
-        if (autoDetectAbortRef.current) return;
+        if (autoDetectAbortRef.current) break;
         updateCharacterAsync(c.id, { activeCostumeId: cos.id });
-        if (autoDetectAbortRef.current) return;
+        if (autoDetectAbortRef.current) break;
         await imageSem.acquire();
-        if (autoDetectAbortRef.current) { imageSem.release(); return; }
+        if (autoDetectAbortRef.current) { imageSem.release(); break; }
         const cosTaskKey = `costume-${cos.id}`;
         addTask(cosTaskKey, "charImg");
         setGeneratingCharImgIds((prev) => new Set(prev).add(cosTaskKey));
@@ -897,8 +898,10 @@ const CharacterSettings = ({
           break;
         }
       }
-      // Clear character-level generating flag after all costumes done
-      setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(c.id); return next; });
+      } finally {
+        // Always clear character-level generating flag, even on abort/error
+        setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(c.id); return next; });
+      }
     };
 
     // Process a single scene: description → image (or time variant images)
@@ -975,13 +978,14 @@ const CharacterSettings = ({
       const variantsToGen = latestScene.timeVariants!.filter(tv => tv.label?.trim());
       let localVariants = [...(latestScene?.timeVariants || []).map(v => ({ ...v }))];
       let tvAnchorUrl: string | undefined;
+      try {
       for (let tvIdx = 0; tvIdx < variantsToGen.length; tvIdx++) {
         const tv = variantsToGen[tvIdx];
-        if (autoDetectAbortRef.current) return;
+        if (autoDetectAbortRef.current) break;
         updateSceneAsync(s.id, { activeTimeVariantId: tv.id });
-        if (autoDetectAbortRef.current) return;
+        if (autoDetectAbortRef.current) break;
         await imageSem.acquire();
-        if (autoDetectAbortRef.current) { imageSem.release(); return; }
+        if (autoDetectAbortRef.current) { imageSem.release(); break; }
         const tvTaskKey = `timevariant-${tv.id}`;
         addTask(tvTaskKey, "sceneImg");
         setGeneratingSceneImgIds((prev) => new Set(prev).add(tvTaskKey));
@@ -1044,8 +1048,10 @@ const CharacterSettings = ({
           break;
         }
       }
-      // Clear scene-level generating flag after all variants done
-      setGeneratingSceneImgIds((prev) => { const next = new Set(prev); next.delete(s.id); return next; });
+      } finally {
+        // Always clear scene-level generating flag, even on abort/error
+        setGeneratingSceneImgIds((prev) => { const next = new Set(prev); next.delete(s.id); return next; });
+      }
     };
 
     // Launch all tasks in parallel (concurrency controlled by semaphores)
