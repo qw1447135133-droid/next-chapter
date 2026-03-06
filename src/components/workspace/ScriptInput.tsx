@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Sparkles, Loader2, Upload, ChevronDown } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { VideoPace, VIDEO_PACE_OPTIONS } from "@/types/project";
 
 export type DecomposeModel = "gemini-3.1-pro-preview" | "gemini-3-pro-preview" | "gemini-3-pro-preview-thinking" | "gemini-3-flash-preview";
 
@@ -22,6 +23,8 @@ interface ScriptInputProps {
   isAnalyzing: boolean;
   decomposeModel: DecomposeModel;
   onDecomposeModelChange: (model: DecomposeModel) => void;
+  videoPace: VideoPace;
+  onVideoPaceChange: (pace: VideoPace) => void;
 }
 
 const ACCEPTED_TYPES = ".txt,.pdf,.doc,.docx";
