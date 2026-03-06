@@ -97,8 +97,73 @@ function useAnimatedProgress(ceilPercent: number, floorPercent: number, hasProce
   // Round to 1 decimal
   return Math.round(display * 10) / 10;
 }
+const COLLAPSE_THRESHOLD = 12; // Show grid with expand/collapse when more than this
 
-const DecomposeProgress = ({ chunks, onRetryChunk, isRetrying }: DecomposeProgressProps) => {
+/** Compact grid for episode chunks */
+const ChunkGrid = ({ chunks, onRetryChunk, isRetrying }: { chunks: ChunkStatus[]; onRetryChunk: (i: number) => void; isRetrying?: number | null }) => {
+  const [expanded, setExpanded] = useState(false);
+  const isLargeSet = chunks.length > COLLAPSE_THRESHOLD;
+  const visibleChunks = isLargeSet && !expanded ? chunks.slice(0, COLLAPSE_THRESHOLD) : chunks;
+  const hiddenCount = chunks.length - COLLAPSE_THRESHOLD;
+
+  return (
+    <div className="space-y-2">
+      <div className={`grid gap-1.5 ${chunks.length > 20 ? 'grid-cols-6 sm:grid-cols-8 md:grid-cols-10' : chunks.length > 10 ? 'grid-cols-4 sm:grid-cols-6 md:grid-cols-8' : 'grid-cols-3 sm:grid-cols-5 md:grid-cols-6'}`}>
+        {visibleChunks.map((chunk) => (
+          <div
+            key={chunk.index}
+            className={`group relative flex items-center justify-center gap-1 px-1.5 py-1 rounded text-[11px] font-medium border transition-colors cursor-default ${
+              chunk.status === "done"
+                ? "bg-primary/10 text-primary border-primary/20"
+                : chunk.status === "failed"
+                ? "bg-destructive/10 text-destructive border-destructive/20"
+                : chunk.status === "cancelled"
+                ? "bg-muted text-muted-foreground border-border line-through opacity-60"
+                : chunk.status === "processing"
+                ? "bg-accent text-accent-foreground border-border animate-pulse"
+                : "bg-muted text-muted-foreground border-border"
+            }`}
+            title={chunk.error || chunk.label}
+          >
+            {chunk.status === "done" && <CheckCircle2 className="h-2.5 w-2.5 shrink-0" />}
+            {chunk.status === "failed" && <XCircle className="h-2.5 w-2.5 shrink-0" />}
+            {chunk.status === "processing" && <Loader2 className="h-2.5 w-2.5 animate-spin shrink-0" />}
+            <span className="truncate">{chunk.label.replace('第 ', '').replace(' 集', '集').replace(' 段', '段')}</span>
+            {chunk.segmentCount != null && (
+              <span className="text-muted-foreground font-normal opacity-60 shrink-0">({chunk.segmentCount})</span>
+            )}
+            {(chunk.status === "failed" || chunk.status === "cancelled" || chunk.status === "done") && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-4 w-4 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => { e.stopPropagation(); onRetryChunk(chunk.index); }}
+                disabled={isRetrying != null}
+                title={chunk.status === "done" ? "重新拆解" : "重试"}
+              >
+                {isRetrying === chunk.index ? (
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                ) : (
+                  <RotateCw className="h-2.5 w-2.5" />
+                )}
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+      {isLargeSet && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-xs text-primary hover:text-primary/80 transition-colors"
+        >
+          {expanded ? '收起' : `展开全部（还有 ${hiddenCount} 集）`}
+        </button>
+      )}
+    </div>
+  );
+};
+
+
   const done = chunks.filter(c => c.status === "done").length;
   const failed = chunks.filter(c => c.status === "failed").length;
   const processing = chunks.some(c => c.status === "processing");
