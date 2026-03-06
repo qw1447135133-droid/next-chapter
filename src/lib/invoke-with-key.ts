@@ -663,6 +663,7 @@ function splitScriptByEpisodes(script: string): SplitResult {
       isRealEpisodes = true;
       detectedEpisodes = true;
     } else {
+      if (script.length <= MAX_CHUNK_CHARS) return { chunks: [script], isRealEpisodes: false, originallyEpisodes: false };
       rawChunks = [script];
     }
   } else {
