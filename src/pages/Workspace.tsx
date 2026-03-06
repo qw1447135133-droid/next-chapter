@@ -20,6 +20,8 @@ import StoryboardPreview from "@/components/workspace/StoryboardPreview";
 import VideoGeneration from "@/components/workspace/VideoGeneration";
 import VideoPreview from "@/components/workspace/VideoPreview";
 import DecomposeProgress, { type ChunkStatus } from "@/components/workspace/DecomposeProgress";
+import AnalyzeProgress, { type AnalyzePhase } from "@/components/workspace/AnalyzeProgress";
+import { getApiConfig } from "@/pages/Settings";
 
 // Helper for concurrency control
 const createSemaphore = (max: number) => {
