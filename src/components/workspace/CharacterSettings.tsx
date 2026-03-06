@@ -1153,14 +1153,73 @@ const CharacterSettings = ({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            onClick={handleAutoDetectAll}
-            variant={isAutoDetectingAll ? "destructive" : "default"}
-            disabled={isAbortingAutoDetect || (!isAutoDetectingAll && (!script?.trim() || (characters.length === 0 && sceneSettings.length === 0)))}
-            className="gap-1.5"
-          >
-            {isAutoDetectingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {isAutoDetectingAll ? (isAbortingAutoDetect ? "正在中止..." : "中止生成") : "全部生成"}
+          {(() => {
+            const allDescsFilled = characters.every(c => {
+              if (!String(c.name || "").trim()) return true;
+              if (!c.description?.trim()) return false;
+              if (c.costumes && c.costumes.length > 0) {
+                return c.costumes.every(cos => !cos.label?.trim() || cos.description?.trim());
+              }
+              return true;
+            }) && sceneSettings.every(s => {
+              if (!String(s.name || "").trim()) return true;
+              if (!s.description?.trim()) return false;
+              if (s.timeVariants && s.timeVariants.length > 0) {
+                return s.timeVariants.every(tv => !tv.label?.trim() || tv.description?.trim());
+              }
+              return true;
+            });
+            const isDisabled = isAbortingAutoDetect || (!isAutoDetectingAll && (!script?.trim() || (characters.length === 0 && sceneSettings.length === 0)));
+
+            if (isAutoDetectingAll) {
+              return (
+                <Button
+                  onClick={() => handleAutoDetectAll()}
+                  variant="destructive"
+                  disabled={isAbortingAutoDetect}
+                  className="gap-1.5"
+                >
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {isAbortingAutoDetect ? "正在中止..." : "中止生成"}
+                </Button>
+              );
+            }
+
+            if (allDescsFilled) {
+              return (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button disabled={isDisabled} className="gap-1.5">
+                      <Sparkles className="h-4 w-4" />
+                      全部生成
+                      <ChevronDown className="h-3.5 w-3.5 ml-0.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => handleAutoDetectAll("imagesOnly")}>
+                      <ImageIcon className="h-4 w-4 mr-2" />
+                      仅生成设定图
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleAutoDetectAll("full")}>
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      提示词 + 设定图
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              );
+            }
+
+            return (
+              <Button
+                onClick={() => handleAutoDetectAll("full")}
+                disabled={isDisabled}
+                className="gap-1.5"
+              >
+                <Sparkles className="h-4 w-4" />
+                全部生成
+              </Button>
+            );
+          })()}
           </Button>
           <Button size="sm" onClick={onNext} className="gap-1">
             下一步
