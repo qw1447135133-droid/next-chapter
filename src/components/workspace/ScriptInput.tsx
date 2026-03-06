@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Sparkles, Loader2, Upload, ChevronDown } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { VideoPace, VIDEO_PACE_OPTIONS } from "@/types/project";
+import { VideoPace, VIDEO_PACE_OPTIONS, EpisodeDuration, EPISODE_DURATION_OPTIONS } from "@/types/project";
+import { Input } from "@/components/ui/input";
 
 export type DecomposeModel = "gemini-3.1-pro-preview" | "gemini-3-pro-preview" | "gemini-3-pro-preview-thinking" | "gemini-3-flash-preview";
 
