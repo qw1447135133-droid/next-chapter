@@ -533,11 +533,13 @@ const CharacterSettings = ({
   // Progress tracking for "全部生成"
   const [autoDetectProgress, setAutoDetectProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
 
-  // Clean up expired tasks periodically (safety net for long-running tasks)
+  // Clean up expired AND orphaned generating states every 5s (safety net)
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
       const tasks = readTasks();
+
+      // 1) Remove tasks that exceeded their timeout
       const expired = tasks.filter((t) => now - t.startedAt >= TIMEOUT_MAP[t.type]);
       if (expired.length > 0) {
         writeTasks(tasks.filter((t) => now - t.startedAt < TIMEOUT_MAP[t.type]));
@@ -548,6 +550,34 @@ const CharacterSettings = ({
           if (t.type === "sceneImg") setGeneratingSceneImgIds((prev) => { const n = new Set(prev); n.delete(t.id); return n; });
         });
       }
+
+      // 2) Clear orphaned generating IDs: state says "generating" but no matching task in localStorage
+      const activeTasks = tasks.filter((t) => now - t.startedAt < TIMEOUT_MAP[t.type]);
+      const activeCharDescIds = new Set(activeTasks.filter(t => t.type === "charDesc").map(t => t.id));
+      const activeCharImgIds = new Set(activeTasks.filter(t => t.type === "charImg").map(t => t.id));
+      const activeSceneDescIds = new Set(activeTasks.filter(t => t.type === "sceneDesc").map(t => t.id));
+      const activeSceneImgIds = new Set(activeTasks.filter(t => t.type === "sceneImg").map(t => t.id));
+
+      setGeneratingCharDescIds((prev) => {
+        const orphaned = [...prev].filter(id => !activeCharDescIds.has(id));
+        if (orphaned.length === 0) return prev;
+        const next = new Set(prev); orphaned.forEach(id => next.delete(id)); return next;
+      });
+      setGeneratingCharImgIds((prev) => {
+        const orphaned = [...prev].filter(id => !activeCharImgIds.has(id));
+        if (orphaned.length === 0) return prev;
+        const next = new Set(prev); orphaned.forEach(id => next.delete(id)); return next;
+      });
+      setGeneratingDescIds((prev) => {
+        const orphaned = [...prev].filter(id => !activeSceneDescIds.has(id));
+        if (orphaned.length === 0) return prev;
+        const next = new Set(prev); orphaned.forEach(id => next.delete(id)); return next;
+      });
+      setGeneratingSceneImgIds((prev) => {
+        const orphaned = [...prev].filter(id => !activeSceneImgIds.has(id));
+        if (orphaned.length === 0) return prev;
+        const next = new Set(prev); orphaned.forEach(id => next.delete(id)); return next;
+      });
     }, 5000);
     return () => clearInterval(interval);
   }, [readTasks, writeTasks]);
