@@ -389,8 +389,6 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
   if (!script) throw new Error("缺少剧本内容");
 
   const model = requestedModel || "gemini-3.1-pro-preview";
-  // Always rebuild prompt with current pace/segments settings; ignore saved systemPrompt
-  const prompt = buildDecomposePrompt(videoPace, segmentsPerEpisode);
   
   // Build costume context if available
   let costumeContext = "";
@@ -407,13 +405,61 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
   }
 
   // Split by episodes if script is large to reduce per-request payload
-  const episodes = splitScriptByEpisodes(script);
+  const splitResult = splitScriptByEpisodes(script);
+  const episodes = splitResult.chunks;
   
   if (episodes.length > 1) {
-    console.log(`[localDecompose] 检测到 ${episodes.length} 集剧本，将分集拆解`);
+    console.log(`[localDecompose] 检测到 ${episodes.length} ${splitResult.isRealEpisodes ? '集' : '段'}剧本，将分${splitResult.isRealEpisodes ? '集' : '段'}拆解`);
     const allScenes: any[] = [];
     const failedChunks: number[] = [];
     let globalSceneNumber = 1;
+
+    // For length-based splits, distribute segments proportionally across chunks
+    // For real episodes, each episode gets the full segmentsPerEpisode count
+    const totalSegments = segmentsPerEpisode || 5;
+    let chunkSegmentCounts: number[];
+    if (splitResult.isRealEpisodes) {
+      // Each real episode gets the full segment count
+      chunkSegmentCounts = episodes.map(() => totalSegments);
+    } else {
+      // Distribute segments proportionally by chunk text length
+      const totalChars = episodes.reduce((sum, ep) => sum + ep.length, 0);
+      const rawCounts = episodes.map(ep => (ep.length / totalChars) * totalSegments);
+      // Round while preserving total
+      chunkSegmentCounts = rawCounts.map(c => Math.max(1, Math.round(c)));
+      // Adjust to match exact total
+      let diff = totalSegments - chunkSegmentCounts.reduce((a, b) => a + b, 0);
+      while (diff !== 0) {
+        if (diff > 0) {
+          // Add to the chunk with the largest fractional part that was rounded down
+          let bestIdx = 0;
+          let bestFrac = -1;
+          for (let i = 0; i < rawCounts.length; i++) {
+            const frac = rawCounts[i] - Math.floor(rawCounts[i]);
+            if (frac > bestFrac && chunkSegmentCounts[i] < rawCounts[i] + 1) {
+              bestFrac = frac;
+              bestIdx = i;
+            }
+          }
+          chunkSegmentCounts[bestIdx]++;
+          diff--;
+        } else {
+          // Remove from the chunk with the smallest fractional part that was rounded up
+          let bestIdx = 0;
+          let bestFrac = 2;
+          for (let i = 0; i < rawCounts.length; i++) {
+            const frac = rawCounts[i] - Math.floor(rawCounts[i]);
+            if (frac < bestFrac && chunkSegmentCounts[i] > 1) {
+              bestFrac = frac;
+              bestIdx = i;
+            }
+          }
+          chunkSegmentCounts[bestIdx]--;
+          diff++;
+        }
+      }
+      console.log(`[localDecompose] 片段分配: 总${totalSegments}个片段，按长度比例分配为`, chunkSegmentCounts);
+    }
 
     // Notify frontend of chunk count immediately
     if (onProgress) {
@@ -422,11 +468,12 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
 
     // Track previous chunk context for cross-chunk consistency
     let prevChunkContext = "";
+    // Track the last segment label number for continuity in length-based splits
+    let lastSegmentNum = 0;
 
     for (let epIdx = 0; epIdx < episodes.length; epIdx++) {
       // Check abort before starting each chunk
       if (abortSignal?.aborted) {
-        // Mark remaining chunks as cancelled
         for (let i = epIdx; i < episodes.length; i++) {
           if (onProgress) {
             onProgress({ scenes: allScenes, chunkIndex: i, totalChunks: episodes.length, status: "cancelled", failedChunks });
@@ -436,8 +483,12 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
       }
 
       const ep = episodes[epIdx];
-      console.log(`[localDecompose] 正在拆解第 ${epIdx + 1}/${episodes.length} 集...`);
-      const epPrefix = episodes.length > 1 ? `${epIdx + 1}-` : "";
+      const chunkSegments = chunkSegmentCounts[epIdx];
+      console.log(`[localDecompose] 正在拆解第 ${epIdx + 1}/${episodes.length} ${splitResult.isRealEpisodes ? '集' : '段'}（需要${chunkSegments}个片段）...`);
+      const epPrefix = splitResult.isRealEpisodes && episodes.length > 1 ? `${epIdx + 1}-` : "";
+
+      // Build prompt with correct segment count for this chunk
+      const chunkPrompt = buildDecomposePrompt(videoPace, chunkSegments);
 
       // Notify: chunk started
       if (onProgress) {
@@ -447,10 +498,8 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
       // Build cross-chunk context from previous results
       let chunkContextBlock = "";
       if (epIdx > 0 && allScenes.length > 0) {
-        // Collect unique characters and scene names from previous chunks
         const prevCharacters = [...new Set(allScenes.flatMap((s: any) => s.characters || []))];
         const prevSceneNames = [...new Set(allScenes.map((s: any) => s.sceneName).filter(Boolean))];
-        // Get last 3 scenes as bridge context
         const lastScenes = allScenes.slice(-3);
         const lastScenesDesc = lastScenes.map((s: any) =>
           `[分镜${s.sceneNumber}] 片段${s.segmentLabel} | 场景：${s.sceneName} | 角色：${(s.characters || []).join('、')} | ${s.description}`
@@ -466,14 +515,16 @@ ${lastScenesDesc}
 重要：
 - 角色名必须与前面段落保持完全一致，不要改变拼写或格式
 - 场景名如果是同一地点，必须使用相同名称
-- segmentLabel 编号请从前面段落之后继续递增
+- segmentLabel 编号请从 "1-${lastSegmentNum + 1}" 开始继续递增
 - 前面段落最后的全局分镜序号为 ${allScenes[allScenes.length - 1].sceneNumber}，请从 ${allScenes[allScenes.length - 1].sceneNumber + 1} 开始编号`;
       }
 
       try {
-        const userText = `${prompt}\n\n---\n\n以下是第${epIdx + 1}集剧本（共${episodes.length}集）：\n\n${ep}${costumeContext}${chunkContextBlock}`;
+        const chunkLabel = splitResult.isRealEpisodes
+          ? `以下是第${epIdx + 1}集剧本（共${episodes.length}集）`
+          : `以下是剧本的第${epIdx + 1}部分（共${episodes.length}部分，属于同一集，本部分需要恰好${chunkSegments}个片段）`;
+        const userText = `${chunkPrompt}\n\n---\n\n${chunkLabel}：\n\n${ep}${costumeContext}${chunkContextBlock}`;
 
-        // Combine abort signal with per-chunk timeout
         const chunkTimeout = AbortSignal.timeout(5 * 60_000);
         const combinedSignal = abortSignal
           ? AbortSignal.any([abortSignal, chunkTimeout])
@@ -485,7 +536,7 @@ ${lastScenesDesc}
         );
 
         const resultText = extractText(data);
-        if (!resultText) throw new Error(`第${epIdx + 1}集拆解失败：AI 未返回内容`);
+        if (!resultText) throw new Error(`第${epIdx + 1}${splitResult.isRealEpisodes ? '集' : '段'}拆解失败：AI 未返回内容`);
 
         const epScenes = parseDecomposeResult(resultText);
         for (const scene of epScenes) {
@@ -494,13 +545,24 @@ ${lastScenesDesc}
             scene.segmentLabel = `${epPrefix}${scene.segmentLabel || ''}`;
           }
         }
+        
+        // Track last segment number for continuity
+        if (!splitResult.isRealEpisodes && epScenes.length > 0) {
+          const labels = epScenes.map((s: any) => s.segmentLabel).filter(Boolean);
+          const nums = labels.map((l: string) => {
+            const parts = l.split('-');
+            return parseInt(parts[parts.length - 1]) || 0;
+          });
+          if (nums.length > 0) lastSegmentNum = Math.max(...nums);
+        }
+        
         allScenes.push(...epScenes);
 
         if (onProgress) {
           onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length, status: "done", failedChunks });
         }
       } catch (err: any) {
-        console.error(`[localDecompose] 第${epIdx + 1}集拆解失败:`, err);
+        console.error(`[localDecompose] 第${epIdx + 1}${splitResult.isRealEpisodes ? '集' : '段'}拆解失败:`, err);
         failedChunks.push(epIdx);
         if (onProgress) {
           onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length, status: "failed", failedChunks, error: err?.message });
@@ -508,13 +570,14 @@ ${lastScenesDesc}
       }
     }
 
-    return { scenes: allScenes, failedChunks, episodes, costumeContext, model, prompt };
+    return { scenes: allScenes, failedChunks, episodes, costumeContext, model, prompt: buildDecomposePrompt(videoPace, segmentsPerEpisode) };
   }
 
   // Single episode or couldn't split - send as one request
+  const prompt = buildDecomposePrompt(videoPace, segmentsPerEpisode);
   const userText = `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}${costumeContext}`;
 
-  const decomposeSignal = AbortSignal.timeout(5 * 60_000); // 5 min timeout for decomposition
+  const decomposeSignal = AbortSignal.timeout(5 * 60_000);
   const data = await callGemini(model,
     [{ role: "user", parts: [{ text: userText }] }],
     { temperature: 0.3, maxOutputTokens: 65536 },
@@ -531,10 +594,15 @@ ${lastScenesDesc}
 const MAX_CHUNK_CHARS = 12000;
 const MIN_CHUNK_CHARS = 6000;
 
-/** Split a multi-episode script into chunks. Only splits if script > 8000 chars, each chunk 4000~8000 chars */
-function splitScriptByEpisodes(script: string): string[] {
+interface SplitResult {
+  chunks: string[];
+  isRealEpisodes: boolean; // true = split by episode markers; false = split by length
+}
+
+/** Split a multi-episode script into chunks. Only splits if script > 12000 chars */
+function splitScriptByEpisodes(script: string): SplitResult {
   // Don't split short scripts
-  if (script.length <= MAX_CHUNK_CHARS) return [script];
+  if (script.length <= MAX_CHUNK_CHARS) return { chunks: [script], isRealEpisodes: false };
 
   // First try to split by episode markers
   const epPattern = /(?:^|\n)\s*(?:EP\s*(\d+)|第\s*(\d+)\s*[集话期章]|Episode\s+(\d+))\b/gi;
@@ -544,41 +612,44 @@ function splitScriptByEpisodes(script: string): string[] {
     markers.push({ index: m.index });
   }
 
-  let rawChunks: string[];
+  let rawChunks: string[] = [];
+  let isRealEpisodes = false;
   if (markers.length > 1) {
-    rawChunks = [];
     for (let i = 0; i < markers.length; i++) {
       const start = markers[i].index;
       const end = i < markers.length - 1 ? markers[i + 1].index : script.length;
       const ep = script.slice(start, end).trim();
       if (ep.length > 100) rawChunks.push(ep);
     }
-    if (rawChunks.length <= 1) rawChunks = [script];
+    if (rawChunks.length > 1) {
+      isRealEpisodes = true;
+    } else {
+      rawChunks = [script];
+    }
   } else {
     rawChunks = [script];
   }
 
-  // Further split any chunk exceeding MAX_CHUNK_CHARS, targeting 4000~8000 per chunk
+  // Further split any chunk exceeding MAX_CHUNK_CHARS, targeting MIN~MAX per chunk
+  // If we need to sub-split real episodes, the result is no longer "real episodes"
   const finalChunks: string[] = [];
+  let hadSubSplit = false;
   for (const chunk of rawChunks) {
     if (chunk.length <= MAX_CHUNK_CHARS) {
       finalChunks.push(chunk);
       continue;
     }
-    // Split by paragraph boundaries targeting MIN~MAX range
-    // Try double newline first; if that doesn't produce enough splits, fall back to single newline
+    hadSubSplit = true;
     let paragraphs = chunk.split(/\n{2,}/);
     if (paragraphs.length < 3) {
-      // Not enough double-newline breaks — fall back to single newline
       paragraphs = chunk.split(/\n/);
     }
     const sep = paragraphs.length === chunk.split(/\n{2,}/).length ? "\n\n" : "\n";
     let current = "";
     for (let i = 0; i < paragraphs.length; i++) {
       const para = paragraphs[i];
-      if (!para.trim()) continue; // skip empty lines
+      if (!para.trim()) continue;
       const wouldBe = current.length + (current ? sep.length : 0) + para.length;
-      // If adding this paragraph would exceed MAX and we already have enough content (>= MIN), flush
       if (wouldBe > MAX_CHUNK_CHARS && current.length >= MIN_CHUNK_CHARS) {
         finalChunks.push(current.trim());
         current = para;
@@ -587,7 +658,6 @@ function splitScriptByEpisodes(script: string): string[] {
       }
     }
     if (current.trim()) {
-      // If last chunk is too small, merge with previous
       if (current.trim().length < MIN_CHUNK_CHARS && finalChunks.length > 0) {
         finalChunks[finalChunks.length - 1] += sep + current.trim();
       } else {
@@ -596,7 +666,12 @@ function splitScriptByEpisodes(script: string): string[] {
     }
   }
 
-  return finalChunks.length > 1 ? finalChunks : [script];
+  // If real episodes were sub-split by length, mark as not real episodes
+  if (hadSubSplit && isRealEpisodes) isRealEpisodes = false;
+
+  return finalChunks.length > 1
+    ? { chunks: finalChunks, isRealEpisodes }
+    : { chunks: [script], isRealEpisodes: false };
 }
 
 /** Parse decompose JSON result from AI text */
