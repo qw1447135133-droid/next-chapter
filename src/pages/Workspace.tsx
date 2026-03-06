@@ -554,10 +554,10 @@ const Workspace = () => {
     // Fall back to current state if ref was lost (e.g. after navigation/refresh)
     if (!phase1ResultsRef.current) {
       if (characters.length > 0 || sceneSettings.length > 0) {
-        phase1ResultsRef.current = {
+        savePhase1Results({
           autoCharacters: characters,
           aiSceneSettings: sceneSettings.map(s => ({ name: s.name, description: s.description })),
-        };
+        });
       } else {
         toast({ title: "无法重试", description: "缺少阶段一识别结果，请重新执行完整拆解", variant: "destructive" });
         return;
