@@ -531,10 +531,15 @@ ${lastScenesDesc}
 const MAX_CHUNK_CHARS = 12000;
 const MIN_CHUNK_CHARS = 6000;
 
-/** Split a multi-episode script into chunks. Only splits if script > 8000 chars, each chunk 4000~8000 chars */
-function splitScriptByEpisodes(script: string): string[] {
+interface SplitResult {
+  chunks: string[];
+  isRealEpisodes: boolean; // true = split by episode markers; false = split by length
+}
+
+/** Split a multi-episode script into chunks. Only splits if script > 12000 chars */
+function splitScriptByEpisodes(script: string): SplitResult {
   // Don't split short scripts
-  if (script.length <= MAX_CHUNK_CHARS) return [script];
+  if (script.length <= MAX_CHUNK_CHARS) return { chunks: [script], isRealEpisodes: false };
 
   // First try to split by episode markers
   const epPattern = /(?:^|\n)\s*(?:EP\s*(\d+)|第\s*(\d+)\s*[集话期章]|Episode\s+(\d+))\b/gi;
@@ -544,41 +549,44 @@ function splitScriptByEpisodes(script: string): string[] {
     markers.push({ index: m.index });
   }
 
-  let rawChunks: string[];
+  let rawChunks: string[] = [];
+  let isRealEpisodes = false;
   if (markers.length > 1) {
-    rawChunks = [];
     for (let i = 0; i < markers.length; i++) {
       const start = markers[i].index;
       const end = i < markers.length - 1 ? markers[i + 1].index : script.length;
       const ep = script.slice(start, end).trim();
       if (ep.length > 100) rawChunks.push(ep);
     }
-    if (rawChunks.length <= 1) rawChunks = [script];
+    if (rawChunks.length > 1) {
+      isRealEpisodes = true;
+    } else {
+      rawChunks = [script];
+    }
   } else {
     rawChunks = [script];
   }
 
-  // Further split any chunk exceeding MAX_CHUNK_CHARS, targeting 4000~8000 per chunk
+  // Further split any chunk exceeding MAX_CHUNK_CHARS, targeting MIN~MAX per chunk
+  // If we need to sub-split real episodes, the result is no longer "real episodes"
   const finalChunks: string[] = [];
+  let hadSubSplit = false;
   for (const chunk of rawChunks) {
     if (chunk.length <= MAX_CHUNK_CHARS) {
       finalChunks.push(chunk);
       continue;
     }
-    // Split by paragraph boundaries targeting MIN~MAX range
-    // Try double newline first; if that doesn't produce enough splits, fall back to single newline
+    hadSubSplit = true;
     let paragraphs = chunk.split(/\n{2,}/);
     if (paragraphs.length < 3) {
-      // Not enough double-newline breaks — fall back to single newline
       paragraphs = chunk.split(/\n/);
     }
     const sep = paragraphs.length === chunk.split(/\n{2,}/).length ? "\n\n" : "\n";
     let current = "";
     for (let i = 0; i < paragraphs.length; i++) {
       const para = paragraphs[i];
-      if (!para.trim()) continue; // skip empty lines
+      if (!para.trim()) continue;
       const wouldBe = current.length + (current ? sep.length : 0) + para.length;
-      // If adding this paragraph would exceed MAX and we already have enough content (>= MIN), flush
       if (wouldBe > MAX_CHUNK_CHARS && current.length >= MIN_CHUNK_CHARS) {
         finalChunks.push(current.trim());
         current = para;
@@ -587,7 +595,6 @@ function splitScriptByEpisodes(script: string): string[] {
       }
     }
     if (current.trim()) {
-      // If last chunk is too small, merge with previous
       if (current.trim().length < MIN_CHUNK_CHARS && finalChunks.length > 0) {
         finalChunks[finalChunks.length - 1] += sep + current.trim();
       } else {
@@ -596,7 +603,12 @@ function splitScriptByEpisodes(script: string): string[] {
     }
   }
 
-  return finalChunks.length > 1 ? finalChunks : [script];
+  // If real episodes were sub-split by length, mark as not real episodes
+  if (hadSubSplit && isRealEpisodes) isRealEpisodes = false;
+
+  return finalChunks.length > 1
+    ? { chunks: finalChunks, isRealEpisodes }
+    : { chunks: [script], isRealEpisodes: false };
 }
 
 /** Parse decompose JSON result from AI text */
