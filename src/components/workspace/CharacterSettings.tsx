@@ -715,6 +715,9 @@ const CharacterSettings = ({
       };
     };
 
+    const REQUEST_INTERVAL = 2000; // 2s delay between requests to avoid rate limiting
+    const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
     const textSem = createSemaphore(3);
     const imageSem = createSemaphore(2);
     const allTasks: Promise<void>[] = [];
@@ -762,6 +765,7 @@ const CharacterSettings = ({
         removeTask(c.id, "charDesc");
         setGeneratingCharDescIds(prev => { const next = new Set(prev); next.delete(c.id); return next; });
         textSem.release();
+        if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
       }
       bumpDone();
       if (descOk) successCountRef.current++; else { failCountRef.current++; return; }
@@ -804,6 +808,7 @@ const CharacterSettings = ({
           removeTask(c.id, "charImg");
           setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(c.id); return next; });
           imageSem.release();
+          if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
         }
         bumpDone();
         if (imgOk) successCountRef.current++; else failCountRef.current++;
@@ -879,6 +884,7 @@ const CharacterSettings = ({
           removeTask(cosTaskKey, "charImg");
           setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(cosTaskKey); return next; });
           imageSem.release();
+          if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
         }
         bumpDone();
         if (cosImgOk) successCountRef.current++; else failCountRef.current++;
@@ -918,6 +924,7 @@ const CharacterSettings = ({
         removeTask(s.id, "sceneDesc");
         setGeneratingDescIds(prev => { const next = new Set(prev); next.delete(s.id); return next; });
         textSem.release();
+        if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
       }
       bumpDone();
       if (descOk) successCountRef.current++; else { failCountRef.current++; return; }
@@ -955,6 +962,7 @@ const CharacterSettings = ({
           removeTask(s.id, "sceneImg");
           setGeneratingSceneImgIds((prev) => { const next = new Set(prev); next.delete(s.id); return next; });
           imageSem.release();
+          if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
         }
         bumpDone();
         if (imgOk) successCountRef.current++; else failCountRef.current++;
@@ -1025,6 +1033,7 @@ const CharacterSettings = ({
           removeTask(tvTaskKey, "sceneImg");
           setGeneratingSceneImgIds((prev) => { const next = new Set(prev); next.delete(tvTaskKey); return next; });
           imageSem.release();
+          if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
         }
         bumpDone();
         if (tvImgOk) successCountRef.current++; else failCountRef.current++;
