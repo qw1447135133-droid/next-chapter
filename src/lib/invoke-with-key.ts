@@ -562,9 +562,30 @@ function parseDecomposeResult(resultText: string): any[] {
   try {
     parsed = JSON.parse(cleanedText);
   } catch {
-    const match = cleanedText.match(/\{[\s\S]*\}/);
-    if (match) parsed = JSON.parse(match[0]);
-    else throw new Error("无法解析返回的 JSON");
+    // Try to extract JSON object or array from text with trailing content
+    const objMatch = cleanedText.match(/\{[\s\S]*\}/);
+    const arrMatch = cleanedText.match(/\[[\s\S]*\]/);
+    const candidate = objMatch && arrMatch
+      ? (objMatch.index! <= arrMatch.index! ? objMatch[0] : arrMatch[0])
+      : (arrMatch?.[0] || objMatch?.[0]);
+    if (candidate) {
+      try {
+        parsed = JSON.parse(candidate);
+      } catch {
+        // Last resort: try truncating at last valid closing bracket
+        const lastBrace = candidate.lastIndexOf('}');
+        const lastBracket = candidate.lastIndexOf(']');
+        const cutAt = Math.max(lastBrace, lastBracket);
+        if (cutAt > 0) {
+          const truncated = candidate.slice(0, cutAt + 1);
+          parsed = JSON.parse(truncated);
+        } else {
+          throw new Error("无法解析返回的 JSON");
+        }
+      }
+    } else {
+      throw new Error("无法解析返回的 JSON");
+    }
   }
 
   return Array.isArray(parsed) ? parsed : (parsed?.scenes || []);
