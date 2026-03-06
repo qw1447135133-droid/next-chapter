@@ -363,6 +363,7 @@ const Workspace = () => {
           script,
           systemPrompt,
           model: decomposeModel,
+          videoPace,
         }, { onProgress: handleDecomposeProgress, abortSignal: controller.signal });
         if (decomposeError) throw decomposeError;
 
