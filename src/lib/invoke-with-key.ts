@@ -538,7 +538,7 @@ ${lastScenesDesc}
       try {
         const chunkLabel = splitResult.isRealEpisodes
           ? `以下是第${epIdx + 1}集剧本（共${episodes.length}集）`
-          : `以下是剧本的第${epIdx + 1}部分（共${episodes.length}部分，属于同一集，本部分需要恰好${chunkSegments}个片段）`;
+          : `以下是剧本的第${epIdx + 1}集（共${episodes.length}集，本集需要恰好${chunkSegments}个片段）。segmentLabel请使用"${epIdx + 1}-N"格式（如"${epIdx + 1}-1","${epIdx + 1}-2"等）`;
         const userText = `${chunkPrompt}\n\n---\n\n${chunkLabel}：\n\n${ep}${costumeContext}${chunkContextBlock}`;
 
         const chunkTimeout = AbortSignal.timeout(5 * 60_000);
