@@ -186,7 +186,7 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
               <ChevronDown className={`h-3 w-3 transition-transform ${paceOpen ? "rotate-180" : ""}`} />
             </button>
             {paceOpen && (
-              <div className="absolute right-0 bottom-full mb-1 z-50 min-w-[260px] rounded-lg border border-border bg-popover shadow-lg py-1">
+              <div className="absolute right-0 bottom-full mb-1 z-50 w-full rounded-lg border border-border bg-popover shadow-lg py-1">
                 {VIDEO_PACE_OPTIONS.map((opt) => (
                   <button
                     key={opt.value}
