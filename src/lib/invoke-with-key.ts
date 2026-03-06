@@ -580,7 +580,7 @@ ${lastScenesDesc}
       }
     }
 
-    return { scenes: allScenes, failedChunks, episodes, costumeContext, model, prompt: buildDecomposePrompt(videoPace, segmentsPerEpisode), chunkSegmentCounts, isRealEpisodes: splitResult.isRealEpisodes, videoPace };
+    return { scenes: allScenes, failedChunks, episodes, costumeContext, model, prompt: buildDecomposePrompt(videoPace, segmentsPerEpisode), chunkSegmentCounts, isRealEpisodes: splitResult.isRealEpisodes, originallyEpisodes: splitResult.originallyEpisodes, videoPace };
   }
 
   // Single episode or couldn't split - send as one request
