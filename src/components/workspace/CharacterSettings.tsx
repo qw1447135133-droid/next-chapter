@@ -884,6 +884,7 @@ const CharacterSettings = ({
           removeTask(cosTaskKey, "charImg");
           setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(cosTaskKey); return next; });
           imageSem.release();
+          if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
         }
         bumpDone();
         if (cosImgOk) successCountRef.current++; else failCountRef.current++;
