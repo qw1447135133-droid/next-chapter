@@ -117,6 +117,14 @@ export const VIDEO_MODEL_API_MAP: Record<VideoModel, string> = {
   'vidu-q3': 'viduq3-pro',
 };
 
+export type VideoPace = 'slow' | 'medium' | 'fast';
+
+export const VIDEO_PACE_OPTIONS: { value: VideoPace; label: string; desc: string }[] = [
+  { value: 'slow', label: '慢速', desc: '每15s 2~4个分镜，对话15-22字' },
+  { value: 'medium', label: '中等', desc: '每15s 3~5个分镜，对话15-27字' },
+  { value: 'fast', label: '快速', desc: '每15s 4~6个分镜，对话15-32字' },
+];
+
 export type WorkspaceStep = 1 | 2 | 3 | 4 | 5;
 
 export const STEP_LABELS: Record<WorkspaceStep, string> = {

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Sparkles, Loader2, Upload, ChevronDown } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { VideoPace, VIDEO_PACE_OPTIONS } from "@/types/project";
 
 export type DecomposeModel = "gemini-3.1-pro-preview" | "gemini-3-pro-preview" | "gemini-3-pro-preview-thinking" | "gemini-3-flash-preview";
 
@@ -22,25 +23,32 @@ interface ScriptInputProps {
   isAnalyzing: boolean;
   decomposeModel: DecomposeModel;
   onDecomposeModelChange: (model: DecomposeModel) => void;
+  videoPace: VideoPace;
+  onVideoPaceChange: (pace: VideoPace) => void;
 }
 
 const ACCEPTED_TYPES = ".txt,.pdf,.doc,.docx";
 
-const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAnalyzing, decomposeModel, onDecomposeModelChange }: ScriptInputProps) => {
+const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAnalyzing, decomposeModel, onDecomposeModelChange, videoPace, onVideoPaceChange }: ScriptInputProps) => {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const isUploading = useRef(false);
   const [modelOpen, setModelOpen] = useState(false);
+  const [paceOpen, setPaceOpen] = useState(false);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const paceDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
         setModelOpen(false);
       }
+      if (paceDropdownRef.current && !paceDropdownRef.current.contains(e.target as Node)) {
+        setPaceOpen(false);
+      }
     };
-    if (modelOpen) document.addEventListener("mousedown", handleClickOutside);
+    if (modelOpen || paceOpen) document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [modelOpen]);
+  }, [modelOpen, paceOpen]);
 
   const currentModel = DECOMPOSE_MODEL_OPTIONS.find((o) => o.value === decomposeModel)!;
 
@@ -165,25 +173,57 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
         <span className="text-xs text-muted-foreground">
           {script.length} 字
         </span>
-        {isAnalyzing && onCancelAnalyze ? (
-          <Button
-            variant="destructive"
-            onClick={onCancelAnalyze}
-            className="gap-2"
-          >
-            <Loader2 className="h-4 w-4 animate-spin" />
-            中止生成
-          </Button>
-        ) : (
-          <Button
-            onClick={onAnalyze}
-            disabled={!script.trim()}
-            className="gap-2"
-          >
-            <Sparkles className="h-4 w-4" />
-            AI 拆解分镜
-          </Button>
-        )}
+        <div className="flex items-center gap-3">
+          {/* Video Pace Selector */}
+          <div className="relative" ref={paceDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setPaceOpen((v) => !v)}
+              disabled={isAnalyzing}
+              className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+            >
+              视频节奏：{VIDEO_PACE_OPTIONS.find((o) => o.value === videoPace)?.label}
+              <ChevronDown className={`h-3 w-3 transition-transform ${paceOpen ? "rotate-180" : ""}`} />
+            </button>
+            {paceOpen && (
+              <div className="absolute right-0 bottom-full mb-1 z-50 min-w-[260px] rounded-lg border border-border bg-popover shadow-lg py-1">
+                {VIDEO_PACE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { onVideoPaceChange(opt.value); setPaceOpen(false); }}
+                    className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent ${
+                      opt.value === videoPace ? "text-primary font-semibold" : "text-popover-foreground"
+                    }`}
+                  >
+                    <span className="font-medium">{opt.label}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{opt.desc}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {isAnalyzing && onCancelAnalyze ? (
+            <Button
+              variant="destructive"
+              onClick={onCancelAnalyze}
+              className="gap-2"
+            >
+              <Loader2 className="h-4 w-4 animate-spin" />
+              中止生成
+            </Button>
+          ) : (
+            <Button
+              onClick={onAnalyze}
+              disabled={!script.trim()}
+              className="gap-2"
+            >
+              <Sparkles className="h-4 w-4" />
+              AI 拆解分镜
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
