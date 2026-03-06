@@ -640,7 +640,7 @@ function splitScriptByEpisodes(script: string): SplitResult {
   // First try to detect episode markers before checking length
 
   // First try to split by episode markers (supports Arabic digits and Chinese numerals)
-  const epPattern = /(?:^|\n)\s*(?:EP\s*(\d+)|第\s*([零一二三四五六七八九十百千万\d]+)\s*[集话期章]|Episode\s+(\d+))\b/gi;
+  const epPattern = /(?:^|\n)[\s\r]*(?:EP\s*(\d+)|第\s*([零一二三四五六七八九十百千万\d]+)\s*[集话期章]|Episode\s+(\d+))(?:\s|[:：\-—]|$)/gim;
   const markers: { index: number; num: number }[] = [];
   let m: RegExpExecArray | null;
   while ((m = epPattern.exec(script)) !== null) {
@@ -648,6 +648,7 @@ function splitScriptByEpisodes(script: string): SplitResult {
     const num = /^\d+$/.test(numStr) ? parseInt(numStr) : chineseToNumber(numStr);
     markers.push({ index: m.index, num });
   }
+  console.log(`[splitScriptByEpisodes] 检测到 ${markers.length} 个集数标记`, markers.slice(0, 5).map(m => ({ index: m.index, num: m.num, preview: script.slice(m.index, m.index + 30) })));
 
   let rawChunks: string[] = [];
   let isRealEpisodes = false;
