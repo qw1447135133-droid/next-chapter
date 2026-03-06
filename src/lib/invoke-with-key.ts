@@ -583,6 +583,13 @@ ${lastScenesDesc}
         if (onProgress) {
           onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length, status: "failed", failedChunks, error: err?.message });
         }
+        // Mark remaining chunks as cancelled and stop
+        for (let i = epIdx + 1; i < episodes.length; i++) {
+          if (onProgress) {
+            onProgress({ scenes: allScenes, chunkIndex: i, totalChunks: episodes.length, status: "cancelled", failedChunks });
+          }
+        }
+        break;
       }
     }
 
