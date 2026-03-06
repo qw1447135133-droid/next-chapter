@@ -389,6 +389,9 @@ const Workspace = () => {
             costumeContext: decomposeData.costumeContext || "",
             model: decomposeData.model || decomposeModel,
             prompt: decomposeData.prompt || "",
+            chunkSegmentCounts: decomposeData.chunkSegmentCounts,
+            isRealEpisodes: decomposeData.isRealEpisodes,
+            videoPace: decomposeData.videoPace,
           };
         }
 
