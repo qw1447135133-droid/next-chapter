@@ -342,11 +342,12 @@ const Workspace = () => {
         setDecomposeChunks([]);
 
         const handleDecomposeProgress = (partialData: any) => {
-          const { scenes: partialScenes, chunkIndex, totalChunks, status, error, chunkSegmentCounts: initSegCounts, isRealEpisodes: initIsEpisodes } = partialData;
+          const { scenes: partialScenes, chunkIndex, totalChunks, status, error, chunkSegmentCounts: initSegCounts, isRealEpisodes: initIsEpisodes, originallyEpisodes: initOrigEpisodes } = partialData;
           if (status === "init") {
+            const useEpisodeLabel = initIsEpisodes || initOrigEpisodes;
             setDecomposeChunks(Array.from({ length: totalChunks }, (_, i) => ({
               index: i,
-              label: initIsEpisodes ? `第 ${i + 1} 集` : `第 ${i + 1} 段`,
+              label: useEpisodeLabel ? `第 ${i + 1} 集` : `第 ${i + 1} 段`,
               status: "pending" as const,
               segmentCount: initSegCounts?.[i],
             })));
