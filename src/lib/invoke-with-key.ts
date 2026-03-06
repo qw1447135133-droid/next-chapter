@@ -666,6 +666,8 @@ function splitScriptByEpisodes(script: string): SplitResult {
       rawChunks = [script];
     }
   } else {
+    // No episode markers found - only split by length if script is large
+    if (script.length <= MAX_CHUNK_CHARS) return { chunks: [script], isRealEpisodes: false, originallyEpisodes: false };
     rawChunks = [script];
   }
 
