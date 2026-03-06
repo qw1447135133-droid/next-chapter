@@ -69,9 +69,12 @@ const DECOMPOSE_PROMPT_BASE = `你是专业电影分镜师。将剧本拆解为A
 1. **【片段数量硬性要求 — 最高优先级】** 每集**必须恰好{SEGMENTS_PER_EPISODE}个片段**（即{SEGMENTS_PER_EPISODE}个不同的segmentLabel），每片段15秒。这是不可违反的硬性要求。如果剧本某一集内容不足以填满{SEGMENTS_PER_EPISODE}个片段，则**必须**在不改变情节内容的前提下，通过拓展镜头语言（增加环境描写、角色反应特写、空镜头、过渡画面、氛围渲染等）来补足至恰好{SEGMENTS_PER_EPISODE}个片段。如果剧本未标注集数，则尝试通过编号（如"第一章"、"EP1"、"Part 1"等）来划分集数；若完全无法识别集数则将整个剧本视为一集。**最终输出的片段数量如果不等于{SEGMENTS_PER_EPISODE}，视为失败。**
 2. **【最重要】每个片段必须包含{SHOTS_PER_SEGMENT}个分镜（即{SHOTS_PER_SEGMENT}个scene对象共享同一个segmentLabel）。严禁每个片段只有1个分镜！** 例如片段"1-1"必须拆成{SHOTS_PER_SEGMENT}个不同画面的scene对象，每个scene描述该片段内的一个具体镜头/画面。
 3. **【台词容量硬限制 — 与规则2同等重要】**：
-   - 每个15秒片段（同一segmentLabel下所有分镜的dialogue合计）**绝对不得超过{MAX_DIALOGUE_CHARS}个汉字**（含标点）。
-   - 正常语速目标≤{TARGET_DIALOGUE_CHARS}字/片段，仅在角色语速明显偏快时可放宽至{MAX_DIALOGUE_CHARS}字。
-   - **超出{MAX_DIALOGUE_CHARS}字时必须拆分为两个片段**，将多余台词顺延至下一个segmentLabel。宁可多拆片段也绝不塞词。
+   - 每个片段（同一segmentLabel）尽量不超过3条对话。
+   - 台词字数上限取决于该片段的对话条数：
+     · 1条对话：{CHARS_1_DIAL_MIN}~{CHARS_1_DIAL_MAX}字
+     · 2条对话：每条{CHARS_2_DIAL_MIN}~{CHARS_2_DIAL_MAX}字
+     · 3条对话：每条{CHARS_3_DIAL_MIN}~{CHARS_3_DIAL_MAX}字
+   - **任何单条对话超出对应上限时，必须拆分为两个片段**，将多余台词顺延至下一个segmentLabel。宁可多拆片段也绝不塞词。
    - 拆分时保持台词完整性：不要在一句话中间断开，应在自然停顿处分割。
    - 每个分镜的dialogue只分配该画面时刻对应的台词，不要把整个片段的台词堆到一个分镜里。
 4. 基于原文拆分，人名地名用[]包裹，禁止加戏、禁止镜头术语、对白完整保留
@@ -100,20 +103,29 @@ const DECOMPOSE_PROMPT_BASE = `你是专业电影分镜师。将剧本拆解为A
 
 直接输出JSON，无思考过程。`;
 
-const PACE_CONFIG: Record<string, { shots: string; targetChars: number; maxChars: number }> = {
-  slow:   { shots: "2~4", targetChars: 12, maxChars: 15 },
-  medium: { shots: "3~5", targetChars: 15, maxChars: 22 },
-  fast:   { shots: "4~6", targetChars: 25, maxChars: 32 },
+const PACE_CONFIG: Record<string, {
+  shots: string;
+  chars1: [number, number]; // 1 dialogue: [min, max]
+  chars2: [number, number]; // 2 dialogues: per-line [min, max]
+  chars3: [number, number]; // 3 dialogues: per-line [min, max]
+}> = {
+  slow:   { shots: "2~4", chars1: [15, 22], chars2: [11, 18], chars3: [7, 14] },
+  medium: { shots: "3~5", chars1: [15, 27], chars2: [11, 22], chars3: [7, 17] },
+  fast:   { shots: "4~6", chars1: [15, 32], chars2: [11, 26], chars3: [7, 20] },
 };
 
 function buildDecomposePrompt(pace?: string, segmentsPerEpisode?: number | null): string {
   const cfg = PACE_CONFIG[pace || "medium"] || PACE_CONFIG.medium;
-  const segments = segmentsPerEpisode || 5; // default 5 segments (60s)
+  const segments = segmentsPerEpisode || 5;
   return DECOMPOSE_PROMPT_BASE
     .replace(/\{SEGMENTS_PER_EPISODE\}/g, String(segments))
     .replace(/\{SHOTS_PER_SEGMENT\}/g, cfg.shots)
-    .replace(/\{TARGET_DIALOGUE_CHARS\}/g, String(cfg.targetChars))
-    .replace(/\{MAX_DIALOGUE_CHARS\}/g, String(cfg.maxChars));
+    .replace(/\{CHARS_1_DIAL_MIN\}/g, String(cfg.chars1[0]))
+    .replace(/\{CHARS_1_DIAL_MAX\}/g, String(cfg.chars1[1]))
+    .replace(/\{CHARS_2_DIAL_MIN\}/g, String(cfg.chars2[0]))
+    .replace(/\{CHARS_2_DIAL_MAX\}/g, String(cfg.chars2[1]))
+    .replace(/\{CHARS_3_DIAL_MIN\}/g, String(cfg.chars3[0]))
+    .replace(/\{CHARS_3_DIAL_MAX\}/g, String(cfg.chars3[1]));
 }
 
 const ENHANCE_PROMPT = `你是一位专业的影视视频生成提示词工程师。你的任务是将简短的分镜描述扩展为丰富、具体、富有画面感的视频生成提示词。
