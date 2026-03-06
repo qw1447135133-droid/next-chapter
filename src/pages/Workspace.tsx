@@ -466,6 +466,7 @@ const Workspace = () => {
     setAnalyzePhase("phase1");
     setPhase1Info("正在识别角色与场景...");
     setPhase2Info("");
+    clearPhase1Results();
     setPhase2RetryCount(0);
 
     const resetAnalyzing = () => {
