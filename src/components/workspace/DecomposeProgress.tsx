@@ -238,7 +238,7 @@ const DecomposeProgress = ({ chunks, onRetryChunk, isRetrying, onScrollToEpisode
       </div>
 
       {/* Collapsible grid for many chunks */}
-      <ChunkGrid chunks={chunks} onRetryChunk={onRetryChunk} isRetrying={isRetrying} />
+      <ChunkGrid chunks={chunks} onRetryChunk={onRetryChunk} isRetrying={isRetrying} onScrollToEpisode={onScrollToEpisode} />
     </div>
   );
 };
