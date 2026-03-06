@@ -192,8 +192,8 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
                     key={opt.value}
                     type="button"
                     onClick={() => { onVideoPaceChange(opt.value); setPaceOpen(false); }}
-                    className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent ${
-                      opt.value === videoPace ? "text-primary font-semibold" : "text-popover-foreground"
+                    className={`w-full text-left px-4 py-2 text-sm transition-colors rounded-md mx-auto ${
+                      opt.value === videoPace ? "bg-green-500 text-white" : "text-popover-foreground hover:bg-accent"
                     }`}
                   >
                     <span className="font-medium">{opt.label}</span>
