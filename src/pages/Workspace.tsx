@@ -964,7 +964,7 @@ const Workspace = () => {
     }
   };
 
-  const pollVideoTask = async (sceneId: string, taskId: string, provider?: string) => {
+  const pollVideoTask = async (sceneId: string, taskId: string, provider?: string, klingTaskType?: string) => {
     const maxAttempts = 120; // 10 min max
     let attempts = 0;
     let consecutiveErrors = 0;
@@ -973,7 +973,7 @@ const Workspace = () => {
     const poll = async () => {
       attempts++;
       try {
-        const { data, error } = await invokeFunction("generate-video", { action: "status", taskId, provider });
+        const { data, error } = await invokeFunction("generate-video", { action: "status", taskId, provider, klingTaskType });
         if (error) throw error;
         consecutiveErrors = 0; // reset on success
 
