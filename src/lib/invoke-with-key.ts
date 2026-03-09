@@ -6,7 +6,7 @@ import {
   callGemini, extractText, extractImageBase64, getInlineData, fetchImageAsBase64,
   uploadImageToStorage, callSeedreamImage, rewriteToFirstFrame, proxiedFetch,
   CHAR_STYLE_MAP, SCENE_STYLE_MAP, STORYBOARD_STYLE_MAP,
-  getSeedanceConfig, getViduConfig,
+  getSeedanceConfig, getViduConfig, getKlingConfig,
 } from "@/lib/gemini-client";
 import { compressImage } from "@/lib/image-compress";
 
@@ -1079,10 +1079,29 @@ ${narrativeContext}
 async function localGenerateVideo(body: any) {
   const { action, model, taskId, provider } = body;
   const isVidu = model?.startsWith("viduq") || model?.startsWith("vidu2");
+  const isKling = model?.startsWith("kling-") || provider === "kling";
 
   if (action === "status") {
     if (!taskId) throw new Error("缺少 taskId");
-    if (provider === "vidu") {
+    if (provider === "kling") {
+      const { apiKey, endpoint } = getKlingConfig();
+      if (!apiKey) throw new Error("可灵 API Key 未配置");
+      // Query uses the same path type as creation; we store the type in body
+      const queryType = body.klingTaskType || "text2video";
+      const res = await proxiedFetch(`${endpoint}/v1/videos/${queryType}/${taskId}`, {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      });
+      if (!res.ok) throw new Error(`查询可灵状态失败 (${res.status})`);
+      const data = await res.json();
+      const taskData = data.data || data;
+      const taskStatus = taskData.task_status;
+      let status = taskStatus === "succeed" ? "succeeded" : taskStatus === "failed" ? "failed" : "processing";
+      let videoUrl = taskStatus === "succeed" && taskData.task_result?.videos?.length > 0
+        ? taskData.task_result.videos[0].url
+        : undefined;
+      return { status, video_url: videoUrl, state: taskStatus };
+    } else if (provider === "vidu") {
       const { apiKey, endpoint } = getViduConfig();
       if (!apiKey) throw new Error("Vidu API Key 未配置");
       const res = await proxiedFetch(`${endpoint}/tasks/${taskId}/creations`, {
@@ -1141,6 +1160,50 @@ async function localGenerateVideo(body: any) {
     }
     const data = await res.json();
     return { task_id: data.task_id, status: data.state || "created", provider: "vidu" };
+  } else if (isKling) {
+    const { apiKey, endpoint } = getKlingConfig();
+    if (!apiKey) throw new Error("可灵 API Key 未配置，请在设置中配置");
+    const truncatedPrompt = (body.prompt || "").length > 2500 ? body.prompt.substring(0, 2500) : body.prompt;
+    const hasImage = body.imageUrl && typeof body.imageUrl === "string";
+    const klingTaskType = hasImage ? "image2video" : "text2video";
+    const klingUrl = `${endpoint}/v1/videos/${klingTaskType}`;
+
+    const payload: any = {
+      model_name: model || "kling-v3",
+      prompt: truncatedPrompt,
+      duration: String(Math.max(3, Math.min(15, body.duration || 5))),
+      mode: "pro",
+      sound: "on",
+      aspect_ratio: body.aspectRatio || "16:9",
+    };
+
+    if (hasImage) {
+      // Kling requires raw base64 without data: prefix, or a URL
+      if (body.imageUrl.startsWith("data:")) {
+        const match = body.imageUrl.match(/^data:[^;]+;base64,(.+)$/);
+        payload.image = match ? match[1] : body.imageUrl;
+      } else {
+        // If it's a URL, try to use it directly; if it's a private storage URL, convert to base64
+        const fetched = await fetchImageAsBase64(body.imageUrl);
+        if (fetched) {
+          payload.image = fetched.data; // raw base64, no prefix
+        } else {
+          payload.image = body.imageUrl; // try URL directly
+        }
+      }
+    }
+
+    const res = await proxiedFetch(klingUrl, {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    }, JSON.stringify(payload));
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`可灵视频生成任务创建失败 (${res.status}): ${errText}`);
+    }
+    const data = await res.json();
+    const taskId2 = data.data?.task_id || data.task_id;
+    return { task_id: taskId2, status: data.data?.task_status || "submitted", provider: "kling", klingTaskType };
   } else {
     const { apiKey, endpoint } = getSeedanceConfig();
     if (!apiKey) throw new Error("Seedance API Key 未配置，请在设置中配置");

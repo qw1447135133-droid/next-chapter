@@ -135,6 +135,14 @@ export function getViduConfig() {
   };
 }
 
+export function getKlingConfig() {
+  const config = getApiConfig();
+  return {
+    apiKey: config.klingKey,
+    endpoint: config.klingEndpoint || "https://api.klingai.com",
+  };
+}
+
 // ===== Core API Call =====
 
 export async function callGemini(

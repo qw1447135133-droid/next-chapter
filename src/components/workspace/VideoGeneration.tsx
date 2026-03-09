@@ -298,11 +298,12 @@ const VideoGeneration = ({
                       </div>
                       {(() => {
                         const maxVal = videoModel.startsWith("vidu") ? 16 : 15;
+                        const minVal = videoModel.startsWith("kling") ? 3 : 4;
                         const currentVal = scene.recommendedDuration || scene.duration || 5;
                         return (
                           <>
                             <Slider
-                              min={4}
+                              min={minVal}
                               max={maxVal}
                               step={1}
                               value={[currentVal]}
@@ -320,7 +321,7 @@ const VideoGeneration = ({
                               className="[&_[role=slider]]:bg-emerald-500 [&_[role=slider]]:border-emerald-500 [&_[role=slider]]:w-5 [&_[role=slider]]:h-5 [&_.relative>.absolute]:bg-emerald-500"
                             />
                             <div className="flex justify-between mt-2">
-                              {Array.from({ length: maxVal - 3 }, (_, i) => i + 4).map((d) => (
+                              {Array.from({ length: maxVal - minVal + 1 }, (_, i) => i + minVal).map((d) => (
                                 <button
                                   key={d}
                                   type="button"

@@ -869,9 +869,10 @@ const Workspace = () => {
     // --- Step 1: Enhance prompt via AI ---
     let enhancedDescription = cleanBrackets(scene.description);
     const maxDuration = videoModel === "vidu-q3" ? 16 : 15;
+    const minDuration = videoModel === "kling-v3" ? 3 : 4;
     // If user manually set duration, use that; otherwise use AI recommendation
     const isManual = scene.isManualDuration && scene.recommendedDuration;
-    let recommendedDuration: number = isManual ? scene.recommendedDuration! : Math.max(4, Math.min(maxDuration, scene.duration || 5));
+    let recommendedDuration: number = isManual ? scene.recommendedDuration! : Math.max(minDuration, Math.min(maxDuration, scene.duration || 5));
     try {
       const { data: enhanceData, error: enhanceError } = await invokeFunction("enhance-video-prompt", {
         description: cleanBrackets(scene.description),
@@ -941,7 +942,8 @@ const Workspace = () => {
       if (error) throw error;
 
       const taskId = data.task_id;
-      const provider = data.provider; // "vidu" or "seedance"
+      const provider = data.provider; // "vidu" or "seedance" or "kling"
+      const klingTaskType = data.klingTaskType; // "text2video" or "image2video" for kling
       if (!taskId) throw new Error("未返回 task_id");
 
       // Mark scene as generating, store recommended duration
@@ -952,7 +954,7 @@ const Workspace = () => {
       toast({ title: "已提交", description: `分镜 #${scene.sceneNumber} 视频生成任务已提交` });
 
       // Start polling
-      pollVideoTask(sceneId, taskId, provider);
+      pollVideoTask(sceneId, taskId, provider, klingTaskType);
     } catch (e: any) {
       console.error("Video generation error:", e);
       setScenes((prev) =>
@@ -963,7 +965,7 @@ const Workspace = () => {
     }
   };
 
-  const pollVideoTask = async (sceneId: string, taskId: string, provider?: string) => {
+  const pollVideoTask = async (sceneId: string, taskId: string, provider?: string, klingTaskType?: string) => {
     const maxAttempts = 120; // 10 min max
     let attempts = 0;
     let consecutiveErrors = 0;
@@ -972,7 +974,7 @@ const Workspace = () => {
     const poll = async () => {
       attempts++;
       try {
-        const { data, error } = await invokeFunction("generate-video", { action: "status", taskId, provider });
+        const { data, error } = await invokeFunction("generate-video", { action: "status", taskId, provider, klingTaskType });
         if (error) throw error;
         consecutiveErrors = 0; // reset on success
 
