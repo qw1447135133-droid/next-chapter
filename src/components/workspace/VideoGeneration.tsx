@@ -299,10 +299,11 @@ const VideoGeneration = ({
                       {(() => {
                         const maxVal = videoModel.startsWith("vidu") ? 16 : 15;
                         const minVal = videoModel.startsWith("kling") ? 3 : 4;
+                        const currentVal = scene.recommendedDuration || scene.duration || 5;
                         return (
                           <>
                             <Slider
-                              min={4}
+                              min={minVal}
                               max={maxVal}
                               step={1}
                               value={[currentVal]}
