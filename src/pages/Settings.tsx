@@ -58,7 +58,7 @@ function deobfuscate(value: string): string {
 }
 
 // Keys that should be obfuscated in storage
-const SENSITIVE_KEYS: (keyof ApiConfig)[] = ["zhanhuKey", "seedance", "viduKey", "supabaseKey"];
+const SENSITIVE_KEYS: (keyof ApiConfig)[] = ["zhanhuKey", "seedance", "viduKey", "klingKey", "supabaseKey"];
 
 const DEFAULT_CONFIG: ApiConfig = {
   storageMode: "local",
