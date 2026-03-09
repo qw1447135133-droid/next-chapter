@@ -223,6 +223,7 @@ const Settings = () => {
     { key: "zhanhuKey", label: "Gemini API Key", desc: "用于剧本拆解与分镜图 AI 生成" },
     { key: "seedance", label: "Seedance API Key", desc: "用于视频片段生成" },
     { key: "viduKey", label: "Vidu API Key", desc: "用于 Vidu 视频生成" },
+    { key: "klingKey", label: "可灵 API Key", desc: "用于可灵视频生成" },
   ];
 
   const supabaseFields = [
