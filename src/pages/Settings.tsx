@@ -407,6 +407,7 @@ const Settings = () => {
                 { name: "gemini", label: "Google API 端点", configKey: "zhanhuEndpoint" as const, apiKeyField: "zhanhuKey" as const, placeholder: "http://202.90.21.53:13003/v1beta", hint: "只需填写 Base URL，路径会自动拼接" },
                 { name: "seedance", label: "即梦 API 端点", configKey: "seedanceEndpoint" as const, apiKeyField: "seedance" as const, placeholder: "http://202.90.21.53:13003/v1", hint: "只需填写 Base URL，如 {base}/videos 会自动拼接" },
                 { name: "vidu", label: "Vidu API 端点", configKey: "viduEndpoint" as const, apiKeyField: "viduKey" as const, placeholder: "https://api.vidu.cn/ent/v2", hint: "只需填写 Base URL，路径会自动拼接" },
+                { name: "kling", label: "可灵 API 端点", configKey: "klingEndpoint" as const, apiKeyField: "klingKey" as const, placeholder: "https://api.klingai.com", hint: "只需填写 Base URL，路径会自动拼接" },
               ].map((ep) => {
                 const isTesting = endpointTesting[ep.name];
                 const result = endpointResults[ep.name];
