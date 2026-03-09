@@ -105,16 +105,18 @@ export const ART_STYLE_LABELS: Record<ArtStyle, string> = {
   'retro-comic': '美式复古漫画风',
 };
 
-export type VideoModel = 'seedance-1.5-pro' | 'vidu-q3';
+export type VideoModel = 'seedance-1.5-pro' | 'vidu-q3' | 'kling-v3';
 
 export const VIDEO_MODEL_LABELS: Record<VideoModel, string> = {
   'seedance-1.5-pro': 'Seedance 1.5 Pro',
   'vidu-q3': 'Vidu Q3',
+  'kling-v3': '可灵 V3',
 };
 
 export const VIDEO_MODEL_API_MAP: Record<VideoModel, string> = {
   'seedance-1.5-pro': 'doubao-seedance-1-5-pro_1080p',
   'vidu-q3': 'viduq3-pro',
+  'kling-v3': 'kling-v3',
 };
 
 export type EpisodeDuration = '60' | '90' | '120' | 'custom';
