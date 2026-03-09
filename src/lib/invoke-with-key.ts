@@ -1160,6 +1160,50 @@ async function localGenerateVideo(body: any) {
     }
     const data = await res.json();
     return { task_id: data.task_id, status: data.state || "created", provider: "vidu" };
+  } else if (isKling) {
+    const { apiKey, endpoint } = getKlingConfig();
+    if (!apiKey) throw new Error("可灵 API Key 未配置，请在设置中配置");
+    const truncatedPrompt = (body.prompt || "").length > 2500 ? body.prompt.substring(0, 2500) : body.prompt;
+    const hasImage = body.imageUrl && typeof body.imageUrl === "string";
+    const klingTaskType = hasImage ? "image2video" : "text2video";
+    const klingUrl = `${endpoint}/v1/videos/${klingTaskType}`;
+
+    const payload: any = {
+      model_name: model || "kling-v3",
+      prompt: truncatedPrompt,
+      duration: String(Math.max(3, Math.min(15, body.duration || 5))),
+      mode: "pro",
+      sound: "on",
+      aspect_ratio: body.aspectRatio || "16:9",
+    };
+
+    if (hasImage) {
+      // Kling requires raw base64 without data: prefix, or a URL
+      if (body.imageUrl.startsWith("data:")) {
+        const match = body.imageUrl.match(/^data:[^;]+;base64,(.+)$/);
+        payload.image = match ? match[1] : body.imageUrl;
+      } else {
+        // If it's a URL, try to use it directly; if it's a private storage URL, convert to base64
+        const fetched = await fetchImageAsBase64(body.imageUrl);
+        if (fetched) {
+          payload.image = fetched.data; // raw base64, no prefix
+        } else {
+          payload.image = body.imageUrl; // try URL directly
+        }
+      }
+    }
+
+    const res = await proxiedFetch(klingUrl, {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    }, JSON.stringify(payload));
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`可灵视频生成任务创建失败 (${res.status}): ${errText}`);
+    }
+    const data = await res.json();
+    const taskId2 = data.data?.task_id || data.task_id;
+    return { task_id: taskId2, status: data.data?.task_status || "submitted", provider: "kling", klingTaskType };
   } else {
     const { apiKey, endpoint } = getSeedanceConfig();
     if (!apiKey) throw new Error("Seedance API Key 未配置，请在设置中配置");
