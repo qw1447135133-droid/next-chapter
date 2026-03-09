@@ -1079,10 +1079,29 @@ ${narrativeContext}
 async function localGenerateVideo(body: any) {
   const { action, model, taskId, provider } = body;
   const isVidu = model?.startsWith("viduq") || model?.startsWith("vidu2");
+  const isKling = model?.startsWith("kling-") || provider === "kling";
 
   if (action === "status") {
     if (!taskId) throw new Error("缺少 taskId");
-    if (provider === "vidu") {
+    if (provider === "kling") {
+      const { apiKey, endpoint } = getKlingConfig();
+      if (!apiKey) throw new Error("可灵 API Key 未配置");
+      // Query uses the same path type as creation; we store the type in body
+      const queryType = body.klingTaskType || "text2video";
+      const res = await proxiedFetch(`${endpoint}/v1/videos/${queryType}/${taskId}`, {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      });
+      if (!res.ok) throw new Error(`查询可灵状态失败 (${res.status})`);
+      const data = await res.json();
+      const taskData = data.data || data;
+      const taskStatus = taskData.task_status;
+      let status = taskStatus === "succeed" ? "succeeded" : taskStatus === "failed" ? "failed" : "processing";
+      let videoUrl = taskStatus === "succeed" && taskData.task_result?.videos?.length > 0
+        ? taskData.task_result.videos[0].url
+        : undefined;
+      return { status, video_url: videoUrl, state: taskStatus };
+    } else if (provider === "vidu") {
       const { apiKey, endpoint } = getViduConfig();
       if (!apiKey) throw new Error("Vidu API Key 未配置");
       const res = await proxiedFetch(`${endpoint}/tasks/${taskId}/creations`, {
