@@ -460,17 +460,18 @@ const Settings = () => {
             <Key className="h-4 w-4" />
             AI API 密钥
           </h2>
-          {keyFields.map((f) => (
-            <Card key={f.key}>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">{f.label}</CardTitle>
-                <CardDescription>{f.desc}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {(() => {
-                  const hasValue = !!(config[f.key as keyof ApiConfig]);
-                  const isEditing = editingField === f.key;
-                  return (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">API 密钥配置</CardTitle>
+              <CardDescription>配置各 AI 服务的 API 密钥</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {keyFields.map((f) => {
+                const hasValue = !!(config[f.key as keyof ApiConfig]);
+                const isEditing = editingField === f.key;
+                return (
+                  <div key={f.key}>
+                    <Label className="text-sm">{f.label}</Label>
                     <Input
                       type="password"
                       value={isEditing ? String(config[f.key as keyof ApiConfig] || "") : (hasValue ? "••••••••" : "")}
@@ -478,16 +479,18 @@ const Settings = () => {
                       onFocus={() => { setEditingField(f.key); setConfig((p) => ({ ...p, [f.key]: "" })); }}
                       onBlur={() => setEditingField(null)}
                       placeholder={hasValue ? "已配置，点击可重新输入" : `输入 ${f.label}`}
+                      className="font-mono text-sm mt-1"
                       autoComplete="off"
                       onCopy={(e) => e.preventDefault()}
                       onCut={(e) => e.preventDefault()}
                       onDrag={(e) => e.preventDefault()}
                     />
-                  );
-                })()}
-              </CardContent>
-            </Card>
-          ))}
+                    <p className="text-xs text-muted-foreground mt-1">{f.desc}</p>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
         </div>
 
         {/* 视频首帧压缩参数 */}
