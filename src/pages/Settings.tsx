@@ -24,10 +24,12 @@ export interface ApiConfig {
   zhanhuKey: string;
   seedance: string;
   viduKey: string;
+  klingKey: string;
   // API 端点
   zhanhuEndpoint: string;
   seedanceEndpoint: string;
   viduEndpoint: string;
+  klingEndpoint: string;
   // 视频首帧图片压缩参数
   firstFrameMaxDim: number;
   firstFrameMaxKB: number;
