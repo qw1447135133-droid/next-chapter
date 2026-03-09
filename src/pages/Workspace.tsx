@@ -869,9 +869,10 @@ const Workspace = () => {
     // --- Step 1: Enhance prompt via AI ---
     let enhancedDescription = cleanBrackets(scene.description);
     const maxDuration = videoModel === "vidu-q3" ? 16 : 15;
+    const minDuration = videoModel === "kling-v3" ? 3 : 4;
     // If user manually set duration, use that; otherwise use AI recommendation
     const isManual = scene.isManualDuration && scene.recommendedDuration;
-    let recommendedDuration: number = isManual ? scene.recommendedDuration! : Math.max(4, Math.min(maxDuration, scene.duration || 5));
+    let recommendedDuration: number = isManual ? scene.recommendedDuration! : Math.max(minDuration, Math.min(maxDuration, scene.duration || 5));
     try {
       const { data: enhanceData, error: enhanceError } = await invokeFunction("enhance-video-prompt", {
         description: cleanBrackets(scene.description),
