@@ -941,7 +941,8 @@ const Workspace = () => {
       if (error) throw error;
 
       const taskId = data.task_id;
-      const provider = data.provider; // "vidu" or "seedance"
+      const provider = data.provider; // "vidu" or "seedance" or "kling"
+      const klingTaskType = data.klingTaskType; // "text2video" or "image2video" for kling
       if (!taskId) throw new Error("未返回 task_id");
 
       // Mark scene as generating, store recommended duration
@@ -952,7 +953,7 @@ const Workspace = () => {
       toast({ title: "已提交", description: `分镜 #${scene.sceneNumber} 视频生成任务已提交` });
 
       // Start polling
-      pollVideoTask(sceneId, taskId, provider);
+      pollVideoTask(sceneId, taskId, provider, klingTaskType);
     } catch (e: any) {
       console.error("Video generation error:", e);
       setScenes((prev) =>
