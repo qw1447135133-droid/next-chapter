@@ -24,10 +24,12 @@ export interface ApiConfig {
   zhanhuKey: string;
   seedance: string;
   viduKey: string;
+  klingKey: string;
   // API 端点
   zhanhuEndpoint: string;
   seedanceEndpoint: string;
   viduEndpoint: string;
+  klingEndpoint: string;
   // 视频首帧图片压缩参数
   firstFrameMaxDim: number;
   firstFrameMaxKB: number;
@@ -56,7 +58,7 @@ function deobfuscate(value: string): string {
 }
 
 // Keys that should be obfuscated in storage
-const SENSITIVE_KEYS: (keyof ApiConfig)[] = ["zhanhuKey", "seedance", "viduKey", "supabaseKey"];
+const SENSITIVE_KEYS: (keyof ApiConfig)[] = ["zhanhuKey", "seedance", "viduKey", "klingKey", "supabaseKey"];
 
 const DEFAULT_CONFIG: ApiConfig = {
   storageMode: "local",
@@ -66,9 +68,11 @@ const DEFAULT_CONFIG: ApiConfig = {
   zhanhuKey: "",
   seedance: "",
   viduKey: "",
+  klingKey: "",
   zhanhuEndpoint: "http://202.90.21.53:13003/v1beta",
   seedanceEndpoint: "http://202.90.21.53:13003/v1",
   viduEndpoint: "https://api.vidu.cn/ent/v2",
+  klingEndpoint: "",
   firstFrameMaxDim: 720,
   firstFrameMaxKB: 800,
   retryCount: 2,
@@ -219,6 +223,7 @@ const Settings = () => {
     { key: "zhanhuKey", label: "Gemini API Key", desc: "用于剧本拆解与分镜图 AI 生成" },
     { key: "seedance", label: "Seedance API Key", desc: "用于视频片段生成" },
     { key: "viduKey", label: "Vidu API Key", desc: "用于 Vidu 视频生成" },
+    { key: "klingKey", label: "可灵 API Key", desc: "用于可灵视频生成" },
   ];
 
   const supabaseFields = [
@@ -403,6 +408,7 @@ const Settings = () => {
                 { name: "gemini", label: "Google API 端点", configKey: "zhanhuEndpoint" as const, apiKeyField: "zhanhuKey" as const, placeholder: "http://202.90.21.53:13003/v1beta", hint: "只需填写 Base URL，路径会自动拼接" },
                 { name: "seedance", label: "即梦 API 端点", configKey: "seedanceEndpoint" as const, apiKeyField: "seedance" as const, placeholder: "http://202.90.21.53:13003/v1", hint: "只需填写 Base URL，如 {base}/videos 会自动拼接" },
                 { name: "vidu", label: "Vidu API 端点", configKey: "viduEndpoint" as const, apiKeyField: "viduKey" as const, placeholder: "https://api.vidu.cn/ent/v2", hint: "只需填写 Base URL，路径会自动拼接" },
+                { name: "kling", label: "可灵 API 端点", configKey: "klingEndpoint" as const, apiKeyField: "klingKey" as const, placeholder: "https://api.klingai.com", hint: "只需填写 Base URL，路径会自动拼接" },
               ].map((ep) => {
                 const isTesting = endpointTesting[ep.name];
                 const result = endpointResults[ep.name];
