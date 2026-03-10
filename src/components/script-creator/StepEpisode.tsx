@@ -64,7 +64,8 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
           .join("\n\n");
 
         const prompt = buildEpisodePrompt(setup, characters, directory, num, previousContent);
-        const data = await callGemini("gemini-2.5-flash", [
+        const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+        const data = await callGemini(model, [
           { role: "user", parts: [{ text: prompt }] },
         ], { maxOutputTokens: 8192 });
         const text = extractText(data);

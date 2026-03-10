@@ -23,7 +23,8 @@ const StepCreativePlan = ({ setup, plan, onUpdate, onNext }: StepCreativePlanPro
     setIsGenerating(true);
     try {
       const prompt = buildCreativePlanPrompt(setup);
-      const data = await callGemini("gemini-2.5-flash", [
+      const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+      const data = await callGemini(model, [
         { role: "user", parts: [{ text: prompt }] },
       ], { maxOutputTokens: 8192 });
       const text = extractText(data);
