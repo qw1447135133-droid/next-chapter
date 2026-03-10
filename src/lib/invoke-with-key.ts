@@ -275,8 +275,8 @@ async function routeFunction(functionName: string, body: any, options?: InvokeOp
     case "generate-storyboard": return localGenerateStoryboard(body);
     case "generate-video": return localGenerateVideo(body);
     case "enhance-video-prompt": return localEnhancePrompt(body);
-    case "generate-character-description": return localCharDesc(body);
-    case "generate-scene-description": return localSceneDesc(body);
+    case "generate-character-description": return localCharDesc(body, options?.onStreamText);
+    case "generate-scene-description": return localSceneDesc(body, options?.onStreamText);
     default: throw new Error(`未知函数: ${functionName}`);
   }
 }
@@ -1418,7 +1418,7 @@ async function localEnhancePrompt(body: any) {
   return { enhanced: finalPrompt, duration, durationReason };
 }
 
-async function localCharDesc(body: any) {
+async function localCharDesc(body: any, onStreamText?: (text: string) => void) {
   const { characterName, script, costumes, discoverCostumes, model: requestedModel } = body;
   if (!characterName || !script) throw new Error("缺少角色名称或剧本内容");
 
@@ -1481,12 +1481,20 @@ Return ONLY plain text character description. NO JSON, NO code blocks.`;
     ...(isThinking ? { thinkingConfig: { thinkingBudget: 2048 } } : {}),
   };
 
-  const data = await callGemini(useModel,
-    [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
-    generationConfig,
-  );
-
-  const rawText = extractText(data);
+  let rawText: string;
+  if (onStreamText) {
+    rawText = await callGeminiStream(useModel,
+      [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
+      onStreamText,
+      generationConfig,
+    );
+  } else {
+    const data = await callGemini(useModel,
+      [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
+      generationConfig,
+    );
+    rawText = extractText(data);
+  }
 
   if (hasCostumes || shouldDiscover) {
     try {
@@ -1503,7 +1511,7 @@ Return ONLY plain text character description. NO JSON, NO code blocks.`;
   return { description: rawText };
 }
 
-async function localSceneDesc(body: any) {
+async function localSceneDesc(body: any, onStreamText?: (text: string) => void) {
   const { sceneName, script, discoverTimeVariants, model: requestedModel } = body;
   if (!sceneName || !script) throw new Error("缺少场景名称或剧本内容");
 
@@ -1556,12 +1564,20 @@ Return ONLY plain text description in English. NO JSON.`;
     ...(isThinking ? { thinkingConfig: { thinkingBudget: 2048 } } : {}),
   };
 
-  const data = await callGemini(useModel,
-    [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
-    generationConfig,
-  );
-
-  const rawText = extractText(data);
+  let rawText: string;
+  if (onStreamText) {
+    rawText = await callGeminiStream(useModel,
+      [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
+      onStreamText,
+      generationConfig,
+    );
+  } else {
+    const data = await callGemini(useModel,
+      [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
+      generationConfig,
+    );
+    rawText = extractText(data);
+  }
 
   if (shouldDiscover) {
     try {
@@ -1574,5 +1590,5 @@ Return ONLY plain text description in English. NO JSON.`;
       return { description: rawText };
     }
   }
-  return { description: extractText(data) };
+  return { description: rawText };
 }

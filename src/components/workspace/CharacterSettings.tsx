@@ -24,7 +24,7 @@ import { invokeFunction } from "@/lib/invoke-with-key";
 import { toast } from "@/hooks/use-toast";
 import { friendlyError } from "@/lib/friendly-error";
 import { ensureStorageUrl } from "@/lib/upload-base64-to-storage";
-import { invokeStreamingFunction } from "@/lib/invoke-streaming";
+
 
 const CHAR_IMAGE_TIMEOUT_MS = 180_000;
 const SCENE_IMAGE_TIMEOUT_MS = 300_000;
@@ -527,6 +527,8 @@ const CharacterSettings = ({
   const [generatingCharDescIds, setGeneratingCharDescIds] = useState<Set<string>>(() => initSet("charDesc"));
   const [generatingCharImgIds, setGeneratingCharImgIds] = useState<Set<string>>(() => initSet("charImg"));
   const [generatingSceneImgIds, setGeneratingSceneImgIds] = useState<Set<string>>(() => initSet("sceneImg"));
+  // Streaming text for description generation (key = entity id, value = accumulated text)
+  const [streamingDescTexts, setStreamingDescTexts] = useState<Record<string, string>>({});
   // isAutoDetectingAll, setIsAutoDetectingAll, autoDetectAbortRef are now props from Workspace
   const stopCostumeGenRef = useRef<Set<string>>(new Set()); // track which character IDs should stop costume gen
   const stopTimeVariantGenRef = useRef<Set<string>>(new Set()); // track which scene IDs should stop time variant gen
@@ -596,15 +598,19 @@ const CharacterSettings = ({
     const hasCostumesToDescribe = character.costumes && character.costumes.length > 0;
     addTask(id, "charDesc");
     setGeneratingCharDescIds(prev => new Set(prev).add(id));
+    setStreamingDescTexts(prev => ({ ...prev, [id]: "" }));
     try {
+      const onStreamText = (text: string) => {
+        setStreamingDescTexts(prev => ({ ...prev, [id]: text }));
+      };
       if (hasCostumesToDescribe) {
-        // Describe each costume variant individually
-        const data = await invokeStreamingFunction("generate-character-description", {
+        const { data, error } = await invokeFunction("generate-character-description", {
           characterName: character.name,
           script,
           costumes: character.costumes!.map(cos => cos.label || "未命名"),
           model: decomposeModel,
-        });
+        }, { onStreamText });
+        if (error) throw error;
         if (data.costumeDescriptions && Array.isArray(data.costumeDescriptions)) {
           const updatedCostumes = character.costumes!.map((cos, i) => ({
             ...cos,
@@ -619,13 +625,12 @@ const CharacterSettings = ({
         }
         toast({ title: "识别成功", description: `已为「${character.name}」生成角色描述及 ${character.costumes!.length} 套服装描述` });
       } else {
-        // No costumes — discover costume variants from script
-        const data = await invokeStreamingFunction("generate-character-description", {
+        const { data, error } = await invokeFunction("generate-character-description", {
           characterName: character.name, script, model: decomposeModel,
           discoverCostumes: true,
-        });
+        }, { onStreamText });
+        if (error) throw error;
         const desc = data.description || "";
-        // Check if AI discovered costume variants
         if (data.discoveredCostumes && Array.isArray(data.discoveredCostumes) && data.discoveredCostumes.length >= 2) {
           const newCostumes: CostumeSetting[] = data.discoveredCostumes.map((dc: any) => ({
             id: crypto.randomUUID(),
@@ -634,7 +639,6 @@ const CharacterSettings = ({
             isAIGenerated: false,
           }));
           updateCharacterAsync(id, { description: desc, costumes: newCostumes, activeCostumeId: newCostumes[0]?.id });
-          // Auto-expand costume panel
           setExpandedCostumeCharIds(prev => { const next = new Set(prev); next.add(id); return next; });
           toast({ title: "识别成功", description: `已为「${character.name}」生成描述，并发现 ${newCostumes.length} 套服装变体` });
         } else {
@@ -649,6 +653,7 @@ const CharacterSettings = ({
     } finally {
       removeTask(id, "charDesc");
       setGeneratingCharDescIds(prev => { const next = new Set(prev); next.delete(id); return next; });
+      setStreamingDescTexts(prev => { const next = { ...prev }; delete next[id]; return next; });
     }
   };
 
@@ -665,11 +670,16 @@ const CharacterSettings = ({
     const hasTimeVariants = scene.timeVariants && scene.timeVariants.length > 0;
     addTask(id, "sceneDesc");
     setGeneratingDescIds(prev => new Set(prev).add(id));
+    setStreamingDescTexts(prev => ({ ...prev, [id]: "" }));
     try {
-      const data = await invokeStreamingFunction("generate-scene-description", {
+      const onStreamText = (text: string) => {
+        setStreamingDescTexts(prev => ({ ...prev, [id]: text }));
+      };
+      const { data, error } = await invokeFunction("generate-scene-description", {
         sceneName: scene.name, script, model: decomposeModel,
         discoverTimeVariants: !hasTimeVariants,
-      });
+      }, { onStreamText });
+      if (error) throw error;
       const desc = data.description || "";
       if (!hasTimeVariants && data.discoveredTimeVariants && Array.isArray(data.discoveredTimeVariants) && data.discoveredTimeVariants.length >= 2) {
         const newVariants: TimeVariantSetting[] = data.discoveredTimeVariants.map((tv: any) => ({
@@ -692,6 +702,7 @@ const CharacterSettings = ({
     } finally {
       removeTask(id, "sceneDesc");
       setGeneratingDescIds(prev => { const next = new Set(prev); next.delete(id); return next; });
+      setStreamingDescTexts(prev => { const next = { ...prev }; delete next[id]; return next; });
     }
   };
 
@@ -770,11 +781,16 @@ const CharacterSettings = ({
         if (autoDetectAbortRef.current) { textSem.release(); return; }
         addTask(c.id, "charDesc");
         setGeneratingCharDescIds((prev) => new Set(prev).add(c.id));
+        setStreamingDescTexts(prev => ({ ...prev, [c.id]: "" }));
+        const onStreamText = (text: string) => {
+          setStreamingDescTexts(prev => ({ ...prev, [c.id]: text }));
+        };
         try {
           if (hasCostumesToDescribe) {
-            const data = await invokeStreamingFunction("generate-character-description", {
+            const { data, error } = await invokeFunction("generate-character-description", {
               characterName: c.name, script, costumes: c.costumes!.map(cos => cos.label || "未命名"), model: decomposeModel,
-            });
+            }, { onStreamText });
+            if (error) throw error;
             desc = data.description || "";
             if (data.costumeDescriptions && Array.isArray(data.costumeDescriptions)) {
               const updatedCostumes = c.costumes!.map((cos, i) => ({
@@ -786,9 +802,10 @@ const CharacterSettings = ({
               updateCharacterAsync(c.id, { description: desc });
             }
           } else {
-            const data = await invokeStreamingFunction("generate-character-description", {
+            const { data, error } = await invokeFunction("generate-character-description", {
               characterName: c.name, script, model: decomposeModel,
-            });
+            }, { onStreamText });
+            if (error) throw error;
             desc = data.description || "";
             updateCharacterAsync(c.id, { description: desc });
           }
@@ -798,6 +815,7 @@ const CharacterSettings = ({
         } finally {
           removeTask(c.id, "charDesc");
           setGeneratingCharDescIds(prev => { const next = new Set(prev); next.delete(c.id); return next; });
+          setStreamingDescTexts(prev => { const next = { ...prev }; delete next[c.id]; return next; });
           textSem.release();
           if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
         }
@@ -951,10 +969,15 @@ const CharacterSettings = ({
         if (autoDetectAbortRef.current) { textSem.release(); return; }
         addTask(s.id, "sceneDesc");
         setGeneratingDescIds((prev) => new Set(prev).add(s.id));
+        setStreamingDescTexts(prev => ({ ...prev, [s.id]: "" }));
+        const onStreamText = (text: string) => {
+          setStreamingDescTexts(prev => ({ ...prev, [s.id]: text }));
+        };
         try {
-          const data = await invokeStreamingFunction("generate-scene-description", {
+          const { data, error } = await invokeFunction("generate-scene-description", {
             sceneName: s.name, script, model: decomposeModel,
-          });
+          }, { onStreamText });
+          if (error) throw error;
           desc = data.description || "";
           updateSceneAsync(s.id, { description: desc });
           descOk = true;
@@ -963,6 +986,7 @@ const CharacterSettings = ({
         } finally {
           removeTask(s.id, "sceneDesc");
           setGeneratingDescIds(prev => { const next = new Set(prev); next.delete(s.id); return next; });
+          setStreamingDescTexts(prev => { const next = { ...prev }; delete next[s.id]; return next; });
           textSem.release();
           if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
         }
@@ -1458,7 +1482,16 @@ const CharacterSettings = ({
                    </div>
                   {/* Hide base description when costumes are expanded — description lives per-costume */}
                   {!(isCostumeExpanded && hasCostumes) && (
-                    <Textarea value={c.description} onChange={(e) => updateCharacter(c.id, { description: e.target.value })} placeholder="角色描述（外貌特征、服装、年龄、气质等，越详细生成效果越好）" className="text-sm min-h-[60px] resize-none" rows={2} />
+                    generatingCharDescIds.has(c.id) && streamingDescTexts[c.id] ? (
+                      <div className="relative">
+                        <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 min-h-[60px] max-h-[200px] overflow-auto rounded-md border border-input bg-background px-3 py-2">
+                          {streamingDescTexts[c.id]}
+                          <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />
+                        </pre>
+                      </div>
+                    ) : (
+                      <Textarea value={c.description} onChange={(e) => updateCharacter(c.id, { description: e.target.value })} placeholder="角色描述（外貌特征、服装、年龄、气质等，越详细生成效果越好）" className="text-sm min-h-[60px] resize-none" rows={2} />
+                    )
                   )}
                   <div className="flex gap-2">
                     <input type="file" accept="image/*" className="hidden" ref={(el) => { fileInputRefs.current[c.id] = el; }} onChange={(e) => handleFileChange(c.id, e)} />
@@ -1825,13 +1858,22 @@ const CharacterSettings = ({
                   </div>
                   {/* Hide base description when time variants are expanded */}
                   {!(isTimeVariantExpanded && hasTimeVariants) && (
-                    <Textarea
-                      value={s.description}
-                      onChange={(e) => updateScene(s.id, { description: e.target.value })}
-                      placeholder="场景描述（环境、氛围、光线、时间等，越详细生成效果越好）"
-                      className="text-sm min-h-[60px] resize-none"
-                      rows={2}
-                    />
+                    generatingDescIds.has(s.id) && streamingDescTexts[s.id] ? (
+                      <div className="relative">
+                        <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 min-h-[60px] max-h-[200px] overflow-auto rounded-md border border-input bg-background px-3 py-2">
+                          {streamingDescTexts[s.id]}
+                          <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />
+                        </pre>
+                      </div>
+                    ) : (
+                      <Textarea
+                        value={s.description}
+                        onChange={(e) => updateScene(s.id, { description: e.target.value })}
+                        placeholder="场景描述（环境、氛围、光线、时间等，越详细生成效果越好）"
+                        className="text-sm min-h-[60px] resize-none"
+                        rows={2}
+                      />
+                    )
                   )}
                   <div className="flex gap-2">
                     <input type="file" accept="image/*" className="hidden" ref={(el) => { sceneFileInputRefs.current[s.id] = el; }} onChange={(e) => handleSceneFileChange(s.id, e)} />
