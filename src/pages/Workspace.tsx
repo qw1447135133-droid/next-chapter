@@ -1274,7 +1274,19 @@ const Workspace = () => {
       </header>
 
       <div className="px-6 py-3 border-b border-border/30 flex items-center justify-between gap-4">
-        <StepIndicator currentStep={currentStep} onStepClick={setCurrentStep} disabledSteps={skipStoryboard ? [3] : []} />
+        <StepIndicator
+          currentStep={currentStep}
+          onStepClick={(step) => {
+            const reasons = getStepBlockReason(step);
+            if (reasons) {
+              toast({ title: "无法进入该步骤", description: reasons, variant: "destructive" });
+              return;
+            }
+            setCurrentStep(step);
+          }}
+          disabledSteps={skipStoryboard ? [3] : []}
+          lockedSteps={getLockedSteps()}
+        />
         <div className="flex items-center gap-2 shrink-0">
           <Switch id="skip-storyboard" checked={!skipStoryboard} onCheckedChange={(v) => setSkipStoryboard(!v)} />
           <Label htmlFor="skip-storyboard" className="text-xs text-muted-foreground whitespace-nowrap cursor-pointer">

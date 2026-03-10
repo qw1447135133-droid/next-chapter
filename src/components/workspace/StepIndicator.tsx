@@ -7,9 +7,10 @@ interface StepIndicatorProps {
   currentStep: WorkspaceStep;
   onStepClick: (step: WorkspaceStep) => void;
   disabledSteps?: WorkspaceStep[];
+  lockedSteps?: WorkspaceStep[];
 }
 
-const StepIndicator = ({ currentStep, onStepClick, disabledSteps = [] }: StepIndicatorProps) => {
+const StepIndicator = ({ currentStep, onStepClick, disabledSteps = [], lockedSteps = [] }: StepIndicatorProps) => {
   const steps = Object.entries(STEP_LABELS) as [string, string][];
 
   return (
