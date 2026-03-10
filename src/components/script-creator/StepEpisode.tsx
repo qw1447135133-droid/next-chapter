@@ -816,8 +816,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                     setShowReviewDialog(false);
                     if (reviewEpNum != null) {
                       setRangeInput(String(reviewEpNum));
-                      // Use setTimeout to allow state to settle
-                      setTimeout(() => handleGenerate(String(reviewEpNum)), 50);
+                      handleGenerate(String(reviewEpNum), instruction);
                     }
                   }}
                   disabled={isGenerating}
