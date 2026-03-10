@@ -44,8 +44,8 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
     return [...new Set(nums)].sort((a, b) => a - b);
   };
 
-  const handleGenerate = async () => {
-    const nums = parseRange(rangeInput);
+  const handleGenerate = async (overrideRange?: string) => {
+    const nums = parseRange(overrideRange || rangeInput);
     if (nums.length === 0) {
       toast({ title: "请输入有效的集数", variant: "destructive" });
       return;
@@ -156,7 +156,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                 停止
               </Button>
             ) : (
-              <Button onClick={handleGenerate} className="gap-2">
+              <Button onClick={() => handleGenerate()} className="gap-2">
                 <Play className="h-4 w-4" />
                 开始撰写
               </Button>
@@ -172,7 +172,13 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
               return (
                 <button
                   key={ep.number}
-                  onClick={() => setSelectedEp(ep.number === selectedEp ? null : ep.number)}
+                  onClick={() => {
+                    const next = ep.number === selectedEp ? null : ep.number;
+                    setSelectedEp(next);
+                    if (next != null && !completedNums.has(next)) {
+                      setRangeInput(String(next));
+                    }
+                  }}
                   className={`w-9 h-9 rounded text-xs font-mono flex items-center justify-center border transition-all cursor-pointer ${
                     generating
                       ? "border-primary bg-primary/20 animate-pulse"
@@ -243,9 +249,19 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                 </pre>
               </ScrollArea>
             ) : (
-              <div className="text-center py-12 text-muted-foreground">
+              <div className="text-center py-12 text-muted-foreground space-y-3">
                 <p className="text-sm">该集尚未生成</p>
-                <p className="text-xs mt-1">请在上方输入集数范围后点击"开始撰写"</p>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setRangeInput(String(selectedEp));
+                    handleGenerate(String(selectedEp));
+                  }}
+                  className="gap-2"
+                >
+                  <Play className="h-4 w-4" />
+                  生成第 {selectedEp} 集
+                </Button>
               </div>
             )}
           </CardContent>
