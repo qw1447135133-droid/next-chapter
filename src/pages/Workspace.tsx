@@ -1143,6 +1143,28 @@ const Workspace = () => {
     await generateVideoForScene(sceneId);
   };
 
+  const getStepBlockReason = (step: WorkspaceStep): string | null => {
+    if (step <= 1) return null;
+    if (step >= 2 && scenes.length === 0) return "请先完成剧本拆解";
+    if (step >= 3 && !skipStoryboard) {
+      const hasAnyCharDesc = characters.some(c => c.description);
+      if (!hasAnyCharDesc) return "请先为角色添加描述或设定图";
+    }
+    if (step >= 4 && !skipStoryboard) {
+      const hasAnyStoryboard = scenes.some(s => s.storyboardUrl);
+      if (!hasAnyStoryboard) return "请先生成至少一张分镜图";
+    }
+    if (step >= 5) {
+      const hasAnyVideo = scenes.some(s => s.videoUrl);
+      if (!hasAnyVideo) return "请先生成至少一个视频";
+    }
+    return null;
+  };
+
+  const getLockedSteps = (): WorkspaceStep[] => {
+    return ([2, 3, 4, 5] as WorkspaceStep[]).filter(s => getStepBlockReason(s) !== null);
+  };
+
   const renderStep = () => {
     switch (currentStep) {
       case 1:

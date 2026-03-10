@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import { STEP_LABELS, type WorkspaceStep } from "@/types/project";
-import { Check } from "lucide-react";
+import { Check, Lock } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 interface StepIndicatorProps {
