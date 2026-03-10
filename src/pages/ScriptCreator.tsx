@@ -40,6 +40,12 @@ function loadProject(): DramaProject {
 const ScriptCreator = () => {
   const navigate = useNavigate();
   const [project, setProject] = useState<DramaProject>(loadProject);
+  const [model, setModel] = useState(() => localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview");
+
+  const handleModelChange = (value: string) => {
+    setModel(value);
+    localStorage.setItem("decompose-model", value);
+  };
 
   // Persist to localStorage on change
   useEffect(() => {
