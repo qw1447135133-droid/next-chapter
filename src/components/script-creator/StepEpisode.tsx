@@ -265,13 +265,11 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const handleRestoreVersion = (versionIndex: number) => {
     if (!selectedScript || !selectedScript.history) return;
     const version = selectedScript.history[versionIndex];
-    // Save current as history before restoring
-    const history = pushHistory(selectedScript, "恢复前备份");
+    // Restore without adding a new history entry
     const updatedEp: EpisodeScript = {
       ...selectedScript,
       content: version.content,
       wordCount: version.wordCount,
-      history,
     };
     const updatedEpisodes = episodes.map((e) =>
       e.number === selectedEp ? updatedEp : e,
