@@ -172,17 +172,18 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
               return (
                 <button
                   key={ep.number}
-                  onClick={() => done && setSelectedEp(ep.number === selectedEp ? null : ep.number)}
-                  className={`w-9 h-9 rounded text-xs font-mono flex items-center justify-center border transition-all ${
+                  onClick={() => setSelectedEp(ep.number === selectedEp ? null : ep.number)}
+                  className={`w-9 h-9 rounded text-xs font-mono flex items-center justify-center border transition-all cursor-pointer ${
                     generating
                       ? "border-primary bg-primary/20 animate-pulse"
                       : done
                       ? active
                         ? "border-primary bg-primary text-primary-foreground"
-                        : "border-accent bg-accent/10 text-accent-foreground cursor-pointer hover:bg-accent/20"
-                      : "border-border text-muted-foreground"
+                        : "border-accent bg-accent/10 text-accent-foreground hover:bg-accent/20"
+                      : active
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:border-muted-foreground/50"
                   }`}
-                  disabled={!done}
                   title={`第${ep.number}集：${ep.title}`}
                 >
                   {generating ? (
