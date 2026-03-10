@@ -427,13 +427,25 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-lg">
             分集撰写
             <span className="text-sm font-normal text-muted-foreground ml-2">
               已完成 {episodes.length}/{setup.totalEpisodes} 集
             </span>
           </CardTitle>
+          {episodes.length >= 2 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleBatchReview}
+              disabled={isGenerating || isBatchReviewing}
+              className="gap-1.5"
+            >
+              <BarChart3 className="h-3.5 w-3.5" />
+              {isBatchReviewing ? "审查中…" : "批量质量审查"}
+            </Button>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-end gap-3">
