@@ -363,3 +363,86 @@ ${episodes.map((ep) => `### 第${ep.number}集：${ep.title}\n${ep.content}`).jo
 
 请输出整合后的完整剧本文档，格式规范，包含封面信息、角色表、分集剧本。`;
 }
+
+/** 质量自检 Prompt */
+export function buildReviewPrompt(
+  setup: DramaSetup,
+  characters: string,
+  directory: EpisodeEntry[],
+  episodeNumber: number,
+  episodeContent: string,
+  prevEpisodeContent?: string,
+  nextEpisodeContent?: string,
+): string {
+  const genreStr = setup.genres.join(" + ");
+  const epEntry = directory.find((d) => d.number === episodeNumber);
+
+  return `你是一位资深短剧质检编辑，精通微短剧的创作标准和行业规范。
+
+## 任务
+对以下第 ${episodeNumber} 集剧本进行五维度质量评分和审查。
+
+## 项目信息
+- 题材：${genreStr}
+- 受众：${setup.audience}
+- 基调：${setup.tone}
+- 结局：${setup.ending}
+- 总集数：${setup.totalEpisodes}
+${epEntry ? `- 本集标题：${epEntry.title}\n- 本集概要：${epEntry.summary}\n- 钩子类型：${epEntry.hookType}${epEntry.isKey ? "\n- 🔥 关键集" : ""}${epEntry.isClimax ? "\n- ⚡ 高潮卡点" : ""}` : ""}
+
+## 角色档案（摘要）
+${characters.slice(0, 2000)}
+
+${prevEpisodeContent ? `## 上一集内容（末尾片段）\n${prevEpisodeContent.slice(-600)}\n` : ""}
+${nextEpisodeContent ? `## 下一集内容（开头片段）\n${nextEpisodeContent.slice(0, 600)}\n` : ""}
+
+## 待审查剧本
+${episodeContent}
+
+---
+
+## 评分要求
+
+请严格按照以下五个维度评分（每项 1-10 分），并输出 **严格的 JSON 格式**：
+
+\`\`\`json
+{
+  "scores": {
+    "rhythm": { "score": 8, "comment": "评价说明" },
+    "satisfaction": { "score": 7, "comment": "评价说明" },
+    "dialogue": { "score": 9, "comment": "评价说明" },
+    "format": { "score": 9, "comment": "评价说明" },
+    "continuity": { "score": 9, "comment": "评价说明" }
+  },
+  "total": 42,
+  "grade": "优良",
+  "highlights": ["亮点1", "亮点2", "亮点3"],
+  "issues": [
+    { "level": "⛔", "description": "阻断性问题描述" },
+    { "level": "⚠️", "description": "建议修改描述" },
+    { "level": "ℹ️", "description": "微调建议描述" }
+  ],
+  "suggestions": ["修订建议1", "修订建议2"]
+}
+\`\`\`
+
+### 维度说明
+| 维度 | 评价标准 |
+|------|----------|
+| rhythm（节奏） | 场景切换节奏、信息密度、前30秒入戏、末尾钩子 |
+| satisfaction（爽点） | 爽感要素密度、情绪高潮设计、观众满足感 |
+| dialogue（台词） | 人物语言个性化、金句设计、画外音使用 |
+| format（格式） | 镜头语言规范（△全景/中景/特写）、配乐提示♪、场景头标注、角色标注 |
+| continuity（连贯性） | 与角色档案一致、与前后集衔接、伏笔回收 |
+
+### 评级标准
+| 总分 | 评级 |
+|------|------|
+| 45-50 | 卓越 |
+| 38-44 | 优良 |
+| 30-37 | 合格 |
+| 25-29 | 需改进 |
+| <25 | 需重写 |
+
+**只输出 JSON，不要输出其他任何内容。**`;
+}

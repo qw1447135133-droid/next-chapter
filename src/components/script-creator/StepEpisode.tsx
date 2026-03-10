@@ -4,11 +4,33 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowRight, Loader2, Play, Check, Square, RefreshCw, History, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
+import { ArrowRight, Loader2, Play, Check, Square, RefreshCw, History, ChevronDown, ChevronUp, Trash2, ClipboardCheck, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
-import { buildEpisodePrompt, buildSceneRegenPrompt } from "@/lib/drama-prompts";
+import { buildEpisodePrompt, buildSceneRegenPrompt, buildReviewPrompt } from "@/lib/drama-prompts";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Progress } from "@/components/ui/progress";
 import type { DramaSetup, EpisodeEntry, EpisodeScript, EpisodeVersion } from "@/types/drama";
+
+interface ReviewScore {
+  score: number;
+  comment: string;
+}
+
+interface ReviewResult {
+  scores: {
+    rhythm: ReviewScore;
+    satisfaction: ReviewScore;
+    dialogue: ReviewScore;
+    format: ReviewScore;
+    continuity: ReviewScore;
+  };
+  total: number;
+  grade: string;
+  highlights: string[];
+  issues: { level: string; description: string }[];
+  suggestions: string[];
+}
 
 interface StepEpisodeProps {
   setup: DramaSetup;
@@ -75,7 +97,65 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const [sceneRegenInstructions, setSceneRegenInstructions] = useState<Record<number, string>>({});
   const [hoverEpisodeRegen, setHoverEpisodeRegen] = useState(false);
   const [hoverSceneIdx, setHoverSceneIdx] = useState<number | null>(null);
+  const [reviewResult, setReviewResult] = useState<ReviewResult | null>(null);
+  const [isReviewing, setIsReviewing] = useState(false);
+  const [showReviewDialog, setShowReviewDialog] = useState(false);
+  const [reviewEpNum, setReviewEpNum] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  const DIMENSION_LABELS: Record<string, string> = {
+    rhythm: "节奏",
+    satisfaction: "爽点",
+    dialogue: "台词",
+    format: "格式",
+    continuity: "连贯性",
+  };
+
+  const getGradeColor = (grade: string) => {
+    if (grade === "卓越") return "text-green-500";
+    if (grade === "优良") return "text-blue-500";
+    if (grade === "合格") return "text-yellow-500";
+    if (grade === "需改进") return "text-orange-500";
+    return "text-destructive";
+  };
+
+  const handleReview = async (epNum: number) => {
+    const ep = episodes.find(e => e.number === epNum);
+    if (!ep) return;
+
+    setReviewEpNum(epNum);
+    setIsReviewing(true);
+    setReviewResult(null);
+    setShowReviewDialog(true);
+
+    try {
+      const prevEp = episodes.find(e => e.number === epNum - 1);
+      const nextEp = episodes.find(e => e.number === epNum + 1);
+
+      const prompt = buildReviewPrompt(
+        setup, characters, directory, epNum, ep.content,
+        prevEp?.content, nextEp?.content,
+      );
+      const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+      const finalText = await callGeminiStream(
+        model,
+        [{ role: "user", parts: [{ text: prompt }] }],
+        () => {},
+        { maxOutputTokens: 4096 },
+      );
+
+      // Extract JSON from response
+      const jsonMatch = finalText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("未能解析评分结果");
+      const result: ReviewResult = JSON.parse(jsonMatch[0]);
+      setReviewResult(result);
+    } catch (e: any) {
+      toast({ title: "质量审查失败", description: e?.message, variant: "destructive" });
+      setShowReviewDialog(false);
+    } finally {
+      setIsReviewing(false);
+    }
+  };
 
   const parseRange = (input: string): number[] => {
     const parts = input.split(/[,，]/);
@@ -419,6 +499,16 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={() => handleReview(selectedEp!)}
+                  disabled={isGenerating || isReviewing}
+                  className="gap-1.5"
+                >
+                  <ClipboardCheck className="h-3.5 w-3.5" />
+                  {isReviewing && reviewEpNum === selectedEp ? "审查中…" : "质量自检"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => {
                     setRangeInput(String(selectedEp));
                     handleGenerate(String(selectedEp));
@@ -608,6 +698,93 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
           </Button>
         </div>
       )}
+
+      {/* 质量审查对话框 */}
+      <Dialog open={showReviewDialog} onOpenChange={setShowReviewDialog}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardCheck className="h-5 w-5" />
+              第 {reviewEpNum} 集 · 质量审查
+            </DialogTitle>
+          </DialogHeader>
+
+          {isReviewing && !reviewResult && (
+            <div className="flex flex-col items-center gap-4 py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">正在审查中，请稍候…</p>
+            </div>
+          )}
+
+          {reviewResult && (
+            <div className="space-y-5">
+              {/* 总分 */}
+              <div className="text-center space-y-2">
+                <div className="text-4xl font-bold">
+                  <span className={getGradeColor(reviewResult.grade)}>{reviewResult.total}</span>
+                  <span className="text-lg text-muted-foreground">/50</span>
+                </div>
+                <span className={`text-lg font-semibold ${getGradeColor(reviewResult.grade)}`}>
+                  {reviewResult.grade}
+                </span>
+              </div>
+
+              {/* 五维评分 */}
+              <div className="space-y-3">
+                {Object.entries(reviewResult.scores).map(([key, val]) => (
+                  <div key={key} className="space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-medium">{DIMENSION_LABELS[key] || key}</span>
+                      <span className="font-mono text-muted-foreground">{val.score}/10</span>
+                    </div>
+                    <Progress value={val.score * 10} className="h-2" />
+                    <p className="text-xs text-muted-foreground">{val.comment}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* 亮点 */}
+              {reviewResult.highlights.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-sm font-semibold">✨ 亮点</p>
+                  <ul className="text-sm text-muted-foreground space-y-1">
+                    {reviewResult.highlights.map((h, i) => (
+                      <li key={i} className="flex gap-2"><span>•</span><span>{h}</span></li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* 问题 */}
+              {reviewResult.issues.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-sm font-semibold">📋 问题清单</p>
+                  <ul className="text-sm space-y-1">
+                    {reviewResult.issues.map((issue, i) => (
+                      <li key={i} className="flex gap-2">
+                        <span>{issue.level}</span>
+                        <span className="text-muted-foreground">{issue.description}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* 修订建议 */}
+              {reviewResult.suggestions.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-sm font-semibold">💡 修订建议</p>
+                  <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+                    {reviewResult.suggestions.map((s, i) => (
+                      <li key={i}>{s}</li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
