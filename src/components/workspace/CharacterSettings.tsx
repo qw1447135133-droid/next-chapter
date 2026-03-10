@@ -781,11 +781,16 @@ const CharacterSettings = ({
         if (autoDetectAbortRef.current) { textSem.release(); return; }
         addTask(c.id, "charDesc");
         setGeneratingCharDescIds((prev) => new Set(prev).add(c.id));
+        setStreamingDescTexts(prev => ({ ...prev, [c.id]: "" }));
+        const onStreamText = (text: string) => {
+          setStreamingDescTexts(prev => ({ ...prev, [c.id]: text }));
+        };
         try {
           if (hasCostumesToDescribe) {
-            const data = await invokeStreamingFunction("generate-character-description", {
+            const { data, error } = await invokeFunction("generate-character-description", {
               characterName: c.name, script, costumes: c.costumes!.map(cos => cos.label || "未命名"), model: decomposeModel,
-            });
+            }, { onStreamText });
+            if (error) throw error;
             desc = data.description || "";
             if (data.costumeDescriptions && Array.isArray(data.costumeDescriptions)) {
               const updatedCostumes = c.costumes!.map((cos, i) => ({
@@ -797,9 +802,10 @@ const CharacterSettings = ({
               updateCharacterAsync(c.id, { description: desc });
             }
           } else {
-            const data = await invokeStreamingFunction("generate-character-description", {
+            const { data, error } = await invokeFunction("generate-character-description", {
               characterName: c.name, script, model: decomposeModel,
-            });
+            }, { onStreamText });
+            if (error) throw error;
             desc = data.description || "";
             updateCharacterAsync(c.id, { description: desc });
           }
