@@ -21,6 +21,7 @@ const StepSetup = ({ setup, onComplete }: StepSetupProps) => {
   const [ending, setEnding] = useState(setup?.ending || "HE");
   const [totalEpisodes, setTotalEpisodes] = useState(setup?.totalEpisodes || 60);
   const [customTopic, setCustomTopic] = useState(setup?.customTopic || "");
+  const [targetMarket, setTargetMarket] = useState(setup?.targetMarket || "cn");
 
   const toggleGenre = (genre: string) => {
     setSelectedGenres((prev) => {
