@@ -50,7 +50,8 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
     setIsGenerating(true);
     try {
       const prompt = buildDirectoryPrompt(setup, creativePlan, characters);
-      const data = await callGemini("gemini-2.5-flash", [
+      const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+      const data = await callGemini(model, [
         { role: "user", parts: [{ text: prompt }] },
       ], { maxOutputTokens: 8192 });
       const text = extractText(data);

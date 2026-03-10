@@ -26,7 +26,8 @@ const StepExport = ({ setup, dramaTitle, creativePlan, characters, episodes }: S
     setIsExporting(true);
     try {
       const prompt = buildExportPrompt(setup, dramaTitle, creativePlan, characters, episodes);
-      const data = await callGemini("gemini-2.5-flash", [
+      const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+      const data = await callGemini(model, [
         { role: "user", parts: [{ text: prompt }] },
       ], { maxOutputTokens: 16384 });
       const text = extractText(data);
