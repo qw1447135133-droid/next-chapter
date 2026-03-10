@@ -54,12 +54,13 @@ ${outline.trim() ? `\n大纲/要求：\n${outline.trim()}` : ""}
 请直接输出完整剧本内容。`;
 
     try {
-      const result = await callGemini({
-        prompt: userPrompt,
-        systemPrompt: SCRIPT_SYSTEM_PROMPT,
-        maxTokens: 8192,
-      });
-      setGeneratedScript(result);
+      const model = "gemini-2.5-flash";
+      const contents = [
+        { role: "user", parts: [{ text: SCRIPT_SYSTEM_PROMPT + "\n\n" + userPrompt }] },
+      ];
+      const data = await callGemini(model, contents, { maxOutputTokens: 8192 });
+      const text = extractText(data);
+      setGeneratedScript(text);
       toast({ title: "剧本生成完成" });
     } catch (e: any) {
       toast({ title: "生成失败", description: e?.message || "未知错误", variant: "destructive" });

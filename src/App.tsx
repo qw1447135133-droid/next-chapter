@@ -21,7 +21,9 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/modules" element={<Modules />} />
           <Route path="/workspace" element={<Workspace />} />
+          <Route path="/script-creator" element={<ScriptCreator />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/history" element={<History />} />
           <Route path="*" element={<NotFound />} />
