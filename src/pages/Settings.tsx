@@ -48,13 +48,13 @@ function obfuscate(value: string): string {
   if (!value) return "";
   // Already obfuscated — don't double-encode
   if (value.startsWith(OBF_PREFIX)) return value;
-  try { return OBF_PREFIX + btoa(unescape(encodeURIComponent(value))); } catch { return value; }
+  try {return OBF_PREFIX + btoa(unescape(encodeURIComponent(value)));} catch {return value;}
 }
 function deobfuscate(value: string): string {
   if (!value) return "";
   // Not obfuscated — return as-is (prevents snowball)
   if (!value.startsWith(OBF_PREFIX)) return value;
-  try { return decodeURIComponent(escape(atob(value.slice(OBF_PREFIX.length)))); } catch { return value; }
+  try {return decodeURIComponent(escape(atob(value.slice(OBF_PREFIX.length))));} catch {return value;}
 }
 
 // Keys that should be obfuscated in storage
@@ -76,7 +76,7 @@ const DEFAULT_CONFIG: ApiConfig = {
   firstFrameMaxDim: 720,
   firstFrameMaxKB: 800,
   retryCount: 2,
-  retryDelayMs: 3000,
+  retryDelayMs: 3000
 };
 
 export function getApiConfig(): ApiConfig {
@@ -90,7 +90,7 @@ export function getApiConfig(): ApiConfig {
       }
       return parsed;
     }
-  } catch { /* ignore */ }
+  } catch {/* ignore */}
   return DEFAULT_CONFIG;
 }
 
@@ -117,11 +117,11 @@ const Settings = () => {
   const navigate = useNavigate();
   const [config, setConfig] = useState<ApiConfig>(getApiConfig);
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<{success: boolean;message: string;} | null>(null);
 
   // API connectivity test state
   const [endpointTesting, setEndpointTesting] = useState<Record<string, boolean>>({});
-  const [endpointResults, setEndpointResults] = useState<Record<string, { success: boolean; message: string }>>({});
+  const [endpointResults, setEndpointResults] = useState<Record<string, {success: boolean;message: string;}>>({});
 
   // For sensitive fields, we track whether user is actively editing (show real value) or not (show mask)
   const [editingField, setEditingField] = useState<string | null>(null);
@@ -131,7 +131,7 @@ const Settings = () => {
     if (saved) {
       try {
         setConfig({ ...DEFAULT_CONFIG, ...JSON.parse(saved) });
-      } catch { /* ignore */ }
+      } catch {/* ignore */}
     }
   }, []);
 
@@ -152,18 +152,18 @@ const Settings = () => {
     try {
       const originalUrl = (window as any).__SUPABASE_URL__;
       const originalKey = (window as any).__SUPABASE_KEY__;
-      
+
       (window as any).__SUPABASE_URL__ = config.supabaseUrl;
       (window as any).__SUPABASE_KEY__ = config.supabaseKey;
-      
+
       const { createClient } = await import('@supabase/supabase-js');
       const testClient = createClient(config.supabaseUrl, config.supabaseKey);
-      
+
       const { data, error } = await testClient.from('projects').select('id').limit(1);
-      
+
       if (originalUrl) (window as any).__SUPABASE_URL__ = originalUrl;
       if (originalKey) (window as any).__SUPABASE_KEY__ = originalKey;
-      
+
       if (error) {
         setTestResult({ success: false, message: `连接失败: ${error.message}` });
       } else {
@@ -220,16 +220,16 @@ const Settings = () => {
   };
 
   const keyFields = [
-    { key: "zhanhuKey", label: "Google API Key", desc: "用于剧本拆解与分镜图 AI 生成" },
-    { key: "seedance", label: "即梦 API Key", desc: "用于视频片段生成" },
-    { key: "viduKey", label: "Vidu API Key", desc: "用于 Vidu 视频生成" },
-    { key: "klingKey", label: "可灵 API Key", desc: "用于可灵视频生成" },
-  ];
+  { key: "zhanhuKey", label: "Google API Key", desc: "用于剧本拆解与分镜图 AI 生成" },
+  { key: "seedance", label: "即梦 API Key", desc: "用于视频片段生成" },
+  { key: "viduKey", label: "Vidu API Key", desc: "用于 Vidu 视频生成" },
+  { key: "klingKey", label: "可灵 API Key", desc: "用于可灵视频生成" }];
+
 
   const supabaseFields = [
-    { key: "supabaseUrl", label: "Supabase URL", placeholder: "https://xxxxx.supabase.co", desc: "你的 Supabase 项目地址" },
-    { key: "supabaseKey", label: "Supabase Anon Key", placeholder: "eyJ...", desc: "Supabase Anon Key (公开)" },
-  ];
+  { key: "supabaseUrl", label: "Supabase URL", placeholder: "https://xxxxx.supabase.co", desc: "你的 Supabase 项目地址" },
+  { key: "supabaseKey", label: "Supabase Anon Key", placeholder: "eyJ...", desc: "Supabase Anon Key (公开)" }];
+
 
   const storageMode = config.storageMode || "local";
 
@@ -258,11 +258,11 @@ const Settings = () => {
               type="button"
               onClick={() => setConfig((p) => ({ ...p, storageMode: "local" as StorageMode }))}
               className={`flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-all ${
-                storageMode === "local"
-                  ? "border-primary bg-primary/5 shadow-sm"
-                  : "border-border hover:border-muted-foreground/30"
-              }`}
-            >
+              storageMode === "local" ?
+              "border-primary bg-primary/5 shadow-sm" :
+              "border-border hover:border-muted-foreground/30"}`
+              }>
+              
               <HardDrive className={`h-6 w-6 ${storageMode === "local" ? "text-primary" : "text-muted-foreground"}`} />
               <span className={`text-sm font-medium ${storageMode === "local" ? "text-primary" : "text-foreground"}`}>
                 本地存储
@@ -275,11 +275,11 @@ const Settings = () => {
               type="button"
               onClick={() => setConfig((p) => ({ ...p, storageMode: "cloud" as StorageMode }))}
               className={`flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-all ${
-                storageMode === "cloud"
-                  ? "border-primary bg-primary/5 shadow-sm"
-                  : "border-border hover:border-muted-foreground/30"
-              }`}
-            >
+              storageMode === "cloud" ?
+              "border-primary bg-primary/5 shadow-sm" :
+              "border-border hover:border-muted-foreground/30"}`
+              }>
+              
               <Cloud className={`h-6 w-6 ${storageMode === "cloud" ? "text-primary" : "text-muted-foreground"}`} />
               <span className={`text-sm font-medium ${storageMode === "cloud" ? "text-primary" : "text-foreground"}`}>
                 云端存储
@@ -292,8 +292,8 @@ const Settings = () => {
         </div>
 
         {/* Supabase 配置 - 仅在云端模式下显示 */}
-        {storageMode === "cloud" && (
-          <div className="space-y-4">
+        {storageMode === "cloud" &&
+        <div className="space-y-4">
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">数据库配置</CardTitle>
@@ -301,50 +301,50 @@ const Settings = () => {
               </CardHeader>
               <CardContent className="space-y-4">
                 {supabaseFields.map((f) => {
-                  const isSensitive = SENSITIVE_KEYS.includes(f.key as keyof ApiConfig);
-                  const hasValue = !!(config[f.key as keyof ApiConfig]);
-                  const isEditing = editingField === f.key;
-                  return (
-                    <div key={f.key}>
+                const isSensitive = SENSITIVE_KEYS.includes(f.key as keyof ApiConfig);
+                const hasValue = !!config[f.key as keyof ApiConfig];
+                const isEditing = editingField === f.key;
+                return (
+                  <div key={f.key}>
                       <Label className="text-sm">{f.label}</Label>
                       <div className="relative mt-1">
                         <Input
-                          type="password"
-                          value={isEditing || !isSensitive ? (String(config[f.key as keyof ApiConfig] || "")) : (hasValue ? "••••••••" : "")}
-                          onChange={(e) => setConfig((p) => ({ ...p, [f.key]: e.target.value }))}
-                          onFocus={() => { if (isSensitive) { setEditingField(f.key); setConfig((p) => ({ ...p, [f.key]: "" })); } }}
-                          onBlur={() => setEditingField(null)}
-                          placeholder={hasValue && isSensitive ? "已配置，点击可重新输入" : f.placeholder}
-                          className="font-mono text-sm"
-                          autoComplete="off"
-                          onCopy={(e) => e.preventDefault()}
-                          onCut={(e) => e.preventDefault()}
-                          onDrag={(e) => e.preventDefault()}
-                        />
+                        type="password"
+                        value={isEditing || !isSensitive ? String(config[f.key as keyof ApiConfig] || "") : hasValue ? "••••••••" : ""}
+                        onChange={(e) => setConfig((p) => ({ ...p, [f.key]: e.target.value }))}
+                        onFocus={() => {if (isSensitive) {setEditingField(f.key);setConfig((p) => ({ ...p, [f.key]: "" }));}}}
+                        onBlur={() => setEditingField(null)}
+                        placeholder={hasValue && isSensitive ? "已配置，点击可重新输入" : f.placeholder}
+                        className="font-mono text-sm"
+                        autoComplete="off"
+                        onCopy={(e) => e.preventDefault()}
+                        onCut={(e) => e.preventDefault()}
+                        onDrag={(e) => e.preventDefault()} />
+                      
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">{f.desc}</p>
-                    </div>
-                  );
-                })}
+                    </div>);
+
+              })}
                 
                 <div className="flex gap-2 items-center">
-                  <Button 
-                    variant="outline" 
-                    onClick={handleTestSupabase} 
-                    disabled={testing || !config.supabaseUrl || !config.supabaseKey}
-                  >
+                  <Button
+                  variant="outline"
+                  onClick={handleTestSupabase}
+                  disabled={testing || !config.supabaseUrl || !config.supabaseKey}>
+                  
                     {testing ? "测试中..." : "测试连接"}
                   </Button>
-                  {testResult && (
-                    <span className={`text-sm ${testResult.success ? 'text-green-500' : 'text-red-500'}`}>
+                  {testResult &&
+                <span className={`text-sm ${testResult.success ? 'text-green-500' : 'text-red-500'}`}>
                       {testResult.message}
                     </span>
-                  )}
+                }
                 </div>
               </CardContent>
             </Card>
           </div>
-        )}
+        }
 
         {/* 直连模式 */}
         <div className="space-y-4">
@@ -363,16 +363,16 @@ const Settings = () => {
                 </div>
                 <Switch
                   checked={config.directMode ?? false}
-                  onCheckedChange={(checked) => setConfig((p) => ({ ...p, directMode: checked }))}
-                />
+                  onCheckedChange={(checked) => setConfig((p) => ({ ...p, directMode: checked }))} />
+                
               </div>
-              {config.directMode && (
-                <div className="mt-3 p-3 rounded-md bg-yellow-500/10 border border-yellow-500/30">
+              {config.directMode &&
+              <div className="mt-3 p-3 rounded-md bg-yellow-500/10 border border-yellow-500/30">
                   <p className="text-xs text-yellow-600 dark:text-yellow-400">
                     ⚠️ 直连模式下，浏览器直接调用 API 端点。请确保端点支持 CORS 且网络可达。HTTP 端点仅在本地开发时可用（HTTPS 页面会阻止混合内容）。
                   </p>
                 </div>
-              )}
+              }
             </CardContent>
           </Card>
         </div>
@@ -394,9 +394,9 @@ const Settings = () => {
                     ...p,
                     zhanhuEndpoint: DEFAULT_CONFIG.zhanhuEndpoint,
                     seedanceEndpoint: DEFAULT_CONFIG.seedanceEndpoint,
-                    viduEndpoint: DEFAULT_CONFIG.viduEndpoint,
-                  }))}
-                >
+                    viduEndpoint: DEFAULT_CONFIG.viduEndpoint
+                  }))}>
+                  
                   <RotateCcw className="h-3.5 w-3.5 mr-1" />
                   恢复默认值
                 </Button>
@@ -405,11 +405,11 @@ const Settings = () => {
             </CardHeader>
             <CardContent className="space-y-4">
               {[
-                { name: "gemini", label: "Google API 端点", configKey: "zhanhuEndpoint" as const, apiKeyField: "zhanhuKey" as const, placeholder: "http://202.90.21.53:13003/v1beta", hint: "只需填写 Base URL，路径会自动拼接" },
-                { name: "seedance", label: "即梦 API 端点", configKey: "seedanceEndpoint" as const, apiKeyField: "seedance" as const, placeholder: "http://202.90.21.53:13003/v1", hint: "只需填写 Base URL，如 {base}/videos 会自动拼接" },
-                { name: "vidu", label: "Vidu API 端点", configKey: "viduEndpoint" as const, apiKeyField: "viduKey" as const, placeholder: "https://api.vidu.cn/ent/v2", hint: "只需填写 Base URL，路径会自动拼接" },
-                { name: "kling", label: "可灵 API 端点", configKey: "klingEndpoint" as const, apiKeyField: "klingKey" as const, placeholder: "https://api.klingai.com", hint: "只需填写 Base URL，路径会自动拼接" },
-              ].map((ep) => {
+              { name: "gemini", label: "Google API 端点", configKey: "zhanhuEndpoint" as const, apiKeyField: "zhanhuKey" as const, placeholder: "http://202.90.21.53:13003/v1beta", hint: "只需填写 Base URL，路径会自动拼接" },
+              { name: "seedance", label: "即梦 API 端点", configKey: "seedanceEndpoint" as const, apiKeyField: "seedance" as const, placeholder: "http://202.90.21.53:13003/v1", hint: "只需填写 Base URL，如 {base}/videos 会自动拼接" },
+              { name: "vidu", label: "Vidu API 端点", configKey: "viduEndpoint" as const, apiKeyField: "viduKey" as const, placeholder: "https://api.vidu.cn/ent/v2", hint: "只需填写 Base URL，路径会自动拼接" },
+              { name: "kling", label: "可灵 API 端点", configKey: "klingEndpoint" as const, apiKeyField: "klingKey" as const, placeholder: "https://api.klingai.com", hint: "只需填写 Base URL，路径会自动拼接" }].
+              map((ep) => {
                 const isTesting = endpointTesting[ep.name];
                 const result = endpointResults[ep.name];
                 return (
@@ -420,35 +420,35 @@ const Settings = () => {
                         value={config[ep.configKey] || ""}
                         onChange={(e) => setConfig((p) => ({ ...p, [ep.configKey]: e.target.value }))}
                         placeholder={ep.placeholder}
-                        className="font-mono text-sm flex-1"
-                      />
+                        className="font-mono text-sm flex-1" />
+                      
                       <Button
                         variant="outline"
                         size="sm"
                         className="shrink-0 gap-1.5 h-9"
                         disabled={isTesting}
-                        onClick={() => handleTestEndpoint(ep.name, config[ep.configKey], config[ep.apiKeyField])}
-                      >
-                        {isTesting ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : result?.success ? (
-                          <Wifi className="h-3.5 w-3.5 text-emerald-500" />
-                        ) : result ? (
-                          <WifiOff className="h-3.5 w-3.5 text-destructive" />
-                        ) : (
-                          <Wifi className="h-3.5 w-3.5" />
-                        )}
+                        onClick={() => handleTestEndpoint(ep.name, config[ep.configKey], config[ep.apiKeyField])}>
+                        
+                        {isTesting ?
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> :
+                        result?.success ?
+                        <Wifi className="h-3.5 w-3.5 text-emerald-500" /> :
+                        result ?
+                        <WifiOff className="h-3.5 w-3.5 text-destructive" /> :
+
+                        <Wifi className="h-3.5 w-3.5" />
+                        }
                         {isTesting ? "测试中" : "测试"}
                       </Button>
                     </div>
-                    {result && (
-                      <p className={`text-xs mt-1 ${result.success ? "text-emerald-500" : "text-destructive"}`}>
+                    {result &&
+                    <p className={`text-xs mt-1 ${result.success ? "text-emerald-500" : "text-destructive"}`}>
                         {result.message}
                       </p>
-                    )}
+                    }
                     {!result && <p className="text-xs text-muted-foreground mt-1">{ep.hint}</p>}
-                  </div>
-                );
+                  </div>);
+
               })}
             </CardContent>
           </Card>
@@ -467,27 +467,27 @@ const Settings = () => {
             </CardHeader>
             <CardContent className="space-y-4">
               {keyFields.map((f) => {
-                const hasValue = !!(config[f.key as keyof ApiConfig]);
+                const hasValue = !!config[f.key as keyof ApiConfig];
                 const isEditing = editingField === f.key;
                 return (
                   <div key={f.key}>
                     <Label className="text-sm">{f.label}</Label>
                     <Input
                       type="password"
-                      value={isEditing ? String(config[f.key as keyof ApiConfig] || "") : (hasValue ? "••••••••" : "")}
+                      value={isEditing ? String(config[f.key as keyof ApiConfig] || "") : hasValue ? "••••••••" : ""}
                       onChange={(e) => setConfig((p) => ({ ...p, [f.key]: e.target.value }))}
-                      onFocus={() => { setEditingField(f.key); setConfig((p) => ({ ...p, [f.key]: "" })); }}
+                      onFocus={() => {setEditingField(f.key);setConfig((p) => ({ ...p, [f.key]: "" }));}}
                       onBlur={() => setEditingField(null)}
                       placeholder={hasValue ? "已配置，点击可重新输入" : `输入 ${f.label}`}
                       className="font-mono text-sm mt-1"
                       autoComplete="off"
                       onCopy={(e) => e.preventDefault()}
                       onCut={(e) => e.preventDefault()}
-                      onDrag={(e) => e.preventDefault()}
-                    />
+                      onDrag={(e) => e.preventDefault()} />
+                    
                     <p className="text-xs text-muted-foreground mt-1">{f.desc}</p>
-                  </div>
-                );
+                  </div>);
+
               })}
             </CardContent>
           </Card>
@@ -514,8 +514,8 @@ const Settings = () => {
                   step={64}
                   value={config.firstFrameMaxDim ?? 720}
                   onChange={(e) => setConfig((p) => ({ ...p, firstFrameMaxDim: Number(e.target.value) || 720 }))}
-                  className="mt-1 w-40 font-mono text-sm"
-                />
+                  className="mt-1 w-40 font-mono text-sm" />
+                
                 <p className="text-xs text-muted-foreground mt-1">图片最长边不超过此值，范围 256–2048</p>
               </div>
               <div>
@@ -527,8 +527,8 @@ const Settings = () => {
                   step={100}
                   value={config.firstFrameMaxKB ?? 800}
                   onChange={(e) => setConfig((p) => ({ ...p, firstFrameMaxKB: Number(e.target.value) || 800 }))}
-                  className="mt-1 w-40 font-mono text-sm"
-                />
+                  className="mt-1 w-40 font-mono text-sm" />
+                
                 <p className="text-xs text-muted-foreground mt-1">压缩后图片不超过此大小，范围 100–5000 KB</p>
               </div>
             </CardContent>
@@ -550,8 +550,8 @@ const Settings = () => {
                   step={1}
                   value={config.retryCount ?? 2}
                   onChange={(e) => setConfig((p) => ({ ...p, retryCount: Number(e.target.value) || 0 }))}
-                  className="mt-1 w-40 font-mono text-sm"
-                />
+                  className="mt-1 w-40 font-mono text-sm" />
+                
                 <p className="text-xs text-muted-foreground mt-1">0 表示不重试，最大 5 次</p>
               </div>
               <div>
@@ -563,8 +563,8 @@ const Settings = () => {
                   step={500}
                   value={config.retryDelayMs ?? 3000}
                   onChange={(e) => setConfig((p) => ({ ...p, retryDelayMs: Number(e.target.value) || 3000 }))}
-                  className="mt-1 w-40 font-mono text-sm"
-                />
+                  className="mt-1 w-40 font-mono text-sm" />
+                
                 <p className="text-xs text-muted-foreground mt-1">每次重试前等待的时间，范围 500–30000ms</p>
               </div>
             </CardContent>
@@ -578,7 +578,7 @@ const Settings = () => {
             <ul className="text-sm text-muted-foreground space-y-1">
               <li>• <strong>本地存储</strong>: 数据保存在浏览器 localStorage 中，无需额外配置</li>
               <li>• <strong>云端存储</strong>: 通过 Supabase 将项目数据同步到云端，支持多设备访问</li>
-              <li>• <strong>站狐 API (Gemini)</strong>: 用于 AI 剧本拆解和分镜图生成</li>
+              
               <li>• <strong>站狐 API (Seedance)</strong>: 用于视频生成</li>
               <li>• <strong>Vidu API</strong>: 独立的视频生成 API（需单独配置）</li>
             </ul>
@@ -597,15 +597,15 @@ const Settings = () => {
               localStorage.removeItem(STORAGE_KEY);
               setConfig({ ...DEFAULT_CONFIG });
               toast({ title: "已清除", description: "所有 API 配置已清除，请重新输入" });
-            }}
-          >
+            }}>
+            
             <Trash2 className="h-4 w-4" />
             清除缓存
           </Button>
         </div>
       </main>
-    </div>
-  );
+    </div>);
+
 };
 
 export default Settings;
