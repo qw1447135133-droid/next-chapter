@@ -47,7 +47,13 @@ const Workspace = () => {
   const resumeId = searchParams.get("id");
 
   const [currentStep, setCurrentStep] = useState<WorkspaceStep>(1);
-  const [script, setScript] = useState("");
+  const [script, setScript] = useState(() => {
+    try {
+      const imported = sessionStorage.getItem("imported-script");
+      if (imported) { sessionStorage.removeItem("imported-script"); return imported; }
+    } catch { /* ignore */ }
+    return "";
+  });
   const [scenes, setScenes] = useState<Scene[]>([]);
   const scenesRef = useRef<Scene[]>([]);
   useEffect(() => { scenesRef.current = scenes; }, [scenes]);
