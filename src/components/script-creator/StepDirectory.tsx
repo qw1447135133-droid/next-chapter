@@ -158,7 +158,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                 <div
                   key={ep.number}
                   className={`flex items-start gap-2 px-3 py-2 rounded text-sm ${
-                    ep.isKey ? "bg-primary/5" : ""
+                    ep.isClimax ? "bg-amber-500/10" : ep.isKey ? "bg-primary/5" : ""
                   }`}
                 >
                   <span className="text-muted-foreground w-12 shrink-0 font-mono">
@@ -169,6 +169,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                   <span className="text-xs text-muted-foreground shrink-0">{ep.hookType}</span>
                   <span className="shrink-0">
                     {ep.isKey && "🔥"}
+                    {ep.isClimax && "⚡"}
                   </span>
                 </div>
               ))}

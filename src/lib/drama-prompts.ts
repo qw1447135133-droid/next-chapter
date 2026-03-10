@@ -183,7 +183,7 @@ ${characters.slice(0, 3000)}
 - 第 ${episodeNumber} 集：${ep?.title || ""}
 - 梗概：${ep?.summary || ""}
 - 钩子类型：${ep?.hookType || ""}
-- ${ep?.isKey ? "🔥 关键剧情集" : ""}
+- ${ep?.isKey ? "🔥 关键剧情集" : ""}${ep?.isClimax ? " ⚡ 高潮卡点集" : ""}
 ${prevEp ? `- 上一集：第${prevEp.number}集 ${prevEp.title} —— ${prevEp.summary}` : ""}
 ${nextEp ? `- 下一集：第${nextEp.number}集 ${nextEp.title} —— ${nextEp.summary}` : ""}
 
