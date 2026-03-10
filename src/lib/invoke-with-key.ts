@@ -283,7 +283,7 @@ async function routeFunction(functionName: string, body: any, options?: InvokeOp
 
 // ===== IMPLEMENTATIONS =====
 
-async function localExtract(body: any) {
+async function localExtract(body: any, onStreamText?: (text: string) => void) {
   const { script, model: requestedModel } = body;
   if (!script) throw new Error("缺少剧本内容");
 
