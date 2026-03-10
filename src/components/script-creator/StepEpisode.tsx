@@ -488,21 +488,6 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                       ) : null;
                     })()}
 
-                    {/* Scene rewrite instruction */}
-                    <div className="flex items-center gap-2">
-                      <Input
-                        value={sceneRegenInstruction}
-                        onChange={(e) => setSceneRegenInstruction(e.target.value)}
-                        placeholder="重写指令（如：加强冲突感、增加对话、加快节奏…）"
-                        className="text-xs h-8 flex-1"
-                      />
-                      {sceneRegenInstruction && (
-                        <Button variant="ghost" size="sm" className="h-8 text-xs px-2" onClick={() => setSceneRegenInstruction("")}>
-                          清除
-                        </Button>
-                      )}
-                    </div>
-
                     {/* Scenes */}
                     {scenes.map((scene, idx) => (
                       <div key={idx} className="group relative border rounded-lg p-4 hover:border-primary/30 transition-colors">
@@ -514,16 +499,33 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                               重写中…
                             </span>
                           ) : (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleSceneRegen(idx)}
-                              disabled={isGenerating}
-                              className="opacity-0 group-hover:opacity-100 transition-opacity gap-1 h-7 text-xs"
+                            <div
+                              className="relative"
+                              onMouseEnter={() => setHoverSceneIdx(idx)}
+                              onMouseLeave={() => setHoverSceneIdx(null)}
                             >
-                              <RefreshCw className="h-3 w-3" />
-                              重写场次
-                            </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleSceneRegen(idx)}
+                                disabled={isGenerating}
+                                className="opacity-0 group-hover:opacity-100 transition-opacity gap-1 h-7 text-xs"
+                              >
+                                <RefreshCw className="h-3 w-3" />
+                                重写场次
+                              </Button>
+                              {hoverSceneIdx === idx && (
+                                <div className="absolute top-full right-0 mt-1 z-10 bg-popover border rounded-lg shadow-lg p-2 min-w-[260px]">
+                                  <Input
+                                    value={sceneRegenInstructions[idx] || ""}
+                                    onChange={(e) => setSceneRegenInstructions(prev => ({ ...prev, [idx]: e.target.value }))}
+                                    placeholder="场次重写指令（如：增加对话…）"
+                                    className="text-xs h-7"
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
                         {regenSceneIdx === idx ? (
