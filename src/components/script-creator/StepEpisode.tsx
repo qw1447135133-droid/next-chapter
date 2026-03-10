@@ -698,6 +698,93 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
           </Button>
         </div>
       )}
+
+      {/* 质量审查对话框 */}
+      <Dialog open={showReviewDialog} onOpenChange={setShowReviewDialog}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardCheck className="h-5 w-5" />
+              第 {reviewEpNum} 集 · 质量审查
+            </DialogTitle>
+          </DialogHeader>
+
+          {isReviewing && !reviewResult && (
+            <div className="flex flex-col items-center gap-4 py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">正在审查中，请稍候…</p>
+            </div>
+          )}
+
+          {reviewResult && (
+            <div className="space-y-5">
+              {/* 总分 */}
+              <div className="text-center space-y-2">
+                <div className="text-4xl font-bold">
+                  <span className={getGradeColor(reviewResult.grade)}>{reviewResult.total}</span>
+                  <span className="text-lg text-muted-foreground">/50</span>
+                </div>
+                <span className={`text-lg font-semibold ${getGradeColor(reviewResult.grade)}`}>
+                  {reviewResult.grade}
+                </span>
+              </div>
+
+              {/* 五维评分 */}
+              <div className="space-y-3">
+                {Object.entries(reviewResult.scores).map(([key, val]) => (
+                  <div key={key} className="space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-medium">{DIMENSION_LABELS[key] || key}</span>
+                      <span className="font-mono text-muted-foreground">{val.score}/10</span>
+                    </div>
+                    <Progress value={val.score * 10} className="h-2" />
+                    <p className="text-xs text-muted-foreground">{val.comment}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* 亮点 */}
+              {reviewResult.highlights.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-sm font-semibold">✨ 亮点</p>
+                  <ul className="text-sm text-muted-foreground space-y-1">
+                    {reviewResult.highlights.map((h, i) => (
+                      <li key={i} className="flex gap-2"><span>•</span><span>{h}</span></li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* 问题 */}
+              {reviewResult.issues.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-sm font-semibold">📋 问题清单</p>
+                  <ul className="text-sm space-y-1">
+                    {reviewResult.issues.map((issue, i) => (
+                      <li key={i} className="flex gap-2">
+                        <span>{issue.level}</span>
+                        <span className="text-muted-foreground">{issue.description}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* 修订建议 */}
+              {reviewResult.suggestions.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-sm font-semibold">💡 修订建议</p>
+                  <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+                    {reviewResult.suggestions.map((s, i) => (
+                      <li key={i}>{s}</li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
