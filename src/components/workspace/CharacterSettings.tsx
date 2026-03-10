@@ -1845,13 +1845,22 @@ const CharacterSettings = ({
                   </div>
                   {/* Hide base description when time variants are expanded */}
                   {!(isTimeVariantExpanded && hasTimeVariants) && (
-                    <Textarea
-                      value={s.description}
-                      onChange={(e) => updateScene(s.id, { description: e.target.value })}
-                      placeholder="场景描述（环境、氛围、光线、时间等，越详细生成效果越好）"
-                      className="text-sm min-h-[60px] resize-none"
-                      rows={2}
-                    />
+                    generatingDescIds.has(s.id) && streamingDescTexts[s.id] ? (
+                      <div className="relative">
+                        <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 min-h-[60px] max-h-[200px] overflow-auto rounded-md border border-input bg-background px-3 py-2">
+                          {streamingDescTexts[s.id]}
+                          <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />
+                        </pre>
+                      </div>
+                    ) : (
+                      <Textarea
+                        value={s.description}
+                        onChange={(e) => updateScene(s.id, { description: e.target.value })}
+                        placeholder="场景描述（环境、氛围、光线、时间等，越详细生成效果越好）"
+                        className="text-sm min-h-[60px] resize-none"
+                        rows={2}
+                      />
+                    )
                   )}
                   <div className="flex gap-2">
                     <input type="file" accept="image/*" className="hidden" ref={(el) => { sceneFileInputRefs.current[s.id] = el; }} onChange={(e) => handleSceneFileChange(s.id, e)} />
