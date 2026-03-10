@@ -781,6 +781,50 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                   </ol>
                 </div>
               )}
+
+              {/* 一键修复 */}
+              {(reviewResult.issues.length > 0 || reviewResult.suggestions.length > 0) && (
+                <Button
+                  className="w-full gap-2"
+                  onClick={() => {
+                    // Compile issues & suggestions into a rewrite instruction
+                    const parts: string[] = [];
+                    if (reviewResult.issues.length > 0) {
+                      parts.push("【质量审查发现的问题】");
+                      reviewResult.issues.forEach((issue) => {
+                        parts.push(`${issue.level} ${issue.description}`);
+                      });
+                    }
+                    if (reviewResult.suggestions.length > 0) {
+                      parts.push("【修订建议】");
+                      reviewResult.suggestions.forEach((s, i) => {
+                        parts.push(`${i + 1}. ${s}`);
+                      });
+                    }
+                    // Also include low-score dimensions
+                    const lowScores = Object.entries(reviewResult.scores)
+                      .filter(([, val]) => val.score <= 6)
+                      .map(([key, val]) => `${DIMENSION_LABELS[key] || key}（${val.score}/10）：${val.comment}`);
+                    if (lowScores.length > 0) {
+                      parts.push("【需重点提升的维度】");
+                      parts.push(...lowScores);
+                    }
+                    const instruction = parts.join("\n");
+                    // Set the instruction and trigger regeneration
+                    setEpisodeRegenInstruction(instruction);
+                    setShowReviewDialog(false);
+                    if (reviewEpNum != null) {
+                      setRangeInput(String(reviewEpNum));
+                      // Use setTimeout to allow state to settle
+                      setTimeout(() => handleGenerate(String(reviewEpNum)), 50);
+                    }
+                  }}
+                  disabled={isGenerating}
+                >
+                  <Wrench className="h-4 w-4" />
+                  一键修复（基于审查结果重写）
+                </Button>
+              )}
             </div>
           )}
         </DialogContent>
