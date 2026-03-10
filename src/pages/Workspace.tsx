@@ -145,6 +145,7 @@ const Workspace = () => {
   const [phase1Info, setPhase1Info] = useState("");
   const [phase2Info, setPhase2Info] = useState("");
   const [phase2RetryCount, setPhase2RetryCount] = useState(0);
+  const [streamingText, setStreamingText] = useState("");
   // Store phase 1 results for phase 2 retry — persisted to localStorage
   const PHASE1_LS_KEY = "phase1-results";
   const phase1ResultsRef = useRef<{ autoCharacters: CharacterSetting[]; aiSceneSettings: Array<{ name: string; description: string }> } | null>(
