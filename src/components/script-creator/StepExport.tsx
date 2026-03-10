@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Copy, Check, Download, Film, Loader2 } from "lucide-react";
+import { Copy, Check, Download, Film, Loader2, Square } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { callGemini, extractText } from "@/lib/gemini-client";
+import { callGeminiStream } from "@/lib/gemini-client";
 import { buildExportPrompt } from "@/lib/drama-prompts";
 import type { DramaSetup, EpisodeScript } from "@/types/drama";
 
@@ -19,28 +19,44 @@ interface StepExportProps {
 const StepExport = ({ setup, dramaTitle, creativePlan, characters, episodes }: StepExportProps) => {
   const navigate = useNavigate();
   const [exportedText, setExportedText] = useState("");
+  const [streamingText, setStreamingText] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [copied, setCopied] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const handleExport = async () => {
     setIsExporting(true);
+    setStreamingText("");
+    abortRef.current = new AbortController();
     try {
       const prompt = buildExportPrompt(setup, dramaTitle, creativePlan, characters, episodes);
       const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
-      const data = await callGemini(model, [
-        { role: "user", parts: [{ text: prompt }] },
-      ], { maxOutputTokens: 16384 });
-      const text = extractText(data);
-      setExportedText(text);
+      const finalText = await callGeminiStream(
+        model,
+        [{ role: "user", parts: [{ text: prompt }] }],
+        (chunk) => setStreamingText(chunk),
+        { maxOutputTokens: 16384 },
+        abortRef.current.signal,
+      );
+      setExportedText(finalText);
+      setStreamingText("");
       toast({ title: "剧本导出完成" });
     } catch (e: any) {
-      toast({ title: "导出失败", description: e?.message, variant: "destructive" });
+      if (e?.message?.includes("取消")) {
+        const partial = streamingText;
+        if (partial) setExportedText(partial);
+        toast({ title: "已停止生成" });
+      } else {
+        toast({ title: "导出失败", description: e?.message, variant: "destructive" });
+      }
     } finally {
       setIsExporting(false);
+      abortRef.current = null;
     }
   };
 
-  // 快速拼接版（不走 AI）
+  const handleStop = () => abortRef.current?.abort();
+
   const handleQuickExport = () => {
     const parts = [
       `# ${dramaTitle || "未命名短剧"}`,
@@ -93,7 +109,6 @@ const StepExport = ({ setup, dramaTitle, creativePlan, characters, episodes }: S
   };
 
   const handleUseInVideo = () => {
-    // 拼接所有剧本内容传入视频创作模块
     const allScript = episodes
       .sort((a, b) => a.number - b.number)
       .map((ep) => ep.content)
@@ -101,6 +116,8 @@ const StepExport = ({ setup, dramaTitle, creativePlan, characters, episodes }: S
     sessionStorage.setItem("imported-script", allScript);
     navigate("/workspace");
   };
+
+  const displayText = isExporting ? streamingText : exportedText;
 
   return (
     <div className="space-y-4">
@@ -129,14 +146,21 @@ const StepExport = ({ setup, dramaTitle, creativePlan, characters, episodes }: S
           </div>
 
           <div className="flex gap-2 flex-wrap">
-            <Button onClick={handleQuickExport} variant="outline" className="gap-1.5">
+            <Button onClick={handleQuickExport} variant="outline" className="gap-1.5" disabled={isExporting}>
               <Download className="h-4 w-4" />
               快速拼接
             </Button>
-            <Button onClick={handleExport} disabled={isExporting} className="gap-1.5">
-              {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              AI 整合导出
-            </Button>
+            {isExporting ? (
+              <Button variant="destructive" onClick={handleStop} className="gap-1.5">
+                <Square className="h-4 w-4" />
+                停止
+              </Button>
+            ) : (
+              <Button onClick={handleExport} className="gap-1.5">
+                <Download className="h-4 w-4" />
+                AI 整合导出
+              </Button>
+            )}
             <Button onClick={handleUseInVideo} variant="secondary" className="gap-1.5" disabled={episodes.length === 0}>
               <Film className="h-4 w-4" />
               用于视频创作
@@ -145,24 +169,34 @@ const StepExport = ({ setup, dramaTitle, creativePlan, characters, episodes }: S
         </CardContent>
       </Card>
 
-      {exportedText && (
+      {displayText && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-lg">导出结果</CardTitle>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={handleCopy} className="gap-1.5">
-                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                {copied ? "已复制" : "复制"}
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleDownload} className="gap-1.5">
-                <Download className="h-3.5 w-3.5" />
-                下载 .md
-              </Button>
-            </div>
+            <CardTitle className="text-lg">
+              导出结果
+              {isExporting && (
+                <span className="text-sm font-normal text-muted-foreground ml-2">
+                  {streamingText.length} 字…
+                </span>
+              )}
+            </CardTitle>
+            {!isExporting && (
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={handleCopy} className="gap-1.5">
+                  {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  {copied ? "已复制" : "复制"}
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleDownload} className="gap-1.5">
+                  <Download className="h-3.5 w-3.5" />
+                  下载 .md
+                </Button>
+              </div>
+            )}
           </CardHeader>
           <CardContent>
             <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
-              {exportedText}
+              {displayText}
+              {isExporting && <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />}
             </pre>
           </CardContent>
         </Card>

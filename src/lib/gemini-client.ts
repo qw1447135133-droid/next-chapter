@@ -174,6 +174,78 @@ export async function callGemini(
   throw new Error(`模型 ${model} 调用失败 (${response.status}): ${text.slice(0, 200)}`);
 }
 
+/**
+ * Streaming version of callGemini — calls streamGenerateContent and invokes
+ * onChunk with the accumulated text after each SSE event.
+ * Returns the final complete text.
+ */
+export async function callGeminiStream(
+  model: string,
+  contents: any[],
+  onChunk: (accumulated: string) => void,
+  generationConfig?: Record<string, any>,
+  signal?: AbortSignal,
+): Promise<string> {
+  const { apiKey, baseUrl } = getGeminiEndpoint();
+  if (!apiKey) throw new Error("请先在设置中配置 Gemini API Key");
+
+  const { url, headers } = buildGeminiRequest(
+    baseUrl,
+    `/models/${model}:streamGenerateContent?alt=sse`,
+    apiKey,
+  );
+  const body: any = { contents };
+  if (generationConfig && Object.keys(generationConfig).length > 0) {
+    body.generationConfig = generationConfig;
+  }
+
+  if (signal?.aborted) throw new Error("请求已取消");
+
+  const response = await proxiedFetch(url, headers, JSON.stringify(body), signal);
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`模型 ${model} 调用失败 (${response.status}): ${text.slice(0, 200)}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("浏览器不支持流式读取");
+
+  const decoder = new TextDecoder();
+  let accumulated = "";
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const jsonStr = line.slice(6).trim();
+      if (!jsonStr || jsonStr === "[DONE]") continue;
+      try {
+        const parsed = JSON.parse(jsonStr);
+        const parts = parsed?.candidates?.[0]?.content?.parts || [];
+        for (const part of parts) {
+          if (part.thought) continue; // skip thinking tokens
+          if (part.text) {
+            accumulated += part.text;
+            onChunk(accumulated);
+          }
+        }
+      } catch {
+        // skip malformed JSON
+      }
+    }
+  }
+
+  return accumulated.trim();
+}
+
 // ===== Response Parsing =====
 
 export function extractText(data: any): string {
