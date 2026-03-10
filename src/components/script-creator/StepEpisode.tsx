@@ -204,7 +204,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
 
     try {
       const prompt = buildSceneRegenPrompt(
-        setup, characters, selectedEp, selectedScript.content, sceneIndex, sceneContent, sceneRegenInstruction.trim() || undefined,
+        setup, characters, selectedEp, selectedScript.content, sceneIndex, sceneContent, (sceneRegenInstructions[sceneIndex] || "").trim() || undefined,
       );
       const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
       const newSceneText = await callGeminiStream(
