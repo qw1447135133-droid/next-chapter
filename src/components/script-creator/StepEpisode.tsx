@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowRight, Loader2, Play, Check, Square, RefreshCw, History, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowRight, Loader2, Play, Check, Square, RefreshCw, History, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildEpisodePrompt, buildSceneRegenPrompt } from "@/lib/drama-prompts";
@@ -461,14 +461,29 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                         <span className="ml-2 text-xs">{ver.label || "版本"}</span>
                         <span className="ml-2 text-xs text-muted-foreground">{ver.wordCount}字</span>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleRestoreVersion(realIdx)}
-                        className="h-7 text-xs"
-                      >
-                        恢复
-                      </Button>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRestoreVersion(realIdx)}
+                          className="h-7 text-xs"
+                        >
+                          恢复
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            const newHistory = selectedScript.history!.filter((_, i) => i !== realIdx);
+                            const updatedEp = { ...selectedScript, history: newHistory };
+                            onUpdate(episodes.map(e => e.number === selectedEp ? updatedEp : e));
+                            if (newHistory.length === 0) setShowHistory(false);
+                          }}
+                          className="h-7 text-xs text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </div>
                   );
                 })}
