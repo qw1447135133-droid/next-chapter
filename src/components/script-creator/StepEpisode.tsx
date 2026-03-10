@@ -489,19 +489,36 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                       <div key={idx} className="group relative border rounded-lg p-4 hover:border-primary/30 transition-colors">
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-sm font-semibold text-foreground">{scene.header.replace(/^##\s*/, "")}</span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleSceneRegen(idx)}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity gap-1 h-7 text-xs"
-                          >
-                            <RefreshCw className="h-3 w-3" />
-                            重写场次
-                          </Button>
+                          {regenSceneIdx === idx ? (
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              重写中…
+                            </span>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleSceneRegen(idx)}
+                              disabled={isGenerating}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity gap-1 h-7 text-xs"
+                            >
+                              <RefreshCw className="h-3 w-3" />
+                              重写场次
+                            </Button>
+                          )}
                         </div>
-                        <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
-                          {scene.body}
-                        </pre>
+                        {regenSceneIdx === idx ? (
+                          <div>
+                            <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-primary/80">
+                              {streamingText || "生成中…"}
+                              <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />
+                            </pre>
+                          </div>
+                        ) : (
+                          <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
+                            {scene.body}
+                          </pre>
+                        )}
                       </div>
                     ))}
 
