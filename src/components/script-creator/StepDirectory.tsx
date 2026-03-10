@@ -95,6 +95,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
   };
 
   const keyCount = directory.filter((d) => d.isKey).length;
+  const climaxCount = directory.filter((d) => d.isClimax).length;
 
   return (
     <div className="space-y-4">
