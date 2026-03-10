@@ -506,6 +506,7 @@ const Workspace = () => {
     setAnalyzePhase("phase1");
     setPhase1Info("正在识别角色与场景...");
     setPhase2Info("");
+    setStreamingText("");
     clearPhase1Results();
     setPhase2RetryCount(0);
 
@@ -513,6 +514,7 @@ const Workspace = () => {
       isAnalyzingRef.current = false;
       setIsAnalyzing(false);
       analyzeAbortRef.current = null;
+      setStreamingText("");
     };
     
     try {
@@ -520,7 +522,10 @@ const Workspace = () => {
       analyzeAbortRef.current = controller;
 
       // ========== Phase 1: Extract characters & scenes ==========
-      const { data: extractData, error: extractError } = await invokeFunction("extract-characters-scenes", { script, model: decomposeModel });
+      const { data: extractData, error: extractError } = await invokeFunction("extract-characters-scenes", { script, model: decomposeModel }, {
+        onStreamText: (text) => setStreamingText(text),
+      });
+      setStreamingText("");
       if (extractError) {
         setAnalyzePhase("phase1-failed");
         setPhase1Info("识别失败");
