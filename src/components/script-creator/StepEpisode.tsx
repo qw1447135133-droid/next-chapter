@@ -101,7 +101,13 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const [isReviewing, setIsReviewing] = useState(false);
   const [showReviewDialog, setShowReviewDialog] = useState(false);
   const [reviewEpNum, setReviewEpNum] = useState<number | null>(null);
+  // Batch review state
+  const [batchReviewResults, setBatchReviewResults] = useState<Map<number, ReviewResult>>(new Map());
+  const [isBatchReviewing, setIsBatchReviewing] = useState(false);
+  const [batchReviewProgress, setBatchReviewProgress] = useState<{ current: number; total: number; epNum: number | null }>({ current: 0, total: 0, epNum: null });
+  const [showBatchReviewDialog, setShowBatchReviewDialog] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const batchAbortRef = useRef<AbortController | null>(null);
 
   const DIMENSION_LABELS: Record<string, string> = {
     rhythm: "节奏",
