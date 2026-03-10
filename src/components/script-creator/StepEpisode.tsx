@@ -499,6 +499,16 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={() => handleReview(selectedEp!)}
+                  disabled={isGenerating || isReviewing}
+                  className="gap-1.5"
+                >
+                  <ClipboardCheck className="h-3.5 w-3.5" />
+                  {isReviewing && reviewEpNum === selectedEp ? "审查中…" : "质量自检"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => {
                     setRangeInput(String(selectedEp));
                     handleGenerate(String(selectedEp));
