@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, PenTool, Settings } from "lucide-react";
+import { ArrowLeft, PenTool, Settings, Cpu } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import {
   type DramaProject,
@@ -21,6 +22,13 @@ import StepExport from "@/components/script-creator/StepExport";
 
 const STORAGE_KEY = "drama-project";
 
+const MODEL_OPTIONS = [
+  { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
+  { value: "gemini-3-pro-preview", label: "Gemini 3 Pro" },
+  { value: "gemini-3-pro-preview-thinking", label: "Gemini 3 Pro (Thinking)" },
+  { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
+];
+
 function loadProject(): DramaProject {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -32,6 +40,12 @@ function loadProject(): DramaProject {
 const ScriptCreator = () => {
   const navigate = useNavigate();
   const [project, setProject] = useState<DramaProject>(loadProject);
+  const [model, setModel] = useState(() => localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview");
+
+  const handleModelChange = (value: string) => {
+    setModel(value);
+    localStorage.setItem("decompose-model", value);
+  };
 
   // Persist to localStorage on change
   useEffect(() => {
@@ -162,6 +176,19 @@ const ScriptCreator = () => {
           <Button variant="ghost" size="sm" onClick={handleNewProject} className="text-xs">
             新建项目
           </Button>
+          <Select value={model} onValueChange={handleModelChange}>
+            <SelectTrigger className="w-[180px] h-8 text-xs">
+              <Cpu className="h-3 w-3 mr-1 text-muted-foreground" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MODEL_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button variant="ghost" size="sm" onClick={() => navigate("/settings")}>
             <Settings className="h-4 w-4" />
           </Button>

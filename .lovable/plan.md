@@ -1,17 +1,12 @@
 
 
-## Plan: Add Model Selector to Script Creator
+## Plan: Add `gemini-3-flash-preview` to model selection
 
-Add a model selection dropdown to the ScriptCreator header, reusing the same model options and `localStorage` key (`decompose-model`) as the workspace.
+### Change
 
-### Changes
+**`src/components/workspace/ScriptInput.tsx`** (lines 8-14):
+- Add `"gemini-3-flash-preview"` to the `DecomposeModel` type union
+- Add a new entry `{ value: "gemini-3-flash-preview", label: "Gemini 3 Flash" }` to `DECOMPOSE_MODEL_OPTIONS`
 
-**`src/pages/ScriptCreator.tsx`**:
-- Import `useState` for model state, add model dropdown UI in the header (between "新建项目" and settings button)
-- Use same model options as ScriptInput: `gemini-3.1-pro-preview`, `gemini-3-pro-preview`, `gemini-3-pro-preview-thinking`, `gemini-3-flash-preview`
-- Read/write from `localStorage("decompose-model")` so it stays in sync with workspace
-- Use a simple `Select` component from the UI library
-- No changes needed to step components since they already read from `localStorage("decompose-model")`
-
-This is a single-file change. The step components (StepCreativePlan, StepCharacters, etc.) already read the model from `localStorage` so they will automatically pick up the selection.
+Single-file, two-line change. No other files reference the `DecomposeModel` type in a way that needs updating — edge functions already accept arbitrary model strings.
 
