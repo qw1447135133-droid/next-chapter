@@ -203,6 +203,7 @@ This rule overrides any other inference.`;
 
 export interface InvokeOptions {
   onProgress?: (partialData: any) => void;
+  onStreamText?: (text: string) => void;
   abortSignal?: AbortSignal;
 }
 
