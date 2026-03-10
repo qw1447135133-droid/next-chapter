@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowRight, Loader2, Play, Check, Square, RefreshCw, History, ChevronDown, ChevronUp, Trash2, ClipboardCheck, X } from "lucide-react";
+import { ArrowRight, Loader2, Play, Check, Square, RefreshCw, History, ChevronDown, ChevronUp, Trash2, ClipboardCheck, X, Wrench } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildEpisodePrompt, buildSceneRegenPrompt, buildReviewPrompt } from "@/lib/drama-prompts";
@@ -187,8 +187,9 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
     return history.slice(-10);
   };
 
-  const handleGenerate = async (overrideRange?: string) => {
+  const handleGenerate = async (overrideRange?: string, overrideInstruction?: string) => {
     const nums = parseRange(overrideRange || rangeInput);
+    const instruction = overrideInstruction ?? episodeRegenInstruction;
     if (nums.length === 0) {
       toast({ title: "请输入有效的集数", variant: "destructive" });
       return;
@@ -211,7 +212,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
           .map((ep) => `--- 第${ep.number}集 ---\n${ep.content.slice(-800)}`)
           .join("\n\n");
 
-        const prompt = buildEpisodePrompt(setup, characters, directory, num, previousContent, episodeRegenInstruction.trim() || undefined);
+        const prompt = buildEpisodePrompt(setup, characters, directory, num, previousContent, instruction.trim() || undefined);
         const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
         const finalText = await callGeminiStream(
           model,
@@ -780,6 +781,49 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                     ))}
                   </ol>
                 </div>
+              )}
+
+              {/* 一键修复 */}
+              {(reviewResult.issues.length > 0 || reviewResult.suggestions.length > 0) && (
+                <Button
+                  className="w-full gap-2"
+                  onClick={() => {
+                    // Compile issues & suggestions into a rewrite instruction
+                    const parts: string[] = [];
+                    if (reviewResult.issues.length > 0) {
+                      parts.push("【质量审查发现的问题】");
+                      reviewResult.issues.forEach((issue) => {
+                        parts.push(`${issue.level} ${issue.description}`);
+                      });
+                    }
+                    if (reviewResult.suggestions.length > 0) {
+                      parts.push("【修订建议】");
+                      reviewResult.suggestions.forEach((s, i) => {
+                        parts.push(`${i + 1}. ${s}`);
+                      });
+                    }
+                    // Also include low-score dimensions
+                    const lowScores = Object.entries(reviewResult.scores)
+                      .filter(([, val]) => val.score <= 6)
+                      .map(([key, val]) => `${DIMENSION_LABELS[key] || key}（${val.score}/10）：${val.comment}`);
+                    if (lowScores.length > 0) {
+                      parts.push("【需重点提升的维度】");
+                      parts.push(...lowScores);
+                    }
+                    const instruction = parts.join("\n");
+                    // Set the instruction and trigger regeneration
+                    setEpisodeRegenInstruction(instruction);
+                    setShowReviewDialog(false);
+                    if (reviewEpNum != null) {
+                      setRangeInput(String(reviewEpNum));
+                      handleGenerate(String(reviewEpNum), instruction);
+                    }
+                  }}
+                  disabled={isGenerating}
+                >
+                  <Wrench className="h-4 w-4" />
+                  一键修复（基于审查结果重写）
+                </Button>
               )}
             </div>
           )}
