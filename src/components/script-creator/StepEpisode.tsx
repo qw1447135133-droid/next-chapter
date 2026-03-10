@@ -163,6 +163,58 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
     }
   };
 
+  /** Batch review all completed episodes */
+  const handleBatchReview = async () => {
+    const completedEps = episodes.filter(e => e.content).sort((a, b) => a.number - b.number);
+    if (completedEps.length === 0) {
+      toast({ title: "没有已撰写的集数可审查", variant: "destructive" });
+      return;
+    }
+
+    setIsBatchReviewing(true);
+    setBatchReviewResults(new Map());
+    setBatchReviewProgress({ current: 0, total: completedEps.length, epNum: null });
+    setShowBatchReviewDialog(true);
+    batchAbortRef.current = new AbortController();
+
+    const results = new Map<number, ReviewResult>();
+    const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+
+    for (let i = 0; i < completedEps.length; i++) {
+      if (batchAbortRef.current?.signal.aborted) break;
+      const ep = completedEps[i];
+      setBatchReviewProgress({ current: i + 1, total: completedEps.length, epNum: ep.number });
+
+      try {
+        const prevEp = episodes.find(e => e.number === ep.number - 1);
+        const nextEp = episodes.find(e => e.number === ep.number + 1);
+        const prompt = buildReviewPrompt(
+          setup, characters, directory, ep.number, ep.content,
+          prevEp?.content, nextEp?.content,
+        );
+        const finalText = await callGeminiStream(
+          model,
+          [{ role: "user", parts: [{ text: prompt }] }],
+          () => {},
+          { maxOutputTokens: 4096 },
+          batchAbortRef.current.signal,
+        );
+        const jsonMatch = finalText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const result: ReviewResult = JSON.parse(jsonMatch[0]);
+          results.set(ep.number, result);
+          setBatchReviewResults(new Map(results));
+        }
+      } catch (e: any) {
+        if (e?.message?.includes("取消") || e?.name === "AbortError") break;
+        console.error(`批量审查第${ep.number}集失败:`, e);
+      }
+    }
+
+    setIsBatchReviewing(false);
+    batchAbortRef.current = null;
+  };
+
   const parseRange = (input: string): number[] => {
     const parts = input.split(/[,，]/);
     const nums: number[] = [];
