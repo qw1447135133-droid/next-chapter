@@ -399,7 +399,11 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
               )}
             </CardTitle>
             {selectedScript && (
-              <div className="flex gap-2">
+              <div
+                className="relative flex gap-2"
+                onMouseEnter={() => setHoverEpisodeRegen(true)}
+                onMouseLeave={() => setHoverEpisodeRegen(false)}
+              >
                 {(selectedScript.history?.length ?? 0) > 0 && (
                   <Button
                     variant="outline"
@@ -419,11 +423,23 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                     setRangeInput(String(selectedEp));
                     handleGenerate(String(selectedEp));
                   }}
+                  disabled={isGenerating}
                   className="gap-1.5"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                   重新生成
                 </Button>
+                {hoverEpisodeRegen && (
+                  <div className="absolute top-full right-0 mt-1 z-10 bg-popover border rounded-lg shadow-lg p-2 min-w-[300px]">
+                    <Input
+                      value={episodeRegenInstruction}
+                      onChange={(e) => setEpisodeRegenInstruction(e.target.value)}
+                      placeholder="整集重写指令（如：加强冲突感、调整节奏…）"
+                      className="text-xs h-8"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </CardHeader>
