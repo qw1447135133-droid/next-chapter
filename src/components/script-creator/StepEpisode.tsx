@@ -249,9 +249,19 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                 </pre>
               </ScrollArea>
             ) : (
-              <div className="text-center py-12 text-muted-foreground">
+              <div className="text-center py-12 text-muted-foreground space-y-3">
                 <p className="text-sm">该集尚未生成</p>
-                <p className="text-xs mt-1">请在上方输入集数范围后点击"开始撰写"</p>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setRangeInput(String(selectedEp));
+                    handleGenerate();
+                  }}
+                  className="gap-2"
+                >
+                  <Play className="h-4 w-4" />
+                  生成第 {selectedEp} 集
+                </Button>
               </div>
             )}
           </CardContent>
