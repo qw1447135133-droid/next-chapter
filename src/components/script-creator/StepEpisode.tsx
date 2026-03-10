@@ -102,7 +102,9 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
       timestamp: new Date().toISOString(),
       label,
     };
-    return [...(ep.history || []), prev];
+    const history = [...(ep.history || []), prev];
+    // Keep only the last 10 versions
+    return history.slice(-10);
   };
 
   const handleGenerate = async (overrideRange?: string) => {
