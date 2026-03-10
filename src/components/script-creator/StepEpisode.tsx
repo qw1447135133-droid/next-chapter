@@ -71,7 +71,10 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const [selectedEp, setSelectedEp] = useState<number | null>(null);
   const [regenSceneIdx, setRegenSceneIdx] = useState<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
-  const [sceneRegenInstruction, setSceneRegenInstruction] = useState<string>("");
+  const [episodeRegenInstruction, setEpisodeRegenInstruction] = useState("");
+  const [sceneRegenInstructions, setSceneRegenInstructions] = useState<Record<number, string>>({});
+  const [hoverEpisodeRegen, setHoverEpisodeRegen] = useState(false);
+  const [hoverSceneIdx, setHoverSceneIdx] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const parseRange = (input: string): number[] => {
@@ -126,7 +129,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
           .map((ep) => `--- 第${ep.number}集 ---\n${ep.content.slice(-800)}`)
           .join("\n\n");
 
-        const prompt = buildEpisodePrompt(setup, characters, directory, num, previousContent);
+        const prompt = buildEpisodePrompt(setup, characters, directory, num, previousContent, episodeRegenInstruction.trim() || undefined);
         const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
         const finalText = await callGeminiStream(
           model,
@@ -201,7 +204,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
 
     try {
       const prompt = buildSceneRegenPrompt(
-        setup, characters, selectedEp, selectedScript.content, sceneIndex, sceneContent, sceneRegenInstruction.trim() || undefined,
+        setup, characters, selectedEp, selectedScript.content, sceneIndex, sceneContent, (sceneRegenInstructions[sceneIndex] || "").trim() || undefined,
       );
       const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
       const newSceneText = await callGeminiStream(
@@ -396,7 +399,11 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
               )}
             </CardTitle>
             {selectedScript && (
-              <div className="flex gap-2">
+              <div
+                className="relative flex gap-2"
+                onMouseEnter={() => setHoverEpisodeRegen(true)}
+                onMouseLeave={() => setHoverEpisodeRegen(false)}
+              >
                 {(selectedScript.history?.length ?? 0) > 0 && (
                   <Button
                     variant="outline"
@@ -416,11 +423,23 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                     setRangeInput(String(selectedEp));
                     handleGenerate(String(selectedEp));
                   }}
+                  disabled={isGenerating}
                   className="gap-1.5"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                   重新生成
                 </Button>
+                {hoverEpisodeRegen && (
+                  <div className="absolute top-full right-0 mt-1 z-10 bg-popover border rounded-lg shadow-lg p-2 min-w-[300px]">
+                    <Input
+                      value={episodeRegenInstruction}
+                      onChange={(e) => setEpisodeRegenInstruction(e.target.value)}
+                      placeholder="整集重写指令（如：加强冲突感、调整节奏…）"
+                      className="text-xs h-8"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </CardHeader>
@@ -469,21 +488,6 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                       ) : null;
                     })()}
 
-                    {/* Scene rewrite instruction */}
-                    <div className="flex items-center gap-2">
-                      <Input
-                        value={sceneRegenInstruction}
-                        onChange={(e) => setSceneRegenInstruction(e.target.value)}
-                        placeholder="重写指令（如：加强冲突感、增加对话、加快节奏…）"
-                        className="text-xs h-8 flex-1"
-                      />
-                      {sceneRegenInstruction && (
-                        <Button variant="ghost" size="sm" className="h-8 text-xs px-2" onClick={() => setSceneRegenInstruction("")}>
-                          清除
-                        </Button>
-                      )}
-                    </div>
-
                     {/* Scenes */}
                     {scenes.map((scene, idx) => (
                       <div key={idx} className="group relative border rounded-lg p-4 hover:border-primary/30 transition-colors">
@@ -495,16 +499,33 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                               重写中…
                             </span>
                           ) : (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleSceneRegen(idx)}
-                              disabled={isGenerating}
-                              className="opacity-0 group-hover:opacity-100 transition-opacity gap-1 h-7 text-xs"
+                            <div
+                              className="relative"
+                              onMouseEnter={() => setHoverSceneIdx(idx)}
+                              onMouseLeave={() => setHoverSceneIdx(null)}
                             >
-                              <RefreshCw className="h-3 w-3" />
-                              重写场次
-                            </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleSceneRegen(idx)}
+                                disabled={isGenerating}
+                                className="opacity-0 group-hover:opacity-100 transition-opacity gap-1 h-7 text-xs"
+                              >
+                                <RefreshCw className="h-3 w-3" />
+                                重写场次
+                              </Button>
+                              {hoverSceneIdx === idx && (
+                                <div className="absolute top-full right-0 mt-1 z-10 bg-popover border rounded-lg shadow-lg p-2 min-w-[260px]">
+                                  <Input
+                                    value={sceneRegenInstructions[idx] || ""}
+                                    onChange={(e) => setSceneRegenInstructions(prev => ({ ...prev, [idx]: e.target.value }))}
+                                    placeholder="场次重写指令（如：增加对话…）"
+                                    className="text-xs h-7"
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
                         {regenSceneIdx === idx ? (

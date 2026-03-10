@@ -163,6 +163,7 @@ export function buildEpisodePrompt(
   directory: EpisodeEntry[],
   episodeNumber: number,
   previousEpisodes: string,
+  customInstruction?: string,
 ): string {
   const ep = directory.find((e) => e.number === episodeNumber);
   const prevEp = directory.find((e) => e.number === episodeNumber - 1);
@@ -237,6 +238,7 @@ ${isFirstEp ? `## 重要：开篇黄金法则
 - 确保角色行为与档案一致
 - 确保剧情推进与分集目录一致
 
+${customInstruction ? `\n## 用户重写指令\n${customInstruction}\n请在撰写时重点体现以上指令要求。\n` : ""}
 请直接输出完整的第 ${episodeNumber} 集剧本。`;
 }
 
