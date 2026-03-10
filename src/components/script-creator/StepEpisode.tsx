@@ -97,7 +97,65 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const [sceneRegenInstructions, setSceneRegenInstructions] = useState<Record<number, string>>({});
   const [hoverEpisodeRegen, setHoverEpisodeRegen] = useState(false);
   const [hoverSceneIdx, setHoverSceneIdx] = useState<number | null>(null);
+  const [reviewResult, setReviewResult] = useState<ReviewResult | null>(null);
+  const [isReviewing, setIsReviewing] = useState(false);
+  const [showReviewDialog, setShowReviewDialog] = useState(false);
+  const [reviewEpNum, setReviewEpNum] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  const DIMENSION_LABELS: Record<string, string> = {
+    rhythm: "节奏",
+    satisfaction: "爽点",
+    dialogue: "台词",
+    format: "格式",
+    continuity: "连贯性",
+  };
+
+  const getGradeColor = (grade: string) => {
+    if (grade === "卓越") return "text-green-500";
+    if (grade === "优良") return "text-blue-500";
+    if (grade === "合格") return "text-yellow-500";
+    if (grade === "需改进") return "text-orange-500";
+    return "text-destructive";
+  };
+
+  const handleReview = async (epNum: number) => {
+    const ep = episodes.find(e => e.number === epNum);
+    if (!ep) return;
+
+    setReviewEpNum(epNum);
+    setIsReviewing(true);
+    setReviewResult(null);
+    setShowReviewDialog(true);
+
+    try {
+      const prevEp = episodes.find(e => e.number === epNum - 1);
+      const nextEp = episodes.find(e => e.number === epNum + 1);
+
+      const prompt = buildReviewPrompt(
+        setup, characters, directory, epNum, ep.content,
+        prevEp?.content, nextEp?.content,
+      );
+      const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+      const finalText = await callGeminiStream(
+        model,
+        [{ role: "user", parts: [{ text: prompt }] }],
+        () => {},
+        { maxOutputTokens: 4096 },
+      );
+
+      // Extract JSON from response
+      const jsonMatch = finalText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("未能解析评分结果");
+      const result: ReviewResult = JSON.parse(jsonMatch[0]);
+      setReviewResult(result);
+    } catch (e: any) {
+      toast({ title: "质量审查失败", description: e?.message, variant: "destructive" });
+      setShowReviewDialog(false);
+    } finally {
+      setIsReviewing(false);
+    }
+  };
 
   const parseRange = (input: string): number[] => {
     const parts = input.split(/[,，]/);
