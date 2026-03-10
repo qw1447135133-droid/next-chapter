@@ -559,13 +559,23 @@ ${lastScenesDesc}
         const combinedSignal = abortSignal
           ? AbortSignal.any([abortSignal, chunkTimeout])
           : chunkTimeout;
-        const data = await callGemini(model,
-          [{ role: "user", parts: [{ text: userText }] }],
-          { temperature: 0.3, maxOutputTokens: 65536 },
-          combinedSignal,
-        );
 
-        const resultText = extractText(data);
+        let resultText: string;
+        if (onStreamText) {
+          resultText = await callGeminiStream(model,
+            [{ role: "user", parts: [{ text: userText }] }],
+            (accumulated) => onStreamText(accumulated),
+            { temperature: 0.3, maxOutputTokens: 65536 },
+            combinedSignal,
+          );
+        } else {
+          const data = await callGemini(model,
+            [{ role: "user", parts: [{ text: userText }] }],
+            { temperature: 0.3, maxOutputTokens: 65536 },
+            combinedSignal,
+          );
+          resultText = extractText(data);
+        }
         if (!resultText) throw new Error(`第${epIdx + 1}${splitResult.isRealEpisodes ? '集' : '段'}拆解失败：AI 未返回内容`);
 
         const epScenes = parseDecomposeResult(resultText);
