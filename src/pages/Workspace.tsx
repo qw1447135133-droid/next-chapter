@@ -1172,6 +1172,7 @@ const Workspace = () => {
                 phase2MaxRetries={getApiConfig().retryCount ?? 2}
                 onRetryPhase2={handleRetryPhase2}
                 isRetryingPhase2={isAnalyzing && analyzePhase === "phase2"}
+                streamingText={streamingText}
               />
             )}
             {rawAiOutput && (
