@@ -44,8 +44,8 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
     return [...new Set(nums)].sort((a, b) => a - b);
   };
 
-  const handleGenerate = async () => {
-    const nums = parseRange(rangeInput);
+  const handleGenerate = async (overrideRange?: string) => {
+    const nums = parseRange(overrideRange || rangeInput);
     if (nums.length === 0) {
       toast({ title: "请输入有效的集数", variant: "destructive" });
       return;
