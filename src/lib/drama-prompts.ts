@@ -276,7 +276,6 @@ ${sceneContent}
 
 请直接输出重写后的场次内容。`;
 }
-}
 
 /** 导出整合 Prompt */
 export function buildExportPrompt(
