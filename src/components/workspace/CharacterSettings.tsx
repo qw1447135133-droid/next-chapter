@@ -598,15 +598,19 @@ const CharacterSettings = ({
     const hasCostumesToDescribe = character.costumes && character.costumes.length > 0;
     addTask(id, "charDesc");
     setGeneratingCharDescIds(prev => new Set(prev).add(id));
+    setStreamingDescTexts(prev => ({ ...prev, [id]: "" }));
     try {
+      const onStreamText = (text: string) => {
+        setStreamingDescTexts(prev => ({ ...prev, [id]: text }));
+      };
       if (hasCostumesToDescribe) {
-        // Describe each costume variant individually
-        const data = await invokeStreamingFunction("generate-character-description", {
+        const { data, error } = await invokeFunction("generate-character-description", {
           characterName: character.name,
           script,
           costumes: character.costumes!.map(cos => cos.label || "未命名"),
           model: decomposeModel,
-        });
+        }, { onStreamText });
+        if (error) throw error;
         if (data.costumeDescriptions && Array.isArray(data.costumeDescriptions)) {
           const updatedCostumes = character.costumes!.map((cos, i) => ({
             ...cos,
@@ -621,13 +625,12 @@ const CharacterSettings = ({
         }
         toast({ title: "识别成功", description: `已为「${character.name}」生成角色描述及 ${character.costumes!.length} 套服装描述` });
       } else {
-        // No costumes — discover costume variants from script
-        const data = await invokeStreamingFunction("generate-character-description", {
+        const { data, error } = await invokeFunction("generate-character-description", {
           characterName: character.name, script, model: decomposeModel,
           discoverCostumes: true,
-        });
+        }, { onStreamText });
+        if (error) throw error;
         const desc = data.description || "";
-        // Check if AI discovered costume variants
         if (data.discoveredCostumes && Array.isArray(data.discoveredCostumes) && data.discoveredCostumes.length >= 2) {
           const newCostumes: CostumeSetting[] = data.discoveredCostumes.map((dc: any) => ({
             id: crypto.randomUUID(),
@@ -636,7 +639,6 @@ const CharacterSettings = ({
             isAIGenerated: false,
           }));
           updateCharacterAsync(id, { description: desc, costumes: newCostumes, activeCostumeId: newCostumes[0]?.id });
-          // Auto-expand costume panel
           setExpandedCostumeCharIds(prev => { const next = new Set(prev); next.add(id); return next; });
           toast({ title: "识别成功", description: `已为「${character.name}」生成描述，并发现 ${newCostumes.length} 套服装变体` });
         } else {
@@ -651,6 +653,7 @@ const CharacterSettings = ({
     } finally {
       removeTask(id, "charDesc");
       setGeneratingCharDescIds(prev => { const next = new Set(prev); next.delete(id); return next; });
+      setStreamingDescTexts(prev => { const next = { ...prev }; delete next[id]; return next; });
     }
   };
 
