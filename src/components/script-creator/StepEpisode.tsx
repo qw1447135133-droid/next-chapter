@@ -71,6 +71,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const [selectedEp, setSelectedEp] = useState<number | null>(null);
   const [regenSceneIdx, setRegenSceneIdx] = useState<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [sceneRegenInstruction, setSceneRegenInstruction] = useState<string>("");
   const abortRef = useRef<AbortController | null>(null);
 
   const parseRange = (input: string): number[] => {
@@ -200,7 +201,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
 
     try {
       const prompt = buildSceneRegenPrompt(
-        setup, characters, selectedEp, selectedScript.content, sceneIndex, sceneContent,
+        setup, characters, selectedEp, selectedScript.content, sceneIndex, sceneContent, sceneRegenInstruction.trim() || undefined,
       );
       const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
       const newSceneText = await callGeminiStream(
@@ -469,6 +470,21 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                         </pre>
                       ) : null;
                     })()}
+
+                    {/* Scene rewrite instruction */}
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={sceneRegenInstruction}
+                        onChange={(e) => setSceneRegenInstruction(e.target.value)}
+                        placeholder="重写指令（如：加强冲突感、增加对话、加快节奏…）"
+                        className="text-xs h-8 flex-1"
+                      />
+                      {sceneRegenInstruction && (
+                        <Button variant="ghost" size="sm" className="h-8 text-xs px-2" onClick={() => setSceneRegenInstruction("")}>
+                          清除
+                        </Button>
+                      )}
+                    </div>
 
                     {/* Scenes */}
                     {scenes.map((scene, idx) => (

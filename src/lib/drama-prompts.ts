@@ -248,7 +248,12 @@ export function buildSceneRegenPrompt(
   episodeContent: string,
   sceneIndex: number,
   sceneContent: string,
+  customInstruction?: string,
 ): string {
+  const instructionBlock = customInstruction
+    ? `\n\n## 用户重写指令\n${customInstruction}\n请在重写时重点体现以上指令要求。`
+    : "";
+
   return `你是一位专业的微短剧编剧。
 
 ## 项目配置
@@ -260,6 +265,7 @@ ${characters.slice(0, 2000)}
 
 ## 当前集完整内容
 ${episodeContent}
+${instructionBlock}
 
 ## 你的任务
 请重新撰写上述第 ${episodeNumber} 集中的 **场次${sceneIndex + 1}** 部分。
