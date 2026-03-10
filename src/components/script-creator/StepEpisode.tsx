@@ -4,11 +4,33 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowRight, Loader2, Play, Check, Square, RefreshCw, History, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
+import { ArrowRight, Loader2, Play, Check, Square, RefreshCw, History, ChevronDown, ChevronUp, Trash2, ClipboardCheck, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
-import { buildEpisodePrompt, buildSceneRegenPrompt } from "@/lib/drama-prompts";
+import { buildEpisodePrompt, buildSceneRegenPrompt, buildReviewPrompt } from "@/lib/drama-prompts";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Progress } from "@/components/ui/progress";
 import type { DramaSetup, EpisodeEntry, EpisodeScript, EpisodeVersion } from "@/types/drama";
+
+interface ReviewScore {
+  score: number;
+  comment: string;
+}
+
+interface ReviewResult {
+  scores: {
+    rhythm: ReviewScore;
+    satisfaction: ReviewScore;
+    dialogue: ReviewScore;
+    format: ReviewScore;
+    continuity: ReviewScore;
+  };
+  total: number;
+  grade: string;
+  highlights: string[];
+  issues: { level: string; description: string }[];
+  suggestions: string[];
+}
 
 interface StepEpisodeProps {
   setup: DramaSetup;
