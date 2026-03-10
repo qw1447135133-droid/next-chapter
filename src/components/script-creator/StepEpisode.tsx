@@ -471,6 +471,21 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                       ) : null;
                     })()}
 
+                    {/* Scene rewrite instruction */}
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={sceneRegenInstruction}
+                        onChange={(e) => setSceneRegenInstruction(e.target.value)}
+                        placeholder="重写指令（如：加强冲突感、增加对话、加快节奏…）"
+                        className="text-xs h-8 flex-1"
+                      />
+                      {sceneRegenInstruction && (
+                        <Button variant="ghost" size="sm" className="h-8 text-xs px-2" onClick={() => setSceneRegenInstruction("")}>
+                          清除
+                        </Button>
+                      )}
+                    </div>
+
                     {/* Scenes */}
                     {scenes.map((scene, idx) => (
                       <div key={idx} className="group relative border rounded-lg p-4 hover:border-primary/30 transition-colors">
