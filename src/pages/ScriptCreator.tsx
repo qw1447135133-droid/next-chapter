@@ -176,6 +176,19 @@ const ScriptCreator = () => {
           <Button variant="ghost" size="sm" onClick={handleNewProject} className="text-xs">
             新建项目
           </Button>
+          <Select value={model} onValueChange={handleModelChange}>
+            <SelectTrigger className="w-[180px] h-8 text-xs">
+              <Cpu className="h-3 w-3 mr-1 text-muted-foreground" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MODEL_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button variant="ghost" size="sm" onClick={() => navigate("/settings")}>
             <Settings className="h-4 w-4" />
           </Button>
