@@ -175,7 +175,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                   onClick={() => {
                     const next = ep.number === selectedEp ? null : ep.number;
                     setSelectedEp(next);
-                    if (next != null && !completedNums.has(next)) {
+                    if (next != null) {
                       setRangeInput(String(next));
                     }
                   }}
