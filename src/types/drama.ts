@@ -37,6 +37,24 @@ export const ENDINGS = [
   { value: "OE", label: "OE（开放结局）" },
 ] as const;
 
+export const TARGET_MARKETS = [
+  {
+    value: "cn",
+    label: "国内（中文）",
+    desc: "中文创作，符合国内短剧平台的节奏与审美",
+  },
+  {
+    value: "jp",
+    label: "日本（日文）",
+    desc: "日文创作，物哀·幽玄·寂的审美，内向细腻的情感描绘",
+  },
+  {
+    value: "west",
+    label: "欧美（英文）",
+    desc: "英文创作，好莱坞高概念风格，强悬疑爽感与直接的情节推动",
+  },
+] as const;
+
 export const EPISODE_COUNTS = [
   { value: 40, label: "40集（紧凑）" },
   { value: 60, label: "60集（标准）" },
@@ -70,6 +88,7 @@ export interface DramaSetup {
   tone: string;
   ending: string;
   totalEpisodes: number;
+  targetMarket: string; // "cn" | "jp" | "west"
   customTopic?: string; // user's additional description
 }
 

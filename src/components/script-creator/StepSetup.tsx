@@ -5,9 +5,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, Sparkles, Globe } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { GENRES, AUDIENCES, TONES, ENDINGS, EPISODE_COUNTS, type DramaSetup } from "@/types/drama";
+import { GENRES, AUDIENCES, TONES, ENDINGS, EPISODE_COUNTS, TARGET_MARKETS, type DramaSetup } from "@/types/drama";
 
 interface StepSetupProps {
   setup: DramaSetup | null;
@@ -21,6 +21,7 @@ const StepSetup = ({ setup, onComplete }: StepSetupProps) => {
   const [ending, setEnding] = useState(setup?.ending || "HE");
   const [totalEpisodes, setTotalEpisodes] = useState(setup?.totalEpisodes || 60);
   const [customTopic, setCustomTopic] = useState(setup?.customTopic || "");
+  const [targetMarket, setTargetMarket] = useState(setup?.targetMarket || "cn");
 
   const toggleGenre = (genre: string) => {
     setSelectedGenres((prev) => {
@@ -44,6 +45,7 @@ const StepSetup = ({ setup, onComplete }: StepSetupProps) => {
       tone,
       ending,
       totalEpisodes,
+      targetMarket,
       customTopic: customTopic.trim() || undefined,
     });
   };
@@ -75,6 +77,34 @@ const StepSetup = ({ setup, onComplete }: StepSetupProps) => {
                 <Badge variant="outline" className="mt-1 text-[10px]">
                   {g.audience}
                 </Badge>
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 目标市场 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Globe className="h-5 w-5 text-primary" />
+            目标市场
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {TARGET_MARKETS.map((m) => (
+              <button
+                key={m.value}
+                onClick={() => setTargetMarket(m.value)}
+                className={`p-4 rounded-lg border text-left transition-all ${
+                  targetMarket === m.value
+                    ? "border-primary bg-primary/10 ring-1 ring-primary"
+                    : "border-border hover:border-primary/50"
+                }`}
+              >
+                <div className="font-medium text-sm">{m.label}</div>
+                <div className="text-xs text-muted-foreground mt-1">{m.desc}</div>
               </button>
             ))}
           </div>

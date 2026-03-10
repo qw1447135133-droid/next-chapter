@@ -3,10 +3,34 @@
 
 import type { DramaSetup, EpisodeEntry } from "@/types/drama";
 
+/** 目标市场描述与创作语言指令 */
+function getMarketDirective(setup: DramaSetup): string {
+  const market = setup.targetMarket || "cn";
+  if (market === "jp") {
+    return `## 🌏 目標市場：日本
+- **創作言語：日本語** —— すべての出力は日本語で記述すること。
+- **美学傾向**：物哀（もののあわれ）、幽玄（ゆうげん）、侘び寂び（わびさび）
+- **叙事スタイル**：内向的で繊細な感情描写を重視。キャラクターの内面独白と微妙な関係変化に注力。余白を多用し、直叙よりも暗示を優先。テンポは緩やかでも感情密度は高く保つ。
+- **文化適応**：キャラクター名・場面設定・社会関係・敬語体系は日本文化に準拠すること。中国語表現の直訳を避ける。`;
+  }
+  if (market === "west") {
+    return `## 🌏 Target Market: Western (US/EU)
+- **Writing Language: English** — All output must be written in English.
+- **Style**: Hollywood high-concept format. Think YA blockbusters like *Harry Potter*, *Twilight*, *The Hunger Games* — punchy hooks, visceral stakes, and propulsive pacing.
+- **Narrative approach**: External conflict drives internal change. Favor direct plot propulsion, satisfying twists, and "page-turner" cliffhangers. Lean into spectacle and wish-fulfillment.
+- **Cultural fit**: Names, settings, social norms should feel authentic to a Western audience. Use standard screenplay/novel conventions.`;
+  }
+  return `## 🌏 目标市场：国内（中文）
+- **创作语言：中文** —— 全部输出内容使用中文撰写。
+- 符合国内短剧平台的节奏与审美。`;
+}
+
 /** 创作方案 Prompt */
 export function buildCreativePlanPrompt(setup: DramaSetup): string {
   const genreStr = setup.genres.join(" + ");
   return `你是一位专业的微短剧编剧，精通短视频平台的爆款短剧创作方法论。
+
+${getMarketDirective(setup)}
 
 ## 当前项目配置
 - 题材组合：${genreStr}
@@ -60,6 +84,8 @@ export function buildCharactersPrompt(setup: DramaSetup, creativePlan: string): 
   const genreStr = setup.genres.join(" + ");
   return `你是一位专业的微短剧编剧。
 
+${getMarketDirective(setup)}
+
 ## 当前项目
 - 题材：${genreStr}
 - 受众：${setup.audience}
@@ -107,6 +133,8 @@ ${creativePlan}
 /** 分集目录 Prompt */
 export function buildDirectoryPrompt(setup: DramaSetup, creativePlan: string, characters: string): string {
   return `你是一位专业的微短剧编剧。
+
+${getMarketDirective(setup)}
 
 ## 已有创作方案
 ${creativePlan}
@@ -156,48 +184,94 @@ ${characters}
 末尾附统计信息：🔥数量、⚡数量、各钩子类型占比。`;
 }
 
-/** 分集撰写 Prompt */
-export function buildEpisodePrompt(
-  setup: DramaSetup,
-  characters: string,
-  directory: EpisodeEntry[],
-  episodeNumber: number,
-  previousEpisodes: string,
-  customInstruction?: string,
-): string {
-  const ep = directory.find((e) => e.number === episodeNumber);
-  const prevEp = directory.find((e) => e.number === episodeNumber - 1);
-  const nextEp = directory.find((e) => e.number === episodeNumber + 1);
-  const isFirstEp = episodeNumber === 1;
+/** 获取市场对应的剧本格式模板 */
+function getScriptFormatTemplate(setup: DramaSetup, episodeNumber: number, hookType: string): string {
+  const market = setup.targetMarket || "cn";
 
-  return `你是一位专业的微短剧编剧。
+  if (market === "jp") {
+    return `## 脚本フォーマット（日本市場向け）
 
-## 项目配置
-- 题材：${setup.genres.join(" + ")}
-- 基调：${setup.tone}
-- 总集数：${setup.totalEpisodes}
+\`\`\`
+# 第${episodeNumber}話：{エピソードタイトル}
 
-## 角色档案（摘要）
-${characters.slice(0, 3000)}
+> キーワード：{3つのキーワード}
+> 感情テーマ：{感情の核心}
+> 前回のあらすじ：{前話の余韻、1-2文}
 
-## 当前集信息
-- 第 ${episodeNumber} 集：${ep?.title || ""}
-- 梗概：${ep?.summary || ""}
-- 钩子类型：${ep?.hookType || ""}
-- ${ep?.isKey ? "🔥 关键剧情集" : ""}${ep?.isClimax ? " ⚡ 高潮卡点集" : ""}
-${prevEp ? `- 上一集：第${prevEp.number}集 ${prevEp.title} —— ${prevEp.summary}` : ""}
-${nextEp ? `- 下一集：第${nextEp.number}集 ${nextEp.title} —— ${nextEp.summary}` : ""}
+---
 
-${previousEpisodes ? `## 前集回顾\n${previousEpisodes.slice(-2000)}` : ""}
+## シーン1
 
-${isFirstEp ? `## 重要：开篇黄金法则
-- 第1秒：画面冲击或悬念抛出
-- 第3秒：核心冲突或身份反差建立
-- 第5秒：观众必须产生"接下来会怎样"的好奇心
-- 前30秒必须完成：建立核心冲突、展示主角处境、抛出第一个钩子
-- 禁止：大段旁白、慢节奏空镜、流水账、平铺直叙` : ""}
+**場面：** 屋内/屋外 · {場所} · 昼/夜
+**登場人物：** {人物リスト}
 
-## 剧本格式要求（国内模式）
+△ （ロングショット）{情景描写 — 季節感・空気感を重視}
+△ （ミディアムショット）{人物の所作・微細な表情変化}
+
+**{キャラクター名}**（{口調/動作指示}）：「{台詞}」
+
+△ （クローズアップ）{象徴的ディテール — 物哀の瞬間}
+
+♪ 音楽：{和楽器・アンビエント系の雰囲気}
+
+---
+
+> 🎣 引き：{余韻と暗示}
+> 📺 次回予告：{次話の核心}
+\`\`\`
+
+## 品質基準
+- 各話 3-5 シーン
+- 各話 800文字以上
+- カメラワーク：ロング・ミディアム・アップ・クローズアップ（最低3種使用）
+- 台詞には口調・動作指示を付記
+- 物哀・余韻を意識した描写を各シーンに1箇所以上
+- 結末は${hookType || "余韻"}で締める`;
+  }
+
+  if (market === "west") {
+    return `## Script Format (Western Market)
+
+\`\`\`
+# Episode ${episodeNumber}: {Episode Title}
+
+> Keywords: {3 keywords}
+> Hook Type: {satisfaction/thrill type}
+> Previously: {Last episode's cliffhanger, 1-2 sentences}
+
+---
+
+## SCENE 1
+
+**INT./EXT. {LOCATION} — DAY/NIGHT**
+**CHARACTERS: {character list}**
+
+△ (WIDE) {Scene description — visceral, cinematic}
+△ (MEDIUM) {Character action — body language, tension}
+
+**{CHARACTER NAME}** ({tone/action direction}): "{Dialogue}"
+
+△ (CLOSE-UP) {Key detail — plot-critical visual}
+
+♪ Score: {Music/sound design cue}
+
+---
+
+> 🎣 Cliffhanger: {hook description}
+> 📺 Next Episode: {teaser}
+\`\`\`
+
+## Quality Standards
+- 3-5 scenes per episode
+- Minimum 800 words per episode
+- Camera directions: WIDE, MEDIUM, CLOSE-UP, EXTREME CLOSE-UP (use at least 3)
+- Dialogue must include tone/action parentheticals
+- End with a strong ${hookType || "cliffhanger"} hook
+- High-concept pacing: open with a bang, escalate fast, end on a twist`;
+  }
+
+  // 国内默认
+  return `## 剧本格式要求（国内模式）
 
 \`\`\`
 # 第${episodeNumber}集：{集标题}
@@ -233,7 +307,53 @@ ${isFirstEp ? `## 重要：开篇黄金法则
 - 每集至少 800 字
 - 景别提示：全景、中景、近景、特写（至少使用3种）
 - 台词带语气或动作指示
-- 结尾必须有悬念钩子（${ep?.hookType || "悬念钩"}）
+- 结尾必须有悬念钩子（${hookType || "悬念钩"}）`;
+}
+
+/** 分集撰写 Prompt */
+export function buildEpisodePrompt(
+  setup: DramaSetup,
+  characters: string,
+  directory: EpisodeEntry[],
+  episodeNumber: number,
+  previousEpisodes: string,
+  customInstruction?: string,
+): string {
+  const ep = directory.find((e) => e.number === episodeNumber);
+  const prevEp = directory.find((e) => e.number === episodeNumber - 1);
+  const nextEp = directory.find((e) => e.number === episodeNumber + 1);
+  const isFirstEp = episodeNumber === 1;
+
+  return `你是一位专业的微短剧编剧。
+
+${getMarketDirective(setup)}
+
+## 项目配置
+- 题材：${setup.genres.join(" + ")}
+- 基调：${setup.tone}
+- 总集数：${setup.totalEpisodes}
+
+## 角色档案（摘要）
+${characters.slice(0, 3000)}
+
+## 当前集信息
+- 第 ${episodeNumber} 集：${ep?.title || ""}
+- 梗概：${ep?.summary || ""}
+- 钩子类型：${ep?.hookType || ""}
+- ${ep?.isKey ? "🔥 关键剧情集" : ""}${ep?.isClimax ? " ⚡ 高潮卡点集" : ""}
+${prevEp ? `- 上一集：第${prevEp.number}集 ${prevEp.title} —— ${prevEp.summary}` : ""}
+${nextEp ? `- 下一集：第${nextEp.number}集 ${nextEp.title} —— ${nextEp.summary}` : ""}
+
+${previousEpisodes ? `## 前集回顾\n${previousEpisodes.slice(-2000)}` : ""}
+
+${isFirstEp ? `## 重要：开篇黄金法则
+- 第1秒：画面冲击或悬念抛出
+- 第3秒：核心冲突或身份反差建立
+- 第5秒：观众必须产生"接下来会怎样"的好奇心
+- 前30秒必须完成：建立核心冲突、展示主角处境、抛出第一个钩子
+- 禁止：大段旁白、慢节奏空镜、流水账、平铺直叙` : ""}
+
+${getScriptFormatTemplate(setup, episodeNumber, ep?.hookType || "")}
 
 - 确保角色行为与档案一致
 - 确保剧情推进与分集目录一致
@@ -279,6 +399,8 @@ export function buildSceneRegenPrompt(
   ].join("\n\n");
 
   return `你是一位专业的微短剧编剧，擅长在不改变核心剧情的前提下提升场次的表现力。
+
+${getMarketDirective(setup)}
 
 ## 项目配置
 - 题材：${setup.genres.join(" + ")}
@@ -344,6 +466,8 @@ export function buildExportPrompt(
 ): string {
   return `你是一位专业编辑。请将以下创作内容整合为一份完整、排版规范的剧本文档。
 
+${getMarketDirective(setup)}
+
 ## 元信息
 - 剧名：${dramaTitle}
 - 题材：${setup.genres.join(" + ")}
@@ -378,6 +502,8 @@ export function buildReviewPrompt(
   const epEntry = directory.find((d) => d.number === episodeNumber);
 
   return `你是一位资深短剧质检编辑，精通微短剧的创作标准和行业规范。
+
+${getMarketDirective(setup)}
 
 ## 任务
 对以下第 ${episodeNumber} 集剧本进行五维度质量评分和审查。
