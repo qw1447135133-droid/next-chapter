@@ -815,6 +815,7 @@ const CharacterSettings = ({
         } finally {
           removeTask(c.id, "charDesc");
           setGeneratingCharDescIds(prev => { const next = new Set(prev); next.delete(c.id); return next; });
+          setStreamingDescTexts(prev => { const next = { ...prev }; delete next[c.id]; return next; });
           textSem.release();
           if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
         }
