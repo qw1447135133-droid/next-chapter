@@ -1,15 +1,16 @@
 import { cn } from "@/lib/utils";
 import { STEP_LABELS, type WorkspaceStep } from "@/types/project";
-import { Check } from "lucide-react";
+import { Check, Lock } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 interface StepIndicatorProps {
   currentStep: WorkspaceStep;
   onStepClick: (step: WorkspaceStep) => void;
   disabledSteps?: WorkspaceStep[];
+  lockedSteps?: WorkspaceStep[];
 }
 
-const StepIndicator = ({ currentStep, onStepClick, disabledSteps = [] }: StepIndicatorProps) => {
+const StepIndicator = ({ currentStep, onStepClick, disabledSteps = [], lockedSteps = [] }: StepIndicatorProps) => {
   const steps = Object.entries(STEP_LABELS) as [string, string][];
 
   return (
@@ -19,6 +20,7 @@ const StepIndicator = ({ currentStep, onStepClick, disabledSteps = [] }: StepInd
         const isActive = step === currentStep;
         const isDone = step < currentStep;
         const isDisabled = disabledSteps.includes(step);
+        const isLocked = !isDisabled && lockedSteps.includes(step);
 
         return (
           <button
@@ -32,22 +34,22 @@ const StepIndicator = ({ currentStep, onStepClick, disabledSteps = [] }: StepInd
             }}
             className={cn(
               "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors",
-              isDisabled && "opacity-40 cursor-not-allowed",
-              !isDisabled && isActive && "bg-primary text-primary-foreground",
-              !isDisabled && isDone && "bg-primary/10 text-primary",
-              !isDisabled && !isActive && !isDone && "text-muted-foreground hover:bg-muted"
+              (isDisabled || isLocked) && "opacity-40 cursor-not-allowed",
+              !isDisabled && !isLocked && isActive && "bg-primary text-primary-foreground",
+              !isDisabled && !isLocked && isDone && "bg-primary/10 text-primary",
+              !isDisabled && !isLocked && !isActive && !isDone && "text-muted-foreground hover:bg-muted"
             )}
           >
             <span
               className={cn(
                 "h-5 w-5 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
-                isDisabled && "bg-muted",
-                !isDisabled && isActive && "bg-primary-foreground/20",
-                !isDisabled && isDone && "bg-primary/20",
-                !isDisabled && !isActive && !isDone && "bg-muted"
+                (isDisabled || isLocked) && "bg-muted",
+                !isDisabled && !isLocked && isActive && "bg-primary-foreground/20",
+                !isDisabled && !isLocked && isDone && "bg-primary/20",
+                !isDisabled && !isLocked && !isActive && !isDone && "bg-muted"
               )}
             >
-              {!isDisabled && isDone ? <Check className="h-3 w-3" /> : step}
+              {isLocked ? <Lock className="h-3 w-3" /> : !isDisabled && isDone ? <Check className="h-3 w-3" /> : step}
             </span>
             {label}
           </button>

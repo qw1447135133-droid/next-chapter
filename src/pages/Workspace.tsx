@@ -1143,6 +1143,37 @@ const Workspace = () => {
     await generateVideoForScene(sceneId);
   };
 
+  const getStepBlockReason = (step: WorkspaceStep): string | null => {
+    if (step <= 1) return null;
+    if (step >= 2 && scenes.length === 0) return "请先完成剧本拆解";
+    if (step >= 3 && !skipStoryboard) {
+      const hasAnyCharDesc = characters.some(c => c.description);
+      if (!hasAnyCharDesc) return "请先为角色添加描述或设定图";
+    }
+    if (step >= 4 && !skipStoryboard) {
+      const hasAnyStoryboard = scenes.some(s => s.storyboardUrl);
+      if (!hasAnyStoryboard) return "请先生成至少一张分镜图";
+    }
+    if (step >= 5) {
+      const hasAnyVideo = scenes.some(s => s.videoUrl);
+      if (!hasAnyVideo) return "请先生成至少一个视频";
+    }
+    return null;
+  };
+
+  const getLockedSteps = (): WorkspaceStep[] => {
+    return ([2, 3, 4, 5] as WorkspaceStep[]).filter(s => getStepBlockReason(s) !== null);
+  };
+
+  const safeGoToStep = (step: WorkspaceStep) => {
+    const reason = getStepBlockReason(step);
+    if (reason) {
+      toast({ title: "无法进入该步骤", description: reason, variant: "destructive" });
+      return;
+    }
+    setCurrentStep(step);
+  };
+
   const renderStep = () => {
     switch (currentStep) {
       case 1:
@@ -1197,7 +1228,7 @@ const Workspace = () => {
               />
             )}
             {scenes.length > 0 && (
-              <SceneList scenes={scenes} onScenesChange={setScenes} onNext={() => setCurrentStep(2)} characters={characters} />
+              <SceneList scenes={scenes} onScenesChange={setScenes} onNext={() => safeGoToStep(2)} characters={characters} />
             )}
           </div>
         );
@@ -1210,7 +1241,7 @@ const Workspace = () => {
             onArtStyleChange={setArtStyle}
             onCharactersChange={setCharacters}
             onSceneSettingsChange={setSceneSettings}
-            onNext={() => setCurrentStep(skipStoryboard ? 4 : 3)}
+            onNext={() => safeGoToStep(skipStoryboard ? 4 : 3)}
             script={script}
             decomposeModel={decomposeModel}
             isAutoDetectingAll={isAutoDetectingAll}
@@ -1232,7 +1263,7 @@ const Workspace = () => {
             generatingScenes={generatingScenes}
             isGeneratingAll={isGeneratingAllStoryboards}
             isAborting={isAbortingStoryboards}
-            onNext={() => setCurrentStep(4)}
+            onNext={() => safeGoToStep(4)}
           />
         );
       case 4:
@@ -1246,7 +1277,7 @@ const Workspace = () => {
             onRegenerateScene={handleRegenerateVideo}
             isGenerating={isGeneratingVideo}
             isAborting={isAbortingVideo}
-            onNext={() => setCurrentStep(5)}
+            onNext={() => safeGoToStep(5)}
             onScenesChange={setScenes}
             useImg2Video={!skipStoryboard}
           />
@@ -1274,7 +1305,19 @@ const Workspace = () => {
       </header>
 
       <div className="px-6 py-3 border-b border-border/30 flex items-center justify-between gap-4">
-        <StepIndicator currentStep={currentStep} onStepClick={setCurrentStep} disabledSteps={skipStoryboard ? [3] : []} />
+        <StepIndicator
+          currentStep={currentStep}
+          onStepClick={(step) => {
+            const reasons = getStepBlockReason(step);
+            if (reasons) {
+              toast({ title: "无法进入该步骤", description: reasons, variant: "destructive" });
+              return;
+            }
+            setCurrentStep(step);
+          }}
+          disabledSteps={skipStoryboard ? [3] : []}
+          lockedSteps={getLockedSteps()}
+        />
         <div className="flex items-center gap-2 shrink-0">
           <Switch id="skip-storyboard" checked={!skipStoryboard} onCheckedChange={(v) => setSkipStoryboard(!v)} />
           <Label htmlFor="skip-storyboard" className="text-xs text-muted-foreground whitespace-nowrap cursor-pointer">
