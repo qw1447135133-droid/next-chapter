@@ -275,8 +275,8 @@ async function routeFunction(functionName: string, body: any, options?: InvokeOp
     case "generate-storyboard": return localGenerateStoryboard(body);
     case "generate-video": return localGenerateVideo(body);
     case "enhance-video-prompt": return localEnhancePrompt(body);
-    case "generate-character-description": return localCharDesc(body);
-    case "generate-scene-description": return localSceneDesc(body);
+    case "generate-character-description": return localCharDesc(body, options?.onStreamText);
+    case "generate-scene-description": return localSceneDesc(body, options?.onStreamText);
     default: throw new Error(`未知函数: ${functionName}`);
   }
 }
