@@ -580,7 +580,7 @@ const Settings = () => {
               <li>• <strong>云端存储</strong>: 通过 Supabase 将项目数据同步到云端，支持多设备访问</li>
               
               <li>• <strong>站狐 API (Seedance)</strong>: 用于视频生成</li>
-              <li>• <strong>Vidu API</strong>: 独立的视频生成 API（需单独配置）</li>
+              
             </ul>
           </CardContent>
         </Card>
