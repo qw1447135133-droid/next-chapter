@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowRight, Loader2, Play, Check, Square, RefreshCw, History, ChevronDown, ChevronUp, Trash2, ClipboardCheck, X, Wrench } from "lucide-react";
+import { ArrowRight, Loader2, Play, Check, Square, RefreshCw, History, ChevronDown, ChevronUp, Trash2, ClipboardCheck, X, Wrench, BarChart3 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildEpisodePrompt, buildSceneRegenPrompt, buildReviewPrompt } from "@/lib/drama-prompts";
@@ -101,7 +101,13 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const [isReviewing, setIsReviewing] = useState(false);
   const [showReviewDialog, setShowReviewDialog] = useState(false);
   const [reviewEpNum, setReviewEpNum] = useState<number | null>(null);
+  // Batch review state
+  const [batchReviewResults, setBatchReviewResults] = useState<Map<number, ReviewResult>>(new Map());
+  const [isBatchReviewing, setIsBatchReviewing] = useState(false);
+  const [batchReviewProgress, setBatchReviewProgress] = useState<{ current: number; total: number; epNum: number | null }>({ current: 0, total: 0, epNum: null });
+  const [showBatchReviewDialog, setShowBatchReviewDialog] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const batchAbortRef = useRef<AbortController | null>(null);
 
   const DIMENSION_LABELS: Record<string, string> = {
     rhythm: "节奏",
@@ -155,6 +161,58 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
     } finally {
       setIsReviewing(false);
     }
+  };
+
+  /** Batch review all completed episodes */
+  const handleBatchReview = async () => {
+    const completedEps = episodes.filter(e => e.content).sort((a, b) => a.number - b.number);
+    if (completedEps.length === 0) {
+      toast({ title: "没有已撰写的集数可审查", variant: "destructive" });
+      return;
+    }
+
+    setIsBatchReviewing(true);
+    setBatchReviewResults(new Map());
+    setBatchReviewProgress({ current: 0, total: completedEps.length, epNum: null });
+    setShowBatchReviewDialog(true);
+    batchAbortRef.current = new AbortController();
+
+    const results = new Map<number, ReviewResult>();
+    const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+
+    for (let i = 0; i < completedEps.length; i++) {
+      if (batchAbortRef.current?.signal.aborted) break;
+      const ep = completedEps[i];
+      setBatchReviewProgress({ current: i + 1, total: completedEps.length, epNum: ep.number });
+
+      try {
+        const prevEp = episodes.find(e => e.number === ep.number - 1);
+        const nextEp = episodes.find(e => e.number === ep.number + 1);
+        const prompt = buildReviewPrompt(
+          setup, characters, directory, ep.number, ep.content,
+          prevEp?.content, nextEp?.content,
+        );
+        const finalText = await callGeminiStream(
+          model,
+          [{ role: "user", parts: [{ text: prompt }] }],
+          () => {},
+          { maxOutputTokens: 4096 },
+          batchAbortRef.current.signal,
+        );
+        const jsonMatch = finalText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const result: ReviewResult = JSON.parse(jsonMatch[0]);
+          results.set(ep.number, result);
+          setBatchReviewResults(new Map(results));
+        }
+      } catch (e: any) {
+        if (e?.message?.includes("取消") || e?.name === "AbortError") break;
+        console.error(`批量审查第${ep.number}集失败:`, e);
+      }
+    }
+
+    setIsBatchReviewing(false);
+    batchAbortRef.current = null;
   };
 
   const parseRange = (input: string): number[] => {
@@ -369,13 +427,25 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-lg">
             分集撰写
             <span className="text-sm font-normal text-muted-foreground ml-2">
               已完成 {episodes.length}/{setup.totalEpisodes} 集
             </span>
           </CardTitle>
+          {episodes.length >= 2 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleBatchReview}
+              disabled={isGenerating || isBatchReviewing}
+              className="gap-1.5"
+            >
+              <BarChart3 className="h-3.5 w-3.5" />
+              {isBatchReviewing ? "审查中…" : "批量质量审查"}
+            </Button>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-end gap-3">
@@ -825,6 +895,167 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                   一键修复（基于审查结果重写）
                 </Button>
               )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* 批量质量审查对话框 */}
+      <Dialog open={showBatchReviewDialog} onOpenChange={(open) => {
+        if (!open && isBatchReviewing) {
+          batchAbortRef.current?.abort();
+        }
+        setShowBatchReviewDialog(open);
+      }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5" />
+              批量质量审查报告
+              {isBatchReviewing && (
+                <span className="text-sm font-normal text-muted-foreground">
+                  （{batchReviewProgress.current}/{batchReviewProgress.total}）正在审查第 {batchReviewProgress.epNum} 集…
+                </span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+
+          {/* Progress bar */}
+          {isBatchReviewing && (
+            <div className="space-y-2">
+              <Progress value={(batchReviewProgress.current / Math.max(batchReviewProgress.total, 1)) * 100} className="h-2" />
+              <div className="flex justify-between">
+                <p className="text-xs text-muted-foreground">
+                  正在审查第 {batchReviewProgress.epNum} 集…
+                </p>
+                <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => batchAbortRef.current?.abort()}>
+                  停止
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {batchReviewResults.size > 0 && (
+            <div className="space-y-4">
+              {/* 汇总统计 */}
+              {(() => {
+                const entries = [...batchReviewResults.entries()].sort(([a], [b]) => a - b);
+                const avgTotal = entries.reduce((sum, [, r]) => sum + r.total, 0) / entries.length;
+                const dimAvg: Record<string, number> = {};
+                const dims = ["rhythm", "satisfaction", "dialogue", "format", "continuity"];
+                dims.forEach(d => {
+                  dimAvg[d] = entries.reduce((sum, [, r]) => sum + (r.scores[d as keyof typeof r.scores]?.score || 0), 0) / entries.length;
+                });
+                const lowestEp = entries.reduce((min, curr) => curr[1].total < min[1].total ? curr : min);
+                const highestEp = entries.reduce((max, curr) => curr[1].total > max[1].total ? curr : max);
+                const avgGrade = avgTotal >= 45 ? "卓越" : avgTotal >= 38 ? "优良" : avgTotal >= 30 ? "合格" : avgTotal >= 25 ? "需改进" : "需重写";
+
+                return (
+                  <>
+                    {/* Summary header */}
+                    <div className="grid grid-cols-3 gap-3 text-center">
+                      <div className="border rounded-lg p-3">
+                        <div className="text-2xl font-bold">
+                          <span className={getGradeColor(avgGrade)}>{avgTotal.toFixed(1)}</span>
+                          <span className="text-xs text-muted-foreground">/50</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">平均分</p>
+                        <p className={`text-xs font-semibold ${getGradeColor(avgGrade)}`}>{avgGrade}</p>
+                      </div>
+                      <div className="border rounded-lg p-3">
+                        <div className="text-2xl font-bold text-green-500">{highestEp[1].total}</div>
+                        <p className="text-xs text-muted-foreground mt-1">最高分</p>
+                        <p className="text-xs">第 {highestEp[0]} 集</p>
+                      </div>
+                      <div className="border rounded-lg p-3">
+                        <div className="text-2xl font-bold text-orange-500">{lowestEp[1].total}</div>
+                        <p className="text-xs text-muted-foreground mt-1">最低分</p>
+                        <p className="text-xs">第 {lowestEp[0]} 集</p>
+                      </div>
+                    </div>
+
+                    {/* 五维平均 */}
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold">五维平均评分</p>
+                      {dims.map(d => (
+                        <div key={d} className="space-y-0.5">
+                          <div className="flex items-center justify-between text-xs">
+                            <span>{DIMENSION_LABELS[d]}</span>
+                            <span className="font-mono text-muted-foreground">{dimAvg[d].toFixed(1)}/10</span>
+                          </div>
+                          <Progress value={dimAvg[d] * 10} className="h-1.5" />
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* 各集得分列表 */}
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold">各集评分明细</p>
+                      <div className="border rounded-lg overflow-hidden">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="bg-muted/50">
+                              <th className="text-left p-2">集数</th>
+                              <th className="p-2">节奏</th>
+                              <th className="p-2">爽点</th>
+                              <th className="p-2">台词</th>
+                              <th className="p-2">格式</th>
+                              <th className="p-2">连贯</th>
+                              <th className="p-2">总分</th>
+                              <th className="p-2">评级</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {entries.map(([epNum, r]) => (
+                              <tr key={epNum} className="border-t hover:bg-muted/20">
+                                <td className="p-2 font-medium">第{epNum}集</td>
+                                <td className="p-2 text-center">{r.scores.rhythm.score}</td>
+                                <td className="p-2 text-center">{r.scores.satisfaction.score}</td>
+                                <td className="p-2 text-center">{r.scores.dialogue.score}</td>
+                                <td className="p-2 text-center">{r.scores.format.score}</td>
+                                <td className="p-2 text-center">{r.scores.continuity.score}</td>
+                                <td className="p-2 text-center font-semibold">{r.total}</td>
+                                <td className={`p-2 text-center font-semibold ${getGradeColor(r.grade)}`}>{r.grade}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* 问题汇总 — 只列出有问题的集 */}
+                    {(() => {
+                      const epsWithIssues = entries.filter(([, r]) => r.issues.length > 0);
+                      if (epsWithIssues.length === 0) return null;
+                      return (
+                        <div className="space-y-2">
+                          <p className="text-sm font-semibold">📋 问题汇总</p>
+                          {epsWithIssues.map(([epNum, r]) => (
+                            <div key={epNum} className="border rounded-lg p-2 space-y-1">
+                              <p className="text-xs font-medium">第 {epNum} 集（{r.grade} · {r.total}分）</p>
+                              <ul className="text-xs space-y-0.5">
+                                {r.issues.map((issue, i) => (
+                                  <li key={i} className="flex gap-1.5">
+                                    <span>{issue.level}</span>
+                                    <span className="text-muted-foreground">{issue.description}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </>
+                );
+              })()}
+            </div>
+          )}
+
+          {!isBatchReviewing && batchReviewResults.size === 0 && (
+            <div className="flex flex-col items-center gap-4 py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">准备审查…</p>
             </div>
           )}
         </DialogContent>
