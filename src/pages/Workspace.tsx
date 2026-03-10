@@ -1165,6 +1165,15 @@ const Workspace = () => {
     return ([2, 3, 4, 5] as WorkspaceStep[]).filter(s => getStepBlockReason(s) !== null);
   };
 
+  const safeGoToStep = (step: WorkspaceStep) => {
+    const reason = getStepBlockReason(step);
+    if (reason) {
+      toast({ title: "无法进入该步骤", description: reason, variant: "destructive" });
+      return;
+    }
+    setCurrentStep(step);
+  };
+
   const renderStep = () => {
     switch (currentStep) {
       case 1:
