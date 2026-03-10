@@ -361,14 +361,12 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
         </CardContent>
       </Card>
 
-      {/* 流式输出预览 */}
-      {isGenerating && streamingText && (
+      {/* 流式输出预览 — only for full episode generation, not scene regen */}
+      {isGenerating && regenSceneIdx == null && streamingText && (
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">
-              {regenSceneIdx != null
-                ? `正在重写场次${regenSceneIdx + 1}…`
-                : `正在撰写第 ${currentGen} 集…`}
+              正在撰写第 {currentGen} 集…
               <span className="text-sm font-normal text-muted-foreground ml-2">
                 {streamingText.length} 字
               </span>
