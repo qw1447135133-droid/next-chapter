@@ -1586,13 +1586,22 @@ const CharacterSettings = ({
                             <Trash2 className="h-3 w-3" />
                           </Button>
                         </div>
-                        <Textarea
-                          value={activeCostume.description}
-                          onChange={(e) => updateCostume(activeCostume.id, { description: e.target.value })}
-                          placeholder="服装外观描述（颜色、款式、配饰等）"
-                          className="text-sm min-h-[50px] resize-none"
-                          rows={2}
-                        />
+                        {generatingCharDescIds.has(c.id) && streamingDescTexts[c.id] ? (
+                          <div className="relative">
+                            <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 min-h-[50px] max-h-[200px] overflow-auto rounded-md border border-input bg-background px-3 py-2">
+                              {streamingDescTexts[c.id]}
+                              <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />
+                            </pre>
+                          </div>
+                        ) : (
+                          <Textarea
+                            value={activeCostume.description}
+                            onChange={(e) => updateCostume(activeCostume.id, { description: e.target.value })}
+                            placeholder="服装外观描述（颜色、款式、配饰等）"
+                            className="text-sm min-h-[50px] resize-none"
+                            rows={2}
+                          />
+                        )}
                         <div className="flex gap-2 flex-wrap">
                           <input
                             type="file"
