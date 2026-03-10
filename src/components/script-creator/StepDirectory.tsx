@@ -167,7 +167,6 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                   <span className="text-xs text-muted-foreground shrink-0">{ep.hookType}</span>
                   <span className="shrink-0">
                     {ep.isKey && "🔥"}
-                    {ep.isPaywall && "💰"}
                   </span>
                 </div>
               ))}

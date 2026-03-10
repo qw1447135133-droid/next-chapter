@@ -90,7 +90,6 @@ export interface EpisodeEntry {
   summary: string;
   hookType: string;
   isKey: boolean;    // 🔥
-  isPaywall: boolean; // 💰
 }
 
 export interface EpisodeScript {
