@@ -1469,7 +1469,16 @@ const CharacterSettings = ({
                    </div>
                   {/* Hide base description when costumes are expanded — description lives per-costume */}
                   {!(isCostumeExpanded && hasCostumes) && (
-                    <Textarea value={c.description} onChange={(e) => updateCharacter(c.id, { description: e.target.value })} placeholder="角色描述（外貌特征、服装、年龄、气质等，越详细生成效果越好）" className="text-sm min-h-[60px] resize-none" rows={2} />
+                    generatingCharDescIds.has(c.id) && streamingDescTexts[c.id] ? (
+                      <div className="relative">
+                        <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 min-h-[60px] max-h-[200px] overflow-auto rounded-md border border-input bg-background px-3 py-2">
+                          {streamingDescTexts[c.id]}
+                          <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />
+                        </pre>
+                      </div>
+                    ) : (
+                      <Textarea value={c.description} onChange={(e) => updateCharacter(c.id, { description: e.target.value })} placeholder="角色描述（外貌特征、服装、年龄、气质等，越详细生成效果越好）" className="text-sm min-h-[60px] resize-none" rows={2} />
+                    )
                   )}
                   <div className="flex gap-2">
                     <input type="file" accept="image/*" className="hidden" ref={(el) => { fileInputRefs.current[c.id] = el; }} onChange={(e) => handleFileChange(c.id, e)} />
