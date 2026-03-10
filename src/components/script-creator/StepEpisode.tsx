@@ -187,8 +187,9 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
     return history.slice(-10);
   };
 
-  const handleGenerate = async (overrideRange?: string) => {
+  const handleGenerate = async (overrideRange?: string, overrideInstruction?: string) => {
     const nums = parseRange(overrideRange || rangeInput);
+    const instruction = overrideInstruction ?? episodeRegenInstruction;
     if (nums.length === 0) {
       toast({ title: "请输入有效的集数", variant: "destructive" });
       return;
