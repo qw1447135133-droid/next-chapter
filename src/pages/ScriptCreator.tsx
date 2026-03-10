@@ -94,7 +94,7 @@ ${outline.trim() ? `\n大纲/要求：\n${outline.trim()}` : ""}
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex items-center gap-2">
-            <PenTool className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            <PenTool className="h-5 w-5 text-primary" />
             <span className="font-semibold font-[Space_Grotesk]">剧本创作</span>
           </div>
         </div>
