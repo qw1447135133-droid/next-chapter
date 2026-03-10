@@ -231,7 +231,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
       {/* 已完成的集预览 */}
       {selectedEp != null && !isGenerating && (
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg">
               第 {selectedEp} 集：{selectedScript?.title || directory.find(d => d.number === selectedEp)?.title || `第${selectedEp}集`}
               {selectedScript && (
@@ -240,6 +240,20 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                 </span>
               )}
             </CardTitle>
+            {selectedScript && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setRangeInput(String(selectedEp));
+                  handleGenerate(String(selectedEp));
+                }}
+                className="gap-1.5"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                重新生成
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
             {selectedScript ? (
