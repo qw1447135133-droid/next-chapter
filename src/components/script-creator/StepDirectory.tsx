@@ -31,10 +31,9 @@ function parseDirectory(raw: string): EpisodeEntry[] {
       entries.push({
         number,
         title,
-        summary: rest.replace(/\[.*?\]/g, "").replace(/🔥/g, "").replace(/💰/g, "").trim(),
+        summary: rest.replace(/\[.*?\]/g, "").replace(/🔥/g, "").trim(),
         hookType: hookMatch?.[1] || "悬念钩",
         isKey: line.includes("🔥"),
-        isPaywall: line.includes("💰"),
       });
     }
   }
