@@ -1143,35 +1143,26 @@ const Workspace = () => {
     await generateVideoForScene(sceneId);
   };
 
-  const getStepBlockReason = (step: WorkspaceStep): string | null => {
-    if (step <= 1) return null;
-    if (step >= 2 && scenes.length === 0) return "请先完成剧本拆解";
+  const canAdvanceToStep = (step: WorkspaceStep): boolean => {
+    if (step <= 1) return true;
+    if (step >= 2 && scenes.length === 0) return false;
     if (step >= 3 && !skipStoryboard) {
       const hasAnyCharDesc = characters.some(c => c.description);
-      if (!hasAnyCharDesc) return "请先为角色添加描述或设定图";
+      if (!hasAnyCharDesc) return false;
     }
     if (step >= 4 && !skipStoryboard) {
       const hasAnyStoryboard = scenes.some(s => s.storyboardUrl);
-      if (!hasAnyStoryboard) return "请先生成至少一张分镜图";
+      if (!hasAnyStoryboard) return false;
     }
     if (step >= 5) {
       const hasAnyVideo = scenes.some(s => s.videoUrl);
-      if (!hasAnyVideo) return "请先生成至少一个视频";
+      if (!hasAnyVideo) return false;
     }
-    return null;
-  };
-
-  const getLockedSteps = (): WorkspaceStep[] => {
-    return ([2, 3, 4, 5] as WorkspaceStep[]).filter(s => getStepBlockReason(s) !== null);
+    return true;
   };
 
   const safeGoToStep = (step: WorkspaceStep) => {
-    const reason = getStepBlockReason(step);
-    if (reason) {
-      toast({ title: "无法进入该步骤", description: reason, variant: "destructive" });
-      return;
-    }
-    setCurrentStep(step);
+    if (canAdvanceToStep(step)) setCurrentStep(step);
   };
 
   const renderStep = () => {
@@ -1307,16 +1298,9 @@ const Workspace = () => {
       <div className="px-6 py-3 border-b border-border/30 flex items-center justify-between gap-4">
         <StepIndicator
           currentStep={currentStep}
-          onStepClick={(step) => {
-            const reasons = getStepBlockReason(step);
-            if (reasons) {
-              toast({ title: "无法进入该步骤", description: reasons, variant: "destructive" });
-              return;
-            }
-            setCurrentStep(step);
-          }}
+          onStepClick={safeGoToStep}
           disabledSteps={skipStoryboard ? [3] : []}
-          lockedSteps={getLockedSteps()}
+          canAdvanceTo={canAdvanceToStep}
         />
         <div className="flex items-center gap-2 shrink-0">
           <Switch id="skip-storyboard" checked={!skipStoryboard} onCheckedChange={(v) => setSkipStoryboard(!v)} />
