@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, PenTool, Settings, Cpu } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import StepDirectory from "@/components/script-creator/StepDirectory";
 import StepEpisode from "@/components/script-creator/StepEpisode";
 import StepExport from "@/components/script-creator/StepExport";
 
-const STORAGE_KEY = "drama-project";
+const DRAMA_PROJECTS_KEY = "storyforge_drama_projects";
 
 const MODEL_OPTIONS = [
   { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
@@ -29,17 +29,74 @@ const MODEL_OPTIONS = [
   { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
 ];
 
-function loadProject(): DramaProject {
+function getDramaProjects(): DramaProject[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch { /* ignore */ }
-  return createEmptyDramaProject();
+    const raw = localStorage.getItem(DRAMA_PROJECTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDramaProjects(projects: DramaProject[]): void {
+  localStorage.setItem(DRAMA_PROJECTS_KEY, JSON.stringify(projects));
+}
+
+function loadProjectById(id: string | null): DramaProject | null {
+  if (!id) return null;
+  const projects = getDramaProjects();
+  return projects.find((p) => p.id === id) || null;
+}
+
+function upsertDramaProject(project: DramaProject): void {
+  const projects = getDramaProjects();
+  const idx = projects.findIndex((p) => p.id === project.id);
+  const updated = { ...project, updatedAt: new Date().toISOString() };
+  if (idx >= 0) {
+    projects[idx] = updated;
+  } else {
+    projects.unshift(updated);
+  }
+  saveDramaProjects(projects);
+}
+
+export function listDramaProjects() {
+  return getDramaProjects()
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 20)
+    .map((p) => ({
+      id: p.id,
+      title: p.dramaTitle || "未命名剧本",
+      currentStep: p.currentStep,
+      created_at: p.createdAt,
+      updated_at: p.updatedAt,
+      type: "drama" as const,
+    }));
+}
+
+export function deleteDramaProject(id: string): boolean {
+  const projects = getDramaProjects();
+  const filtered = projects.filter((p) => p.id !== id);
+  saveDramaProjects(filtered);
+  return true;
 }
 
 const ScriptCreator = () => {
   const navigate = useNavigate();
-  const [project, setProject] = useState<DramaProject>(loadProject);
+  const [searchParams] = useSearchParams();
+  const resumeId = searchParams.get("id");
+
+  const [project, setProject] = useState<DramaProject>(() => {
+    if (resumeId) {
+      const loaded = loadProjectById(resumeId);
+      if (loaded) return loaded;
+    }
+    // Try loading last active project
+    const projects = getDramaProjects();
+    if (projects.length > 0) return projects[0];
+    return createEmptyDramaProject();
+  });
+
   const [model, setModel] = useState(() => localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview");
 
   const handleModelChange = (value: string) => {
@@ -47,9 +104,12 @@ const ScriptCreator = () => {
     localStorage.setItem("decompose-model", value);
   };
 
-  // Persist to localStorage on change
+  // Persist to localStorage list on change (debounced)
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...project, updatedAt: new Date().toISOString() }));
+    const timer = setTimeout(() => {
+      upsertDramaProject(project);
+    }, 500);
+    return () => clearTimeout(timer);
   }, [project]);
 
   const currentStepIdx = DRAMA_STEPS.indexOf(project.currentStep);
@@ -58,9 +118,7 @@ const ScriptCreator = () => {
     setProject((p) => ({ ...p, currentStep: step }));
   };
 
-  // Extract drama title from creative plan
   const extractTitle = useCallback((plan: string) => {
-    // Try to find first suggested title
     const match = plan.match(/[《](.+?)[》]/);
     if (match) return match[1];
     const match2 = plan.match(/[1１一][\.\、]\s*\*{0,2}(.+?)\*{0,2}\s*[——\-:：]/);
@@ -90,9 +148,10 @@ const ScriptCreator = () => {
   };
 
   const handleNewProject = () => {
-    if (confirm("确定要新建项目吗？当前项目数据将被清除。")) {
+    if (confirm("确定要新建项目吗？")) {
       const newProj = createEmptyDramaProject();
       setProject(newProj);
+      navigate("/script-creator", { replace: true });
     }
   };
 
@@ -176,19 +235,6 @@ const ScriptCreator = () => {
           <Button variant="ghost" size="sm" onClick={handleNewProject} className="text-xs">
             新建项目
           </Button>
-          <Select value={model} onValueChange={handleModelChange}>
-            <SelectTrigger className="w-[180px] h-8 text-xs">
-              <Cpu className="h-3 w-3 mr-1 text-muted-foreground" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {MODEL_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
           <Button variant="ghost" size="sm" onClick={() => navigate("/settings")}>
             <Settings className="h-4 w-4" />
           </Button>
@@ -228,6 +274,22 @@ const ScriptCreator = () => {
       </div>
 
       <main className="flex-1 max-w-4xl mx-auto w-full p-6">
+        {/* Model selector toolbar */}
+        <div className="flex items-center justify-end mb-4">
+          <Select value={model} onValueChange={handleModelChange}>
+            <SelectTrigger className="w-[200px] h-8 text-xs">
+              <Cpu className="h-3 w-3 mr-1 text-muted-foreground" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MODEL_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         {renderStep()}
       </main>
     </div>
