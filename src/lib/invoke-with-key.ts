@@ -3,7 +3,7 @@
  */
 import { getApiConfig } from "@/pages/Settings";
 import {
-  callGemini, extractText, extractImageBase64, getInlineData, fetchImageAsBase64,
+  callGemini, callGeminiStream, extractText, extractImageBase64, getInlineData, fetchImageAsBase64,
   uploadImageToStorage, callSeedreamImage, rewriteToFirstFrame, proxiedFetch,
   CHAR_STYLE_MAP, SCENE_STYLE_MAP, STORYBOARD_STYLE_MAP,
   getSeedanceConfig, getViduConfig, getKlingConfig,
@@ -203,6 +203,7 @@ This rule overrides any other inference.`;
 
 export interface InvokeOptions {
   onProgress?: (partialData: any) => void;
+  onStreamText?: (text: string) => void;
   abortSignal?: AbortSignal;
 }
 
@@ -267,8 +268,8 @@ export function buildFetchBodyWithKeys(body: Record<string, unknown>) {
 
 async function routeFunction(functionName: string, body: any, options?: InvokeOptions): Promise<any> {
   switch (functionName) {
-    case "extract-characters-scenes": return localExtract(body);
-    case "script-decompose": return localDecompose(body, options?.onProgress, options?.abortSignal);
+    case "extract-characters-scenes": return localExtract(body, options?.onStreamText);
+    case "script-decompose": return localDecompose(body, options?.onProgress, options?.abortSignal, options?.onStreamText);
     case "generate-character": return localGenerateCharacter(body);
     case "generate-scene": return localGenerateScene(body);
     case "generate-storyboard": return localGenerateStoryboard(body);
@@ -282,7 +283,7 @@ async function routeFunction(functionName: string, body: any, options?: InvokeOp
 
 // ===== IMPLEMENTATIONS =====
 
-async function localExtract(body: any) {
+async function localExtract(body: any, onStreamText?: (text: string) => void) {
   const { script, model: requestedModel } = body;
   if (!script) throw new Error("缺少剧本内容");
 
@@ -334,13 +335,26 @@ async function localExtract(body: any) {
   const promptText = `${EXTRACTION_PROMPT}\n\n---\n\n以下是用户的剧本：\n\n${script}${preScanHint}`;
 
   const extractSignal = AbortSignal.timeout(3 * 60_000); // 3 min timeout for extraction
-  const data = await callGemini(model,
-    [{ role: "user", parts: [{ text: promptText }] }],
-    { temperature: 0.1, maxOutputTokens: 16384, responseMimeType: "application/json" },
-    extractSignal,
-  );
+  
+  let textContent: string;
+  if (onStreamText) {
+    // Use streaming for real-time feedback
+    const finalText = await callGeminiStream(model,
+      [{ role: "user", parts: [{ text: promptText }] }],
+      (accumulated) => onStreamText(accumulated),
+      { temperature: 0.1, maxOutputTokens: 16384 },
+      extractSignal,
+    );
+    textContent = finalText;
+  } else {
+    const data = await callGemini(model,
+      [{ role: "user", parts: [{ text: promptText }] }],
+      { temperature: 0.1, maxOutputTokens: 16384, responseMimeType: "application/json" },
+      extractSignal,
+    );
+    textContent = extractText(data);
+  }
 
-  const textContent = extractText(data);
   if (!textContent) throw new Error("AI 返回格式异常");
 
   let cleanedText = textContent;
@@ -400,7 +414,7 @@ async function localExtract(body: any) {
   return { characters: parsed.characters || [], sceneSettings: parsed.sceneSettings || [] };
 }
 
-async function localDecompose(body: any, onProgress?: (partialData: any) => void, abortSignal?: AbortSignal) {
+async function localDecompose(body: any, onProgress?: (partialData: any) => void, abortSignal?: AbortSignal, onStreamText?: (text: string) => void) {
   const { script, systemPrompt, model: requestedModel, costumeInfo, videoPace, segmentsPerEpisode } = body;
   if (!script) throw new Error("缺少剧本内容");
 
@@ -545,13 +559,23 @@ ${lastScenesDesc}
         const combinedSignal = abortSignal
           ? AbortSignal.any([abortSignal, chunkTimeout])
           : chunkTimeout;
-        const data = await callGemini(model,
-          [{ role: "user", parts: [{ text: userText }] }],
-          { temperature: 0.3, maxOutputTokens: 65536 },
-          combinedSignal,
-        );
 
-        const resultText = extractText(data);
+        let resultText: string;
+        if (onStreamText) {
+          resultText = await callGeminiStream(model,
+            [{ role: "user", parts: [{ text: userText }] }],
+            (accumulated) => onStreamText(accumulated),
+            { temperature: 0.3, maxOutputTokens: 65536 },
+            combinedSignal,
+          );
+        } else {
+          const data = await callGemini(model,
+            [{ role: "user", parts: [{ text: userText }] }],
+            { temperature: 0.3, maxOutputTokens: 65536 },
+            combinedSignal,
+          );
+          resultText = extractText(data);
+        }
         if (!resultText) throw new Error(`第${epIdx + 1}${splitResult.isRealEpisodes ? '集' : '段'}拆解失败：AI 未返回内容`);
 
         const epScenes = parseDecomposeResult(resultText);
@@ -601,13 +625,22 @@ ${lastScenesDesc}
   const userText = `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}${costumeContext}`;
 
   const decomposeSignal = AbortSignal.timeout(5 * 60_000);
-  const data = await callGemini(model,
-    [{ role: "user", parts: [{ text: userText }] }],
-    { temperature: 0.3, maxOutputTokens: 65536 },
-    decomposeSignal,
-  );
-
-  const resultText = extractText(data);
+  let resultText: string;
+  if (onStreamText) {
+    resultText = await callGeminiStream(model,
+      [{ role: "user", parts: [{ text: userText }] }],
+      (accumulated) => onStreamText(accumulated),
+      { temperature: 0.3, maxOutputTokens: 65536 },
+      decomposeSignal,
+    );
+  } else {
+    const data = await callGemini(model,
+      [{ role: "user", parts: [{ text: userText }] }],
+      { temperature: 0.3, maxOutputTokens: 65536 },
+      decomposeSignal,
+    );
+    resultText = extractText(data);
+  }
   if (!resultText) throw new Error("AI 未返回内容");
 
   const scenes = parseDecomposeResult(resultText);

@@ -145,6 +145,7 @@ const Workspace = () => {
   const [phase1Info, setPhase1Info] = useState("");
   const [phase2Info, setPhase2Info] = useState("");
   const [phase2RetryCount, setPhase2RetryCount] = useState(0);
+  const [streamingText, setStreamingText] = useState("");
   // Store phase 1 results for phase 2 retry — persisted to localStorage
   const PHASE1_LS_KEY = "phase1-results";
   const phase1ResultsRef = useRef<{ autoCharacters: CharacterSetting[]; aiSceneSettings: Array<{ name: string; description: string }> } | null>(
@@ -386,13 +387,19 @@ const Workspace = () => {
         };
 
         const segmentsPerEpisode = getSegmentsForDuration(episodeDuration, customDuration ? Number(customDuration) : undefined);
+        setStreamingText("");
         const { data: decomposeData, error: decomposeError } = await invokeFunction("script-decompose", {
           script,
           systemPrompt,
           model: decomposeModel,
           videoPace,
           segmentsPerEpisode,
-        }, { onProgress: handleDecomposeProgress, abortSignal: controller.signal });
+        }, {
+          onProgress: handleDecomposeProgress,
+          onStreamText: (text) => setStreamingText(text),
+          abortSignal: controller.signal,
+        });
+        setStreamingText("");
         if (decomposeError) throw decomposeError;
 
         if (decomposeData?.episodes) {
@@ -505,6 +512,7 @@ const Workspace = () => {
     setAnalyzePhase("phase1");
     setPhase1Info("正在识别角色与场景...");
     setPhase2Info("");
+    setStreamingText("");
     clearPhase1Results();
     setPhase2RetryCount(0);
 
@@ -512,6 +520,7 @@ const Workspace = () => {
       isAnalyzingRef.current = false;
       setIsAnalyzing(false);
       analyzeAbortRef.current = null;
+      setStreamingText("");
     };
     
     try {
@@ -519,7 +528,10 @@ const Workspace = () => {
       analyzeAbortRef.current = controller;
 
       // ========== Phase 1: Extract characters & scenes ==========
-      const { data: extractData, error: extractError } = await invokeFunction("extract-characters-scenes", { script, model: decomposeModel });
+      const { data: extractData, error: extractError } = await invokeFunction("extract-characters-scenes", { script, model: decomposeModel }, {
+        onStreamText: (text) => setStreamingText(text),
+      });
+      setStreamingText("");
       if (extractError) {
         setAnalyzePhase("phase1-failed");
         setPhase1Info("识别失败");
@@ -1160,6 +1172,7 @@ const Workspace = () => {
                 phase2MaxRetries={getApiConfig().retryCount ?? 2}
                 onRetryPhase2={handleRetryPhase2}
                 isRetryingPhase2={isAnalyzing && analyzePhase === "phase2"}
+                streamingText={streamingText}
               />
             )}
             {rawAiOutput && (
