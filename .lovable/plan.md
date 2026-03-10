@@ -1,12 +1,84 @@
 
 
-## Plan: Add `gemini-3-flash-preview` to model selection
+## Analysis: short-drama 仓库功能集成到剧本创作模块
 
-### Change
+### 仓库核心功能
 
-**`src/components/workspace/ScriptInput.tsx`** (lines 8-14):
-- Add `"gemini-3-flash-preview"` to the `DecomposeModel` type union
-- Add a new entry `{ value: "gemini-3-flash-preview", label: "Gemini 3 Flash" }` to `DECOMPOSE_MODEL_OPTIONS`
+该仓库是一个基于 prompt 工程的短剧创作系统，提供结构化的创作流程：
 
-Single-file, two-line change. No other files reference the `DecomposeModel` type in a way that needs updating — edge functions already accept arbitrary model strings.
+| 功能 | 说明 | 集成价值 |
+|------|------|----------|
+| 选题立项 | 题材(13种)、受众、调性、结局、集数配置 | 高 — 替代当前简单的主题+体裁输入 |
+| 创作方案 | 生成故事骨架(人物、三幕结构、节奏曲线、爽感矩阵) | 高 — 当前完全缺失 |
+| 角色开发 | 角色档案、关系图、四层反派体系 | 高 — 与视频创作的角色设定模块互补 |
+| 分集目录 | 含钩子类型、付费卡点标记的分集大纲 | 高 — 结构化管理多集内容 |
+| 分集撰写 | 按镜头格式(△全景/中景/近景/特写)写剧本 | 高 — 核心输出，格式可直接用于视频拆解 |
+| 质量自检 | 五维度评分(节奏/爽点/台词/格式/连贯性) | 中 — 提升剧本质量 |
+| 合规审查 | 红线检测、高风险内容扫描 | 中 — 国内发布必要 |
+| 海外模式 | 英文+好莱坞格式输出 | 低 — 可后续添加 |
+| 导出 | 整合所有内容为完整剧本 | 中 — 最终输出+衔接视频创作 |
+
+### 实现方案
+
+将当前单页面 `ScriptCreator` 改造为**多步骤向导式工作流**，参考仓库的分步流程：
+
+**Step 1: 选题立项** — 替代当前简单表单
+- 题材多选(最多2个)、受众、调性、结局类型、集数
+- 保存为项目状态
+
+**Step 2: 创作方案** — AI 生成故事骨架
+- 输出：人物名单、故事背景、三幕结构、节奏曲线、爽感矩阵
+- 用户可编辑调整
+
+**Step 3: 角色开发** — AI 生成角色档案
+- 角色档案卡片(性格、弧光、口头禅)
+- 四层反派体系
+- 生成后可传递给视频创作模块的角色设定
+
+**Step 4: 分集目录** — AI 生成分集大纲
+- 表格展示：集数、标题、梗概、钩子类型
+- 标记付费卡点和重点集
+
+**Step 5: 分集撰写** — 逐集/批量生成剧本
+- 支持单集和范围选择(如 1-5)
+- 按镜头格式输出(△全景/中景/近景/特写 + 配乐 + 对白)
+
+**Step 6: 质量自检** — AI 五维度评分
+- 节奏/爽点/台词/格式/连贯性各10分
+- 问题清单和改进建议
+
+**Step 7: 导出/衔接** — 整合并可送入视频创作
+- 导出完整剧本文本
+- "用于视频创作"按钮将剧本传入 Workspace
+
+### 技术实现
+
+1. **新增文件**：
+   - `src/types/drama.ts` — 项目状态、角色、分集等类型定义
+   - `src/lib/drama-prompts.ts` — 从仓库提取的各步骤 prompt 模板(选题、创作方案、角色开发、分集目录、分集撰写、自检、合规)
+   - `src/components/script-creator/StepSetup.tsx` — 选题立项表单
+   - `src/components/script-creator/StepCreativePlan.tsx` — 创作方案展示/编辑
+   - `src/components/script-creator/StepCharacters.tsx` — 角色开发
+   - `src/components/script-creator/StepDirectory.tsx` — 分集目录
+   - `src/components/script-creator/StepEpisode.tsx` — 分集撰写
+   - `src/components/script-creator/StepReview.tsx` — 质量自检
+   - `src/components/script-creator/StepExport.tsx` — 导出
+
+2. **改造 `ScriptCreator.tsx`**：
+   - 添加步骤指示器(复用 `StepIndicator` 组件模式)
+   - 管理多步骤状态，localStorage 持久化项目进度
+   - 每步调用 `callGemini` 并使用对应 prompt
+
+3. **Prompt 工程**：从仓库的知识库提取关键规则嵌入 prompt：
+   - 13种题材模板、5种钩子设计、节奏曲线公式、爽感矩阵配比
+   - 镜头格式规范(△全景/中景/近景/特写)
+   - 五维度评分标准
+
+4. **数据流转**：角色档案可通过 `sessionStorage` 传递给视频创作模块的角色设定步骤
+
+### 首期范围建议
+
+考虑工作量，建议分两期：
+- **一期**：选题立项 → 创作方案 → 角色开发 → 分集目录 → 分集撰写 → 导出(6步核心流程)
+- **二期**：质量自检、合规审查、海外模式
 
