@@ -527,6 +527,8 @@ const CharacterSettings = ({
   const [generatingCharDescIds, setGeneratingCharDescIds] = useState<Set<string>>(() => initSet("charDesc"));
   const [generatingCharImgIds, setGeneratingCharImgIds] = useState<Set<string>>(() => initSet("charImg"));
   const [generatingSceneImgIds, setGeneratingSceneImgIds] = useState<Set<string>>(() => initSet("sceneImg"));
+  // Streaming text for description generation (key = entity id, value = accumulated text)
+  const [streamingDescTexts, setStreamingDescTexts] = useState<Record<string, string>>({});
   // isAutoDetectingAll, setIsAutoDetectingAll, autoDetectAbortRef are now props from Workspace
   const stopCostumeGenRef = useRef<Set<string>>(new Set()); // track which character IDs should stop costume gen
   const stopTimeVariantGenRef = useRef<Set<string>>(new Set()); // track which scene IDs should stop time variant gen
