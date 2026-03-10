@@ -31,10 +31,9 @@ function parseDirectory(raw: string): EpisodeEntry[] {
       entries.push({
         number,
         title,
-        summary: rest.replace(/\[.*?\]/g, "").replace(/🔥/g, "").replace(/💰/g, "").trim(),
+        summary: rest.replace(/\[.*?\]/g, "").replace(/🔥/g, "").trim(),
         hookType: hookMatch?.[1] || "悬念钩",
         isKey: line.includes("🔥"),
-        isPaywall: line.includes("💰"),
       });
     }
   }
@@ -95,7 +94,6 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
   };
 
   const keyCount = directory.filter((d) => d.isKey).length;
-  const paywallCount = directory.filter((d) => d.isPaywall).length;
 
   return (
     <div className="space-y-4">
@@ -105,7 +103,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
             分集目录
             {directory.length > 0 && (
               <span className="text-sm font-normal text-muted-foreground ml-2">
-                共 {directory.length} 集 · 🔥{keyCount} · 💰{paywallCount}
+                共 {directory.length} 集 · 🔥{keyCount}
               </span>
             )}
           </CardTitle>
@@ -158,7 +156,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                 <div
                   key={ep.number}
                   className={`flex items-start gap-2 px-3 py-2 rounded text-sm ${
-                    ep.isKey || ep.isPaywall ? "bg-primary/5" : ""
+                    ep.isKey ? "bg-primary/5" : ""
                   }`}
                 >
                   <span className="text-muted-foreground w-12 shrink-0 font-mono">
@@ -169,7 +167,6 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                   <span className="text-xs text-muted-foreground shrink-0">{ep.hookType}</span>
                   <span className="shrink-0">
                     {ep.isKey && "🔥"}
-                    {ep.isPaywall && "💰"}
                   </span>
                 </div>
               ))}
