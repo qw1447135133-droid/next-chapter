@@ -335,13 +335,26 @@ async function localExtract(body: any, onStreamText?: (text: string) => void) {
   const promptText = `${EXTRACTION_PROMPT}\n\n---\n\n以下是用户的剧本：\n\n${script}${preScanHint}`;
 
   const extractSignal = AbortSignal.timeout(3 * 60_000); // 3 min timeout for extraction
-  const data = await callGemini(model,
-    [{ role: "user", parts: [{ text: promptText }] }],
-    { temperature: 0.1, maxOutputTokens: 16384, responseMimeType: "application/json" },
-    extractSignal,
-  );
+  
+  let textContent: string;
+  if (onStreamText) {
+    // Use streaming for real-time feedback
+    const finalText = await callGeminiStream(model,
+      [{ role: "user", parts: [{ text: promptText }] }],
+      (accumulated) => onStreamText(accumulated),
+      { temperature: 0.1, maxOutputTokens: 16384 },
+      extractSignal,
+    );
+    textContent = finalText;
+  } else {
+    const data = await callGemini(model,
+      [{ role: "user", parts: [{ text: promptText }] }],
+      { temperature: 0.1, maxOutputTokens: 16384, responseMimeType: "application/json" },
+      extractSignal,
+    );
+    textContent = extractText(data);
+  }
 
-  const textContent = extractText(data);
   if (!textContent) throw new Error("AI 返回格式异常");
 
   let cleanedText = textContent;
