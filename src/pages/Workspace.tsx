@@ -387,13 +387,19 @@ const Workspace = () => {
         };
 
         const segmentsPerEpisode = getSegmentsForDuration(episodeDuration, customDuration ? Number(customDuration) : undefined);
+        setStreamingText("");
         const { data: decomposeData, error: decomposeError } = await invokeFunction("script-decompose", {
           script,
           systemPrompt,
           model: decomposeModel,
           videoPace,
           segmentsPerEpisode,
-        }, { onProgress: handleDecomposeProgress, abortSignal: controller.signal });
+        }, {
+          onProgress: handleDecomposeProgress,
+          onStreamText: (text) => setStreamingText(text),
+          abortSignal: controller.signal,
+        });
+        setStreamingText("");
         if (decomposeError) throw decomposeError;
 
         if (decomposeData?.episodes) {
