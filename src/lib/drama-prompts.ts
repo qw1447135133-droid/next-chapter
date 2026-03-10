@@ -163,6 +163,7 @@ export function buildEpisodePrompt(
   directory: EpisodeEntry[],
   episodeNumber: number,
   previousEpisodes: string,
+  customInstruction?: string,
 ): string {
   const ep = directory.find((e) => e.number === episodeNumber);
   const prevEp = directory.find((e) => e.number === episodeNumber - 1);
