@@ -670,11 +670,16 @@ const CharacterSettings = ({
     const hasTimeVariants = scene.timeVariants && scene.timeVariants.length > 0;
     addTask(id, "sceneDesc");
     setGeneratingDescIds(prev => new Set(prev).add(id));
+    setStreamingDescTexts(prev => ({ ...prev, [id]: "" }));
     try {
-      const data = await invokeStreamingFunction("generate-scene-description", {
+      const onStreamText = (text: string) => {
+        setStreamingDescTexts(prev => ({ ...prev, [id]: text }));
+      };
+      const { data, error } = await invokeFunction("generate-scene-description", {
         sceneName: scene.name, script, model: decomposeModel,
         discoverTimeVariants: !hasTimeVariants,
-      });
+      }, { onStreamText });
+      if (error) throw error;
       const desc = data.description || "";
       if (!hasTimeVariants && data.discoveredTimeVariants && Array.isArray(data.discoveredTimeVariants) && data.discoveredTimeVariants.length >= 2) {
         const newVariants: TimeVariantSetting[] = data.discoveredTimeVariants.map((tv: any) => ({
@@ -697,6 +702,7 @@ const CharacterSettings = ({
     } finally {
       removeTask(id, "sceneDesc");
       setGeneratingDescIds(prev => { const next = new Set(prev); next.delete(id); return next; });
+      setStreamingDescTexts(prev => { const next = { ...prev }; delete next[id]; return next; });
     }
   };
 
