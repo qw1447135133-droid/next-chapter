@@ -3,7 +3,7 @@
  */
 import { getApiConfig } from "@/pages/Settings";
 import {
-  callGemini, extractText, extractImageBase64, getInlineData, fetchImageAsBase64,
+  callGemini, callGeminiStream, extractText, extractImageBase64, getInlineData, fetchImageAsBase64,
   uploadImageToStorage, callSeedreamImage, rewriteToFirstFrame, proxiedFetch,
   CHAR_STYLE_MAP, SCENE_STYLE_MAP, STORYBOARD_STYLE_MAP,
   getSeedanceConfig, getViduConfig, getKlingConfig,
