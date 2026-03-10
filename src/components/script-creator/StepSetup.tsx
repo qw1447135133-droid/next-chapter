@@ -45,6 +45,7 @@ const StepSetup = ({ setup, onComplete }: StepSetupProps) => {
       tone,
       ending,
       totalEpisodes,
+      targetMarket,
       customTopic: customTopic.trim() || undefined,
     });
   };
