@@ -384,7 +384,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
       )}
 
       {/* 已完成的集预览 */}
-      {selectedEp != null && !isGenerating && (
+      {selectedEp != null && !(isGenerating && regenSceneIdx == null) && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg">
