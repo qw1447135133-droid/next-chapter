@@ -1277,7 +1277,7 @@ const Workspace = () => {
             onRegenerateScene={handleRegenerateVideo}
             isGenerating={isGeneratingVideo}
             isAborting={isAbortingVideo}
-            onNext={() => setCurrentStep(5)}
+            onNext={() => safeGoToStep(5)}
             onScenesChange={setScenes}
             useImg2Video={!skipStoryboard}
           />
