@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
-import { callGemini } from "@/lib/gemini-client";
+import { callGemini, extractText } from "@/lib/gemini-client";
 
 const GENRES = [
   { value: "short-drama", label: "短剧" },
