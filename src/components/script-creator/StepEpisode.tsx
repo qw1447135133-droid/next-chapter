@@ -172,7 +172,13 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
               return (
                 <button
                   key={ep.number}
-                  onClick={() => setSelectedEp(ep.number === selectedEp ? null : ep.number)}
+                  onClick={() => {
+                    const next = ep.number === selectedEp ? null : ep.number;
+                    setSelectedEp(next);
+                    if (next != null && !completedNums.has(next)) {
+                      setRangeInput(String(next));
+                    }
+                  }}
                   className={`w-9 h-9 rounded text-xs font-mono flex items-center justify-center border transition-all cursor-pointer ${
                     generating
                       ? "border-primary bg-primary/20 animate-pulse"
