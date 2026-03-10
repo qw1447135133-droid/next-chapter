@@ -240,6 +240,43 @@ ${isFirstEp ? `## 重要：开篇黄金法则
 请直接输出完整的第 ${episodeNumber} 集剧本。`;
 }
 
+/** 单场次重写 Prompt */
+export function buildSceneRegenPrompt(
+  setup: DramaSetup,
+  characters: string,
+  episodeNumber: number,
+  episodeContent: string,
+  sceneIndex: number,
+  sceneContent: string,
+): string {
+  return `你是一位专业的微短剧编剧。
+
+## 项目配置
+- 题材：${setup.genres.join(" + ")}
+- 基调：${setup.tone}
+
+## 角色档案（摘要）
+${characters.slice(0, 2000)}
+
+## 当前集完整内容
+${episodeContent}
+
+## 你的任务
+请重新撰写上述第 ${episodeNumber} 集中的 **场次${sceneIndex + 1}** 部分。
+
+原场次内容：
+${sceneContent}
+
+要求：
+- 保持与其他场次的剧情衔接一致
+- 保持角色行为与档案一致
+- 可以在保持核心剧情不变的前提下，优化台词、镜头语言、节奏感
+- 使用与原文相同的格式（场景描述、△ 镜头、角色台词、♪ 音乐等）
+- 仅输出该场次的内容，不要输出其他场次
+
+请直接输出重写后的场次内容。`;
+}
+
 /** 导出整合 Prompt */
 export function buildExportPrompt(
   setup: DramaSetup,
