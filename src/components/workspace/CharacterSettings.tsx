@@ -969,10 +969,15 @@ const CharacterSettings = ({
         if (autoDetectAbortRef.current) { textSem.release(); return; }
         addTask(s.id, "sceneDesc");
         setGeneratingDescIds((prev) => new Set(prev).add(s.id));
+        setStreamingDescTexts(prev => ({ ...prev, [s.id]: "" }));
+        const onStreamText = (text: string) => {
+          setStreamingDescTexts(prev => ({ ...prev, [s.id]: text }));
+        };
         try {
-          const data = await invokeStreamingFunction("generate-scene-description", {
+          const { data, error } = await invokeFunction("generate-scene-description", {
             sceneName: s.name, script, model: decomposeModel,
-          });
+          }, { onStreamText });
+          if (error) throw error;
           desc = data.description || "";
           updateSceneAsync(s.id, { description: desc });
           descOk = true;
@@ -981,6 +986,7 @@ const CharacterSettings = ({
         } finally {
           removeTask(s.id, "sceneDesc");
           setGeneratingDescIds(prev => { const next = new Set(prev); next.delete(s.id); return next; });
+          setStreamingDescTexts(prev => { const next = { ...prev }; delete next[s.id]; return next; });
           textSem.release();
           if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
         }
