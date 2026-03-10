@@ -172,17 +172,18 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
               return (
                 <button
                   key={ep.number}
-                  onClick={() => done && setSelectedEp(ep.number === selectedEp ? null : ep.number)}
-                  className={`w-9 h-9 rounded text-xs font-mono flex items-center justify-center border transition-all ${
+                  onClick={() => setSelectedEp(ep.number === selectedEp ? null : ep.number)}
+                  className={`w-9 h-9 rounded text-xs font-mono flex items-center justify-center border transition-all cursor-pointer ${
                     generating
                       ? "border-primary bg-primary/20 animate-pulse"
                       : done
                       ? active
                         ? "border-primary bg-primary text-primary-foreground"
-                        : "border-accent bg-accent/10 text-accent-foreground cursor-pointer hover:bg-accent/20"
-                      : "border-border text-muted-foreground"
+                        : "border-accent bg-accent/10 text-accent-foreground hover:bg-accent/20"
+                      : active
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:border-muted-foreground/50"
                   }`}
-                  disabled={!done}
                   title={`第${ep.number}集：${ep.title}`}
                 >
                   {generating ? (
@@ -222,22 +223,31 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
       )}
 
       {/* 已完成的集预览 */}
-      {selectedScript && !isGenerating && (
+      {selectedEp != null && !isGenerating && (
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">
-              第 {selectedScript.number} 集：{selectedScript.title}
-              <span className="text-sm font-normal text-muted-foreground ml-2">
-                {selectedScript.wordCount} 字
-              </span>
+              第 {selectedEp} 集：{selectedScript?.title || directory.find(d => d.number === selectedEp)?.title || `第${selectedEp}集`}
+              {selectedScript && (
+                <span className="text-sm font-normal text-muted-foreground ml-2">
+                  {selectedScript.wordCount} 字
+                </span>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ScrollArea className="h-[500px]">
-              <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
-                {selectedScript.content}
-              </pre>
-            </ScrollArea>
+            {selectedScript ? (
+              <ScrollArea className="h-[500px]">
+                <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
+                  {selectedScript.content}
+                </pre>
+              </ScrollArea>
+            ) : (
+              <div className="text-center py-12 text-muted-foreground">
+                <p className="text-sm">该集尚未生成</p>
+                <p className="text-xs mt-1">请在上方输入集数范围后点击"开始撰写"</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
