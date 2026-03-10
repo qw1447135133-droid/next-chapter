@@ -255,7 +255,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                   variant="outline"
                   onClick={() => {
                     setRangeInput(String(selectedEp));
-                    handleGenerate();
+                    handleGenerate(String(selectedEp));
                   }}
                   className="gap-2"
                 >
