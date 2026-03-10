@@ -253,10 +253,32 @@ export function buildSceneRegenPrompt(
   customInstruction?: string,
 ): string {
   const instructionBlock = customInstruction
-    ? `\n\n## 用户重写指令\n${customInstruction}\n请在重写时重点体现以上指令要求。`
+    ? `\n\n## 用户重写指令\n${customInstruction}\n请在重写时重点体现以上指令要求，但不得违反下方"连贯性铁律"。`
     : "";
 
-  return `你是一位专业的微短剧编剧。
+  // --- Extract adjacent scenes as anchors ---
+  const sceneRegex = /^(##\s*场次.*)$/gm;
+  const matches = [...episodeContent.matchAll(sceneRegex)];
+  const extractScene = (idx: number): string | null => {
+    if (idx < 0 || idx >= matches.length) return null;
+    const start = matches[idx].index!;
+    const end = idx + 1 < matches.length ? matches[idx + 1].index! : episodeContent.length;
+    return episodeContent.slice(start, end).trim();
+  };
+
+  const prevScene = extractScene(sceneIndex - 1);
+  const nextScene = extractScene(sceneIndex + 1);
+
+  const anchorBlock = [
+    prevScene
+      ? `### 前一场次（场次${sceneIndex}）— 剧情锚点\n${prevScene}\n\n**衔接约束**：重写后的场次开头必须自然承接上述场次的结尾状态（角色位置、情绪、已知信息）。`
+      : `（本场次为该集首场，需承接集标题/前情提要中的状态。）`,
+    nextScene
+      ? `### 后一场次（场次${sceneIndex + 2}）— 剧情锚点\n${nextScene}\n\n**衔接约束**：重写后的场次结尾必须保证后续场次的开头仍然成立（角色去向、情绪转折、信息揭示均不可断裂）。`
+      : `（本场次为该集末场，结尾需保留原有的悬念/钩子设计。）`,
+  ].join("\n\n");
+
+  return `你是一位专业的微短剧编剧，擅长在不改变核心剧情的前提下提升场次的表现力。
 
 ## 项目配置
 - 题材：${setup.genres.join(" + ")}
@@ -267,7 +289,29 @@ ${characters.slice(0, 2000)}
 
 ## 当前集完整内容
 ${episodeContent}
+
+---
+
+## 前后场次剧情锚点
+${anchorBlock}
 ${instructionBlock}
+
+---
+
+## 连贯性铁律（最高优先级）
+
+1. **核心剧情不可变更**：本场次的关键事件（信息揭示、角色决策、冲突升级/降级）必须与原场次完全一致。禁止新增、删除或替换任何影响后续剧情的事件。
+2. **角色情感弧线约束**：
+   - 场次开头的角色情绪状态必须匹配前一场次（或集开头）的结束状态；
+   - 场次结尾的角色情绪状态必须能自然过渡到后一场次（或集结尾悬念）的起始状态；
+   - 角色在本场次中的情绪变化轨迹（如：隐忍→爆发、怀疑→确认）必须保持原有方向，仅允许在表达强度上调整。
+3. **结尾状态衔接检查**：重写完成后，自检以下三项，若任一项不满足则必须修正：
+   - ✅ 角色的物理位置与后续场次一致
+   - ✅ 已揭示/未揭示的信息与后续场次一致
+   - ✅ 角色间关系状态（敌对/信任/误解等）与后续场次一致
+4. **禁止跨场次副作用**：不得引入新角色、新道具、新地点，除非原场次中已存在。
+
+---
 
 ## 你的任务
 请重新撰写上述第 ${episodeNumber} 集中的 **场次${sceneIndex + 1}** 部分。
@@ -275,12 +319,17 @@ ${instructionBlock}
 原场次内容：
 ${sceneContent}
 
-要求：
-- 保持与其他场次的剧情衔接一致
-- 保持角色行为与档案一致
-- 可以在保持核心剧情不变的前提下，优化台词、镜头语言、节奏感
+**允许优化的维度**：
+- 台词的表现力与潜台词层次
+- 镜头语言（△ 景别切换、运镜节奏）
+- 场景氛围描写与感官细节
+- 节奏感（停顿、沉默、反应镜头的运用）
+- ♪ 音效/音乐提示的精准度
+
+**输出格式要求**：
 - 使用与原文相同的格式（场景描述、△ 镜头、角色台词、♪ 音乐等）
 - 仅输出该场次的内容，不要输出其他场次
+- 不要输出自检过程，仅输出最终场次内容
 
 请直接输出重写后的场次内容。`;
 }
