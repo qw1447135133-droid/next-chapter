@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowRight, Loader2, Play, Check } from "lucide-react";
+import { ArrowRight, Loader2, Play, Check, Square } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { callGemini, extractText } from "@/lib/gemini-client";
+import { callGeminiStream } from "@/lib/gemini-client";
 import { buildEpisodePrompt } from "@/lib/drama-prompts";
 import type { DramaSetup, EpisodeEntry, EpisodeScript } from "@/types/drama";
 
@@ -23,7 +23,9 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const [rangeInput, setRangeInput] = useState("1");
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentGen, setCurrentGen] = useState<number | null>(null);
+  const [streamingText, setStreamingText] = useState("");
   const [selectedEp, setSelectedEp] = useState<number | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const parseRange = (input: string): number[] => {
     const parts = input.split(/[,，]/);
@@ -50,10 +52,13 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
     }
 
     setIsGenerating(true);
+    abortRef.current = new AbortController();
     const updatedEpisodes = [...episodes];
 
     for (const num of nums) {
+      if (abortRef.current?.signal.aborted) break;
       setCurrentGen(num);
+      setStreamingText("");
       try {
         const previousContent = updatedEpisodes
           .filter((ep) => ep.number < num)
@@ -65,17 +70,20 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
 
         const prompt = buildEpisodePrompt(setup, characters, directory, num, previousContent);
         const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
-        const data = await callGemini(model, [
-          { role: "user", parts: [{ text: prompt }] },
-        ], { maxOutputTokens: 8192 });
-        const text = extractText(data);
+        const finalText = await callGeminiStream(
+          model,
+          [{ role: "user", parts: [{ text: prompt }] }],
+          (chunk) => setStreamingText(chunk),
+          { maxOutputTokens: 8192 },
+          abortRef.current.signal,
+        );
 
         const epEntry = directory.find((d) => d.number === num);
         const newEp: EpisodeScript = {
           number: num,
           title: epEntry?.title || `第${num}集`,
-          content: text,
-          wordCount: text.length,
+          content: finalText,
+          wordCount: finalText.length,
         };
 
         const existIdx = updatedEpisodes.findIndex((e) => e.number === num);
@@ -83,23 +91,45 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
         else updatedEpisodes.push(newEp);
 
         onUpdate([...updatedEpisodes]);
-        toast({ title: `第 ${num} 集撰写完成（${text.length}字）` });
+        toast({ title: `第 ${num} 集撰写完成（${finalText.length}字）` });
       } catch (e: any) {
-        toast({ title: `第 ${num} 集生成失败`, description: e?.message, variant: "destructive" });
+        if (e?.message?.includes("取消")) {
+          // Save partial content
+          const partial = streamingText;
+          if (partial) {
+            const epEntry = directory.find((d) => d.number === num);
+            const newEp: EpisodeScript = {
+              number: num,
+              title: epEntry?.title || `第${num}集`,
+              content: partial,
+              wordCount: partial.length,
+            };
+            const existIdx = updatedEpisodes.findIndex((e) => e.number === num);
+            if (existIdx >= 0) updatedEpisodes[existIdx] = newEp;
+            else updatedEpisodes.push(newEp);
+            onUpdate([...updatedEpisodes]);
+          }
+          toast({ title: "已停止生成" });
+        } else {
+          toast({ title: `第 ${num} 集生成失败`, description: e?.message, variant: "destructive" });
+        }
         break;
       }
     }
 
     setCurrentGen(null);
+    setStreamingText("");
     setIsGenerating(false);
+    abortRef.current = null;
   };
+
+  const handleStop = () => abortRef.current?.abort();
 
   const completedNums = new Set(episodes.map((e) => e.number));
   const selectedScript = episodes.find((e) => e.number === selectedEp);
 
   return (
     <div className="space-y-4">
-      {/* 生成控制 */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">
@@ -120,19 +150,17 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                 disabled={isGenerating}
               />
             </div>
-            <Button onClick={handleGenerate} disabled={isGenerating} className="gap-2">
-              {isGenerating ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  正在撰写第 {currentGen} 集…
-                </>
-              ) : (
-                <>
-                  <Play className="h-4 w-4" />
-                  开始撰写
-                </>
-              )}
-            </Button>
+            {isGenerating ? (
+              <Button variant="destructive" onClick={handleStop} className="gap-2">
+                <Square className="h-4 w-4" />
+                停止
+              </Button>
+            ) : (
+              <Button onClick={handleGenerate} className="gap-2">
+                <Play className="h-4 w-4" />
+                开始撰写
+              </Button>
+            )}
           </div>
 
           {/* 集数列表 */}
@@ -171,8 +199,30 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
         </CardContent>
       </Card>
 
-      {/* 预览 */}
-      {selectedScript && (
+      {/* 流式输出预览 */}
+      {isGenerating && streamingText && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">
+              正在撰写第 {currentGen} 集…
+              <span className="text-sm font-normal text-muted-foreground ml-2">
+                {streamingText.length} 字
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ScrollArea className="h-[400px]">
+              <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
+                {streamingText}
+                <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />
+              </pre>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 已完成的集预览 */}
+      {selectedScript && !isGenerating && (
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">
@@ -192,7 +242,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
         </Card>
       )}
 
-      {episodes.length > 0 && (
+      {episodes.length > 0 && !isGenerating && (
         <div className="flex justify-end">
           <Button onClick={onNext} className="gap-2">
             前往导出
