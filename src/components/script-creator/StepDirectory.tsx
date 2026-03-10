@@ -156,7 +156,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                 <div
                   key={ep.number}
                   className={`flex items-start gap-2 px-3 py-2 rounded text-sm ${
-                    ep.isKey || ep.isPaywall ? "bg-primary/5" : ""
+                    ep.isKey ? "bg-primary/5" : ""
                   }`}
                 >
                   <span className="text-muted-foreground w-12 shrink-0 font-mono">
