@@ -1263,7 +1263,7 @@ const Workspace = () => {
             generatingScenes={generatingScenes}
             isGeneratingAll={isGeneratingAllStoryboards}
             isAborting={isAbortingStoryboards}
-            onNext={() => setCurrentStep(4)}
+            onNext={() => safeGoToStep(4)}
           />
         );
       case 4:
