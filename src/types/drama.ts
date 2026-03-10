@@ -93,11 +93,19 @@ export interface EpisodeEntry {
   isClimax: boolean; // ⚡ 高潮卡点
 }
 
+export interface EpisodeVersion {
+  content: string;
+  wordCount: number;
+  timestamp: string;
+  label?: string; // e.g. "场次二重写" or "整集重写"
+}
+
 export interface EpisodeScript {
   number: number;
   title: string;
   content: string;
   wordCount: number;
+  history?: EpisodeVersion[]; // previous versions
 }
 
 export interface DramaProject {
