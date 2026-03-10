@@ -430,7 +430,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                   重新生成
                 </Button>
                 {hoverEpisodeRegen && (
-                  <div className="absolute top-full right-0 pt-2 z-10">
+                  <div className="absolute top-full right-0 pt-1 z-10">
                     <div className="bg-popover border rounded-lg shadow-lg p-2 min-w-[300px]">
                       <Input
                         value={episodeRegenInstruction}
