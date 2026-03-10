@@ -143,7 +143,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
           ) : !directoryRaw ? (
             <div className="text-center py-16 text-muted-foreground">
               <p>点击"AI 生成"按钮，生成完整 {setup.totalEpisodes} 集目录</p>
-              <p className="text-xs mt-2">包含：集标题、梗概、钩子类型、🔥关键集/💰付费卡点标记</p>
+              <p className="text-xs mt-2">包含：集标题、梗概、钩子类型、🔥关键集/高潮卡点标记</p>
             </div>
           ) : editing ? (
             <Textarea
