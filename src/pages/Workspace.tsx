@@ -1228,7 +1228,7 @@ const Workspace = () => {
               />
             )}
             {scenes.length > 0 && (
-              <SceneList scenes={scenes} onScenesChange={setScenes} onNext={() => setCurrentStep(2)} characters={characters} />
+              <SceneList scenes={scenes} onScenesChange={setScenes} onNext={() => safeGoToStep(2)} characters={characters} />
             )}
           </div>
         );
