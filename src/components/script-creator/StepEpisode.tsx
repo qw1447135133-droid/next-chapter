@@ -430,14 +430,16 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                   重新生成
                 </Button>
                 {hoverEpisodeRegen && (
-                  <div className="absolute top-full right-0 mt-1 z-10 bg-popover border rounded-lg shadow-lg p-2 min-w-[300px]">
-                    <Input
-                      value={episodeRegenInstruction}
-                      onChange={(e) => setEpisodeRegenInstruction(e.target.value)}
-                      placeholder="整集重写指令（如：加强冲突感、调整节奏…）"
-                      className="text-xs h-8"
-                      onClick={(e) => e.stopPropagation()}
-                    />
+                  <div className="absolute top-full right-0 pt-2 z-10">
+                    <div className="bg-popover border rounded-lg shadow-lg p-2 min-w-[300px]">
+                      <Input
+                        value={episodeRegenInstruction}
+                        onChange={(e) => setEpisodeRegenInstruction(e.target.value)}
+                        placeholder="整集重写指令（如：加强冲突感、调整节奏…）"
+                        className="text-xs h-8"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -515,14 +517,16 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                                 重写场次
                               </Button>
                               {hoverSceneIdx === idx && (
-                                <div className="absolute top-full right-0 mt-1 z-10 bg-popover border rounded-lg shadow-lg p-2 min-w-[260px]">
-                                  <Input
-                                    value={sceneRegenInstructions[idx] || ""}
-                                    onChange={(e) => setSceneRegenInstructions(prev => ({ ...prev, [idx]: e.target.value }))}
-                                    placeholder="场次重写指令（如：增加对话…）"
-                                    className="text-xs h-7"
-                                    onClick={(e) => e.stopPropagation()}
-                                  />
+                                <div className="absolute top-full right-0 pt-2 z-10">
+                                  <div className="bg-popover border rounded-lg shadow-lg p-2 min-w-[260px]">
+                                    <Input
+                                      value={sceneRegenInstructions[idx] || ""}
+                                      onChange={(e) => setSceneRegenInstructions(prev => ({ ...prev, [idx]: e.target.value }))}
+                                      placeholder="场次重写指令（如：增加对话…）"
+                                      className="text-xs h-7"
+                                      onClick={(e) => e.stopPropagation()}
+                                    />
+                                  </div>
                                 </div>
                               )}
                             </div>
