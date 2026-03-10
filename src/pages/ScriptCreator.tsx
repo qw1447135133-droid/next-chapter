@@ -22,6 +22,13 @@ import StepExport from "@/components/script-creator/StepExport";
 
 const STORAGE_KEY = "drama-project";
 
+const MODEL_OPTIONS = [
+  { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
+  { value: "gemini-3-pro-preview", label: "Gemini 3 Pro" },
+  { value: "gemini-3-pro-preview-thinking", label: "Gemini 3 Pro (Thinking)" },
+  { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
+];
+
 function loadProject(): DramaProject {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
