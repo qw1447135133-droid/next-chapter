@@ -1241,7 +1241,7 @@ const Workspace = () => {
             onArtStyleChange={setArtStyle}
             onCharactersChange={setCharacters}
             onSceneSettingsChange={setSceneSettings}
-            onNext={() => setCurrentStep(skipStoryboard ? 4 : 3)}
+            onNext={() => safeGoToStep(skipStoryboard ? 4 : 3)}
             script={script}
             decomposeModel={decomposeModel}
             isAutoDetectingAll={isAutoDetectingAll}
