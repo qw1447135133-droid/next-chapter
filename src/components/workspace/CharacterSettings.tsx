@@ -24,7 +24,7 @@ import { invokeFunction } from "@/lib/invoke-with-key";
 import { toast } from "@/hooks/use-toast";
 import { friendlyError } from "@/lib/friendly-error";
 import { ensureStorageUrl } from "@/lib/upload-base64-to-storage";
-import { invokeStreamingFunction } from "@/lib/invoke-streaming";
+
 
 const CHAR_IMAGE_TIMEOUT_MS = 180_000;
 const SCENE_IMAGE_TIMEOUT_MS = 300_000;
