@@ -414,7 +414,7 @@ async function localExtract(body: any, onStreamText?: (text: string) => void) {
   return { characters: parsed.characters || [], sceneSettings: parsed.sceneSettings || [] };
 }
 
-async function localDecompose(body: any, onProgress?: (partialData: any) => void, abortSignal?: AbortSignal) {
+async function localDecompose(body: any, onProgress?: (partialData: any) => void, abortSignal?: AbortSignal, onStreamText?: (text: string) => void) {
   const { script, systemPrompt, model: requestedModel, costumeInfo, videoPace, segmentsPerEpisode } = body;
   if (!script) throw new Error("缺少剧本内容");
 
