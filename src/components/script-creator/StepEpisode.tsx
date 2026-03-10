@@ -223,22 +223,31 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
       )}
 
       {/* 已完成的集预览 */}
-      {selectedScript && !isGenerating && (
+      {selectedEp != null && !isGenerating && (
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">
-              第 {selectedScript.number} 集：{selectedScript.title}
-              <span className="text-sm font-normal text-muted-foreground ml-2">
-                {selectedScript.wordCount} 字
-              </span>
+              第 {selectedEp} 集：{selectedScript?.title || directory.find(d => d.number === selectedEp)?.title || `第${selectedEp}集`}
+              {selectedScript && (
+                <span className="text-sm font-normal text-muted-foreground ml-2">
+                  {selectedScript.wordCount} 字
+                </span>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ScrollArea className="h-[500px]">
-              <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
-                {selectedScript.content}
-              </pre>
-            </ScrollArea>
+            {selectedScript ? (
+              <ScrollArea className="h-[500px]">
+                <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
+                  {selectedScript.content}
+                </pre>
+              </ScrollArea>
+            ) : (
+              <div className="text-center py-12 text-muted-foreground">
+                <p className="text-sm">该集尚未生成</p>
+                <p className="text-xs mt-1">请在上方输入集数范围后点击"开始撰写"</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
