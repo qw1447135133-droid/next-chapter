@@ -90,6 +90,7 @@ export interface EpisodeEntry {
   summary: string;
   hookType: string;
   isKey: boolean;    // 🔥
+  isClimax: boolean; // ⚡ 高潮卡点
 }
 
 export interface EpisodeScript {

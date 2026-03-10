@@ -31,9 +31,10 @@ function parseDirectory(raw: string): EpisodeEntry[] {
       entries.push({
         number,
         title,
-        summary: rest.replace(/\[.*?\]/g, "").replace(/🔥/g, "").trim(),
+        summary: rest.replace(/\[.*?\]/g, "").replace(/🔥/g, "").replace(/⚡/g, "").trim(),
         hookType: hookMatch?.[1] || "悬念钩",
         isKey: line.includes("🔥"),
+        isClimax: line.includes("⚡"),
       });
     }
   }
@@ -94,6 +95,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
   };
 
   const keyCount = directory.filter((d) => d.isKey).length;
+  const climaxCount = directory.filter((d) => d.isClimax).length;
 
   return (
     <div className="space-y-4">
@@ -103,7 +105,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
             分集目录
             {directory.length > 0 && (
               <span className="text-sm font-normal text-muted-foreground ml-2">
-                共 {directory.length} 集 · 🔥{keyCount}
+                共 {directory.length} 集 · 🔥{keyCount} · ⚡{climaxCount}
               </span>
             )}
           </CardTitle>
@@ -141,7 +143,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
           ) : !directoryRaw ? (
             <div className="text-center py-16 text-muted-foreground">
               <p>点击"AI 生成"按钮，生成完整 {setup.totalEpisodes} 集目录</p>
-              <p className="text-xs mt-2">包含：集标题、梗概、钩子类型、🔥关键集/高潮卡点标记</p>
+              <p className="text-xs mt-2">包含：集标题、梗概、钩子类型、🔥关键集/⚡高潮卡点标记</p>
             </div>
           ) : editing ? (
             <Textarea
@@ -156,7 +158,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                 <div
                   key={ep.number}
                   className={`flex items-start gap-2 px-3 py-2 rounded text-sm ${
-                    ep.isKey ? "bg-primary/5" : ""
+                    ep.isClimax ? "bg-amber-500/10" : ep.isKey ? "bg-primary/5" : ""
                   }`}
                 >
                   <span className="text-muted-foreground w-12 shrink-0 font-mono">
@@ -167,6 +169,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                   <span className="text-xs text-muted-foreground shrink-0">{ep.hookType}</span>
                   <span className="shrink-0">
                     {ep.isKey && "🔥"}
+                    {ep.isClimax && "⚡"}
                   </span>
                 </div>
               ))}
