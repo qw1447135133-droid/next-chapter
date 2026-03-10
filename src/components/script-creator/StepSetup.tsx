@@ -83,6 +83,34 @@ const StepSetup = ({ setup, onComplete }: StepSetupProps) => {
         </CardContent>
       </Card>
 
+      {/* 目标市场 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Globe className="h-5 w-5 text-primary" />
+            目标市场
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {TARGET_MARKETS.map((m) => (
+              <button
+                key={m.value}
+                onClick={() => setTargetMarket(m.value)}
+                className={`p-4 rounded-lg border text-left transition-all ${
+                  targetMarket === m.value
+                    ? "border-primary bg-primary/10 ring-1 ring-primary"
+                    : "border-border hover:border-primary/50"
+                }`}
+              >
+                <div className="font-medium text-sm">{m.label}</div>
+                <div className="text-xs text-muted-foreground mt-1">{m.desc}</div>
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* 配置项 */}
       <Card>
         <CardHeader>
