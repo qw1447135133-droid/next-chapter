@@ -625,13 +625,22 @@ ${lastScenesDesc}
   const userText = `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}${costumeContext}`;
 
   const decomposeSignal = AbortSignal.timeout(5 * 60_000);
-  const data = await callGemini(model,
-    [{ role: "user", parts: [{ text: userText }] }],
-    { temperature: 0.3, maxOutputTokens: 65536 },
-    decomposeSignal,
-  );
-
-  const resultText = extractText(data);
+  let resultText: string;
+  if (onStreamText) {
+    resultText = await callGeminiStream(model,
+      [{ role: "user", parts: [{ text: userText }] }],
+      (accumulated) => onStreamText(accumulated),
+      { temperature: 0.3, maxOutputTokens: 65536 },
+      decomposeSignal,
+    );
+  } else {
+    const data = await callGemini(model,
+      [{ role: "user", parts: [{ text: userText }] }],
+      { temperature: 0.3, maxOutputTokens: 65536 },
+      decomposeSignal,
+    );
+    resultText = extractText(data);
+  }
   if (!resultText) throw new Error("AI 未返回内容");
 
   const scenes = parseDecomposeResult(resultText);
