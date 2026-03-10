@@ -94,7 +94,6 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
   };
 
   const keyCount = directory.filter((d) => d.isKey).length;
-  const paywallCount = directory.filter((d) => d.isPaywall).length;
 
   return (
     <div className="space-y-4">
