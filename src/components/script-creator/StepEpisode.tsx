@@ -156,7 +156,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                 停止
               </Button>
             ) : (
-              <Button onClick={handleGenerate} className="gap-2">
+              <Button onClick={() => handleGenerate()} className="gap-2">
                 <Play className="h-4 w-4" />
                 开始撰写
               </Button>
