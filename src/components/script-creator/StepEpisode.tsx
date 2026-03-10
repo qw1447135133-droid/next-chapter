@@ -71,7 +71,10 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const [selectedEp, setSelectedEp] = useState<number | null>(null);
   const [regenSceneIdx, setRegenSceneIdx] = useState<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
-  const [sceneRegenInstruction, setSceneRegenInstruction] = useState<string>("");
+  const [episodeRegenInstruction, setEpisodeRegenInstruction] = useState("");
+  const [sceneRegenInstructions, setSceneRegenInstructions] = useState<Record<number, string>>({});
+  const [hoverEpisodeRegen, setHoverEpisodeRegen] = useState(false);
+  const [hoverSceneIdx, setHoverSceneIdx] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const parseRange = (input: string): number[] => {
