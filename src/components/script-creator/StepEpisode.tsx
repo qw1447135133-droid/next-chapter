@@ -517,7 +517,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                                 重写场次
                               </Button>
                               {hoverSceneIdx === idx && (
-                                <div className="absolute top-full right-0 pt-2 z-10">
+                                <div className="absolute top-full right-0 pt-1 z-10">
                                   <div className="bg-popover border rounded-lg shadow-lg p-2 min-w-[260px]">
                                     <Input
                                       value={sceneRegenInstructions[idx] || ""}
