@@ -1,8 +1,8 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, Loader2, RefreshCw, Pencil, Eye, Square } from "lucide-react";
+import { ArrowRight, RefreshCw, Pencil, Eye, Square, GitBranch } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildCharactersPrompt } from "@/lib/drama-prompts";
@@ -16,10 +16,63 @@ interface StepCharactersProps {
   onNext: () => void;
 }
 
+/** Extract mermaid code block from markdown text */
+function extractMermaid(text: string): string | null {
+  const match = text.match(/```mermaid\s*\n([\s\S]*?)```/);
+  return match ? match[1].trim() : null;
+}
+
+/** Simple Mermaid renderer using a container div */
+function MermaidDiagram({ code }: { code: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [svg, setSvg] = useState<string>("");
+  const [error, setError] = useState<string>("");
+
+  const renderDiagram = useCallback(async () => {
+    try {
+      const mermaid = (await import("mermaid")).default;
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: "default",
+        securityLevel: "loose",
+      });
+      const id = `mermaid-${Date.now()}`;
+      const { svg: rendered } = await mermaid.render(id, code);
+      setSvg(rendered);
+      setError("");
+    } catch (e: any) {
+      setError(e?.message || "Mermaid 渲染失败");
+      setSvg("");
+    }
+  }, [code]);
+
+  useEffect(() => {
+    renderDiagram();
+  }, [renderDiagram]);
+
+  if (error) {
+    return (
+      <div className="text-xs text-muted-foreground p-3 border rounded bg-muted/30">
+        <p className="font-medium mb-1">关系图渲染失败</p>
+        <pre className="text-xs whitespace-pre-wrap">{code}</pre>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="overflow-auto border rounded-lg p-4 bg-background"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
+}
+
 const StepCharacters = ({ setup, creativePlan, characters, onUpdate, onNext }: StepCharactersProps) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [editing, setEditing] = useState(false);
+  const [showRelationship, setShowRelationship] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const handleGenerate = async () => {
@@ -55,6 +108,7 @@ const StepCharacters = ({ setup, creativePlan, characters, onUpdate, onNext }: S
 
   const handleStop = () => abortRef.current?.abort();
   const displayText = isGenerating ? streamingText : characters;
+  const mermaidCode = characters ? extractMermaid(characters) : null;
 
   return (
     <div className="space-y-4">
@@ -62,6 +116,17 @@ const StepCharacters = ({ setup, creativePlan, characters, onUpdate, onNext }: S
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-lg">角色开发</CardTitle>
           <div className="flex gap-2">
+            {mermaidCode && !isGenerating && (
+              <Button
+                variant={showRelationship ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShowRelationship(!showRelationship)}
+                className="gap-1.5"
+              >
+                <GitBranch className="h-3.5 w-3.5" />
+                关系图
+              </Button>
+            )}
             {characters && !isGenerating && (
               <Button variant="outline" size="sm" onClick={() => setEditing(!editing)} className="gap-1.5">
                 {editing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
@@ -86,11 +151,19 @@ const StepCharacters = ({ setup, creativePlan, characters, onUpdate, onNext }: S
             )}
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {/* Mermaid relationship diagram */}
+          {showRelationship && mermaidCode && !isGenerating && (
+            <div className="space-y-2">
+              <p className="text-sm font-semibold">角色关系图</p>
+              <MermaidDiagram code={mermaidCode} />
+            </div>
+          )}
+
           {!displayText ? (
             <div className="text-center py-16 text-muted-foreground">
               <p>点击"AI 生成"按钮，AI 将根据创作方案生成完整角色体系</p>
-              <p className="text-xs mt-2">包含：角色档案、关系图、弧光设计、四层反派体系</p>
+              <p className="text-xs mt-2">包含：角色档案、关系图（Mermaid）、弧光设计、四层反派体系</p>
             </div>
           ) : editing && !isGenerating ? (
             <Textarea

@@ -97,6 +97,35 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
   const keyCount = directory.filter((d) => d.isKey).length;
   const climaxCount = directory.filter((d) => d.isClimax).length;
 
+  // Hook type distribution
+  const hookDistribution = directory.reduce<Record<string, number>>((acc, ep) => {
+    const hook = ep.hookType || "未知";
+    acc[hook] = (acc[hook] || 0) + 1;
+    return acc;
+  }, {});
+
+  // Rhythm segment distribution
+  const total = setup.totalEpisodes;
+  const segments = [
+    { label: "起势段", range: [1, Math.round(total * 0.15)], color: "bg-blue-500" },
+    { label: "攀升段", range: [Math.round(total * 0.15) + 1, Math.round(total * 0.45)], color: "bg-green-500" },
+    { label: "风暴段", range: [Math.round(total * 0.45) + 1, Math.round(total * 0.8)], color: "bg-amber-500" },
+    { label: "决战段", range: [Math.round(total * 0.8) + 1, total], color: "bg-red-500" },
+  ];
+
+  const getSegmentForEp = (num: number) => {
+    for (const seg of segments) {
+      if (num >= seg.range[0] && num <= seg.range[1]) return seg;
+    }
+    return segments[segments.length - 1];
+  };
+
+  const segmentCounts = segments.map((seg) => ({
+    ...seg,
+    count: directory.filter((ep) => ep.number >= seg.range[0] && ep.number <= seg.range[1]).length,
+    expected: seg.range[1] - seg.range[0] + 1,
+  }));
+
   return (
     <div className="space-y-4">
       <Card>
@@ -153,29 +182,85 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
               className="font-mono text-sm"
             />
           ) : (
-            <div className="max-h-[600px] overflow-auto space-y-1">
-              {directory.map((ep) => (
-                <div
-                  key={ep.number}
-                  className={`flex items-start gap-2 px-3 py-2 rounded text-sm ${
-                    ep.isClimax ? "bg-amber-500/10" : ep.isKey ? "bg-primary/5" : ""
-                  }`}
-                >
-                  <span className="text-muted-foreground w-12 shrink-0 font-mono">
-                    {String(ep.number).padStart(2, "0")}
-                  </span>
-                  <span className="font-medium min-w-[80px]">{ep.title}</span>
-                  <span className="text-muted-foreground flex-1">{ep.summary}</span>
-                  <span className="text-xs text-muted-foreground shrink-0">{ep.hookType}</span>
-                  <span className="shrink-0">
-                    {ep.isKey && "🔥"}
-                    {ep.isClimax && "⚡"}
-                  </span>
+            <div className="space-y-4">
+              {/* Statistics cards */}
+              {directory.length > 0 && (
+                <div className="space-y-3 border rounded-lg p-4 bg-muted/20">
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Hook distribution */}
+                    <div>
+                      <p className="text-xs font-semibold mb-2">🎣 钩子类型分布</p>
+                      <div className="space-y-1.5">
+                        {Object.entries(hookDistribution)
+                          .sort(([, a], [, b]) => b - a)
+                          .map(([hook, count]) => {
+                            const pct = Math.round((count / directory.length) * 100);
+                            return (
+                              <div key={hook} className="flex items-center gap-2 text-xs">
+                                <span className="w-16 shrink-0 truncate">{hook}</span>
+                                <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+                                  <div className="bg-primary h-full rounded-full" style={{ width: `${pct}%` }} />
+                                </div>
+                                <span className="w-14 text-right text-muted-foreground">{count}集 {pct}%</span>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                    {/* Rhythm segment distribution */}
+                    <div>
+                      <p className="text-xs font-semibold mb-2">📈 节奏段落分布</p>
+                      <div className="space-y-1.5">
+                        {segmentCounts.map((seg) => {
+                          const pct = seg.expected > 0 ? Math.round((seg.count / total) * 100) : 0;
+                          return (
+                            <div key={seg.label} className="flex items-center gap-2 text-xs">
+                              <span className="w-16 shrink-0">{seg.label}</span>
+                              <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+                                <div className={`${seg.color} h-full rounded-full`} style={{ width: `${pct}%` }} />
+                              </div>
+                              <span className="w-20 text-right text-muted-foreground">
+                                {seg.range[0]}-{seg.range[1]}集
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-4 text-xs text-muted-foreground border-t pt-2">
+                    <span>🔥 关键集 {keyCount} ({directory.length > 0 ? Math.round(keyCount / directory.length * 100) : 0}%，目标25-35%)</span>
+                    <span>⚡ 高潮卡点 {climaxCount} ({directory.length > 0 ? Math.round(climaxCount / directory.length * 100) : 0}%，目标10-15%)</span>
+                  </div>
                 </div>
-              ))}
-              {directory.length === 0 && directoryRaw && (
-                <pre className="whitespace-pre-wrap text-sm text-foreground/90">{directoryRaw}</pre>
               )}
+
+              {/* Episode list */}
+              <div className="max-h-[500px] overflow-auto space-y-1">
+                {directory.map((ep) => (
+                  <div
+                    key={ep.number}
+                    className={`flex items-start gap-2 px-3 py-2 rounded text-sm ${
+                      ep.isClimax ? "bg-amber-500/10" : ep.isKey ? "bg-primary/5" : ""
+                    }`}
+                  >
+                    <span className="text-muted-foreground w-12 shrink-0 font-mono">
+                      {String(ep.number).padStart(2, "0")}
+                    </span>
+                    <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${getSegmentForEp(ep.number).color}`} />
+                    <span className="font-medium min-w-[80px]">{ep.title}</span>
+                    <span className="text-muted-foreground flex-1">{ep.summary}</span>
+                    <span className="text-xs text-muted-foreground shrink-0">{ep.hookType}</span>
+                    <span className="shrink-0">
+                      {ep.isKey && "🔥"}
+                      {ep.isClimax && "⚡"}
+                    </span>
+                  </div>
+                ))}
+                {directory.length === 0 && directoryRaw && (
+                  <pre className="whitespace-pre-wrap text-sm text-foreground/90">{directoryRaw}</pre>
+                )}
+              </div>
             </div>
           )}
         </CardContent>

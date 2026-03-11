@@ -72,7 +72,7 @@ export const EPISODE_COUNTS = [
   { value: 100, label: "100集（超长）" },
 ] as const;
 
-export type DramaStep = "setup" | "creative-plan" | "characters" | "directory" | "episodes" | "export";
+export type DramaStep = "setup" | "creative-plan" | "characters" | "directory" | "episodes" | "compliance" | "export";
 
 export const DRAMA_STEP_LABELS: Record<DramaStep, string> = {
   setup: "选题立项",
@@ -80,6 +80,7 @@ export const DRAMA_STEP_LABELS: Record<DramaStep, string> = {
   characters: "角色开发",
   directory: "分集目录",
   episodes: "分集撰写",
+  compliance: "合规审核",
   export: "导出",
 };
 
@@ -89,6 +90,7 @@ export const DRAMA_STEPS: DramaStep[] = [
   "characters",
   "directory",
   "episodes",
+  "compliance",
   "export",
 ];
 
@@ -145,6 +147,7 @@ export interface DramaProject {
   directory: EpisodeEntry[];
   directoryRaw: string;        // raw markdown
   episodes: EpisodeScript[];
+  complianceReport: string;    // compliance review markdown
   currentStep: DramaStep;
   dramaTitle: string;
   createdAt: string;
@@ -160,6 +163,7 @@ export function createEmptyDramaProject(): DramaProject {
     directory: [],
     directoryRaw: "",
     episodes: [],
+    complianceReport: "",
     currentStep: "setup",
     dramaTitle: "",
     createdAt: new Date().toISOString(),

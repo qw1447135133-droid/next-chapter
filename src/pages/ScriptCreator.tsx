@@ -19,6 +19,7 @@ import StepCharacters from "@/components/script-creator/StepCharacters";
 import StepDirectory from "@/components/script-creator/StepDirectory";
 import StepEpisode from "@/components/script-creator/StepEpisode";
 import StepExport from "@/components/script-creator/StepExport";
+import StepCompliance from "@/components/script-creator/StepCompliance";
 
 const DRAMA_PROJECTS_KEY = "storyforge_drama_projects";
 
@@ -147,6 +148,10 @@ const ScriptCreator = () => {
     setProject((p) => ({ ...p, episodes }));
   };
 
+  const handleComplianceUpdate = (complianceReport: string) => {
+    setProject((p) => ({ ...p, complianceReport }));
+  };
+
   const handleNewProject = () => {
     if (confirm("确定要新建项目吗？")) {
       const newProj = createEmptyDramaProject();
@@ -198,6 +203,18 @@ const ScriptCreator = () => {
             directory={project.directory}
             episodes={project.episodes}
             onUpdate={handleEpisodesUpdate}
+            onNext={() => goToStep("compliance")}
+          />
+        ) : null;
+      case "compliance":
+        return project.setup ? (
+          <StepCompliance
+            setup={project.setup}
+            creativePlan={project.creativePlan}
+            characters={project.characters}
+            episodes={project.episodes}
+            complianceReport={project.complianceReport || ""}
+            onUpdate={handleComplianceUpdate}
             onNext={() => goToStep("export")}
           />
         ) : null;
@@ -303,6 +320,7 @@ function canAdvanceTo(project: DramaProject, step: DramaStep): boolean {
     case "characters": return !!project.creativePlan;
     case "directory": return !!project.characters;
     case "episodes": return project.directory.length > 0 || !!project.directoryRaw;
+    case "compliance": return project.episodes.length > 0;
     case "export": return project.episodes.length > 0;
     default: return false;
   }

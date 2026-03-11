@@ -58,10 +58,63 @@ const StepExport = ({ setup, dramaTitle, creativePlan, characters, episodes }: S
   const handleStop = () => abortRef.current?.abort();
 
   const handleQuickExport = () => {
+    // Extract scene list from episodes
+    const sceneSet = new Set<string>();
+    const soundtrackList: { ep: number; scene: string; music: string }[] = [];
+    episodes.sort((a, b) => a.number - b.number).forEach((ep) => {
+      // Extract scenes
+      const sceneMatches = ep.content.matchAll(/\*\*场景[：:]\*\*\s*(.+)/g);
+      for (const m of sceneMatches) sceneSet.add(m[1].trim());
+      const intExtMatches = ep.content.matchAll(/\*\*(INT\.|EXT\.|内景|外景)\s*(.+?)\*\*/g);
+      for (const m of intExtMatches) sceneSet.add(`${m[1]} ${m[2]}`.trim());
+      // Extract soundtracks
+      const musicMatches = ep.content.matchAll(/♪\s*(?:音乐提示|Music|Score|OST|音楽)[：:]?\s*(.+)/g);
+      let sceneIdx = 0;
+      for (const m of musicMatches) {
+        sceneIdx++;
+        soundtrackList.push({ ep: ep.number, scene: `场次${sceneIdx}`, music: m[1].trim() });
+      }
+    });
+
+    // Extract character table from characters text
+    const characterLines: string[] = [];
+    const charMatches = characters.matchAll(/(?:^|\n)(?:###?\s*)?\d*\.?\s*\*{0,2}(.+?)\*{0,2}\s*[（(](\d+岁?.+?)[）)]/g);
+    for (const m of charMatches) {
+      characterLines.push(`| ${m[1].trim()} | ${m[2].trim()} |`);
+    }
+
     const parts = [
       `# ${dramaTitle || "未命名短剧"}`,
       "",
       `> 题材：${setup.genres.join(" + ")} | 受众：${setup.audience} | 基调：${setup.tone} | 集数：${setup.totalEpisodes}`,
+      "",
+      "---",
+      "",
+      "## 角色表",
+      "",
+      "| 角色名 | 简介 |",
+      "|--------|------|",
+      ...(characterLines.length > 0 ? characterLines : ["| （请参考角色档案） | |"]),
+      "",
+      "---",
+      "",
+      "## 场景清单",
+      "",
+      ...(sceneSet.size > 0
+        ? [...sceneSet].map((s, i) => `${i + 1}. ${s}`)
+        : ["（未提取到场景信息）"]),
+      "",
+      "---",
+      "",
+      "## 配乐提示表",
+      "",
+      ...(soundtrackList.length > 0
+        ? [
+            "| 集数 | 场次 | 配乐描述 |",
+            "|------|------|----------|",
+            ...soundtrackList.map((s) => `| 第${s.ep}集 | ${s.scene} | ${s.music} |`),
+          ]
+        : ["（未提取到配乐提示）"]),
       "",
       "---",
       "",
@@ -84,7 +137,7 @@ const StepExport = ({ setup, dramaTitle, creativePlan, characters, episodes }: S
         .map((ep) => `### 第${ep.number}集：${ep.title}\n\n${ep.content}\n\n---\n`),
     ];
     setExportedText(parts.join("\n"));
-    toast({ title: "快速拼接完成" });
+    toast({ title: "快速拼接完成（含角色表、场景清单、配乐表）" });
   };
 
   const handleCopy = async () => {
