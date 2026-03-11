@@ -547,12 +547,12 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ScrollArea className="h-[400px]">
+            <div ref={scrollRef} className="h-[400px] overflow-auto">
               <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
                 {streamingText}
                 <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />
               </pre>
-            </ScrollArea>
+            </div>
           </CardContent>
         </Card>
       )}
