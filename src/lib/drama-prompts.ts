@@ -14,11 +14,59 @@ function getMarketDirective(setup: DramaSetup): string {
 - **文化適応**：キャラクター名・場面設定・社会関係・敬語体系は日本文化に準拠すること。中国語表現の直訳を避ける。`;
   }
   if (market === "west") {
-    return `## 🌏 Target Market: Western (US/EU)
+    return `## 🌏 Target Market: Western (US/EU) — Overseas AI Short Drama Production Spec
+
 - **Writing Language: English** — All output must be written in English.
-- **Style**: Hollywood high-concept format. Think YA blockbusters like *Harry Potter*, *Twilight*, *The Hunger Games* — punchy hooks, visceral stakes, and propulsive pacing.
-- **Narrative approach**: External conflict drives internal change. Favor direct plot propulsion, satisfying twists, and "page-turner" cliffhangers. Lean into spectacle and wish-fulfillment.
-- **Cultural fit**: Names, settings, social norms should feel authentic to a Western audience. Use standard screenplay/novel conventions.`;
+
+### Topic Selection (IP-driven, blockbuster-oriented)
+Preferred genres for the Western market:
+1. **Fantasy/Supernatural** — Zombies, witches, werewolves, vampires, gender-swap, beastkin, merfolk, mythological figures (visual spectacle priority)
+2. **Alpha-male archetypes** — Mafia boss, professor, CEO, athlete, firefighter (masculine hormone appeal)
+3. **Classic adaptations** — Grimm fairy tales, mythology, Western film/TV IP reboots
+4. **Period settings** — Western royal court, hit long-drama adaptations
+5. **Sci-fi / Post-apocalyptic** — Sci-fi, dystopian, interstellar (strong visual impact)
+
+### Micro-Innovation Design
+- Build on a proven core hook, then apply **character-concept inversion** or **setting transplant**.
+- Transplant plot beats from hit series into the current drama with local adaptation.
+
+### Story Outline & Episode Structure Rules
+- Novel adaptations → target **60 episodes**; original concepts → target **50 episodes** (unless user specifies otherwise).
+- The outline MUST distribute content across the classic **4-act structure** (起承转合) with proper pacing — alternate tension and relief, never rush the entire arc flat.
+- Each episode outline must satisfy the macro rhythm while distributing plot beats evenly.
+
+### Localization Iron Rules (MANDATORY)
+- ⛔ **NO non-American place names** — replace with fictional city names.
+- ⛔ **NO non-American character profiles** — names, backgrounds, appearances, and body types must feel authentically Western/American.
+- ⛔ **NO non-American cultural elements** — no Eastern fortune-telling, Eastern traditions, Eastern philosophical framing.
+- ⛔ **NO real person names, real place names, real brand names, or real product names** — use fictional or lightly altered versions.
+- All character bios MUST include **bilingual names** (Chinese + English).
+
+### Character Requirements
+- **Character bio**: background story, full name, age, role positioning (lead / supporting / antagonist), personality, backstory.
+- **Character portrait** (if visual capability exists): physical appearance, attire, distinctive features.
+
+### Per-Episode Checklist (Quality Gate)
+| Check Item | Requirement | Diagnostic | Script Annotation |
+|---|---|---|---|
+| **3-Second Hook** | Every episode must have a visual or audio explosive moment (can be anywhere in the episode) | Does the audience stop scrolling immediately? | 🔵 Mark BLUE |
+| **Completion Bait** | Ending MUST have a strong cliffhanger / suspense | Will the user enter the next episode? | 🔴 Mark RED |
+| **Interaction Rate** | Dialogue / visuals must contain debate-triggering moments (controversial dialogue, actions) | Can it trigger comments, shares, likes? | 🟢 Mark GREEN |
+| **Scene Actions** | Each episode ≥ 2 scenes | Are scene-action descriptions rich enough? | — |
+| **Dialogue Limits** | Total dialogue per episode ≤ 40s reading time; single line ≤ 12s | One shot = dialogue + action within 10-15s? | — |
+| **Conflict** | Every episode MUST have at least one climax / reversal | Is the plot tension sustained? | — |
+| **Emotional Expression** | Dialogue must be direct, simple; NO euphemisms or subtext | Is the dialogue punchy? | — |
+| **Word Count** | Each episode ≥ 800 words, covering ≥ 2 scenes | — | — |
+| **Episode Duration** | Target 60 seconds per episode | If final cut deviates >60s significantly, add/trim content | — |
+
+### Title & Naming
+- Each drama must provide **at least 2 English title candidates** upon outline submission.
+- Drama titles should be concise and memorable.
+
+### Style & Narrative
+- Hollywood high-concept format. Think YA blockbusters — punchy hooks, visceral stakes, propulsive pacing.
+- External conflict drives internal change. Favor direct plot propulsion, satisfying twists, and "page-turner" cliffhangers.
+- Lean into spectacle and wish-fulfillment.`;
   }
   if (market === "kr") {
     return `## 🌏 목표 시장: 한국
@@ -257,7 +305,7 @@ function getScriptFormatTemplate(setup: DramaSetup, episodeNumber: number, hookT
   }
 
   if (market === "west") {
-    return `## Script Format (Western Market)
+    return `## Script Format (Western Market — Overseas AI Short Drama Spec)
 
 \`\`\`
 # Episode ${episodeNumber}: {Episode Title}
@@ -273,10 +321,12 @@ function getScriptFormatTemplate(setup: DramaSetup, episodeNumber: number, hookT
 **INT./EXT. {LOCATION} — DAY/NIGHT**
 **CHARACTERS: {character list}**
 
-△ (WIDE) {Scene description — visceral, cinematic}
+🔵 △ (WIDE) {3-SECOND HOOK — visual/audio explosive moment to stop scrolling}
 △ (MEDIUM) {Character action — body language, tension}
 
 **{CHARACTER NAME}** ({tone/action direction}): "{Dialogue}"
+
+🟢 **{CHARACTER NAME}** ({provocative tone}): "{Debate-triggering line — designed for comments/shares}"
 
 △ (CLOSE-UP) {Key detail — plot-critical visual}
 
@@ -284,17 +334,25 @@ function getScriptFormatTemplate(setup: DramaSetup, episodeNumber: number, hookT
 
 ---
 
-> 🎣 Cliffhanger: {hook description}
+🔴 > 🎣 Cliffhanger: {COMPLETION BAIT — strong suspense to force next episode entry}
 > 📺 Next Episode: {teaser}
 \`\`\`
 
-## Quality Standards
-- 3-5 scenes per episode
-- Minimum 800 words per episode
+## Quality Standards (Per-Episode Checklist)
+- **Minimum 2 scenes** per episode, recommended 3-5
+- **Minimum 800 words** per episode
+- **Target duration: 60 seconds** per episode
+- **Dialogue limits**: total dialogue ≤ 40s reading time; single line ≤ 12s
 - Camera directions: WIDE, MEDIUM, CLOSE-UP, EXTREME CLOSE-UP (use at least 3)
 - Dialogue must include tone/action parentheticals
+- **Dialogue must be DIRECT and SIMPLE** — no euphemisms, no subtext, no subtle hints. Punchy and emotionally charged.
+- **Every episode MUST contain at least one conflict or climax moment**
+- 🔵 **3-Second Hook**: Mark the visual/audio hook moment in BLUE annotation
+- 🔴 **Completion Bait**: End with strong cliffhanger, mark in RED annotation
+- 🟢 **Interaction Trigger**: Include at least one debate-worthy line/moment, mark in GREEN annotation
 - End with a strong ${hookType || "cliffhanger"} hook
-- High-concept pacing: open with a bang, escalate fast, end on a twist`;
+- High-concept pacing: open with a bang, escalate fast, end on a twist
+- ⛔ NO real names, real places, real brands — all must be fictional`;
   }
 
   if (market === "kr") {
@@ -675,6 +733,20 @@ ${market === "cn" ? `
 - 广电总局《微短剧管理办法》相关要求
 - 平台审核标准（抖音/快手/微信视频号等）
 - 备案所需的内容安全合规要求
+` : ""}
+${market === "west" ? `
+### 特别注意（欧美市场 — 海外AI短剧规范）
+- **地名检查**：剧本中不得出现任何非美国真实地名，必须替换为虚构城市
+- **人设检查**：角色姓名、成长背景、外貌描写必须符合美国文化语境，不得出现东方特征
+- **文化元素检查**：不得出现东方算卦、东方传统习俗、东方思维方式等文化元素
+- **品牌/真名检查**：不得出现真实人名、地名、品牌名、商品名
+- **台词风格检查**：台词必须直接、简单，禁止委婉或潜台词，确保情绪表达直白有力
+- **对白时长检查**：单句对白不超过12秒阅读时长，每集总对白不超过40秒
+- **角色双语命名**：所有角色简介必须标注中英文双语人名
+- **集时长检查**：目标每集60秒，若成片与60秒差距过大需调整内容量
+- **3秒钩子检查**：每集是否有视觉或听觉爆点（标蓝）
+- **完播诱导检查**：结尾是否有强悬念引导进入下集（标红）
+- **互动率检查**：是否有引发讨论/争议的台词或画面（标绿）
 ` : ""}
 
 ## 输出格式
