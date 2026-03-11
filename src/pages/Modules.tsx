@@ -72,7 +72,7 @@ const Modules = () => {
           </p>
         </motion.div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl w-full">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl w-full">
           {modules.map((m, i) => (
             <motion.button
               key={m.id}

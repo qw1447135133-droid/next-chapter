@@ -113,7 +113,7 @@ const History = () => {
         <h1 className="text-lg font-semibold font-[Space_Grotesk]">项目历史</h1>
       </header>
 
-      <main className="max-w-2xl mx-auto p-6">
+      <main className="max-w-7xl mx-auto px-6 py-6">
         {loading ? (
           <div className="flex justify-center py-20">
             <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />

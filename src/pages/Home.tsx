@@ -88,7 +88,7 @@ const Home = () => {
           initial={{ opacity: 0, y: 40 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, delay: 0.3, ease: "easeOut" }}
-          className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-20 max-w-3xl w-full"
+          className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-20 max-w-5xl w-full"
         >
           {features.map((f, i) => (
             <div
