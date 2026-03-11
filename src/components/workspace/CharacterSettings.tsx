@@ -1301,7 +1301,7 @@ const CharacterSettings = ({
         </div>
       )}
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {([
           { label: "写实类", styles: ["live-action", "hyper-cg"] as ArtStyle[] },
           { label: "三维动画类", styles: ["3d-cartoon", "2.5d-stylized", "anime-3d"] as ArtStyle[] },
@@ -1335,7 +1335,28 @@ const CharacterSettings = ({
             </div>
           );
         })}
+        <Button
+          variant={artStyle === "custom" ? "default" : "outline"}
+          size="sm"
+          className="text-sm"
+          onClick={() => onArtStyleChange("custom")}
+        >
+          {artStyle === "custom" ? "自定义 ✦" : "自定义"}
+        </Button>
       </div>
+
+      {/* Custom art style input */}
+      {artStyle === "custom" && (
+        <div className="flex items-start gap-2">
+          <Textarea
+            placeholder="输入自定义画风提示词，例如：水墨画风格，留白大量空间，笔触细腻，中国传统山水画意境..."
+            value={customArtStylePrompt || ""}
+            onChange={(e) => onCustomArtStylePromptChange?.(e.target.value)}
+            className="min-h-[60px] text-sm"
+            rows={2}
+          />
+        </div>
+      )
 
       {/* Characters */}
       <div className="space-y-3">
