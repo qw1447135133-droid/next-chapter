@@ -243,7 +243,7 @@ const ScriptCreator = () => {
 
       {/* Step indicator */}
       <div className="border-b border-border/50 px-6 py-2">
-        <div className="flex items-center gap-1 max-w-4xl mx-auto overflow-x-auto">
+        <div className="flex items-center gap-1 max-w-7xl mx-auto overflow-x-auto">
           {DRAMA_STEPS.map((step, idx) => {
             const isCurrent = step === project.currentStep;
             const isDone = idx < currentStepIdx;
