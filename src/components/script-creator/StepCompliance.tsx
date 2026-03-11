@@ -116,7 +116,7 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
           </div>
         </CardHeader>
         <CardContent>
-          {isTranslating && <TranslationProgress progress={transProgress} />}
+          {(isTranslating || transCanResume) && <TranslationProgress progress={transProgress} canResume={transCanResume} onResume={resumeTranslation} />}
           {!displayText ? (
             <div className="text-center py-16 text-muted-foreground">
               <p>点击"开始审核"按钮，AI 将对全部已完成的剧本内容进行合规检查</p>

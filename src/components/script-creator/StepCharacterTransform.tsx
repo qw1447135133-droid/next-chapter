@@ -172,7 +172,7 @@ const StepCharacterTransform = ({
           </div>
         </CardHeader>
         <CardContent>
-          {isTranslating && <TranslationProgress progress={transProgress} />}
+          {(isTranslating || transCanResume) && <TranslationProgress progress={transProgress} canResume={transCanResume} onResume={resumeTranslation} />}
           {showDiagram && mermaidCode && (
             <div className="mb-4 p-4 border rounded-lg bg-muted/30">
               <MermaidDiagram code={mermaidCode} />

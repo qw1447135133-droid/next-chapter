@@ -183,7 +183,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
           </div>
         </CardHeader>
         <CardContent>
-          {isTranslating && <TranslationProgress progress={transProgress} />}
+          {(isTranslating || transCanResume) && <TranslationProgress progress={transProgress} canResume={transCanResume} onResume={resumeTranslation} />}
           {isGenerating ? (
             <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
               {streamingText}

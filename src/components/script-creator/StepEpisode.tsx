@@ -677,7 +677,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
               </div>
             )}
 
-            {isTranslating && <TranslationProgress progress={transProgress} />}
+            {(isTranslating || transCanResume) && <TranslationProgress progress={transProgress} canResume={transCanResume} onResume={resumeTranslation} />}
 
             {selectedScript ? (
             <>
