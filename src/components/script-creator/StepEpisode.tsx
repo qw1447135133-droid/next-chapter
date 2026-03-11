@@ -11,6 +11,7 @@ import { buildEpisodePrompt, buildSceneRegenPrompt, buildReviewPrompt } from "@/
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import type { DramaSetup, EpisodeEntry, EpisodeScript, EpisodeVersion } from "@/types/drama";
+import { useTranslation, InterleavedText, TranslateToggle, isNonChineseText } from "./TranslateButton";
 
 interface ReviewScore {
   score: number;
