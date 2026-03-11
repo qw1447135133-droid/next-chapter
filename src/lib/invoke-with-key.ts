@@ -893,7 +893,7 @@ async function localGenerateScene(body: any) {
   if (!name) throw new Error("缺少场景名称");
 
   const sceneDesc = description || name;
-  const styleDesc = SCENE_STYLE_MAP[style] || SCENE_STYLE_MAP["live-action"];
+  const styleDesc = style?.startsWith("custom:") ? style.slice(7) : (SCENE_STYLE_MAP[style] || SCENE_STYLE_MAP["live-action"]);
 
   const staticSceneRule = `\n\n⚠️ STATIC ENVIRONMENT ONLY — CRITICAL RULE ⚠️
 This image must depict ONLY the permanent, static environment — the architecture, landscape, terrain, vegetation, bodies of water, sky, and fixed structures.
