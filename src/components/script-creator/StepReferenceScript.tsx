@@ -306,7 +306,7 @@ ${structureParts.join("\n\n---\n\n")}
     : "";
 
   const progressPct = progress.total > 0
-    ? Math.round((progress.current / (progress.total + 1)) * 100)
+    ? parseFloat(((progress.current / (progress.total + 1)) * 100).toFixed(1))
     : 0;
 
   return (
