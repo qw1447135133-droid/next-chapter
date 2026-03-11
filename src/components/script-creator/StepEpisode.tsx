@@ -769,7 +769,6 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                     </pre>
                   </ScrollArea>
                 )}
-              )}
               </>
             ) : (
               <div className="text-center py-12 text-muted-foreground space-y-3">
