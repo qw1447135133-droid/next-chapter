@@ -233,9 +233,10 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                       </div>
                     </div>
                   </div>
-                  <div className="flex gap-4 text-xs text-muted-foreground border-t pt-2">
+                  <div className="flex gap-4 text-xs text-muted-foreground border-t pt-2 flex-wrap">
                     <span>🔥 关键集 {keyCount} ({directory.length > 0 ? Math.round(keyCount / directory.length * 100) : 0}%，目标25-35%)</span>
                     <span>⚡ 高潮卡点 {climaxCount} ({directory.length > 0 ? Math.round(climaxCount / directory.length * 100) : 0}%，目标10-15%)</span>
+                    <span>💰 付费卡点 {paywallCount} ({directory.length > 0 ? Math.round(paywallCount / directory.length * 100) : 0}%，目标10-15%)</span>
                   </div>
                 </div>
               )}
