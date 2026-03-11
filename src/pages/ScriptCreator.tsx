@@ -113,7 +113,11 @@ const ScriptCreator = () => {
     localStorage.setItem("decompose-model", value);
   };
 
+  // Only persist projects that have actual content (not empty/mode-selector state)
+  const hasContent = !!(project.setup || project.referenceScript || project.creativePlan);
+
   useEffect(() => {
+    if (!hasContent) return; // Don't save empty projects
     const timer = setTimeout(() => {
       upsertDramaProject(project);
     }, 500);
