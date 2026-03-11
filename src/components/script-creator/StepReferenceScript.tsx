@@ -513,8 +513,8 @@ ${structureParts.join("\n\n---\n\n")}
             )}
           </div>
 
-          {/* Animated progress bar */}
-          {isAnalyzing && progress.total > 0 && (
+          {/* Animated progress bar — shown during analysis OR when failed/paused */}
+          {(isAnalyzing || progress.failed) && progress.total > 0 && (
             <div className="rounded-lg border border-border bg-card p-3 space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">{progress.phase}</span>
@@ -530,6 +530,18 @@ ${structureParts.join("\n\n---\n\n")}
                     >
                       <CheckCircle2 className="h-3 w-3" />
                       识别完成
+                    </motion.span>
+                  ) : progress.failed ? (
+                    <motion.span
+                      key="failed"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.3 }}
+                      className="text-destructive tabular-nums"
+                    >
+                      {progress.done}/{progress.total} 步（已中断）
+                      <span className="ml-2 font-semibold">{animatedPct.toFixed(1)}%</span>
                     </motion.span>
                   ) : (
                     <motion.span
@@ -547,6 +559,17 @@ ${structureParts.join("\n\n---\n\n")}
                 </AnimatePresence>
               </div>
               <Progress value={animatedPct} className="h-2" />
+              {canResume && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleResume}
+                  className="gap-1.5 w-full mt-1"
+                >
+                  <PlayCircle className="h-3.5 w-3.5" />
+                  继续识别（从第 {resumeRef.current!.startChunkIdx + 1} 段）
+                </Button>
+              )}
             </div>
           )}
 
