@@ -51,7 +51,8 @@ const StepStructureTransform = ({
     setStreamingText("");
     abortRef.current = new AbortController();
     try {
-      const prompt = buildStructureTransformPrompt(setup, referenceScript, selectedStyle);
+      const transformInput = referenceStructure || referenceScript;
+      const prompt = buildStructureTransformPrompt(setup, transformInput, selectedStyle);
       const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
       const finalText = await callGeminiStream(
         model,
