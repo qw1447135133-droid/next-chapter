@@ -158,6 +158,11 @@ const CharacterSettings = ({
 
   const currentCharModel = CHAR_IMAGE_MODEL_OPTIONS.find((o) => o.value === charImageModel)!;
 
+  // Effective style: for "custom" artStyle, pass the custom prompt as the style string
+  const effectiveStyle = artStyle === "custom" && customArtStylePrompt?.trim()
+    ? `custom:${customArtStylePrompt.trim()}`
+    : artStyle;
+
   // ---- Character helpers ----
   const addCharacter = () => {
     onCharactersChange([
