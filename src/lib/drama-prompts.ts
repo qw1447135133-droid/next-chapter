@@ -852,3 +852,98 @@ ${episodeContent}
 
 **只输出 JSON，不要输出其他任何内容。**`;
 }
+
+/** 结构转换 Prompt（同款创作模式） */
+export function buildStructureTransformPrompt(
+  setup: DramaSetup,
+  referenceScript: string,
+  frameworkStyle: string,
+): string {
+  return `你是一位专业的微短剧改编编剧，擅长将不同风格的故事进行框架转换。
+
+${getMarketDirective(setup)}
+
+## 你的任务
+将以下参考剧本转换为「${frameworkStyle}」风格的创作方案。
+
+## 转换原则
+1. **保留核心情节骨架**：主要矛盾冲突、人物关系拓扑、关键转折点必须保留
+2. **风格全面置换**：世界观、时代背景、社会体系、权力结构、文化元素全部替换为「${frameworkStyle}」设定
+3. **等价替换法则**：
+   - 原文中的社会阶层 → ${frameworkStyle}对应的等级体系
+   - 原文中的权力机制 → ${frameworkStyle}对应的权力形式
+   - 原文中的情感表达 → ${frameworkStyle}对应的情感方式
+4. **强化风格特色**：加入${frameworkStyle}风格特有的元素、术语、场景设定
+
+## 参考剧本原文
+${referenceScript}
+
+## 输出要求
+请生成完整的创作方案，包含以下板块：
+
+1. **剧名备选**（3个），每个附一句话说明
+2. **时空背景**：转换后的时代、地点、社会环境、体系设定
+3. **一句话故事线** + **核心冲突**
+4. **情节对照表**：原文核心情节 → 转换后对应情节（逐条对照）
+5. **三幕结构拆解**：
+   - 第一幕（建置）：集数范围、核心事件
+   - 第二幕（对抗）：集数范围、冲突升级
+   - 第三幕（高潮/结局）：集数范围、终极对决
+6. **${frameworkStyle}特色元素清单**：本风格必须包含的标志性场景/设定/术语
+7. **付费卡点规划**：具体集数 + 卡点类型
+8. **结局设计**
+
+总集数：${setup.totalEpisodes}集
+用 Markdown 格式输出，清晰分区。`;
+}
+
+/** 角色转换 Prompt（同款创作模式） */
+export function buildCharacterTransformPrompt(
+  setup: DramaSetup,
+  referenceScript: string,
+  frameworkStyle: string,
+  structureTransform: string,
+): string {
+  return `你是一位专业的微短剧改编编剧。
+
+${getMarketDirective(setup)}
+
+## 你的任务
+基于已完成的结构转换方案，将原文中的角色体系转换为「${frameworkStyle}」风格。
+
+## 转换原则
+1. **角色关系拓扑不变**：主角、对手、盟友、隐藏反派的关系结构保持一致
+2. **身份风格置换**：
+   - 角色姓名 → 符合${frameworkStyle}风格的名字
+   - 职业/身份 → ${frameworkStyle}对应的身份设定
+   - 能力/特长 → ${frameworkStyle}体系下的对应能力
+3. **性格内核保留**：角色的核心动机、性格特征、人物弧光保持一致
+4. **风格化表达**：口头禅、语言特征适配${frameworkStyle}风格
+
+## 原文剧本
+${referenceScript}
+
+## 已完成的结构转换方案
+${structureTransform}
+
+## 输出要求
+生成完整角色体系，包含：
+
+1. **角色对照表**：原文角色 → 转换角色（逐一对照）
+2. **主要角色档案**（每个角色包含）：
+   - 姓名、年龄、外貌特征（2-3句）
+   - 性格关键词（3-5个）
+   - 公开身份 vs 真实身份
+   - 核心动机
+   - 爽点功能
+   - 口头禅或语言特征
+   - 人物弧光
+3. **角色关系图**（使用 Mermaid graph TD 格式输出）
+
+请在 \`\`\`mermaid 和 \`\`\` 之间输出关系图代码。
+
+4. **感情线弧线**：关系发展的关键节点（标注集数）
+5. **四层反派体系**
+
+用 Markdown 格式输出。`;
+}
