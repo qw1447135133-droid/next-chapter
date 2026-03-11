@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -91,6 +92,7 @@ const StepCharacters = ({ setup, creativePlan, characters, onUpdate, onNext }: S
   const [editing, setEditing] = useState(false);
   const [showRelationship, setShowRelationship] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const scrollRef = useAutoScroll<HTMLPreElement>(isGenerating, streamingText);
 
   const handleGenerate = async () => {
     setIsGenerating(true);
@@ -190,7 +192,7 @@ const StepCharacters = ({ setup, creativePlan, characters, onUpdate, onNext }: S
               className="font-mono text-sm"
             />
           ) : (
-            <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
+            <pre ref={scrollRef} className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
               {displayText}
               {isGenerating && <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />}
             </pre>

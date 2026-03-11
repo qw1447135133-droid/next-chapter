@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -110,6 +111,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const [batchReviewProgress, setBatchReviewProgress] = useState<{ current: number; total: number; epNum: number | null }>({ current: 0, total: 0, epNum: null });
   const [showBatchReviewDialog, setShowBatchReviewDialog] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const scrollRef = useAutoScroll<HTMLDivElement>(isGenerating && regenSceneIdx == null, streamingText);
   const batchAbortRef = useRef<AbortController | null>(null);
   const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress, canResume: transCanResume, resumeTranslation } = useTranslation();
 
@@ -545,12 +547,12 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ScrollArea className="h-[400px]">
+            <div ref={scrollRef} className="h-[400px] overflow-auto">
               <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
                 {streamingText}
                 <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />
               </pre>
-            </ScrollArea>
+            </div>
           </CardContent>
         </Card>
       )}

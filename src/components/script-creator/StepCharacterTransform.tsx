@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -77,6 +78,7 @@ const StepCharacterTransform = ({
   const [showComparison, setShowComparison] = useState(false);
   const [showDiagram, setShowDiagram] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const scrollRef = useAutoScroll<HTMLPreElement>(isGenerating, streamingText);
   const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress, canResume: transCanResume, resumeTranslation } = useTranslation();
   const nonChinese = isNonChineseText(characterTransform);
 
@@ -222,7 +224,7 @@ const StepCharacterTransform = ({
               <InterleavedText text={removeMermaid(characterTransform)} translatedLines={getTranslation(removeMermaid(characterTransform))!} />
             </div>
           ) : (
-            <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
+            <pre ref={scrollRef} className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
               {cleanText}
               {isGenerating && <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />}
             </pre>
