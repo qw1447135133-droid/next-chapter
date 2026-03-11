@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowRight, Sparkles, Globe } from "lucide-react";
@@ -20,6 +21,8 @@ const StepSetup = ({ setup, onComplete }: StepSetupProps) => {
   const [tone, setTone] = useState(setup?.tone || "甜虐");
   const [ending, setEnding] = useState(setup?.ending || "HE");
   const [totalEpisodes, setTotalEpisodes] = useState(setup?.totalEpisodes || 60);
+  const [customEpisodes, setCustomEpisodes] = useState("");
+  const [isCustom, setIsCustom] = useState(false);
   const [customTopic, setCustomTopic] = useState(setup?.customTopic || "");
   const [targetMarket, setTargetMarket] = useState(setup?.targetMarket || "cn");
 
@@ -34,9 +37,24 @@ const StepSetup = ({ setup, onComplete }: StepSetupProps) => {
     });
   };
 
+  const handleEpisodeCountChange = (val: string) => {
+    const num = Number(val);
+    if (num === -1) {
+      setIsCustom(true);
+    } else {
+      setIsCustom(false);
+      setTotalEpisodes(num);
+    }
+  };
+
   const handleSubmit = () => {
     if (selectedGenres.length === 0) {
       toast({ title: "请至少选择一个题材", variant: "destructive" });
+      return;
+    }
+    const finalEpisodes = isCustom ? (parseInt(customEpisodes) || 60) : totalEpisodes;
+    if (finalEpisodes < 10 || finalEpisodes > 200) {
+      toast({ title: "集数需在 10-200 之间", variant: "destructive" });
       return;
     }
     onComplete({
@@ -44,7 +62,7 @@ const StepSetup = ({ setup, onComplete }: StepSetupProps) => {
       audience,
       tone,
       ending,
-      totalEpisodes,
+      totalEpisodes: finalEpisodes,
       targetMarket,
       customTopic: customTopic.trim() || undefined,
     });
@@ -153,14 +171,31 @@ const StepSetup = ({ setup, onComplete }: StepSetupProps) => {
             </div>
             <div>
               <Label className="text-sm mb-1.5 block">总集数</Label>
-              <Select value={String(totalEpisodes)} onValueChange={(v) => setTotalEpisodes(Number(v))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {EPISODE_COUNTS.map((e) => (
-                    <SelectItem key={e.value} value={String(e.value)}>{e.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {isCustom ? (
+                <div className="flex gap-1.5">
+                  <Input
+                    type="number"
+                    min={10}
+                    max={200}
+                    value={customEpisodes}
+                    onChange={(e) => setCustomEpisodes(e.target.value)}
+                    placeholder="10-200"
+                    className="flex-1"
+                  />
+                  <Button variant="ghost" size="sm" className="shrink-0 text-xs h-10" onClick={() => setIsCustom(false)}>
+                    预设
+                  </Button>
+                </div>
+              ) : (
+                <Select value={String(totalEpisodes)} onValueChange={handleEpisodeCountChange}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {EPISODE_COUNTS.map((e) => (
+                      <SelectItem key={e.value} value={String(e.value)}>{e.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </div>
           <div>
