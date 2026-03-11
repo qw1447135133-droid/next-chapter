@@ -161,11 +161,17 @@ const StepStructureTransform = ({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <h4 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">
-                  {referenceStructure ? "提取的结构" : "原文剧本"}
+                  原文结构
                 </h4>
-                <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/70 max-h-[600px] overflow-auto border rounded-md p-3 bg-muted/30">
-                  {referenceStructure || referenceScript}
-                </pre>
+                {referenceStructure ? (
+                  <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/70 max-h-[600px] overflow-auto border rounded-md p-3 bg-muted/30">
+                    {referenceStructure}
+                  </pre>
+                ) : (
+                  <div className="text-sm text-muted-foreground border rounded-md p-3 bg-muted/30 text-center py-8">
+                    请先在"参考剧本"步骤完成识别，提取的结构将显示在此处
+                  </div>
+                )}
               </div>
               <div>
                 <h4 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">
