@@ -1,10 +1,11 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { ArrowRight, FileText, Upload, Sparkles, Loader2 } from "lucide-react";
+import { ArrowRight, FileText, Upload, Sparkles, Loader2, CheckCircle2 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { callGemini, callGeminiStream, extractText } from "@/lib/gemini-client";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -28,6 +29,69 @@ function isLogographicText(text: string): boolean {
 
 function getChunkSize(text: string): number {
   return isLogographicText(text) ? 10000 : 25000;
+}
+
+/** Animated progress with creep — matches DecomposeProgress logic */
+function useAnimatedProgress(ceilPercent: number, floorPercent: number, hasProcessing: boolean) {
+  const [display, setDisplay] = useState(0);
+  const rafRef = useRef<number>();
+  const lastTimeRef = useRef(performance.now());
+  const prevCeilRef = useRef(ceilPercent);
+
+  const ceilDropped = ceilPercent < prevCeilRef.current;
+  useEffect(() => {
+    prevCeilRef.current = ceilPercent;
+  }, [ceilPercent]);
+
+  useEffect(() => {
+    lastTimeRef.current = performance.now();
+
+    const tick = (now: number) => {
+      const dt = (now - lastTimeRef.current) / 1000;
+      lastTimeRef.current = now;
+
+      setDisplay(prev => {
+        const hardCap = Math.max(0, ceilPercent - 0.1);
+
+        if (!hasProcessing && !ceilDropped) {
+          if (prev > floorPercent) {
+            const diff = prev - floorPercent;
+            const rollSpeed = Math.max(1, diff * 0.08) * 12;
+            return Math.max(prev - rollSpeed * dt, floorPercent);
+          }
+          return floorPercent;
+        }
+
+        if (prev > hardCap) {
+          const diff = prev - hardCap;
+          const rollSpeed = Math.max(1, diff * 0.08) * 12;
+          return Math.max(prev - rollSpeed * dt, hardCap);
+        }
+
+        const base = Math.max(prev, floorPercent);
+        const gap = hardCap - base;
+        if (gap <= 0) return hardCap;
+
+        const chunkRange = ceilPercent - floorPercent;
+        const baseSpeed = chunkRange > 0 ? chunkRange / 75 : 0.2;
+        const ratio = gap / (chunkRange || 1);
+        const speed = baseSpeed * Math.max(0.05, ratio);
+        const next = base + speed * dt;
+        return Math.min(next, hardCap);
+      });
+
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [ceilPercent, floorPercent, hasProcessing, ceilDropped]);
+
+  useEffect(() => {
+    setDisplay(prev => Math.max(prev, floorPercent));
+  }, [floorPercent]);
+
+  return Math.round(display * 10) / 10;
 }
 
 /** Split script into chunks for structure extraction */
@@ -61,7 +125,7 @@ const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferen
   const [analyzed, setAnalyzed] = useState(false);
   const [extractedStructure, setExtractedStructure] = useState("");
   // Progress state
-  const [progress, setProgress] = useState({ current: 0, total: 0, phase: "" });
+  const [progress, setProgress] = useState({ done: 0, total: 0, processing: false, phase: "" });
   const fileRef = useRef<HTMLInputElement | null>(null);
   const isUploading = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -133,7 +197,7 @@ const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferen
 
     try {
       // Phase 1: Config detection
-      setProgress({ current: 0, total: 1, phase: "识别配置项…" });
+      setProgress({ done: 0, total: 1, processing: true, phase: "识别配置项…" });
 
       const configPrompt = `你是一位专业的短剧编辑。请分析以下剧本/故事文本，识别其基本属性。
 
@@ -171,16 +235,22 @@ ${script.slice(0, 3000)}
       // Phase 2: Structure extraction in chunks
       const chunkSize = getChunkSize(script);
       const chunks = splitIntoChunks(script, chunkSize);
-      const totalSteps = chunks.length;
+      // total = 1 (config) + chunks + (merge if >1 chunk)
+      const hasMerge = chunks.length > 1;
+      const totalSteps = 1 + chunks.length + (hasMerge ? 1 : 0);
       const structureParts: string[] = [];
+
+      // Config done
+      setProgress({ done: 1, total: totalSteps, processing: true, phase: `提取结构 1/${chunks.length}…` });
 
       for (let i = 0; i < chunks.length; i++) {
         if (abortRef.current?.signal.aborted) break;
 
         setProgress({
-          current: i + 1,
+          done: 1 + i,
           total: totalSteps,
-          phase: `提取结构 ${i + 1}/${totalSteps}…`,
+          processing: true,
+          phase: `提取结构 ${i + 1}/${chunks.length}…`,
         });
 
         const isFirst = i === 0;
@@ -228,7 +298,7 @@ ${isLast ? "\n6. **结局走向**：故事的最终走向和结局" : ""}
       if (structureParts.length === 1) {
         finalStructure = structureParts[0].replace(/^###.*\n/, "");
       } else {
-        setProgress({ current: totalSteps, total: totalSteps, phase: "合并结构…" });
+        setProgress({ done: 1 + chunks.length, total: totalSteps, processing: true, phase: "合并结构…" });
 
         const mergePrompt = `你是一位专业的剧本分析师。以下是一部长剧本分段提取的叙事结构，请将它们合并为一份完整、连贯的结构分析报告。
 
@@ -258,7 +328,7 @@ ${structureParts.join("\n\n---\n\n")}
 
       setExtractedStructure(finalStructure);
       setAnalyzed(true);
-      setProgress({ current: 0, total: 0, phase: "" });
+      setProgress({ done: 0, total: 0, processing: false, phase: "" });
       toast({ title: "识别完成", description: "已提取剧本结构和配置项" });
     } catch (e: any) {
       if (e?.message?.includes("取消") || e?.name === "AbortError") {
@@ -305,9 +375,14 @@ ${structureParts.join("\n\n---\n\n")}
     ? (EPISODE_COUNTS.find((e) => e.value === totalEpisodes)?.label || `${totalEpisodes}集`)
     : "";
 
-  const progressPct = progress.total > 0
-    ? parseFloat(((progress.current / (progress.total + 1)) * 100).toFixed(1))
+  const ceilPercent = progress.total > 0
+    ? ((progress.done + (progress.processing ? 1 : 0)) / progress.total) * 100
     : 0;
+  const floorPercent = progress.total > 0
+    ? (progress.done / progress.total) * 100
+    : 0;
+  const animatedPct = useAnimatedProgress(ceilPercent, floorPercent, progress.processing);
+  const isComplete = progress.done === progress.total && !progress.processing && progress.total > 0;
 
   return (
     <div className="space-y-4">
@@ -384,14 +459,40 @@ ${structureParts.join("\n\n---\n\n")}
             )}
           </div>
 
-          {/* Progress bar */}
+          {/* Animated progress bar */}
           {isAnalyzing && progress.total > 0 && (
-            <div className="space-y-2 border rounded-lg p-3 bg-muted/20">
+            <div className="rounded-lg border border-border bg-card p-3 space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">{progress.phase}</span>
-                <span className="font-mono text-muted-foreground">{progressPct.toFixed(1)}%</span>
+                <AnimatePresence mode="wait">
+                  {isComplete ? (
+                    <motion.span
+                      key="complete"
+                      initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.4, ease: "easeOut" }}
+                      className="text-accent font-semibold flex items-center gap-1"
+                    >
+                      <CheckCircle2 className="h-3 w-3" />
+                      识别完成
+                    </motion.span>
+                  ) : (
+                    <motion.span
+                      key="progress"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.3 }}
+                      className="text-muted-foreground tabular-nums"
+                    >
+                      {progress.done}/{progress.total} 步
+                      <span className="ml-2 font-semibold text-foreground">{animatedPct.toFixed(1)}%</span>
+                    </motion.span>
+                  )}
+                </AnimatePresence>
               </div>
-              <Progress value={progressPct} className="h-2" />
+              <Progress value={animatedPct} className="h-2" />
             </div>
           )}
 
