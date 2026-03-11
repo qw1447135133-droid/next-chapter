@@ -97,14 +97,13 @@ const ScriptCreator = () => {
       const loaded = loadProjectById(resumeId);
       if (loaded) return { ...loaded, mode: loaded.mode || "traditional" };
     }
-    const projects = getDramaProjects();
-    if (projects.length > 0) return { ...projects[0], mode: projects[0].mode || "traditional" };
+    // Without ?id=, always start fresh with mode selector
     return createEmptyDramaProject();
   });
 
-  // Show mode selector only when project is brand new (no progress)
+  // Show mode selector when entering without ?id= (fresh start)
   const [showModeSelector, setShowModeSelector] = useState(() => {
-    return !resumeId && !project.setup && !project.referenceScript && !project.creativePlan;
+    return !resumeId;
   });
 
   const [model, setModel] = useState(() => localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview");
@@ -114,7 +113,11 @@ const ScriptCreator = () => {
     localStorage.setItem("decompose-model", value);
   };
 
+  // Only persist projects that have actual content (not empty/mode-selector state)
+  const hasContent = !!(project.setup || project.referenceScript || project.creativePlan);
+
   useEffect(() => {
+    if (!hasContent) return; // Don't save empty projects
     const timer = setTimeout(() => {
       upsertDramaProject(project);
     }, 500);
