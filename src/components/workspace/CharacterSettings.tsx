@@ -1466,7 +1466,7 @@ const CharacterSettings = ({
             try {
               const combinedDesc = `${c.name}，${costume.label}：${costume.description || c.description}`;
               const { data, error } = await withTimeout(
-                invokeFunction("generate-character", { name: `${c.name} - ${costume.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl }),
+                invokeFunction("generate-character", { name: `${c.name} - ${costume.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl, viewMode: charViewMode }),
                 CHAR_IMAGE_TIMEOUT_MS,
               );
               if (error) throw error;
