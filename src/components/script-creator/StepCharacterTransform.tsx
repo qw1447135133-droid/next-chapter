@@ -7,6 +7,7 @@ import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildCharacterTransformPrompt } from "@/lib/drama-prompts";
 import type { DramaSetup } from "@/types/drama";
+import { useTranslation, InterleavedText, TranslateToggle, isNonChineseText } from "./TranslateButton";
 
 /** Extract mermaid code from text */
 function extractMermaid(text: string): string | null {
