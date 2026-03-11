@@ -136,7 +136,7 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
               {displayText}
               {isGenerating && <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />}
             </pre>
-          )
+          )}
         </CardContent>
       </Card>
 
