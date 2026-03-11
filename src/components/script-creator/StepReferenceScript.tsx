@@ -235,16 +235,22 @@ ${script.slice(0, 3000)}
       // Phase 2: Structure extraction in chunks
       const chunkSize = getChunkSize(script);
       const chunks = splitIntoChunks(script, chunkSize);
-      const totalSteps = chunks.length;
+      // total = 1 (config) + chunks + (merge if >1 chunk)
+      const hasMerge = chunks.length > 1;
+      const totalSteps = 1 + chunks.length + (hasMerge ? 1 : 0);
       const structureParts: string[] = [];
+
+      // Config done
+      setProgress({ done: 1, total: totalSteps, processing: true, phase: `提取结构 1/${chunks.length}…` });
 
       for (let i = 0; i < chunks.length; i++) {
         if (abortRef.current?.signal.aborted) break;
 
         setProgress({
-          current: i + 1,
+          done: 1 + i,
           total: totalSteps,
-          phase: `提取结构 ${i + 1}/${totalSteps}…`,
+          processing: true,
+          phase: `提取结构 ${i + 1}/${chunks.length}…`,
         });
 
         const isFirst = i === 0;
