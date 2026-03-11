@@ -61,6 +61,13 @@ const Workspace = () => {
   const [sceneSettings, setSceneSettings] = useState<SceneSetting[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [artStyle, setArtStyle] = useState<ArtStyle>("live-action");
+  const [customArtStylePrompt, setCustomArtStylePromptState] = useState(() => {
+    try { return localStorage.getItem("custom-art-style-prompt") || ""; } catch { return ""; }
+  });
+  const setCustomArtStylePrompt = (v: string) => {
+    setCustomArtStylePromptState(v);
+    try { localStorage.setItem("custom-art-style-prompt", v); } catch { /* ignore */ }
+  };
   const [systemPrompt, setSystemPrompt] = useState("");
   const [videoPace, setVideoPaceState] = useState<import("@/types/project").VideoPace>(() => {
     try { return (localStorage.getItem("video-pace") as import("@/types/project").VideoPace) || "medium"; } catch { return "medium"; }
