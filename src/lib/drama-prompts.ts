@@ -305,7 +305,7 @@ function getScriptFormatTemplate(setup: DramaSetup, episodeNumber: number, hookT
   }
 
   if (market === "west") {
-    return `## Script Format (Western Market)
+    return `## Script Format (Western Market — Overseas AI Short Drama Spec)
 
 \`\`\`
 # Episode ${episodeNumber}: {Episode Title}
@@ -321,10 +321,12 @@ function getScriptFormatTemplate(setup: DramaSetup, episodeNumber: number, hookT
 **INT./EXT. {LOCATION} — DAY/NIGHT**
 **CHARACTERS: {character list}**
 
-△ (WIDE) {Scene description — visceral, cinematic}
+🔵 △ (WIDE) {3-SECOND HOOK — visual/audio explosive moment to stop scrolling}
 △ (MEDIUM) {Character action — body language, tension}
 
 **{CHARACTER NAME}** ({tone/action direction}): "{Dialogue}"
+
+🟢 **{CHARACTER NAME}** ({provocative tone}): "{Debate-triggering line — designed for comments/shares}"
 
 △ (CLOSE-UP) {Key detail — plot-critical visual}
 
@@ -332,17 +334,25 @@ function getScriptFormatTemplate(setup: DramaSetup, episodeNumber: number, hookT
 
 ---
 
-> 🎣 Cliffhanger: {hook description}
+🔴 > 🎣 Cliffhanger: {COMPLETION BAIT — strong suspense to force next episode entry}
 > 📺 Next Episode: {teaser}
 \`\`\`
 
-## Quality Standards
-- 3-5 scenes per episode
-- Minimum 800 words per episode
+## Quality Standards (Per-Episode Checklist)
+- **Minimum 2 scenes** per episode, recommended 3-5
+- **Minimum 800 words** per episode
+- **Target duration: 60 seconds** per episode
+- **Dialogue limits**: total dialogue ≤ 40s reading time; single line ≤ 12s
 - Camera directions: WIDE, MEDIUM, CLOSE-UP, EXTREME CLOSE-UP (use at least 3)
 - Dialogue must include tone/action parentheticals
+- **Dialogue must be DIRECT and SIMPLE** — no euphemisms, no subtext, no subtle hints. Punchy and emotionally charged.
+- **Every episode MUST contain at least one conflict or climax moment**
+- 🔵 **3-Second Hook**: Mark the visual/audio hook moment in BLUE annotation
+- 🔴 **Completion Bait**: End with strong cliffhanger, mark in RED annotation
+- 🟢 **Interaction Trigger**: Include at least one debate-worthy line/moment, mark in GREEN annotation
 - End with a strong ${hookType || "cliffhanger"} hook
-- High-concept pacing: open with a bang, escalate fast, end on a twist`;
+- High-concept pacing: open with a bang, escalate fast, end on a twist
+- ⛔ NO real names, real places, real brands — all must be fictional`;
   }
 
   if (market === "kr") {
