@@ -88,6 +88,7 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
                   showTranslation={showTranslation}
                   onTranslate={() => translate(complianceReport)}
                   onClear={clearTranslation}
+                  onStop={stopTranslation}
                   disabled={editing}
                 />
                 <Button variant="outline" size="sm" onClick={() => setEditing(!editing)} className="gap-1.5">
