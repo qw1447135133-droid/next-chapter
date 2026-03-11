@@ -798,17 +798,26 @@ function parseDecomposeResult(resultText: string): any[] {
 }
 
 async function localGenerateCharacter(body: any) {
-  const { name, description, style, model, referenceImageUrl } = body;
+  const { name, description, style, model, referenceImageUrl, viewMode } = body;
   if (!name) throw new Error("缺少角色名称");
 
   const characterDesc = description || name;
   const styleDesc = CHAR_STYLE_MAP[style] || CHAR_STYLE_MAP["live-action"];
+  const isSingleMode = viewMode === "single";
 
   const refImageNote = referenceImageUrl
     ? `\n\nCRITICAL: The attached reference image shows the SAME character in a different costume. You MUST preserve the EXACT same face, facial features, bone structure, eye shape, nose, lips, skin tone, hair color, hairstyle, body proportions, and build. ONLY change the clothing/outfit as described. The character's identity must be unmistakably the same person.`
     : "";
 
-  const prompt = `Create a professional character design reference sheet for an animated character: "${name}" - ${characterDesc}.
+  const prompt = isSingleMode
+    ? `Create a professional full-body character portrait for: "${name}" - ${characterDesc}.
+
+Art style: ${styleDesc}.
+
+The image should be a single full-body FRONT VIEW portrait on a clean, simple background. The character should be standing in a natural pose, facing the camera directly. Show the character from head to toe with clear details of face, clothing, and accessories. Professional character design quality. The entire image MUST be in ${styleDesc} style.
+
+CRITICAL: The character's clothing, armor, and accessories MUST match the era and setting described above. If the description mentions medieval, fantasy, ancient, or any specific historical period, ALL clothing must be era-appropriate. NEVER use modern clothing (suits, t-shirts, jeans, sneakers) for historical/fantasy characters.${refImageNote}`
+    : `Create a professional character design reference sheet for an animated character: "${name}" - ${characterDesc}.
 
 Art style: ${styleDesc}.
 
@@ -825,11 +834,14 @@ CRITICAL: The character's clothing, armor, and accessories MUST match the era an
   const selectedModel = model || "gemini-3-pro-image-preview";
   const isSeedream = selectedModel.startsWith("doubao-seedream");
 
+  const aspectRatio = isSingleMode ? "9:16" : "16:9";
+  const seedreamSize = isSingleMode ? "1440x2560" : "2560x1440";
+
   let imageBase64: string;
   let mimeType: string;
 
   if (isSeedream) {
-    const result = await callSeedreamImage(prompt, { model: selectedModel, size: "2560x1440" });
+    const result = await callSeedreamImage(prompt, { model: selectedModel, size: seedreamSize });
     imageBase64 = result.base64;
     mimeType = result.mimeType;
   } else {
@@ -846,7 +858,7 @@ CRITICAL: The character's clothing, armor, and accessories MUST match the era an
 
     const data = await callGemini(selectedModel,
       [{ role: "user", parts }],
-      { responseModalities: ["IMAGE", "TEXT"], imageConfig: { aspectRatio: "16:9", imageSize: "2K" } },
+      { responseModalities: ["IMAGE", "TEXT"], imageConfig: { aspectRatio, imageSize: "2K" } },
     );
 
     const img = await extractImageBase64(data);
