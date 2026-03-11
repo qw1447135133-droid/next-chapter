@@ -52,7 +52,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
   const [editing, setEditing] = useState(false);
   const [rawText, setRawText] = useState(directoryRaw);
   const abortRef = useRef<AbortController | null>(null);
-  const { isTranslating, showTranslation, translate, clearTranslation, translatedMap } = useTranslation();
+  const { isTranslating, showTranslation, translate, clearTranslation, getTranslation, hasTranslation } = useTranslation();
   const nonChinese = isNonChineseText(directoryRaw);
 
   const handleGenerate = async () => {
