@@ -9,7 +9,7 @@ import { callGeminiStream } from "@/lib/gemini-client";
 import { buildStructureTransformPrompt } from "@/lib/drama-prompts";
 import { FRAMEWORK_STYLES } from "@/types/drama";
 import type { DramaSetup } from "@/types/drama";
-import { useTranslation, InterleavedText, TranslateToggle, isNonChineseText } from "./TranslateButton";
+import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "./TranslateButton";
 
 interface StepStructureTransformProps {
   setup: DramaSetup;
