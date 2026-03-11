@@ -192,22 +192,34 @@ const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferen
     if (fileRef.current) fileRef.current.value = "";
   };
 
-  // AI auto-detect + structure extraction
-  const handleAnalyze = async () => {
-    if (!script.trim() || script.trim().length < 50) {
-      toast({ title: "剧本内容过短，无法识别", variant: "destructive" });
-      return;
-    }
+  // Core analyze logic — supports resuming from a specific chunk
+  const runAnalyze = async (resumeFrom?: { chunks: string[]; structureParts: string[]; startChunkIdx: number; totalSteps: number; configDone: boolean }) => {
     setIsAnalyzing(true);
-    setExtractedStructure("");
+    if (!resumeFrom) setExtractedStructure("");
     abortRef.current = new AbortController();
+    resumeRef.current = null;
     const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
 
-    try {
-      // Phase 1: Config detection
-      setProgress({ done: 0, total: 1, processing: true, phase: "识别配置项…" });
+    let chunks: string[];
+    let structureParts: string[];
+    let startIdx: number;
+    let totalSteps: number;
+    let configDone: boolean;
 
-      const configPrompt = `你是一位专业的短剧编辑。请分析以下剧本/故事文本，识别其基本属性。
+    try {
+      if (resumeFrom) {
+        // Resume mode
+        chunks = resumeFrom.chunks;
+        structureParts = [...resumeFrom.structureParts];
+        startIdx = resumeFrom.startChunkIdx;
+        totalSteps = resumeFrom.totalSteps;
+        configDone = resumeFrom.configDone;
+      } else {
+        // Fresh start — Phase 1: Config detection
+        configDone = false;
+        setProgress({ done: 0, total: 1, processing: true, phase: "识别配置项…" });
+
+        const configPrompt = `你是一位专业的短剧编辑。请分析以下剧本/故事文本，识别其基本属性。
 
 ## 剧本文本（前3000字）
 ${script.slice(0, 3000)}
@@ -224,34 +236,36 @@ ${script.slice(0, 3000)}
 
 **只输出 JSON，不要输出其他任何内容。**`;
 
-      const configData = await callGemini(
-        model,
-        [{ role: "user", parts: [{ text: configPrompt }] }],
-        { maxOutputTokens: 2048 },
-      );
-      const configResult = extractText(configData);
-      const jsonMatch = configResult.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.targetMarket) setTargetMarket(parsed.targetMarket);
-        if (parsed.audience) setAudience(parsed.audience);
-        if (parsed.tone) setTone(parsed.tone);
-        if (parsed.ending) setEnding(parsed.ending);
-        if (parsed.suggestedEpisodes) setTotalEpisodes(Number(parsed.suggestedEpisodes));
+        const configData = await callGemini(
+          model,
+          [{ role: "user", parts: [{ text: configPrompt }] }],
+          { maxOutputTokens: 2048 },
+        );
+        const configResult = extractText(configData);
+        const jsonMatch = configResult.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.targetMarket) setTargetMarket(parsed.targetMarket);
+          if (parsed.audience) setAudience(parsed.audience);
+          if (parsed.tone) setTone(parsed.tone);
+          if (parsed.ending) setEnding(parsed.ending);
+          if (parsed.suggestedEpisodes) setTotalEpisodes(Number(parsed.suggestedEpisodes));
+        }
+        configDone = true;
+
+        // Phase 2: Structure extraction in chunks
+        const chunkSize = getChunkSize(script);
+        chunks = splitIntoChunks(script, chunkSize);
+        const hasMerge = chunks.length > 1;
+        totalSteps = 1 + chunks.length + (hasMerge ? 1 : 0);
+        structureParts = [];
+        startIdx = 0;
       }
 
-      // Phase 2: Structure extraction in chunks
-      const chunkSize = getChunkSize(script);
-      const chunks = splitIntoChunks(script, chunkSize);
-      // total = 1 (config) + chunks + (merge if >1 chunk)
-      const hasMerge = chunks.length > 1;
-      const totalSteps = 1 + chunks.length + (hasMerge ? 1 : 0);
-      const structureParts: string[] = [];
-
       // Config done
-      setProgress({ done: 1, total: totalSteps, processing: true, phase: `提取结构 1/${chunks.length}…` });
+      setProgress({ done: 1, total: totalSteps, processing: true, phase: `提取结构 ${startIdx + 1}/${chunks.length}…` });
 
-      for (let i = 0; i < chunks.length; i++) {
+      for (let i = startIdx; i < chunks.length; i++) {
         if (abortRef.current?.signal.aborted) break;
 
         setProgress({
@@ -270,7 +284,7 @@ ${isFirst ? "" : `## 前文结构概要
 ${structureParts.join("\n\n").slice(-2000)}
 ---
 `}
-## 剧本片段（第 ${i + 1}/${totalSteps} 段）
+## 剧本片段（第 ${i + 1}/${chunks.length} 段）
 ${chunks[i]}
 
 ## 提取要求
@@ -297,6 +311,12 @@ ${isLast ? "\n6. **结局走向**：故事的最终走向和结局" : ""}
 
       if (abortRef.current?.signal.aborted) {
         toast({ title: "已停止识别" });
+        // Save resume state
+        const completedChunks = structureParts.length;
+        if (completedChunks < chunks.length) {
+          resumeRef.current = { chunks, structureParts: [...structureParts], startChunkIdx: completedChunks, totalSteps, configDone };
+          setProgress({ done: 1 + completedChunks, total: totalSteps, processing: false, phase: `已完成 ${completedChunks}/${chunks.length} 段`, failed: true });
+        }
         setIsAnalyzing(false);
         return;
       }
@@ -337,6 +357,7 @@ ${structureParts.join("\n\n---\n\n")}
       setExtractedStructure(finalStructure);
       setAnalyzed(true);
       setProgress({ done: 0, total: 0, processing: false, phase: "" });
+      resumeRef.current = null;
       toast({ title: "识别完成", description: "已提取剧本结构和配置项" });
     } catch (e: any) {
       if (e?.message?.includes("取消") || e?.name === "AbortError") {
@@ -344,11 +365,36 @@ ${structureParts.join("\n\n---\n\n")}
       } else {
         toast({ title: "识别失败", description: e?.message, variant: "destructive" });
       }
+      // Save resume state on error (not abort)
+      if (!(e?.message?.includes("取消") || e?.name === "AbortError")) {
+        const completedChunks = structureParts!.length;
+        if (configDone! && completedChunks < chunks!.length) {
+          resumeRef.current = { chunks: chunks!, structureParts: [...structureParts!], startChunkIdx: completedChunks, totalSteps: totalSteps!, configDone: true };
+          setProgress({ done: 1 + completedChunks, total: totalSteps!, processing: false, phase: `识别中断（已完成 ${completedChunks}/${chunks!.length} 段）`, failed: true });
+        }
+      }
     } finally {
       setIsAnalyzing(false);
       abortRef.current = null;
     }
   };
+
+  // AI auto-detect + structure extraction
+  const handleAnalyze = async () => {
+    if (!script.trim() || script.trim().length < 50) {
+      toast({ title: "剧本内容过短，无法识别", variant: "destructive" });
+      return;
+    }
+    resumeRef.current = null;
+    await runAnalyze();
+  };
+
+  const handleResume = async () => {
+    if (!resumeRef.current) return;
+    await runAnalyze(resumeRef.current);
+  };
+
+  const canResume = !isAnalyzing && resumeRef.current !== null;
 
   const handleStop = () => abortRef.current?.abort();
 
