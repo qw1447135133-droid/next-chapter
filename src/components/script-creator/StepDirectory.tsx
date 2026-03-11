@@ -28,13 +28,17 @@ function parseDirectory(raw: string): EpisodeEntry[] {
       const title = match[2].trim();
       const rest = match[3];
       const hookMatch = rest.match(/\[(.*?钩)\]/);
+      // Parse emotion level from markers like [情绪:4] or (情绪强度:3)
+      const emotionMatch = line.match(/[情感情绪][：:强度]*\s*(\d)/);
       entries.push({
         number,
         title,
-        summary: rest.replace(/\[.*?\]/g, "").replace(/🔥/g, "").replace(/⚡/g, "").trim(),
+        summary: rest.replace(/\[.*?\]/g, "").replace(/🔥/g, "").replace(/⚡/g, "").replace(/💰/g, "").trim(),
         hookType: hookMatch?.[1] || "悬念钩",
         isKey: line.includes("🔥"),
         isClimax: line.includes("⚡"),
+        isPaywall: line.includes("💰"),
+        emotionLevel: emotionMatch ? parseInt(emotionMatch[1]) : undefined,
       });
     }
   }
