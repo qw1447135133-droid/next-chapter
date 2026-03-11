@@ -111,7 +111,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const [showBatchReviewDialog, setShowBatchReviewDialog] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const batchAbortRef = useRef<AbortController | null>(null);
-  const { isTranslating, showTranslation, translate, clearTranslation, translatedMap } = useTranslation();
+  const { isTranslating, showTranslation, translate, clearTranslation, getTranslation, hasTranslation } = useTranslation();
 
   const DIMENSION_LABELS: Record<string, string> = {
     rhythm: "节奏",
@@ -679,9 +679,9 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
             {selectedScript ? (
             <>
               {/* Translation interleaved view */}
-              {showTranslation && translatedMap.has(selectedScript.content) ? (
+              {showTranslation && hasTranslation(selectedScript.content) ? (
                 <div className="max-h-[600px] overflow-auto">
-                  <InterleavedText text={selectedScript.content} translatedLines={translatedMap.get(selectedScript.content)!} />
+                  <InterleavedText text={selectedScript.content} translatedLines={getTranslation(selectedScript.content)!} />
                 </div>
               ) : scenes.length > 0 ? (
                   <div className="space-y-4">

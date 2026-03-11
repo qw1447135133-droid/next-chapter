@@ -4,17 +4,52 @@ import { Languages, Loader2, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 
-interface TranslateButtonProps {
-  text: string;
-  disabled?: boolean;
+const TRANSLATION_CACHE_KEY = "storyforge_translation_cache";
+const MAX_CACHE_ENTRIES = 30;
+
+/** Simple hash for cache key */
+function hashText(text: string): string {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+  }
+  return hash.toString(36);
+}
+
+/** Read cache from localStorage */
+function readCache(): Record<string, string[]> {
+  try {
+    const raw = localStorage.getItem(TRANSLATION_CACHE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Write cache to localStorage, evicting old entries */
+function writeCache(cache: Record<string, string[]>) {
+  const keys = Object.keys(cache);
+  if (keys.length > MAX_CACHE_ENTRIES) {
+    // Remove oldest entries (first inserted)
+    const toRemove = keys.slice(0, keys.length - MAX_CACHE_ENTRIES);
+    for (const k of toRemove) delete cache[k];
+  }
+  try {
+    localStorage.setItem(TRANSLATION_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Storage full, clear and retry
+    localStorage.removeItem(TRANSLATION_CACHE_KEY);
+  }
 }
 
 /**
- * Shared translation button for non-Chinese scripts.
- * Stores translated lines in state. Renders interleaved original + translated view.
+ * Shared translation hook with localStorage caching.
  */
 export function useTranslation() {
-  const [translatedMap, setTranslatedMap] = useState<Map<string, string[]>>(new Map());
+  const [translatedMap, setTranslatedMap] = useState<Map<string, string[]>>(() => {
+    // Pre-load from localStorage cache
+    return new Map();
+  });
   const [isTranslating, setIsTranslating] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -22,9 +57,21 @@ export function useTranslation() {
   const translate = async (text: string) => {
     if (!text.trim()) return;
 
-    // If already translated this exact text, just toggle
-    if (translatedMap.has(text)) {
+    const key = hashText(text);
+
+    // Check in-memory first
+    if (translatedMap.has(key)) {
       setShowTranslation((v) => !v);
+      return;
+    }
+
+    // Check localStorage cache
+    const cache = readCache();
+    if (cache[key]) {
+      const cached = cache[key];
+      setTranslatedMap((prev) => new Map(prev).set(key, cached));
+      setShowTranslation(true);
+      toast({ title: "翻译已加载（缓存）" });
       return;
     }
 
@@ -34,16 +81,25 @@ export function useTranslation() {
 
     try {
       const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
-      const prompt = `你是一位专业的翻译。请将以下外语文本逐行翻译为中文。
-规则：
-1. 保持原文的行结构，每一行对应翻译一行
-2. 空行保持为空行
-3. 只输出翻译结果，不要添加任何解释
-4. 保留标题标记（如 ## # 等）
-5. 保留特殊符号（如 🔥 ⚡ 💰 ⛔ ⚠️ ℹ️ 等）
+      const originalLines = text.split("\n");
 
-原文：
-${text}`;
+      // Build numbered lines for strict 1:1 alignment
+      const numberedText = originalLines
+        .map((line, i) => `[${i + 1}] ${line}`)
+        .join("\n");
+
+      const prompt = `你是一位专业的翻译。请将以下外语文本逐行翻译为中文。
+
+## 严格规则
+1. 原文共 ${originalLines.length} 行，你必须输出恰好 ${originalLines.length} 行翻译
+2. 每行格式为 [行号] 翻译内容，例如 [1] 这是翻译
+3. 空行也要保留，输出 [行号]（后面留空）
+4. 保留 Markdown 标记（## # ** 等）
+5. 保留特殊符号（🔥 ⚡ 💰 ⛔ ⚠️ ℹ️ 等）
+6. 只输出翻译行，不要输出任何解释或额外文字
+
+## 原文（${originalLines.length} 行）
+${numberedText}`;
 
       const finalText = await callGeminiStream(
         model,
@@ -53,8 +109,26 @@ ${text}`;
         abortRef.current.signal,
       );
 
-      const translatedLines = finalText.split("\n");
-      setTranslatedMap((prev) => new Map(prev).set(text, translatedLines));
+      // Parse numbered output back to array, aligned to original line count
+      const resultLines = new Array<string>(originalLines.length).fill("");
+      const outputLines = finalText.split("\n");
+
+      for (const line of outputLines) {
+        const match = line.match(/^\[(\d+)\]\s?(.*)/);
+        if (match) {
+          const idx = parseInt(match[1]) - 1;
+          if (idx >= 0 && idx < originalLines.length) {
+            resultLines[idx] = match[2] || "";
+          }
+        }
+      }
+
+      // Save to in-memory and localStorage
+      setTranslatedMap((prev) => new Map(prev).set(key, resultLines));
+      const updatedCache = readCache();
+      updatedCache[key] = resultLines;
+      writeCache(updatedCache);
+
       toast({ title: "翻译完成" });
     } catch (e: any) {
       if (e?.message?.includes("取消")) {
@@ -71,7 +145,16 @@ ${text}`;
 
   const clearTranslation = () => {
     setShowTranslation(false);
-    setTranslatedMap(new Map());
+  };
+
+  /** Get translated lines for a text (by hash) */
+  const getTranslation = (text: string): string[] | undefined => {
+    return translatedMap.get(hashText(text));
+  };
+
+  /** Check if translation exists for text */
+  const hasTranslation = (text: string): boolean => {
+    return translatedMap.has(hashText(text));
   };
 
   return {
@@ -79,7 +162,8 @@ ${text}`;
     showTranslation,
     translate,
     clearTranslation,
-    translatedMap,
+    getTranslation,
+    hasTranslation,
   };
 }
 
@@ -94,16 +178,16 @@ export function InterleavedText({
   const originalLines = text.split("\n");
 
   return (
-    <div className="space-y-0">
+    <div>
       {originalLines.map((line, i) => (
         <div key={i}>
-          <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 m-0">
+          <div className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 py-0.5">
             {line || "\u00A0"}
-          </pre>
+          </div>
           {translatedLines[i] !== undefined && translatedLines[i].trim() !== "" && (
-            <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-muted-foreground m-0 bg-muted/50 px-2 rounded-sm">
+            <div className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-sm mb-1">
               {translatedLines[i]}
-            </pre>
+            </div>
           )}
         </div>
       ))}

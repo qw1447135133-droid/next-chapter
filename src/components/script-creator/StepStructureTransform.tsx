@@ -38,7 +38,7 @@ const StepStructureTransform = ({
   const [showComparison, setShowComparison] = useState(true);
   const [selectedStyle, setSelectedStyle] = useState(frameworkStyle || "");
   const abortRef = useRef<AbortController | null>(null);
-  const { isTranslating, showTranslation, translate, clearTranslation, translatedMap } = useTranslation();
+  const { isTranslating, showTranslation, translate, clearTranslation, getTranslation, hasTranslation } = useTranslation();
   const nonChinese = isNonChineseText(structureTransform);
 
   const handleGenerate = async () => {
@@ -195,9 +195,9 @@ const StepStructureTransform = ({
               rows={20}
               className="font-mono text-sm"
             />
-          ) : showTranslation && !isGenerating && translatedMap.has(structureTransform) ? (
+          ) : showTranslation && !isGenerating && hasTranslation(structureTransform) ? (
             <div className="max-h-[600px] overflow-auto">
-              <InterleavedText text={structureTransform} translatedLines={translatedMap.get(structureTransform)!} />
+              <InterleavedText text={structureTransform} translatedLines={getTranslation(structureTransform)!} />
             </div>
           ) : (
             <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">

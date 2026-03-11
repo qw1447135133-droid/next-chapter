@@ -24,7 +24,7 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
   const [streamingText, setStreamingText] = useState("");
   const [editing, setEditing] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
-  const { isTranslating, showTranslation, translate, clearTranslation, translatedMap } = useTranslation();
+  const { isTranslating, showTranslation, translate, clearTranslation, getTranslation, hasTranslation } = useTranslation();
   const nonChinese = isNonChineseText(complianceReport);
 
   const handleGenerate = async () => {
@@ -127,9 +127,9 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
               rows={20}
               className="font-mono text-sm"
             />
-          ) : showTranslation && !isGenerating && translatedMap.has(complianceReport) ? (
+          ) : showTranslation && !isGenerating && hasTranslation(complianceReport) ? (
             <div className="max-h-[600px] overflow-auto">
-              <InterleavedText text={complianceReport} translatedLines={translatedMap.get(complianceReport)!} />
+              <InterleavedText text={complianceReport} translatedLines={getTranslation(complianceReport)!} />
             </div>
           ) : (
             <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
