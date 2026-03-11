@@ -97,6 +97,35 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
   const keyCount = directory.filter((d) => d.isKey).length;
   const climaxCount = directory.filter((d) => d.isClimax).length;
 
+  // Hook type distribution
+  const hookDistribution = directory.reduce<Record<string, number>>((acc, ep) => {
+    const hook = ep.hookType || "未知";
+    acc[hook] = (acc[hook] || 0) + 1;
+    return acc;
+  }, {});
+
+  // Rhythm segment distribution
+  const total = setup.totalEpisodes;
+  const segments = [
+    { label: "起势段", range: [1, Math.round(total * 0.15)], color: "bg-blue-500" },
+    { label: "攀升段", range: [Math.round(total * 0.15) + 1, Math.round(total * 0.45)], color: "bg-green-500" },
+    { label: "风暴段", range: [Math.round(total * 0.45) + 1, Math.round(total * 0.8)], color: "bg-amber-500" },
+    { label: "决战段", range: [Math.round(total * 0.8) + 1, total], color: "bg-red-500" },
+  ];
+
+  const getSegmentForEp = (num: number) => {
+    for (const seg of segments) {
+      if (num >= seg.range[0] && num <= seg.range[1]) return seg;
+    }
+    return segments[segments.length - 1];
+  };
+
+  const segmentCounts = segments.map((seg) => ({
+    ...seg,
+    count: directory.filter((ep) => ep.number >= seg.range[0] && ep.number <= seg.range[1]).length,
+    expected: seg.range[1] - seg.range[0] + 1,
+  }));
+
   return (
     <div className="space-y-4">
       <Card>
