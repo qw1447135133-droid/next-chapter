@@ -861,7 +861,7 @@ const CharacterSettings = ({
         try {
           const latest = charactersRef.current.find((ch) => ch.id === c.id);
           const { data, error } = await withTimeout(
-            invokeFunction("generate-character", { name: c.name, description: latest?.description || desc, style: artStyle, model: charImageModel }),
+            invokeFunction("generate-character", { name: c.name, description: latest?.description || desc, style: artStyle, model: charImageModel, viewMode: charViewMode }),
             CHAR_IMAGE_TIMEOUT_MS,
           );
           if (error) throw error;
