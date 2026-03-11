@@ -242,7 +242,7 @@ const Settings = () => {
         <h1 className="text-lg font-semibold font-[Space_Grotesk]">API 设置</h1>
       </header>
 
-      <main className="max-w-xl mx-auto p-6 space-y-6">
+      <main className="max-w-3xl mx-auto px-6 py-6 space-y-6">
         <p className="text-sm text-muted-foreground">
           配置你的 API 密钥。所有配置仅保存在本地浏览器中。
         </p>

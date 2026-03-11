@@ -43,7 +43,9 @@ interface CharacterSettingsProps {
   characters: CharacterSetting[];
   sceneSettings: SceneSetting[];
   artStyle: ArtStyle;
+  customArtStylePrompt?: string;
   onArtStyleChange: (style: ArtStyle) => void;
+  onCustomArtStylePromptChange?: (prompt: string) => void;
   onCharactersChange: (c: CharacterSetting[]) => void;
   onSceneSettingsChange: (s: SceneSetting[]) => void;
   onNext: () => void;
@@ -60,7 +62,9 @@ const CharacterSettings = ({
   characters,
   sceneSettings,
   artStyle,
+  customArtStylePrompt,
   onArtStyleChange,
+  onCustomArtStylePromptChange,
   onCharactersChange,
   onSceneSettingsChange,
   onNext,
@@ -154,6 +158,11 @@ const CharacterSettings = ({
 
   const currentCharModel = CHAR_IMAGE_MODEL_OPTIONS.find((o) => o.value === charImageModel)!;
 
+  // Effective style: for "custom" artStyle, pass the custom prompt as the style string
+  const effectiveStyle = artStyle === "custom" && customArtStylePrompt?.trim()
+    ? `custom:${customArtStylePrompt.trim()}`
+    : artStyle;
+
   // ---- Character helpers ----
   const addCharacter = () => {
     onCharactersChange([
@@ -237,7 +246,7 @@ const CharacterSettings = ({
             invokeFunction("generate-character", {
               name: `${character.name} - ${freshCos?.label || cos.label}`,
               description: combinedDesc,
-              style: artStyle,
+              style: effectiveStyle,
               model: charImageModel,
               referenceImageUrl: isFirstCostume ? undefined : anchorImageUrl,
               viewMode: charViewMode,
@@ -310,7 +319,7 @@ const CharacterSettings = ({
       setGeneratingCharImgIds((prev) => new Set(prev).add(id));
       try {
         const { data, error } = await withTimeout(
-          invokeFunction("generate-character", { name: character.name, description: character.description, style: artStyle, model: charImageModel, viewMode: charViewMode }),
+          invokeFunction("generate-character", { name: character.name, description: character.description, style: effectiveStyle, model: charImageModel, viewMode: charViewMode }),
           CHAR_IMAGE_TIMEOUT_MS,
         );
         if (error) throw error;
@@ -418,7 +427,7 @@ const CharacterSettings = ({
               invokeFunction("generate-scene", {
                 name: `${scene.name} - ${freshTv?.label || tv.label}`,
                 description: combinedDesc,
-                style: artStyle,
+                style: effectiveStyle,
                 model: charImageModel,
                 referenceImageUrl: isFirstVariant ? undefined : anchorImageUrl,
               }),
@@ -487,7 +496,7 @@ const CharacterSettings = ({
       setGeneratingSceneImgIds((prev) => new Set(prev).add(id));
       try {
         const { data, error } = await withTimeout(
-          invokeFunction("generate-scene", { name: scene.name, description: scene.description, style: artStyle, model: charImageModel }),
+          invokeFunction("generate-scene", { name: scene.name, description: scene.description, style: effectiveStyle, model: charImageModel }),
           SCENE_IMAGE_TIMEOUT_MS,
         );
         if (error) throw error;
@@ -861,7 +870,7 @@ const CharacterSettings = ({
         try {
           const latest = charactersRef.current.find((ch) => ch.id === c.id);
           const { data, error } = await withTimeout(
-            invokeFunction("generate-character", { name: c.name, description: latest?.description || desc, style: artStyle, model: charImageModel, viewMode: charViewMode }),
+            invokeFunction("generate-character", { name: c.name, description: latest?.description || desc, style: effectiveStyle, model: charImageModel, viewMode: charViewMode }),
             CHAR_IMAGE_TIMEOUT_MS,
           );
           if (error) throw error;
@@ -920,7 +929,7 @@ const CharacterSettings = ({
             invokeFunction("generate-character", {
               name: `${c.name} - ${freshCos?.label || cos.label}`,
               description: combinedDesc,
-              style: artStyle,
+              style: effectiveStyle,
               model: charImageModel,
               referenceImageUrl: isFirstCostume ? undefined : costumeAnchorUrl,
               viewMode: charViewMode,
@@ -1033,7 +1042,7 @@ const CharacterSettings = ({
         try {
           const latest = sceneSettingsRef.current.find((sc) => sc.id === s.id);
           const { data, error } = await withTimeout(
-            invokeFunction("generate-scene", { name: s.name, description: latest?.description || desc, style: artStyle, model: charImageModel }),
+            invokeFunction("generate-scene", { name: s.name, description: latest?.description || desc, style: effectiveStyle, model: charImageModel }),
             SCENE_IMAGE_TIMEOUT_MS,
           );
           if (error) throw error;
@@ -1085,7 +1094,7 @@ const CharacterSettings = ({
             invokeFunction("generate-scene", {
               name: `${s.name} - ${freshTv?.label || tv.label}`,
               description: combinedDesc,
-              style: artStyle,
+              style: effectiveStyle,
               model: charImageModel,
               referenceImageUrl: isFirstVariant ? undefined : tvAnchorUrl,
             }),
@@ -1292,7 +1301,7 @@ const CharacterSettings = ({
         </div>
       )}
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {([
           { label: "写实类", styles: ["live-action", "hyper-cg"] as ArtStyle[] },
           { label: "三维动画类", styles: ["3d-cartoon", "2.5d-stylized", "anime-3d"] as ArtStyle[] },
@@ -1326,7 +1335,29 @@ const CharacterSettings = ({
             </div>
           );
         })}
+        <Button
+          variant={artStyle === "custom" ? "default" : "outline"}
+          size="sm"
+          className="text-sm"
+          onClick={() => onArtStyleChange("custom")}
+        >
+          {artStyle === "custom" ? "自定义 ✦" : "自定义"}
+        </Button>
       </div>
+
+      {/* Custom art style input */}
+      {artStyle === "custom" && (
+        <div className="flex items-start gap-2">
+          <Textarea
+            placeholder="输入自定义画风提示词，例如：水墨画风格，留白大量空间，笔触细腻，中国传统山水画意境..."
+            value={customArtStylePrompt || ""}
+            onChange={(e) => onCustomArtStylePromptChange?.(e.target.value)}
+            className="min-h-[60px] text-sm"
+            rows={2}
+          />
+        </div>
+      )}
+
 
       {/* Characters */}
       <div className="space-y-3">
@@ -1466,7 +1497,7 @@ const CharacterSettings = ({
             try {
               const combinedDesc = `${c.name}，${costume.label}：${costume.description || c.description}`;
               const { data, error } = await withTimeout(
-                invokeFunction("generate-character", { name: `${c.name} - ${costume.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl, viewMode: charViewMode }),
+                invokeFunction("generate-character", { name: `${c.name} - ${costume.label}`, description: combinedDesc, style: effectiveStyle, model: charImageModel, referenceImageUrl, viewMode: charViewMode }),
                 CHAR_IMAGE_TIMEOUT_MS,
               );
               if (error) throw error;
@@ -1852,7 +1883,7 @@ const CharacterSettings = ({
             try {
               const combinedDesc = `${s.name}，${tv.label}：${tv.description || s.description}`;
               const { data, error } = await withTimeout(
-                invokeFunction("generate-scene", { name: `${s.name} - ${tv.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl }),
+                invokeFunction("generate-scene", { name: `${s.name} - ${tv.label}`, description: combinedDesc, style: effectiveStyle, model: charImageModel, referenceImageUrl }),
                 SCENE_IMAGE_TIMEOUT_MS,
               );
               if (error) throw error;

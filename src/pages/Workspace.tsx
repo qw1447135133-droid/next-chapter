@@ -61,7 +61,18 @@ const Workspace = () => {
   const [sceneSettings, setSceneSettings] = useState<SceneSetting[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [artStyle, setArtStyle] = useState<ArtStyle>("live-action");
+  const [customArtStylePrompt, setCustomArtStylePromptState] = useState(() => {
+    try { return localStorage.getItem("custom-art-style-prompt") || ""; } catch { return ""; }
+  });
+  const setCustomArtStylePrompt = (v: string) => {
+    setCustomArtStylePromptState(v);
+    try { localStorage.setItem("custom-art-style-prompt", v); } catch { /* ignore */ }
+  };
   const [systemPrompt, setSystemPrompt] = useState("");
+  // Effective style for generation: custom art style passes the prompt directly
+  const effectiveStyle = artStyle === "custom" && customArtStylePrompt?.trim()
+    ? `custom:${customArtStylePrompt.trim()}`
+    : artStyle;
   const [videoPace, setVideoPaceState] = useState<import("@/types/project").VideoPace>(() => {
     try { return (localStorage.getItem("video-pace") as import("@/types/project").VideoPace) || "medium"; } catch { return "medium"; }
   });
@@ -753,7 +764,7 @@ const Workspace = () => {
         sceneName: scene.sceneName || "",
         sceneDescription: sceneSetting?.description || "",
         dialogue: scene.dialogue || "",
-        style: artStyle,
+        style: effectiveStyle,
         mode: "single",
         aspectRatio,
         model,
@@ -1229,7 +1240,9 @@ const Workspace = () => {
             characters={characters}
             sceneSettings={sceneSettings}
             artStyle={artStyle}
+            customArtStylePrompt={customArtStylePrompt}
             onArtStyleChange={setArtStyle}
+            onCustomArtStylePromptChange={setCustomArtStylePrompt}
             onCharactersChange={setCharacters}
             onSceneSettingsChange={setSceneSettings}
             onNext={() => safeGoToStep(skipStoryboard ? 4 : 3)}
@@ -1310,7 +1323,7 @@ const Workspace = () => {
         </div>
       </div>
 
-      <main className={`flex-1 ${currentStep === 3 || currentStep === 4 ? "max-w-7xl" : "max-w-4xl"} mx-auto w-full p-6`}>{renderStep()}</main>
+      <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-6">{renderStep()}</main>
     </div>
   );
 };

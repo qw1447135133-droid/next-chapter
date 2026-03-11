@@ -802,7 +802,7 @@ async function localGenerateCharacter(body: any) {
   if (!name) throw new Error("缺少角色名称");
 
   const characterDesc = description || name;
-  const styleDesc = CHAR_STYLE_MAP[style] || CHAR_STYLE_MAP["live-action"];
+  const styleDesc = style?.startsWith("custom:") ? style.slice(7) : (CHAR_STYLE_MAP[style] || CHAR_STYLE_MAP["live-action"]);
   const isSingleMode = viewMode === "single";
 
   const refImageNote = referenceImageUrl
@@ -893,7 +893,7 @@ async function localGenerateScene(body: any) {
   if (!name) throw new Error("缺少场景名称");
 
   const sceneDesc = description || name;
-  const styleDesc = SCENE_STYLE_MAP[style] || SCENE_STYLE_MAP["live-action"];
+  const styleDesc = style?.startsWith("custom:") ? style.slice(7) : (SCENE_STYLE_MAP[style] || SCENE_STYLE_MAP["live-action"]);
 
   const staticSceneRule = `\n\n⚠️ STATIC ENVIRONMENT ONLY — CRITICAL RULE ⚠️
 This image must depict ONLY the permanent, static environment — the architecture, landscape, terrain, vegetation, bodies of water, sky, and fixed structures.
@@ -979,7 +979,7 @@ async function localGenerateStoryboard(body: any) {
   const isPanorama = mode === "panorama";
   if (!description && !isPanorama) throw new Error("缺少分镜描述");
 
-  const styleDesc = STORYBOARD_STYLE_MAP[style] || STORYBOARD_STYLE_MAP["live-action"];
+  const styleDesc = style?.startsWith("custom:") ? style.slice(7) : (STORYBOARD_STYLE_MAP[style] || STORYBOARD_STYLE_MAP["live-action"]);
   let prompt: string;
 
   if (isPanorama) {

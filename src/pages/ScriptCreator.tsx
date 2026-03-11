@@ -243,7 +243,7 @@ const ScriptCreator = () => {
 
       {/* Step indicator */}
       <div className="border-b border-border/50 px-6 py-2">
-        <div className="flex items-center gap-1 max-w-4xl mx-auto overflow-x-auto">
+        <div className="flex items-center gap-1 max-w-7xl mx-auto overflow-x-auto">
           {DRAMA_STEPS.map((step, idx) => {
             const isCurrent = step === project.currentStep;
             const isDone = idx < currentStepIdx;
@@ -273,7 +273,7 @@ const ScriptCreator = () => {
         </div>
       </div>
 
-      <main className="flex-1 max-w-4xl mx-auto w-full p-6">
+      <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-6">
         {/* Model selector toolbar */}
         <div className="flex items-center justify-end mb-4">
           <Select value={model} onValueChange={handleModelChange}>
