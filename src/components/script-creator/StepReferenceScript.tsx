@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowRight, FileText, Upload, Sparkles, Loader2, CheckCircle2, PlayCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { callGemini, callGeminiStream, extractText } from "@/lib/gemini-client";
