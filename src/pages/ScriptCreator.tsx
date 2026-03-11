@@ -203,6 +203,18 @@ const ScriptCreator = () => {
             directory={project.directory}
             episodes={project.episodes}
             onUpdate={handleEpisodesUpdate}
+            onNext={() => goToStep("compliance")}
+          />
+        ) : null;
+      case "compliance":
+        return project.setup ? (
+          <StepCompliance
+            setup={project.setup}
+            creativePlan={project.creativePlan}
+            characters={project.characters}
+            episodes={project.episodes}
+            complianceReport={project.complianceReport || ""}
+            onUpdate={handleComplianceUpdate}
             onNext={() => goToStep("export")}
           />
         ) : null;
