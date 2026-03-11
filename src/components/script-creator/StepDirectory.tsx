@@ -155,6 +155,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                   showTranslation={showTranslation}
                   onTranslate={() => translate(directoryRaw)}
                   onClear={clearTranslation}
+                  onStop={stopTranslation}
                   disabled={editing}
                 />
                 <Button variant="outline" size="sm" onClick={() => editing ? handleEditSave() : setEditing(true)} className="gap-1.5">
