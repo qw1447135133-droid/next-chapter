@@ -21,9 +21,17 @@ function removeMermaid(text: string): string {
   return text.replace(/```mermaid\s*\n[\s\S]*?```\s*/g, "").trim();
 }
 
+/** Sanitise mermaid code – escape ampersands & problematic chars */
+function sanitiseMermaidCode(code: string): string {
+  return code
+    .replace(/&/g, "&amp;")
+    .replace(/[""]/g, '"');
+}
+
 /** Lazy mermaid renderer */
 function MermaidDiagram({ code }: { code: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [svg, setSvg] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -32,15 +40,20 @@ function MermaidDiagram({ code }: { code: string }) {
     (async () => {
       try {
         const mermaid = (await import("mermaid")).default;
-        mermaid.initialize({ startOnLoad: false, theme: "default" });
-        if (cancelled || !containerRef.current) return;
-        const id = `mermaid-${Date.now()}`;
-        const { svg } = await mermaid.render(id, code);
-        if (!cancelled && containerRef.current) {
-          containerRef.current.innerHTML = svg;
+        mermaid.initialize({ startOnLoad: false, theme: "default", securityLevel: "loose" });
+        if (cancelled) return;
+        const id = `mermaid-ct-${Date.now()}`;
+        const sanitised = sanitiseMermaidCode(code);
+        const { svg: rendered } = await mermaid.render(id, sanitised);
+        if (!cancelled) {
+          setSvg(rendered);
+          setError("");
         }
       } catch (e: any) {
-        if (!cancelled) setError(e?.message || "渲染失败");
+        if (!cancelled) {
+          setError(e?.message || "渲染失败");
+          setSvg("");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -49,8 +62,13 @@ function MermaidDiagram({ code }: { code: string }) {
   }, [code]);
 
   if (loading) return <p className="text-xs text-muted-foreground py-4 text-center">加载关系图中…</p>;
-  if (error) return <p className="text-xs text-destructive py-2">关系图渲染失败: {error}</p>;
-  return <div ref={containerRef} className="overflow-auto" />;
+  if (error) return (
+    <div className="text-xs text-muted-foreground p-3 border rounded bg-muted/30">
+      <p className="font-medium mb-1">关系图渲染失败</p>
+      <pre className="text-xs whitespace-pre-wrap">{code}</pre>
+    </div>
+  );
+  return <div ref={containerRef} className="overflow-auto border rounded-lg p-4 bg-background" dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
 interface StepCharacterTransformProps {
