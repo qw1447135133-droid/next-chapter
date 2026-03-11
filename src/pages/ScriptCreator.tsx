@@ -288,6 +288,7 @@ const ScriptCreator = () => {
           <StepStructureTransform
             setup={project.setup}
             referenceScript={project.referenceScript || ""}
+            referenceStructure={project.referenceStructure || ""}
             frameworkStyle={project.frameworkStyle || ""}
             structureTransform={project.structureTransform || ""}
             onStyleChange={handleFrameworkStyleChange}
