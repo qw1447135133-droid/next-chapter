@@ -320,6 +320,7 @@ function canAdvanceTo(project: DramaProject, step: DramaStep): boolean {
     case "characters": return !!project.creativePlan;
     case "directory": return !!project.characters;
     case "episodes": return project.directory.length > 0 || !!project.directoryRaw;
+    case "compliance": return project.episodes.length > 0;
     case "export": return project.episodes.length > 0;
     default: return false;
   }
