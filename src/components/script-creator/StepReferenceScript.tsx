@@ -375,9 +375,9 @@ ${structureParts.join("\n\n---\n\n")}
             {script && (
               <p className="text-xs text-muted-foreground mt-1">
                 共 {script.length} 字
-                {script.length > CHUNK_SIZE && (
+                {script.length > getChunkSize(script) && (
                   <span className="ml-2">
-                    （将分 {splitIntoChunks(script, CHUNK_SIZE).length} 段识别）
+                    （将分 {splitIntoChunks(script, getChunkSize(script)).length} 段识别）
                   </span>
                 )}
               </p>
