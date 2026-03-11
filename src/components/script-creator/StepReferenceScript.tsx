@@ -3,8 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { ArrowRight, FileText, Upload, Sparkles, Loader2 } from "lucide-react";
-import { callGemini, extractText } from "@/lib/gemini-client";
+import { callGemini, callGeminiStream, extractText } from "@/lib/gemini-client";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { TARGET_MARKETS, EPISODE_COUNTS, AUDIENCES, TONES, ENDINGS } from "@/types/drama";
@@ -13,10 +14,31 @@ import type { DramaSetup } from "@/types/drama";
 interface StepReferenceScriptProps {
   referenceScript: string;
   setup: DramaSetup | null;
-  onComplete: (referenceScript: string, setup: DramaSetup) => void;
+  onComplete: (referenceScript: string, setup: DramaSetup, referenceStructure: string) => void;
 }
 
 const ACCEPTED_TYPES = ".txt,.pdf,.doc,.docx";
+const CHUNK_SIZE = 10000; // ~10000 chars per chunk
+
+/** Split script into chunks for structure extraction */
+function splitIntoChunks(text: string, maxSize: number): string[] {
+  if (text.length <= maxSize) return [text];
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (remaining.length <= maxSize) {
+      chunks.push(remaining);
+      break;
+    }
+    // Try to split at a paragraph boundary
+    let splitIdx = remaining.lastIndexOf("\n\n", maxSize);
+    if (splitIdx < maxSize * 0.5) splitIdx = remaining.lastIndexOf("\n", maxSize);
+    if (splitIdx < maxSize * 0.5) splitIdx = maxSize;
+    chunks.push(remaining.slice(0, splitIdx));
+    remaining = remaining.slice(splitIdx).trimStart();
+  }
+  return chunks;
+}
 
 const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferenceScriptProps) => {
   const [script, setScript] = useState(referenceScript || "");
@@ -27,8 +49,12 @@ const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferen
   const [ending, setEnding] = useState(setup?.ending || "");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzed, setAnalyzed] = useState(false);
+  const [extractedStructure, setExtractedStructure] = useState("");
+  // Progress state
+  const [progress, setProgress] = useState({ current: 0, total: 0, phase: "" });
   const fileRef = useRef<HTMLInputElement | null>(null);
   const isUploading = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   // File upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -53,6 +79,7 @@ const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferen
         const text = await file.text();
         setScript(text);
         setAnalyzed(false);
+        setExtractedStructure("");
         toast({ title: "导入成功", description: `已导入 ${file.name}` });
       } catch {
         toast({ title: "读取失败", variant: "destructive" });
@@ -72,6 +99,7 @@ const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferen
       if (data?.error) throw new Error(data.error || "解析失败");
       setScript(data.text);
       setAnalyzed(false);
+      setExtractedStructure("");
       toast({ title: "导入成功", description: `已导入 ${file.name}` });
     } catch (err: any) {
       console.error("Document parse error:", err);
@@ -82,15 +110,22 @@ const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferen
     if (fileRef.current) fileRef.current.value = "";
   };
 
-  // AI auto-detect
+  // AI auto-detect + structure extraction
   const handleAnalyze = async () => {
     if (!script.trim() || script.trim().length < 50) {
       toast({ title: "剧本内容过短，无法识别", variant: "destructive" });
       return;
     }
     setIsAnalyzing(true);
+    setExtractedStructure("");
+    abortRef.current = new AbortController();
+    const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+
     try {
-      const prompt = `你是一位专业的短剧编辑。请分析以下剧本/故事文本，识别其基本属性。
+      // Phase 1: Config detection
+      setProgress({ current: 0, total: 1, phase: "识别配置项…" });
+
+      const configPrompt = `你是一位专业的短剧编辑。请分析以下剧本/故事文本，识别其基本属性。
 
 ## 剧本文本（前3000字）
 ${script.slice(0, 3000)}
@@ -107,15 +142,13 @@ ${script.slice(0, 3000)}
 
 **只输出 JSON，不要输出其他任何内容。**`;
 
-      const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
-      const data = await callGemini(
+      const configData = await callGemini(
         model,
-        [{ role: "user", parts: [{ text: prompt }] }],
+        [{ role: "user", parts: [{ text: configPrompt }] }],
         { maxOutputTokens: 2048 },
       );
-      const result = extractText(data);
-
-      const jsonMatch = result.match(/\{[\s\S]*\}/);
+      const configResult = extractText(configData);
+      const jsonMatch = configResult.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
         if (parsed.targetMarket) setTargetMarket(parsed.targetMarket);
@@ -123,17 +156,112 @@ ${script.slice(0, 3000)}
         if (parsed.tone) setTone(parsed.tone);
         if (parsed.ending) setEnding(parsed.ending);
         if (parsed.suggestedEpisodes) setTotalEpisodes(Number(parsed.suggestedEpisodes));
-        setAnalyzed(true);
-        toast({ title: "识别完成", description: parsed.reason || "已自动填充配置项" });
-      } else {
-        toast({ title: "识别失败", description: "无法解析 AI 返回结果", variant: "destructive" });
       }
+
+      // Phase 2: Structure extraction in chunks
+      const chunks = splitIntoChunks(script, CHUNK_SIZE);
+      const totalSteps = chunks.length;
+      const structureParts: string[] = [];
+
+      for (let i = 0; i < chunks.length; i++) {
+        if (abortRef.current?.signal.aborted) break;
+
+        setProgress({
+          current: i + 1,
+          total: totalSteps,
+          phase: `提取结构 ${i + 1}/${totalSteps}…`,
+        });
+
+        const isFirst = i === 0;
+        const isLast = i === chunks.length - 1;
+        const chunkPrompt = `你是一位专业的剧本分析师。请提炼以下剧本片段的叙事结构。
+
+${isFirst ? "" : `## 前文结构概要
+以下是前面片段已提取的结构，请衔接：
+${structureParts.join("\n\n").slice(-2000)}
+---
+`}
+## 剧本片段（第 ${i + 1}/${totalSteps} 段）
+${chunks[i]}
+
+## 提取要求
+请提炼出以下内容：
+1. **情节骨架**：按叙事顺序列出关键情节点（每个情节点一行，格式：序号. 情节描述）
+2. **核心冲突**：本段出现的主要矛盾冲突
+3. **人物关系变化**：本段中人物关系的关键变动
+4. **转折点/高潮**：如有重要转折或高潮点请标注
+5. **悬念/伏笔**：未解决的悬念或埋下的伏笔
+${isLast ? "\n6. **结局走向**：故事的最终走向和结局" : ""}
+
+用 Markdown 格式输出，简洁精炼，每个要点不超过2句话。`;
+
+        const chunkText = await callGeminiStream(
+          model,
+          [{ role: "user", parts: [{ text: chunkPrompt }] }],
+          () => {},
+          { maxOutputTokens: 4096 },
+          abortRef.current.signal,
+        );
+
+        structureParts.push(`### 第 ${i + 1} 段结构\n${chunkText}`);
+      }
+
+      if (abortRef.current?.signal.aborted) {
+        toast({ title: "已停止识别" });
+        setIsAnalyzing(false);
+        return;
+      }
+
+      // Phase 3: Merge structure if multiple chunks
+      let finalStructure: string;
+      if (structureParts.length === 1) {
+        finalStructure = structureParts[0].replace(/^###.*\n/, "");
+      } else {
+        setProgress({ current: totalSteps, total: totalSteps, phase: "合并结构…" });
+
+        const mergePrompt = `你是一位专业的剧本分析师。以下是一部长剧本分段提取的叙事结构，请将它们合并为一份完整、连贯的结构分析报告。
+
+${structureParts.join("\n\n---\n\n")}
+
+## 合并要求
+请输出一份完整的结构报告，包含：
+1. **故事主线概要**（200字以内）
+2. **完整情节骨架**（按叙事顺序，编号列出所有关键情节点）
+3. **核心矛盾冲突**（主线冲突 + 副线冲突）
+4. **人物关系网**（列出主要人物及其关系）
+5. **三幕结构拆解**（起承转合的集数范围和核心事件）
+6. **转折点与高潮标注**
+7. **悬念/伏笔清单**
+8. **结局走向**
+
+用 Markdown 格式输出，清晰分区。`;
+
+        finalStructure = await callGeminiStream(
+          model,
+          [{ role: "user", parts: [{ text: mergePrompt }] }],
+          () => {},
+          { maxOutputTokens: 8192 },
+          abortRef.current.signal,
+        );
+      }
+
+      setExtractedStructure(finalStructure);
+      setAnalyzed(true);
+      setProgress({ current: 0, total: 0, phase: "" });
+      toast({ title: "识别完成", description: "已提取剧本结构和配置项" });
     } catch (e: any) {
-      toast({ title: "识别失败", description: e?.message, variant: "destructive" });
+      if (e?.message?.includes("取消") || e?.name === "AbortError") {
+        toast({ title: "已停止识别" });
+      } else {
+        toast({ title: "识别失败", description: e?.message, variant: "destructive" });
+      }
     } finally {
       setIsAnalyzing(false);
+      abortRef.current = null;
     }
   };
+
+  const handleStop = () => abortRef.current?.abort();
 
   const handleSubmit = () => {
     if (!script.trim()) {
@@ -156,7 +284,7 @@ ${script.slice(0, 3000)}
       totalEpisodes: totalEpisodes || 60,
       targetMarket: targetMarket || "cn",
     };
-    onComplete(script, dramaSetup);
+    onComplete(script, dramaSetup, extractedStructure);
   };
 
   const findLabel = (list: readonly { value: string; label: string }[], val: string) =>
@@ -165,6 +293,10 @@ ${script.slice(0, 3000)}
   const episodeLabel = totalEpisodes
     ? (EPISODE_COUNTS.find((e) => e.value === totalEpisodes)?.label || `${totalEpisodes}集`)
     : "";
+
+  const progressPct = progress.total > 0
+    ? Math.round((progress.current / (progress.total + 1)) * 100)
+    : 0;
 
   return (
     <div className="space-y-4">
@@ -187,44 +319,81 @@ ${script.slice(0, 3000)}
               size="sm"
               className="gap-1.5"
               onClick={() => fileRef.current?.click()}
+              disabled={isAnalyzing}
             >
               <Upload className="h-3.5 w-3.5" />
               上传文档
             </Button>
-            <Button
-              variant={analyzed ? "outline" : "default"}
-              size="sm"
-              className="gap-1.5"
-              onClick={handleAnalyze}
-              disabled={!script.trim() || isAnalyzing}
-            >
-              {isAnalyzing ? (
+            {isAnalyzing ? (
+              <Button
+                variant="destructive"
+                size="sm"
+                className="gap-1.5"
+                onClick={handleStop}
+              >
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
+                停止识别
+              </Button>
+            ) : (
+              <Button
+                variant={analyzed ? "outline" : "default"}
+                size="sm"
+                className="gap-1.5"
+                onClick={handleAnalyze}
+                disabled={!script.trim()}
+              >
                 <Sparkles className="h-3.5 w-3.5" />
-              )}
-              {isAnalyzing ? "识别中…" : analyzed ? "重新识别" : "AI 识别剧本"}
-            </Button>
+                {analyzed ? "重新识别" : "AI 识别剧本"}
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
             <Label className="text-sm text-muted-foreground mb-2 block">
-              粘贴文本或上传文档（TXT / PDF / Word），点击"AI 识别剧本"自动分析配置
+              粘贴文本或上传文档（TXT / PDF / Word），点击"AI 识别剧本"自动分析配置并提取结构
             </Label>
             <Textarea
               value={script}
-              onChange={(e) => { setScript(e.target.value); setAnalyzed(false); }}
+              onChange={(e) => { setScript(e.target.value); setAnalyzed(false); setExtractedStructure(""); }}
               placeholder="在此粘贴参考剧本原文……&#10;&#10;可以是完整剧本、小说节选、故事大纲等任何叙事文本"
               rows={16}
               className="font-mono text-sm"
+              disabled={isAnalyzing}
             />
             {script && (
               <p className="text-xs text-muted-foreground mt-1">
                 共 {script.length} 字
+                {script.length > CHUNK_SIZE && (
+                  <span className="ml-2">
+                    （将分 {splitIntoChunks(script, CHUNK_SIZE).length} 段识别）
+                  </span>
+                )}
               </p>
             )}
           </div>
+
+          {/* Progress bar */}
+          {isAnalyzing && progress.total > 0 && (
+            <div className="space-y-2 border rounded-lg p-3 bg-muted/20">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">{progress.phase}</span>
+                <span className="font-mono text-muted-foreground">{progressPct}%</span>
+              </div>
+              <Progress value={progressPct} className="h-2" />
+            </div>
+          )}
+
+          {/* Extracted structure preview */}
+          {extractedStructure && !isAnalyzing && (
+            <div className="border rounded-lg p-3 bg-muted/20 space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground">📋 已提取结构（将用于结构转换）</p>
+              <pre className="whitespace-pre-wrap text-xs leading-relaxed font-sans text-foreground/80 max-h-[200px] overflow-auto">
+                {extractedStructure.slice(0, 1000)}
+                {extractedStructure.length > 1000 && "…"}
+              </pre>
+            </div>
+          )}
 
           {/* Read-only config display */}
           <div>
@@ -266,7 +435,7 @@ ${script.slice(0, 3000)}
       </Card>
 
       <div className="flex justify-end">
-        <Button onClick={handleSubmit} className="gap-2" disabled={!script.trim() || !analyzed}>
+        <Button onClick={handleSubmit} className="gap-2" disabled={!script.trim() || !analyzed || isAnalyzing}>
           确认参考剧本，进入结构转换
           <ArrowRight className="h-4 w-4" />
         </Button>
