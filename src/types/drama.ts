@@ -173,22 +173,29 @@ export interface EpisodeScript {
 
 export interface DramaProject {
   id: string;
+  mode: DramaMode;
   setup: DramaSetup | null;
-  creativePlan: string;        // markdown content
-  characters: string;          // markdown content
+  creativePlan: string;
+  characters: string;
   directory: EpisodeEntry[];
-  directoryRaw: string;        // raw markdown
+  directoryRaw: string;
   episodes: EpisodeScript[];
-  complianceReport: string;    // compliance review markdown
+  complianceReport: string;
   currentStep: DramaStep;
   dramaTitle: string;
   createdAt: string;
   updatedAt: string;
+  // Adaptation mode fields
+  referenceScript?: string;
+  frameworkStyle?: string;
+  structureTransform?: string;
+  characterTransform?: string;
 }
 
-export function createEmptyDramaProject(): DramaProject {
+export function createEmptyDramaProject(mode: DramaMode = "traditional"): DramaProject {
   return {
     id: crypto.randomUUID(),
+    mode,
     setup: null,
     creativePlan: "",
     characters: "",
@@ -196,9 +203,13 @@ export function createEmptyDramaProject(): DramaProject {
     directoryRaw: "",
     episodes: [],
     complianceReport: "",
-    currentStep: "setup",
+    currentStep: mode === "traditional" ? "setup" : "reference-script",
     dramaTitle: "",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    referenceScript: "",
+    frameworkStyle: "",
+    structureTransform: "",
+    characterTransform: "",
   };
 }
