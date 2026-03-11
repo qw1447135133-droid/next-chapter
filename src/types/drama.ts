@@ -187,6 +187,7 @@ export interface DramaProject {
   updatedAt: string;
   // Adaptation mode fields
   referenceScript?: string;
+  referenceStructure?: string; // Extracted structure from reference script
   frameworkStyle?: string;
   structureTransform?: string;
   characterTransform?: string;
