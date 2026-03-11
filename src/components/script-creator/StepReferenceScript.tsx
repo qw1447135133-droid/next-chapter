@@ -169,7 +169,8 @@ ${script.slice(0, 3000)}
       }
 
       // Phase 2: Structure extraction in chunks
-      const chunks = splitIntoChunks(script, CHUNK_SIZE);
+      const chunkSize = getChunkSize(script);
+      const chunks = splitIntoChunks(script, chunkSize);
       const totalSteps = chunks.length;
       const structureParts: string[] = [];
 
