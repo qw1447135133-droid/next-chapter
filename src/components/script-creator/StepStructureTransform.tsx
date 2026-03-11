@@ -46,13 +46,16 @@ const StepStructureTransform = ({
       toast({ title: "请先选择框架风格方向", variant: "destructive" });
       return;
     }
+    if (!referenceStructure) {
+      toast({ title: "请先在"参考剧本"步骤完成识别，提取原文结构", variant: "destructive" });
+      return;
+    }
     onStyleChange(selectedStyle);
     setIsGenerating(true);
     setStreamingText("");
     abortRef.current = new AbortController();
     try {
-      const transformInput = referenceStructure || referenceScript;
-      const prompt = buildStructureTransformPrompt(setup, transformInput, selectedStyle);
+      const prompt = buildStructureTransformPrompt(setup, referenceStructure, selectedStyle);
       const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
       const finalText = await callGeminiStream(
         model,
