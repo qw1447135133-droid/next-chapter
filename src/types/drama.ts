@@ -121,8 +121,10 @@ export interface EpisodeEntry {
   title: string;
   summary: string;
   hookType: string;
-  isKey: boolean;    // 🔥
-  isClimax: boolean; // ⚡ 高潮卡点
+  isKey: boolean;      // 🔥
+  isClimax: boolean;   // ⚡ 高潮卡点
+  isPaywall: boolean;  // 💰 付费卡点
+  emotionLevel?: number; // 1-5 情绪强度
 }
 
 export interface EpisodeVersion {
