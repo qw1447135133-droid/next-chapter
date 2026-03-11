@@ -129,6 +129,14 @@ const StepCharacterTransform = ({
             )}
             {characterTransform && !isGenerating && (
               <>
+                <TranslateToggle
+                  isNonChinese={nonChinese}
+                  isTranslating={isTranslating}
+                  showTranslation={showTranslation}
+                  onTranslate={() => translate(removeMermaid(characterTransform))}
+                  onClear={clearTranslation}
+                  disabled={editing}
+                />
                 <Button
                   variant="outline"
                   size="sm"
