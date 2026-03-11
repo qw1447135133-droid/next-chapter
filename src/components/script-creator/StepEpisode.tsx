@@ -677,9 +677,13 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
             )}
 
             {selectedScript ? (
-              <>
-                {/* Scene-by-scene view with regen buttons */}
-                {scenes.length > 0 ? (
+            <>
+              {/* Translation interleaved view */}
+              {showTranslation && translatedMap.has(selectedScript.content) ? (
+                <div className="max-h-[600px] overflow-auto">
+                  <InterleavedText text={selectedScript.content} translatedLines={translatedMap.get(selectedScript.content)!} />
+                </div>
+              ) : scenes.length > 0 ? (
                   <div className="space-y-4">
                     {/* Preamble */}
                     {(() => {
