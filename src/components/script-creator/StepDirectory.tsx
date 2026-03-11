@@ -53,6 +53,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
   const [editing, setEditing] = useState(false);
   const [rawText, setRawText] = useState(directoryRaw);
   const abortRef = useRef<AbortController | null>(null);
+  const scrollRef = useAutoScroll<HTMLPreElement>(isGenerating, streamingText);
   const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress, canResume: transCanResume, resumeTranslation } = useTranslation();
   const nonChinese = isNonChineseText(directoryRaw);
 
