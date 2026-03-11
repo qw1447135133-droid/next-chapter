@@ -69,6 +69,10 @@ const Workspace = () => {
     try { localStorage.setItem("custom-art-style-prompt", v); } catch { /* ignore */ }
   };
   const [systemPrompt, setSystemPrompt] = useState("");
+  // Effective style for generation: custom art style passes the prompt directly
+  const effectiveStyle = artStyle === "custom" && customArtStylePrompt?.trim()
+    ? `custom:${customArtStylePrompt.trim()}`
+    : artStyle;
   const [videoPace, setVideoPaceState] = useState<import("@/types/project").VideoPace>(() => {
     try { return (localStorage.getItem("video-pace") as import("@/types/project").VideoPace) || "medium"; } catch { return "medium"; }
   });
