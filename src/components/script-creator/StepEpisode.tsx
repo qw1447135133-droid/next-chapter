@@ -677,6 +677,8 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
               </div>
             )}
 
+            {isTranslating && <TranslationProgress progress={transProgress} />}
+
             {selectedScript ? (
             <>
               {/* Translation interleaved view */}
