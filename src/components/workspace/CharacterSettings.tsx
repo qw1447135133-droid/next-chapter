@@ -1356,7 +1356,8 @@ const CharacterSettings = ({
             rows={2}
           />
         </div>
-      )
+      )}
+
 
       {/* Characters */}
       <div className="space-y-3">
