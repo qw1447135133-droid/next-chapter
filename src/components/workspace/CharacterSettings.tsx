@@ -1724,7 +1724,7 @@ const CharacterSettings = ({
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <ImageIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="text-xs text-muted-foreground font-medium">{c.isAIGenerated ? "AI 生成三视图（正面·侧面·背面·特写）" : "上传人设图"}</span>
+                      <span className="text-xs text-muted-foreground font-medium">{c.isAIGenerated ? (charViewMode === "single" ? "AI 生成角色正面单图" : "AI 生成三视图（正面·侧面·背面·特写）") : "上传人设图"}</span>
                     </div>
                     <ImageHistoryDialog
                       history={c.imageHistory || []}
