@@ -895,18 +895,33 @@ async function localGenerateScene(body: any) {
   const sceneDesc = description || name;
   const styleDesc = SCENE_STYLE_MAP[style] || SCENE_STYLE_MAP["live-action"];
 
+  const staticSceneRule = `\n\n⚠️ STATIC ENVIRONMENT ONLY — CRITICAL RULE ⚠️
+This image must depict ONLY the permanent, static environment — the architecture, landscape, terrain, vegetation, bodies of water, sky, and fixed structures.
+DO NOT include ANY of the following:
+- Characters, people, creatures, monsters, animals, or any living beings
+- Temporary or dynamic objects from the story (e.g. tentacles, magic effects, explosions, blood, weapons, floating objects)
+- Any narrative-specific elements that are NOT a permanent part of the physical location
+Think of this as an "empty stage" — show only what would exist in this location when no story events are occurring.`;
+
   const refNote = referenceImageUrl
-    ? `\n\n⚠️ SCENE IDENTITY LOCK — HIGHEST PRIORITY ⚠️
-The attached reference image shows the EXACT SAME location/scene. You MUST produce an image of the SAME place — this is non-negotiable.
+    ? `\n\n⚠️ SCENE IDENTITY LOCK — HIGHEST PRIORITY — NON-NEGOTIABLE ⚠️
+The attached reference image shows the EXACT SAME location. You MUST reproduce this IDENTICAL place. Any deviation is a failure.
 
-MANDATORY SCENE CONSTRAINTS:
-- ARCHITECTURE: Preserve the EXACT same buildings, structures, room layout, walls, doors, windows, furniture arrangement.
-- CAMERA ANGLE: Use the SAME camera position, angle, and framing as the reference image. The viewpoint MUST match.
-- SPATIAL LAYOUT: Same depth, proportions, distances between elements.
-- MATERIALS & TEXTURES: Same wall materials, floor surfaces, decorative elements, props.
-- STYLE: Same art style and rendering quality.
+PIXEL-LEVEL MANDATORY CONSTRAINTS:
+1. ARCHITECTURE & STRUCTURES: Copy the EXACT same buildings, walls, roofs, bridges, doors, windows, pillars, fences — every structural element must match in shape, size, and position.
+2. CAMERA ANGLE & FRAMING: Use the EXACT SAME camera position, height, tilt, and focal length. The perspective lines, vanishing points, and field of view MUST be identical. Imagine the camera is bolted to a tripod — it cannot move.
+3. SPATIAL LAYOUT & COMPOSITION: Same depth relationships, same proportions, same distances between all elements. Objects in foreground/midground/background must occupy the same screen positions.
+4. MATERIALS & SURFACES: Same textures on walls, ground, water, roofs. Same decorative elements and permanent props.
+5. VEGETATION & LANDSCAPE: Same trees, bushes, grass patches, rock formations in the same positions.
+6. ART STYLE: Identical rendering technique, line quality, and color palette base.
 
-ONLY CHANGE: The time of day, lighting, weather, and atmosphere as described (e.g. dawn → dusk, clear → rainy). The physical environment and camera angle MUST remain identical.`
+THE ONLY PERMITTED CHANGES:
+- Time of day (dawn/day/dusk/night)
+- Lighting direction, color temperature, and shadow angles
+- Weather conditions (clear/cloudy/rainy/snowy/foggy)
+- Atmospheric mood and sky appearance
+
+Everything else — structure, angle, layout, composition — MUST be a perfect match.`
     : "";
 
   const prompt = `Create a detailed, high-quality background/environment concept art for a scene called "${name}".
@@ -915,7 +930,7 @@ Scene description: ${sceneDesc}
 
 Art style: ${styleDesc}.
 
-This is a wide establishing shot showing the full environment. Focus on atmosphere, lighting, and mood. No characters or people in the scene - only the environment/location itself. Professional concept art quality.${refNote}`;
+This is a wide establishing shot showing the full environment. Focus on atmosphere, lighting, and mood. Professional concept art quality.${staticSceneRule}${refNote}`;
 
   const selectedModel = model || "gemini-3-pro-image-preview";
   const isSeedream = selectedModel.startsWith("doubao-seedream");
