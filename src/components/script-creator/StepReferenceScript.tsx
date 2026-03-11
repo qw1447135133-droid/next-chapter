@@ -4,9 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ArrowRight, FileText, Upload, Sparkles, Loader2 } from "lucide-react";
+import { callGemini, extractText } from "@/lib/gemini-client";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { callGeminiStream } from "@/lib/gemini-client";
 import { TARGET_MARKETS, EPISODE_COUNTS, AUDIENCES, TONES, ENDINGS } from "@/types/drama";
 import type { DramaSetup } from "@/types/drama";
 
@@ -108,12 +108,12 @@ ${script.slice(0, 3000)}
 **只输出 JSON，不要输出其他任何内容。**`;
 
       const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
-      const result = await callGeminiStream(
+      const data = await callGemini(
         model,
         [{ role: "user", parts: [{ text: prompt }] }],
-        () => {},
-        { maxOutputTokens: 512 },
+        { maxOutputTokens: 2048 },
       );
+      const result = extractText(data);
 
       const jsonMatch = result.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
