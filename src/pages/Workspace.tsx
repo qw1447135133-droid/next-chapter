@@ -764,7 +764,7 @@ const Workspace = () => {
         sceneName: scene.sceneName || "",
         sceneDescription: sceneSetting?.description || "",
         dialogue: scene.dialogue || "",
-        style: artStyle,
+        style: effectiveStyle,
         mode: "single",
         aspectRatio,
         model,
