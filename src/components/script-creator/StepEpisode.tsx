@@ -573,6 +573,13 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                 onMouseEnter={() => setHoverEpisodeRegen(true)}
                 onMouseLeave={() => setHoverEpisodeRegen(false)}
               >
+                <TranslateToggle
+                  isNonChinese={isNonChineseText(selectedScript.content)}
+                  isTranslating={isTranslating}
+                  showTranslation={showTranslation}
+                  onTranslate={() => translate(selectedScript.content)}
+                  onClear={clearTranslation}
+                />
                 {(selectedScript.history?.length ?? 0) > 0 && (
                   <Button
                     variant="outline"
