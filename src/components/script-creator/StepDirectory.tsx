@@ -139,7 +139,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
             分集目录
             {directory.length > 0 && (
               <span className="text-sm font-normal text-muted-foreground ml-2">
-                共 {directory.length} 集 · 🔥{keyCount} · ⚡{climaxCount}
+                共 {directory.length} 集 · 🔥{keyCount} · ⚡{climaxCount} · 💰{paywallCount}
               </span>
             )}
           </CardTitle>
