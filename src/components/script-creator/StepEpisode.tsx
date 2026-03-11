@@ -1045,10 +1045,67 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                       if (epsWithIssues.length === 0) return null;
                       return (
                         <div className="space-y-2">
-                          <p className="text-sm font-semibold">📋 问题汇总</p>
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-semibold">📋 问题汇总</p>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5 text-xs"
+                              disabled={isGenerating}
+                              onClick={() => {
+                                // Find lowest scoring episodes and fix them
+                                const toFix = entries
+                                  .filter(([, r]) => r.total < 38 || r.issues.some(i => i.level === "⛔"))
+                                  .slice(0, 3);
+                                if (toFix.length === 0) {
+                                  toast({ title: "所有集数质量达标，无需修复" });
+                                  return;
+                                }
+                                setShowBatchReviewDialog(false);
+                                // Fix the first problematic episode
+                                const [epNum, result] = toFix[0];
+                                const parts: string[] = ["【批量审查发现的问题】"];
+                                result.issues.forEach(issue => parts.push(`${issue.level} ${issue.description}`));
+                                result.suggestions.forEach((s, i) => parts.push(`${i + 1}. ${s}`));
+                                const lowScores = Object.entries(result.scores)
+                                  .filter(([, val]) => val.score <= 6)
+                                  .map(([key, val]) => `${DIMENSION_LABELS[key] || key}（${val.score}/10）：${val.comment}`);
+                                if (lowScores.length > 0) parts.push("【需重点提升】", ...lowScores);
+                                const instruction = parts.join("\n");
+                                setEpisodeRegenInstruction(instruction);
+                                setRangeInput(String(epNum));
+                                handleGenerate(String(epNum), instruction);
+                                toast({ title: `开始修复第 ${epNum} 集（共 ${toFix.length} 集需修复）` });
+                              }}
+                            >
+                              <Wrench className="h-3 w-3" />
+                              一键修复最差集
+                            </Button>
+                          </div>
                           {epsWithIssues.map(([epNum, r]) => (
                             <div key={epNum} className="border rounded-lg p-2 space-y-1">
-                              <p className="text-xs font-medium">第 {epNum} 集（{r.grade} · {r.total}分）</p>
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs font-medium">第 {epNum} 集（{r.grade} · {r.total}分）</p>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 text-xs gap-1"
+                                  disabled={isGenerating}
+                                  onClick={() => {
+                                    setShowBatchReviewDialog(false);
+                                    const parts: string[] = ["【质量审查发现的问题】"];
+                                    r.issues.forEach(issue => parts.push(`${issue.level} ${issue.description}`));
+                                    r.suggestions.forEach((s, i) => parts.push(`${i + 1}. ${s}`));
+                                    const instruction = parts.join("\n");
+                                    setEpisodeRegenInstruction(instruction);
+                                    setRangeInput(String(epNum));
+                                    handleGenerate(String(epNum), instruction);
+                                  }}
+                                >
+                                  <Wrench className="h-3 w-3" />
+                                  修复
+                                </Button>
+                              </div>
                               <ul className="text-xs space-y-0.5">
                                 {r.issues.map((issue, i) => (
                                   <li key={i} className="flex gap-1.5">
