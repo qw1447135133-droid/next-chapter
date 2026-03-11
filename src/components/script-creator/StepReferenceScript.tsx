@@ -298,7 +298,7 @@ ${isLast ? "\n6. **结局走向**：故事的最终走向和结局" : ""}
       if (structureParts.length === 1) {
         finalStructure = structureParts[0].replace(/^###.*\n/, "");
       } else {
-        setProgress({ current: totalSteps, total: totalSteps, phase: "合并结构…" });
+        setProgress({ done: 1 + chunks.length, total: totalSteps, processing: true, phase: "合并结构…" });
 
         const mergePrompt = `你是一位专业的剧本分析师。以下是一部长剧本分段提取的叙事结构，请将它们合并为一份完整、连贯的结构分析报告。
 
