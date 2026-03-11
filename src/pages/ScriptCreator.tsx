@@ -133,7 +133,15 @@ const ScriptCreator = () => {
 
   const handlePlanUpdate = (plan: string) => {
     const title = extractTitle(plan) || project.dramaTitle;
-    setProject((p) => ({ ...p, creativePlan: plan, dramaTitle: title }));
+    setProject((p) => ({
+      ...p,
+      creativePlan: plan,
+      dramaTitle: title,
+      characters: "",
+      directory: [],
+      directoryRaw: "",
+      episodes: [],
+    }));
   };
 
   const handleCharactersUpdate = (characters: string) => {
