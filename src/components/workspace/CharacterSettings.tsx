@@ -240,6 +240,7 @@ const CharacterSettings = ({
               style: artStyle,
               model: charImageModel,
               referenceImageUrl: isFirstCostume ? undefined : anchorImageUrl,
+              viewMode: charViewMode,
             }),
             CHAR_IMAGE_TIMEOUT_MS,
           );
