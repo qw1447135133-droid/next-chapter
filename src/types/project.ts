@@ -93,7 +93,7 @@ export interface Project {
   updatedAt: string;
 }
 
-export type ArtStyle = 'live-action' | 'hyper-cg' | '3d-cartoon' | '2.5d-stylized' | 'anime-3d' | 'cel-animation' | 'retro-comic';
+export type ArtStyle = 'live-action' | 'hyper-cg' | '3d-cartoon' | '2.5d-stylized' | 'anime-3d' | 'cel-animation' | 'retro-comic' | 'custom';
 
 export const ART_STYLE_LABELS: Record<ArtStyle, string> = {
   'live-action': '真人影视',
@@ -103,6 +103,7 @@ export const ART_STYLE_LABELS: Record<ArtStyle, string> = {
   'anime-3d': '三渲二动漫',
   'cel-animation': '传统赛璐璐',
   'retro-comic': '美式复古漫画风',
+  'custom': '自定义',
 };
 
 export type VideoModel = 'seedance-1.5-pro' | 'vidu-q3' | 'kling-v3';

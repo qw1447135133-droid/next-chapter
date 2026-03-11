@@ -1317,7 +1317,7 @@ const Workspace = () => {
         </div>
       </div>
 
-      <main className={`flex-1 ${currentStep === 3 || currentStep === 4 ? "max-w-7xl" : "max-w-4xl"} mx-auto w-full p-6`}>{renderStep()}</main>
+      <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-6">{renderStep()}</main>
     </div>
   );
 };
