@@ -7,7 +7,7 @@ import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildCompliancePrompt } from "@/lib/drama-prompts";
 import type { DramaSetup, EpisodeScript } from "@/types/drama";
-import { useTranslation, InterleavedText, TranslateToggle, isNonChineseText } from "./TranslateButton";
+import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "./TranslateButton";
 
 interface StepComplianceProps {
   setup: DramaSetup;
