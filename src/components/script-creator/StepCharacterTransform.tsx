@@ -77,7 +77,7 @@ const StepCharacterTransform = ({
   const [showComparison, setShowComparison] = useState(false);
   const [showDiagram, setShowDiagram] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
-  const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress } = useTranslation();
+  const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress, canResume: transCanResume, resumeTranslation } = useTranslation();
   const nonChinese = isNonChineseText(characterTransform);
 
   const handleGenerate = async () => {
