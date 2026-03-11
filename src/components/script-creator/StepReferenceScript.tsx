@@ -375,9 +375,14 @@ ${structureParts.join("\n\n---\n\n")}
     ? (EPISODE_COUNTS.find((e) => e.value === totalEpisodes)?.label || `${totalEpisodes}集`)
     : "";
 
-  const progressPct = progress.total > 0
-    ? parseFloat(((progress.current / (progress.total + 1)) * 100).toFixed(1))
+  const ceilPercent = progress.total > 0
+    ? ((progress.done + (progress.processing ? 1 : 0)) / progress.total) * 100
     : 0;
+  const floorPercent = progress.total > 0
+    ? (progress.done / progress.total) * 100
+    : 0;
+  const animatedPct = useAnimatedProgress(ceilPercent, floorPercent, progress.processing);
+  const isComplete = progress.done === progress.total && !progress.processing && progress.total > 0;
 
   return (
     <div className="space-y-4">
