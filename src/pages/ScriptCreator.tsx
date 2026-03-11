@@ -1,15 +1,17 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, PenTool, Settings, Cpu } from "lucide-react";
+import { ArrowLeft, PenTool, Settings, Cpu, BookOpen, Repeat2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import {
   type DramaProject,
   type DramaStep,
   type DramaSetup,
+  type DramaMode,
   type EpisodeEntry,
   type EpisodeScript,
   DRAMA_STEPS,
+  ADAPTATION_STEPS,
   DRAMA_STEP_LABELS,
   createEmptyDramaProject,
 } from "@/types/drama";
@@ -20,6 +22,9 @@ import StepDirectory from "@/components/script-creator/StepDirectory";
 import StepEpisode from "@/components/script-creator/StepEpisode";
 import StepExport from "@/components/script-creator/StepExport";
 import StepCompliance from "@/components/script-creator/StepCompliance";
+import StepReferenceScript from "@/components/script-creator/StepReferenceScript";
+import StepStructureTransform from "@/components/script-creator/StepStructureTransform";
+import StepCharacterTransform from "@/components/script-creator/StepCharacterTransform";
 
 const DRAMA_PROJECTS_KEY = "storyforge_drama_projects";
 
@@ -90,12 +95,16 @@ const ScriptCreator = () => {
   const [project, setProject] = useState<DramaProject>(() => {
     if (resumeId) {
       const loaded = loadProjectById(resumeId);
-      if (loaded) return loaded;
+      if (loaded) return { ...loaded, mode: loaded.mode || "traditional" };
     }
-    // Try loading last active project
     const projects = getDramaProjects();
-    if (projects.length > 0) return projects[0];
+    if (projects.length > 0) return { ...projects[0], mode: projects[0].mode || "traditional" };
     return createEmptyDramaProject();
+  });
+
+  // Show mode selector only when project is brand new (no progress)
+  const [showModeSelector, setShowModeSelector] = useState(() => {
+    return !resumeId && !project.setup && !project.referenceScript && !project.creativePlan;
   });
 
   const [model, setModel] = useState(() => localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview");
@@ -105,7 +114,6 @@ const ScriptCreator = () => {
     localStorage.setItem("decompose-model", value);
   };
 
-  // Persist to localStorage list on change (debounced)
   useEffect(() => {
     const timer = setTimeout(() => {
       upsertDramaProject(project);
@@ -113,7 +121,8 @@ const ScriptCreator = () => {
     return () => clearTimeout(timer);
   }, [project]);
 
-  const currentStepIdx = DRAMA_STEPS.indexOf(project.currentStep);
+  const steps = project.mode === "adaptation" ? ADAPTATION_STEPS : DRAMA_STEPS;
+  const currentStepIdx = steps.indexOf(project.currentStep);
 
   const goToStep = (step: DramaStep) => {
     setProject((p) => ({ ...p, currentStep: step }));
@@ -127,8 +136,24 @@ const ScriptCreator = () => {
     return "";
   }, []);
 
+  const handleModeSelect = (mode: DramaMode) => {
+    const newProj = createEmptyDramaProject(mode);
+    setProject(newProj);
+    setShowModeSelector(false);
+    navigate("/script-creator", { replace: true });
+  };
+
   const handleSetupComplete = (setup: DramaSetup) => {
     setProject((p) => ({ ...p, setup, currentStep: "creative-plan" }));
+  };
+
+  const handleReferenceScriptComplete = (referenceScript: string, setup: DramaSetup) => {
+    setProject((p) => ({
+      ...p,
+      referenceScript,
+      setup,
+      currentStep: "structure-transform",
+    }));
   };
 
   const handlePlanUpdate = (plan: string) => {
@@ -141,6 +166,33 @@ const ScriptCreator = () => {
       directory: [],
       directoryRaw: "",
       episodes: [],
+    }));
+  };
+
+  const handleStructureTransformUpdate = (content: string) => {
+    const title = extractTitle(content) || project.dramaTitle;
+    setProject((p) => ({
+      ...p,
+      structureTransform: content,
+      creativePlan: content, // Also set as creativePlan for downstream steps
+      dramaTitle: title,
+      characterTransform: "",
+      characters: "",
+      directory: [],
+      directoryRaw: "",
+      episodes: [],
+    }));
+  };
+
+  const handleFrameworkStyleChange = (style: string) => {
+    setProject((p) => ({ ...p, frameworkStyle: style }));
+  };
+
+  const handleCharacterTransformUpdate = (content: string) => {
+    setProject((p) => ({
+      ...p,
+      characterTransform: content,
+      characters: content, // Also set as characters for downstream steps
     }));
   };
 
@@ -162,16 +214,62 @@ const ScriptCreator = () => {
 
   const handleNewProject = () => {
     if (confirm("确定要新建项目吗？")) {
-      const newProj = createEmptyDramaProject();
-      setProject(newProj);
-      navigate("/script-creator", { replace: true });
+      setShowModeSelector(true);
     }
   };
 
   const renderStep = () => {
+    // Mode selector
+    if (showModeSelector) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20">
+          <h2 className="text-xl font-semibold mb-2">选择创作模式</h2>
+          <p className="text-muted-foreground text-sm mb-8">选择适合你的创作方式开始</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl w-full">
+            <button
+              onClick={() => handleModeSelect("traditional")}
+              className="group flex flex-col items-center gap-4 p-8 rounded-xl border-2 border-border hover:border-primary transition-all hover:shadow-lg bg-card"
+            >
+              <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                <BookOpen className="h-7 w-7 text-primary" />
+              </div>
+              <div className="text-center">
+                <h3 className="font-semibold text-lg">传统创作</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  从零开始，选题立项 → 创作方案 → 角色开发 → 分集撰写
+                </p>
+              </div>
+            </button>
+            <button
+              onClick={() => handleModeSelect("adaptation")}
+              className="group flex flex-col items-center gap-4 p-8 rounded-xl border-2 border-border hover:border-primary transition-all hover:shadow-lg bg-card"
+            >
+              <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                <Repeat2 className="h-7 w-7 text-primary" />
+              </div>
+              <div className="text-center">
+                <h3 className="font-semibold text-lg">同款创作</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  基于参考剧本，结构转换 → 角色转换 → 分集撰写
+                </p>
+              </div>
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     switch (project.currentStep) {
       case "setup":
         return <StepSetup setup={project.setup} onComplete={handleSetupComplete} />;
+      case "reference-script":
+        return (
+          <StepReferenceScript
+            referenceScript={project.referenceScript || ""}
+            setup={project.setup}
+            onComplete={handleReferenceScriptComplete}
+          />
+        );
       case "creative-plan":
         return project.setup ? (
           <StepCreativePlan
@@ -181,6 +279,18 @@ const ScriptCreator = () => {
             onNext={() => goToStep("characters")}
           />
         ) : null;
+      case "structure-transform":
+        return project.setup ? (
+          <StepStructureTransform
+            setup={project.setup}
+            referenceScript={project.referenceScript || ""}
+            frameworkStyle={project.frameworkStyle || ""}
+            structureTransform={project.structureTransform || ""}
+            onStyleChange={handleFrameworkStyleChange}
+            onUpdate={handleStructureTransformUpdate}
+            onNext={() => goToStep("character-transform")}
+          />
+        ) : null;
       case "characters":
         return project.setup ? (
           <StepCharacters
@@ -188,6 +298,18 @@ const ScriptCreator = () => {
             creativePlan={project.creativePlan}
             characters={project.characters}
             onUpdate={handleCharactersUpdate}
+            onNext={() => goToStep("directory")}
+          />
+        ) : null;
+      case "character-transform":
+        return project.setup ? (
+          <StepCharacterTransform
+            setup={project.setup}
+            referenceScript={project.referenceScript || ""}
+            frameworkStyle={project.frameworkStyle || ""}
+            structureTransform={project.structureTransform || ""}
+            characterTransform={project.characterTransform || ""}
+            onUpdate={handleCharacterTransformUpdate}
             onNext={() => goToStep("directory")}
           />
         ) : null;
@@ -241,6 +363,8 @@ const ScriptCreator = () => {
     }
   };
 
+  const modeLabel = project.mode === "adaptation" ? "同款创作" : "传统创作";
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <header className="flex items-center justify-between px-6 py-3 border-b border-border/50">
@@ -251,6 +375,11 @@ const ScriptCreator = () => {
           <div className="flex items-center gap-2">
             <PenTool className="h-5 w-5 text-primary" />
             <span className="font-semibold font-[Space_Grotesk]">剧本创作</span>
+            {!showModeSelector && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-accent/10 text-accent-foreground">
+                {modeLabel}
+              </span>
+            )}
             {project.dramaTitle && (
               <span className="text-sm text-muted-foreground ml-1">— {project.dramaTitle}</span>
             )}
@@ -266,55 +395,59 @@ const ScriptCreator = () => {
         </div>
       </header>
 
-      {/* Step indicator */}
-      <div className="border-b border-border/50 px-6 py-2">
-        <div className="flex items-center gap-1 max-w-7xl mx-auto overflow-x-auto">
-          {DRAMA_STEPS.map((step, idx) => {
-            const isCurrent = step === project.currentStep;
-            const isDone = idx < currentStepIdx;
-            const isClickable = idx <= currentStepIdx || (idx === currentStepIdx + 1 && canAdvanceTo(project, step));
-            return (
-              <button
-                key={step}
-                onClick={() => isClickable && goToStep(step)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition-all ${
-                  isCurrent
-                    ? "bg-primary text-primary-foreground font-medium"
-                    : isDone
-                    ? "bg-accent/10 text-accent-foreground cursor-pointer hover:bg-accent/20"
-                    : "text-muted-foreground"
-                } ${isClickable ? "cursor-pointer" : "cursor-default"}`}
-                disabled={!isClickable}
-              >
-                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono ${
-                  isCurrent ? "bg-primary-foreground/20" : isDone ? "bg-accent/20" : "bg-muted"
-                }`}>
-                  {isDone ? "✓" : idx + 1}
-                </span>
-                {DRAMA_STEP_LABELS[step]}
-              </button>
-            );
-          })}
+      {/* Step indicator - only show when not in mode selector */}
+      {!showModeSelector && (
+        <div className="border-b border-border/50 px-6 py-2">
+          <div className="flex items-center gap-1 max-w-7xl mx-auto overflow-x-auto">
+            {steps.map((step, idx) => {
+              const isCurrent = step === project.currentStep;
+              const isDone = idx < currentStepIdx;
+              const isClickable = idx <= currentStepIdx || (idx === currentStepIdx + 1 && canAdvanceTo(project, step));
+              return (
+                <button
+                  key={step}
+                  onClick={() => isClickable && goToStep(step)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition-all ${
+                    isCurrent
+                      ? "bg-primary text-primary-foreground font-medium"
+                      : isDone
+                      ? "bg-accent/10 text-accent-foreground cursor-pointer hover:bg-accent/20"
+                      : "text-muted-foreground"
+                  } ${isClickable ? "cursor-pointer" : "cursor-default"}`}
+                  disabled={!isClickable}
+                >
+                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono ${
+                    isCurrent ? "bg-primary-foreground/20" : isDone ? "bg-accent/20" : "bg-muted"
+                  }`}>
+                    {isDone ? "✓" : idx + 1}
+                  </span>
+                  {DRAMA_STEP_LABELS[step]}
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-6">
-        {/* Model selector toolbar */}
-        <div className="flex items-center justify-end mb-4">
-          <Select value={model} onValueChange={handleModelChange}>
-            <SelectTrigger className="w-[200px] h-8 text-xs">
-              <Cpu className="h-3 w-3 mr-1 text-muted-foreground" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {MODEL_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Model selector toolbar - hide during mode selection */}
+        {!showModeSelector && (
+          <div className="flex items-center justify-end mb-4">
+            <Select value={model} onValueChange={handleModelChange}>
+              <SelectTrigger className="w-[200px] h-8 text-xs">
+                <Cpu className="h-3 w-3 mr-1 text-muted-foreground" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {MODEL_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         {renderStep()}
       </main>
     </div>
@@ -324,8 +457,11 @@ const ScriptCreator = () => {
 function canAdvanceTo(project: DramaProject, step: DramaStep): boolean {
   switch (step) {
     case "setup": return true;
+    case "reference-script": return true;
     case "creative-plan": return !!project.setup;
+    case "structure-transform": return !!project.referenceScript;
     case "characters": return !!project.creativePlan;
+    case "character-transform": return !!project.structureTransform;
     case "directory": return !!project.characters;
     case "episodes": return project.directory.length > 0 || !!project.directoryRaw;
     case "compliance": return project.episodes.length > 0;
