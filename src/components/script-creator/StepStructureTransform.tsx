@@ -118,6 +118,7 @@ const StepStructureTransform = ({
                   showTranslation={showTranslation}
                   onTranslate={() => translate(structureTransform)}
                   onClear={clearTranslation}
+                  onStop={stopTranslation}
                   disabled={editing}
                 />
                 <Button
