@@ -22,6 +22,11 @@ function extractMermaid(text: string): string | null {
   return match ? match[1].trim() : null;
 }
 
+/** Remove mermaid code blocks from text for display */
+function removeMermaid(text: string): string {
+  return text.replace(/```mermaid\s*\n[\s\S]*?```\s*/g, "").trim();
+}
+
 /** Simple Mermaid renderer using a container div */
 function MermaidDiagram({ code }: { code: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
