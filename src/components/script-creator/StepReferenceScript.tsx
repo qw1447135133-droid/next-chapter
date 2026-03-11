@@ -328,7 +328,7 @@ ${structureParts.join("\n\n---\n\n")}
 
       setExtractedStructure(finalStructure);
       setAnalyzed(true);
-      setProgress({ current: 0, total: 0, phase: "" });
+      setProgress({ done: 0, total: 0, processing: false, phase: "" });
       toast({ title: "识别完成", description: "已提取剧本结构和配置项" });
     } catch (e: any) {
       if (e?.message?.includes("取消") || e?.name === "AbortError") {
