@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import {
-  Plus, Trash2, Upload, Sparkles, ArrowRight, User, MapPin, Loader2, ImageIcon, ChevronDown, Shirt, Square, Clock,
+  Plus, Trash2, Upload, Sparkles, ArrowRight, User, MapPin, Loader2, ImageIcon, ChevronDown, Shirt, Square, Clock, LayoutGrid, Image,
 } from "lucide-react";
 import ImageThumbnail, { prewarmThumbnail } from "./ImageThumbnail";
 
@@ -120,6 +120,28 @@ const CharacterSettings = ({
   const [charModelOpen, setCharModelOpen] = useState(false);
   const charModelDropdownRef = useRef<HTMLDivElement>(null);
 
+  // Character view mode: "tri-view" (16:9 three-view sheet) or "single" (9:16 front portrait)
+  type CharViewMode = "tri-view" | "single";
+  const [charViewMode, setCharViewModeState] = useState<CharViewMode>(() => {
+    try { return (localStorage.getItem("char-view-mode") as CharViewMode) || "tri-view"; } catch { return "tri-view"; }
+  });
+  const setCharViewMode = (v: CharViewMode) => {
+    setCharViewModeState(v);
+    try { localStorage.setItem("char-view-mode", v); } catch { /* ignore */ }
+  };
+  const [charViewModeOpen, setCharViewModeOpen] = useState(false);
+  const charViewModeDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (charViewModeDropdownRef.current && !charViewModeDropdownRef.current.contains(e.target as Node)) {
+        setCharViewModeOpen(false);
+      }
+    };
+    if (charViewModeOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [charViewModeOpen]);
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (charModelDropdownRef.current && !charModelDropdownRef.current.contains(e.target as Node)) {
@@ -218,6 +240,7 @@ const CharacterSettings = ({
               style: artStyle,
               model: charImageModel,
               referenceImageUrl: isFirstCostume ? undefined : anchorImageUrl,
+              viewMode: charViewMode,
             }),
             CHAR_IMAGE_TIMEOUT_MS,
           );
@@ -287,7 +310,7 @@ const CharacterSettings = ({
       setGeneratingCharImgIds((prev) => new Set(prev).add(id));
       try {
         const { data, error } = await withTimeout(
-          invokeFunction("generate-character", { name: character.name, description: character.description, style: artStyle, model: charImageModel }),
+          invokeFunction("generate-character", { name: character.name, description: character.description, style: artStyle, model: charImageModel, viewMode: charViewMode }),
           CHAR_IMAGE_TIMEOUT_MS,
         );
         if (error) throw error;
@@ -838,7 +861,7 @@ const CharacterSettings = ({
         try {
           const latest = charactersRef.current.find((ch) => ch.id === c.id);
           const { data, error } = await withTimeout(
-            invokeFunction("generate-character", { name: c.name, description: latest?.description || desc, style: artStyle, model: charImageModel }),
+            invokeFunction("generate-character", { name: c.name, description: latest?.description || desc, style: artStyle, model: charImageModel, viewMode: charViewMode }),
             CHAR_IMAGE_TIMEOUT_MS,
           );
           if (error) throw error;
@@ -900,6 +923,7 @@ const CharacterSettings = ({
               style: artStyle,
               model: charImageModel,
               referenceImageUrl: isFirstCostume ? undefined : costumeAnchorUrl,
+              viewMode: charViewMode,
             }),
             CHAR_IMAGE_TIMEOUT_MS,
           );
@@ -1307,10 +1331,47 @@ const CharacterSettings = ({
       {/* Characters */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold font-[Space_Grotesk] flex items-center gap-2">
-            <User className="h-5 w-5 text-primary" />
-            角色设定
-          </h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-semibold font-[Space_Grotesk] flex items-center gap-2">
+              <User className="h-5 w-5 text-primary" />
+              角色设定
+            </h2>
+            {/* View mode selector pill */}
+            <div className="relative" ref={charViewModeDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setCharViewModeOpen((v) => !v)}
+                disabled={isAutoDetectingAll}
+                className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {charViewMode === "tri-view" ? <LayoutGrid className="h-3 w-3" /> : <Image className="h-3 w-3" />}
+                {charViewMode === "tri-view" ? "三视图模式" : "单图模式"}
+                <ChevronDown className={`h-3 w-3 transition-transform ${charViewModeOpen ? "rotate-180" : ""}`} />
+              </button>
+              {charViewModeOpen && (
+                <div className="absolute left-0 top-full mt-1 z-50 min-w-[140px] rounded-lg border border-border bg-popover shadow-lg py-1">
+                  <button
+                    type="button"
+                    onClick={() => { setCharViewMode("tri-view"); setCharViewModeOpen(false); }}
+                    className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent flex items-center gap-2 ${charViewMode === "tri-view" ? "text-primary font-semibold" : "text-popover-foreground"}`}
+                  >
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                    三视图模式
+                    <span className="text-[10px] text-muted-foreground ml-auto">16:9</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setCharViewMode("single"); setCharViewModeOpen(false); }}
+                    className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent flex items-center gap-2 ${charViewMode === "single" ? "text-primary font-semibold" : "text-popover-foreground"}`}
+                  >
+                    <Image className="h-3.5 w-3.5" />
+                    单图模式
+                    <span className="text-[10px] text-muted-foreground ml-auto">9:16</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
           <Button variant="outline" size="sm" onClick={addCharacter} className="gap-1">
             <Plus className="h-3.5 w-3.5" />
             手动添加
@@ -1326,6 +1387,7 @@ const CharacterSettings = ({
           </Card>
         )}
 
+        <div className={charViewMode === "single" ? "grid grid-cols-2 gap-3" : "contents"}>
         {characters.map((c) => {
           const hasCostumes = c.costumes && c.costumes.length > 0;
           const costumeCount = c.costumes?.length || 0;
@@ -1404,7 +1466,7 @@ const CharacterSettings = ({
             try {
               const combinedDesc = `${c.name}，${costume.label}：${costume.description || c.description}`;
               const { data, error } = await withTimeout(
-                invokeFunction("generate-character", { name: `${c.name} - ${costume.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl }),
+                invokeFunction("generate-character", { name: `${c.name} - ${costume.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl, viewMode: charViewMode }),
                 CHAR_IMAGE_TIMEOUT_MS,
               );
               if (error) throw error;
@@ -1511,7 +1573,7 @@ const CharacterSettings = ({
                     ) : (
                       <Button size="sm" className="gap-1 text-xs" onClick={() => handleGenerateCharacter(c.id)} disabled={generatingCharImgIds.has(c.id) || !String(c.name || "").trim()}>
                         {generatingCharImgIds.has(c.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                        {hasCostumes ? `AI 生成全部服装图 (${costumeCount})` : "AI 生成三视图"}
+                        {hasCostumes ? `AI 生成全部服装图 (${costumeCount})` : charViewMode === "single" ? "AI 生成单图" : "AI 生成三视图"}
                       </Button>
                     )}
                   </div>
@@ -1662,7 +1724,7 @@ const CharacterSettings = ({
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <ImageIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="text-xs text-muted-foreground font-medium">{c.isAIGenerated ? "AI 生成三视图（正面·侧面·背面·特写）" : "上传人设图"}</span>
+                      <span className="text-xs text-muted-foreground font-medium">{c.isAIGenerated ? (charViewMode === "single" ? "AI 生成角色正面单图" : "AI 生成三视图（正面·侧面·背面·特写）") : "上传人设图"}</span>
                     </div>
                     <ImageHistoryDialog
                       history={c.imageHistory || []}
@@ -1687,6 +1749,7 @@ const CharacterSettings = ({
           </Card>
           );
         })}
+        </div>
       </div>
 
       {/* Scene Settings */}
