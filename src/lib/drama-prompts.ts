@@ -20,6 +20,20 @@ function getMarketDirective(setup: DramaSetup): string {
 - **Narrative approach**: External conflict drives internal change. Favor direct plot propulsion, satisfying twists, and "page-turner" cliffhangers. Lean into spectacle and wish-fulfillment.
 - **Cultural fit**: Names, settings, social norms should feel authentic to a Western audience. Use standard screenplay/novel conventions.`;
   }
+  if (market === "kr") {
+    return `## 🌏 목표 시장: 한국
+- **창작 언어: 한국어** — 모든 출력은 한국어로 작성할 것.
+- **미학 경향**: 한국 드라마(K-Drama) 특유의 섬세한 감정선과 운명적 서사. 캐릭터 간의 밀고 당기는 관계 역학, 비밀과 오해에서 비롯된 갈등, 그리고 극적인 반전(plot twist)을 중시.
+- **서사 스타일**: 감정의 밀도를 높이되 전개는 긴박하게 유지. 주인공의 성장과 복수·사랑·운명의 교차를 핵심 축으로 삼는다. "밀당"과 "떡밥 회수"를 구조적으로 설계. 시청자의 감정 이입과 공감을 최우선.
+- **문화 적응**: 캐릭터명·장소·사회관계·존대어 체계는 한국 문화에 부합해야 한다. 재벌·신분 격차·가족 갈등 등 한국 드라마 특유의 소재를 적극 활용.`;
+  }
+  if (market === "sea") {
+    return `## 🌏 Target Market: Southeast Asia
+- **Writing Language: English** — All output must be written in English (universally accessible across SEA markets).
+- **Style**: Melodramatic storytelling with high emotional stakes. Blend family honor, social class conflict, and passionate romance. Think Philippine teleserye or Thai lakorn intensity — every emotion is felt deeply and expressed openly.
+- **Narrative approach**: Strong moral undercurrents with clear hero/villain dynamics. Favor rags-to-riches arcs, family loyalty vs. personal desire, and justice prevailing after prolonged suffering. Heavy use of dramatic irony and coincidence as plot devices.
+- **Cultural fit**: Reflect Southeast Asian social dynamics — extended family hierarchy, economic disparity, spiritual/superstitious elements. Names and settings should feel authentic to a multi-cultural SEA audience.`;
+  }
   return `## 🌏 目标市场：国内（中文）
 - **创作语言：中文** —— 全部输出内容使用中文撰写。
 - 符合国内短剧平台的节奏与审美。`;
