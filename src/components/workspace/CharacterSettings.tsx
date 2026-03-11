@@ -246,7 +246,7 @@ const CharacterSettings = ({
             invokeFunction("generate-character", {
               name: `${character.name} - ${freshCos?.label || cos.label}`,
               description: combinedDesc,
-              style: artStyle,
+              style: effectiveStyle,
               model: charImageModel,
               referenceImageUrl: isFirstCostume ? undefined : anchorImageUrl,
               viewMode: charViewMode,
@@ -319,7 +319,7 @@ const CharacterSettings = ({
       setGeneratingCharImgIds((prev) => new Set(prev).add(id));
       try {
         const { data, error } = await withTimeout(
-          invokeFunction("generate-character", { name: character.name, description: character.description, style: artStyle, model: charImageModel, viewMode: charViewMode }),
+          invokeFunction("generate-character", { name: character.name, description: character.description, style: effectiveStyle, model: charImageModel, viewMode: charViewMode }),
           CHAR_IMAGE_TIMEOUT_MS,
         );
         if (error) throw error;
@@ -427,7 +427,7 @@ const CharacterSettings = ({
               invokeFunction("generate-scene", {
                 name: `${scene.name} - ${freshTv?.label || tv.label}`,
                 description: combinedDesc,
-                style: artStyle,
+                style: effectiveStyle,
                 model: charImageModel,
                 referenceImageUrl: isFirstVariant ? undefined : anchorImageUrl,
               }),
@@ -496,7 +496,7 @@ const CharacterSettings = ({
       setGeneratingSceneImgIds((prev) => new Set(prev).add(id));
       try {
         const { data, error } = await withTimeout(
-          invokeFunction("generate-scene", { name: scene.name, description: scene.description, style: artStyle, model: charImageModel }),
+          invokeFunction("generate-scene", { name: scene.name, description: scene.description, style: effectiveStyle, model: charImageModel }),
           SCENE_IMAGE_TIMEOUT_MS,
         );
         if (error) throw error;
@@ -870,7 +870,7 @@ const CharacterSettings = ({
         try {
           const latest = charactersRef.current.find((ch) => ch.id === c.id);
           const { data, error } = await withTimeout(
-            invokeFunction("generate-character", { name: c.name, description: latest?.description || desc, style: artStyle, model: charImageModel, viewMode: charViewMode }),
+            invokeFunction("generate-character", { name: c.name, description: latest?.description || desc, style: effectiveStyle, model: charImageModel, viewMode: charViewMode }),
             CHAR_IMAGE_TIMEOUT_MS,
           );
           if (error) throw error;
@@ -929,7 +929,7 @@ const CharacterSettings = ({
             invokeFunction("generate-character", {
               name: `${c.name} - ${freshCos?.label || cos.label}`,
               description: combinedDesc,
-              style: artStyle,
+              style: effectiveStyle,
               model: charImageModel,
               referenceImageUrl: isFirstCostume ? undefined : costumeAnchorUrl,
               viewMode: charViewMode,
@@ -1042,7 +1042,7 @@ const CharacterSettings = ({
         try {
           const latest = sceneSettingsRef.current.find((sc) => sc.id === s.id);
           const { data, error } = await withTimeout(
-            invokeFunction("generate-scene", { name: s.name, description: latest?.description || desc, style: artStyle, model: charImageModel }),
+            invokeFunction("generate-scene", { name: s.name, description: latest?.description || desc, style: effectiveStyle, model: charImageModel }),
             SCENE_IMAGE_TIMEOUT_MS,
           );
           if (error) throw error;
@@ -1094,7 +1094,7 @@ const CharacterSettings = ({
             invokeFunction("generate-scene", {
               name: `${s.name} - ${freshTv?.label || tv.label}`,
               description: combinedDesc,
-              style: artStyle,
+              style: effectiveStyle,
               model: charImageModel,
               referenceImageUrl: isFirstVariant ? undefined : tvAnchorUrl,
             }),
@@ -1475,7 +1475,7 @@ const CharacterSettings = ({
             try {
               const combinedDesc = `${c.name}，${costume.label}：${costume.description || c.description}`;
               const { data, error } = await withTimeout(
-                invokeFunction("generate-character", { name: `${c.name} - ${costume.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl, viewMode: charViewMode }),
+                invokeFunction("generate-character", { name: `${c.name} - ${costume.label}`, description: combinedDesc, style: effectiveStyle, model: charImageModel, referenceImageUrl, viewMode: charViewMode }),
                 CHAR_IMAGE_TIMEOUT_MS,
               );
               if (error) throw error;
@@ -1861,7 +1861,7 @@ const CharacterSettings = ({
             try {
               const combinedDesc = `${s.name}，${tv.label}：${tv.description || s.description}`;
               const { data, error } = await withTimeout(
-                invokeFunction("generate-scene", { name: `${s.name} - ${tv.label}`, description: combinedDesc, style: artStyle, model: charImageModel, referenceImageUrl }),
+                invokeFunction("generate-scene", { name: `${s.name} - ${tv.label}`, description: combinedDesc, style: effectiveStyle, model: charImageModel, referenceImageUrl }),
                 SCENE_IMAGE_TIMEOUT_MS,
               );
               if (error) throw error;
