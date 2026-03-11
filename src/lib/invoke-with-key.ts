@@ -647,8 +647,19 @@ ${lastScenesDesc}
   return { scenes };
 }
 
-const MAX_CHUNK_CHARS = 12000;
-const MIN_CHUNK_CHARS = 6000;
+/** Detect if text is primarily logographic (Chinese/Japanese/Korean) */
+function isLogographicText(text: string): boolean {
+  const sample = text.slice(0, 2000);
+  const cjkChars = (sample.match(/[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g) || []).length;
+  return cjkChars / sample.length > 0.15;
+}
+
+function getChunkLimits(text: string): { max: number; min: number } {
+  if (isLogographicText(text)) {
+    return { max: 12000, min: 6000 };
+  }
+  return { max: 30000, min: 15000 };
+}
 
 interface SplitResult {
   chunks: string[];

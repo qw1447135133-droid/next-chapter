@@ -18,7 +18,17 @@ interface StepReferenceScriptProps {
 }
 
 const ACCEPTED_TYPES = ".txt,.pdf,.doc,.docx";
-const CHUNK_SIZE = 10000; // ~10000 chars per chunk
+
+/** Detect if text is primarily logographic (Chinese/Japanese/Korean) */
+function isLogographicText(text: string): boolean {
+  const sample = text.slice(0, 2000);
+  const cjkChars = (sample.match(/[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g) || []).length;
+  return cjkChars / sample.length > 0.15;
+}
+
+function getChunkSize(text: string): number {
+  return isLogographicText(text) ? 10000 : 25000;
+}
 
 /** Split script into chunks for structure extraction */
 function splitIntoChunks(text: string, maxSize: number): string[] {
