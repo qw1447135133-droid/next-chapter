@@ -127,12 +127,16 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
               rows={20}
               className="font-mono text-sm"
             />
+          ) : showTranslation && !isGenerating && translatedMap.has(complianceReport) ? (
+            <div className="max-h-[600px] overflow-auto">
+              <InterleavedText text={complianceReport} translatedLines={translatedMap.get(complianceReport)!} />
+            </div>
           ) : (
             <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
               {displayText}
               {isGenerating && <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />}
             </pre>
-          )}
+          )
         </CardContent>
       </Card>
 
