@@ -14,6 +14,7 @@ import { useTranslation, InterleavedText, TranslateToggle, isNonChineseText } fr
 interface StepStructureTransformProps {
   setup: DramaSetup;
   referenceScript: string;
+  referenceStructure: string;
   frameworkStyle: string;
   structureTransform: string;
   onStyleChange: (style: string) => void;
@@ -24,6 +25,7 @@ interface StepStructureTransformProps {
 const StepStructureTransform = ({
   setup,
   referenceScript,
+  referenceStructure,
   frameworkStyle,
   structureTransform,
   onStyleChange,
