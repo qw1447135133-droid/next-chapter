@@ -158,9 +158,11 @@ const StepStructureTransform = ({
           {showComparison && !isGenerating ? (
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <h4 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">原文剧本</h4>
+                <h4 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">
+                  {referenceStructure ? "提取的结构" : "原文剧本"}
+                </h4>
                 <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/70 max-h-[600px] overflow-auto border rounded-md p-3 bg-muted/30">
-                  {referenceScript}
+                  {referenceStructure || referenceScript}
                 </pre>
               </div>
               <div>
