@@ -108,12 +108,12 @@ ${script.slice(0, 3000)}
 **只输出 JSON，不要输出其他任何内容。**`;
 
       const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
-      const result = await callGeminiStream(
+      const data = await callGemini(
         model,
         [{ role: "user", parts: [{ text: prompt }] }],
-        () => {},
-        { maxOutputTokens: 512 },
+        { maxOutputTokens: 2048 },
       );
+      const result = extractText(data);
 
       const jsonMatch = result.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
