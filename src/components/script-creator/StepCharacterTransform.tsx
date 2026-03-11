@@ -135,6 +135,7 @@ const StepCharacterTransform = ({
                   showTranslation={showTranslation}
                   onTranslate={() => translate(removeMermaid(characterTransform))}
                   onClear={clearTranslation}
+                  onStop={stopTranslation}
                   disabled={editing}
                 />
                 <Button
