@@ -7,6 +7,7 @@ import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildCharacterTransformPrompt } from "@/lib/drama-prompts";
 import type { DramaSetup } from "@/types/drama";
+import { useTranslation, InterleavedText, TranslateToggle, isNonChineseText } from "./TranslateButton";
 
 /** Extract mermaid code from text */
 function extractMermaid(text: string): string | null {
@@ -76,6 +77,8 @@ const StepCharacterTransform = ({
   const [showComparison, setShowComparison] = useState(false);
   const [showDiagram, setShowDiagram] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const { isTranslating, showTranslation, translate, clearTranslation, translatedMap } = useTranslation();
+  const nonChinese = isNonChineseText(characterTransform);
 
   const handleGenerate = async () => {
     setIsGenerating(true);
@@ -126,6 +129,14 @@ const StepCharacterTransform = ({
             )}
             {characterTransform && !isGenerating && (
               <>
+                <TranslateToggle
+                  isNonChinese={nonChinese}
+                  isTranslating={isTranslating}
+                  showTranslation={showTranslation}
+                  onTranslate={() => translate(removeMermaid(characterTransform))}
+                  onClear={clearTranslation}
+                  disabled={editing}
+                />
                 <Button
                   variant="outline"
                   size="sm"
@@ -204,6 +215,10 @@ const StepCharacterTransform = ({
               rows={20}
               className="font-mono text-sm"
             />
+          ) : showTranslation && !isGenerating && translatedMap.has(removeMermaid(characterTransform)) ? (
+            <div className="max-h-[600px] overflow-auto">
+              <InterleavedText text={removeMermaid(characterTransform)} translatedLines={translatedMap.get(removeMermaid(characterTransform))!} />
+            </div>
           ) : (
             <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
               {cleanText}

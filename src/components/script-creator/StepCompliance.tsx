@@ -7,6 +7,7 @@ import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildCompliancePrompt } from "@/lib/drama-prompts";
 import type { DramaSetup, EpisodeScript } from "@/types/drama";
+import { useTranslation, InterleavedText, TranslateToggle, isNonChineseText } from "./TranslateButton";
 
 interface StepComplianceProps {
   setup: DramaSetup;
@@ -23,6 +24,8 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
   const [streamingText, setStreamingText] = useState("");
   const [editing, setEditing] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const { isTranslating, showTranslation, translate, clearTranslation, translatedMap } = useTranslation();
+  const nonChinese = isNonChineseText(complianceReport);
 
   const handleGenerate = async () => {
     setIsGenerating(true);
@@ -78,10 +81,20 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
           </CardTitle>
           <div className="flex gap-2">
             {complianceReport && !isGenerating && (
-              <Button variant="outline" size="sm" onClick={() => setEditing(!editing)} className="gap-1.5">
-                {editing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
-                {editing ? "预览" : "编辑"}
-              </Button>
+              <>
+                <TranslateToggle
+                  isNonChinese={nonChinese}
+                  isTranslating={isTranslating}
+                  showTranslation={showTranslation}
+                  onTranslate={() => translate(complianceReport)}
+                  onClear={clearTranslation}
+                  disabled={editing}
+                />
+                <Button variant="outline" size="sm" onClick={() => setEditing(!editing)} className="gap-1.5">
+                  {editing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+                  {editing ? "预览" : "编辑"}
+                </Button>
+              </>
             )}
             {isGenerating ? (
               <Button variant="destructive" size="sm" onClick={handleStop} className="gap-1.5">
@@ -114,6 +127,10 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
               rows={20}
               className="font-mono text-sm"
             />
+          ) : showTranslation && !isGenerating && translatedMap.has(complianceReport) ? (
+            <div className="max-h-[600px] overflow-auto">
+              <InterleavedText text={complianceReport} translatedLines={translatedMap.get(complianceReport)!} />
+            </div>
           ) : (
             <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
               {displayText}

@@ -7,6 +7,7 @@ import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildDirectoryPrompt } from "@/lib/drama-prompts";
 import type { DramaSetup, EpisodeEntry } from "@/types/drama";
+import { useTranslation, InterleavedText, TranslateToggle, isNonChineseText } from "./TranslateButton";
 
 interface StepDirectoryProps {
   setup: DramaSetup;
@@ -51,6 +52,8 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
   const [editing, setEditing] = useState(false);
   const [rawText, setRawText] = useState(directoryRaw);
   const abortRef = useRef<AbortController | null>(null);
+  const { isTranslating, showTranslation, translate, clearTranslation, translatedMap } = useTranslation();
+  const nonChinese = isNonChineseText(directoryRaw);
 
   const handleGenerate = async () => {
     setIsGenerating(true);
@@ -145,10 +148,20 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
           </CardTitle>
           <div className="flex gap-2">
             {directoryRaw && !isGenerating && (
-              <Button variant="outline" size="sm" onClick={() => editing ? handleEditSave() : setEditing(true)} className="gap-1.5">
-                {editing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
-                {editing ? "保存" : "编辑"}
-              </Button>
+              <>
+                <TranslateToggle
+                  isNonChinese={nonChinese}
+                  isTranslating={isTranslating}
+                  showTranslation={showTranslation}
+                  onTranslate={() => translate(directoryRaw)}
+                  onClear={clearTranslation}
+                  disabled={editing}
+                />
+                <Button variant="outline" size="sm" onClick={() => editing ? handleEditSave() : setEditing(true)} className="gap-1.5">
+                  {editing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+                  {editing ? "保存" : "编辑"}
+                </Button>
+              </>
             )}
             {isGenerating ? (
               <Button variant="destructive" size="sm" onClick={handleStop} className="gap-1.5">
@@ -302,9 +315,13 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                     </span>
                   </div>
                 ))}
-                {directory.length === 0 && directoryRaw && (
+              {directory.length === 0 && directoryRaw && (
+                showTranslation && translatedMap.has(directoryRaw) ? (
+                  <InterleavedText text={directoryRaw} translatedLines={translatedMap.get(directoryRaw)!} />
+                ) : (
                   <pre className="whitespace-pre-wrap text-sm text-foreground/90">{directoryRaw}</pre>
-                )}
+                )
+              )}
               </div>
             </div>
           )}

@@ -9,6 +9,7 @@ import { callGeminiStream } from "@/lib/gemini-client";
 import { buildStructureTransformPrompt } from "@/lib/drama-prompts";
 import { FRAMEWORK_STYLES } from "@/types/drama";
 import type { DramaSetup } from "@/types/drama";
+import { useTranslation, InterleavedText, TranslateToggle, isNonChineseText } from "./TranslateButton";
 
 interface StepStructureTransformProps {
   setup: DramaSetup;
@@ -35,6 +36,8 @@ const StepStructureTransform = ({
   const [showComparison, setShowComparison] = useState(false);
   const [selectedStyle, setSelectedStyle] = useState(frameworkStyle || "");
   const abortRef = useRef<AbortController | null>(null);
+  const { isTranslating, showTranslation, translate, clearTranslation, translatedMap } = useTranslation();
+  const nonChinese = isNonChineseText(structureTransform);
 
   const handleGenerate = async () => {
     if (!selectedStyle) {
@@ -106,6 +109,14 @@ const StepStructureTransform = ({
           <div className="flex gap-2">
             {structureTransform && !isGenerating && (
               <>
+                <TranslateToggle
+                  isNonChinese={nonChinese}
+                  isTranslating={isTranslating}
+                  showTranslation={showTranslation}
+                  onTranslate={() => translate(structureTransform)}
+                  onClear={clearTranslation}
+                  disabled={editing}
+                />
                 <Button
                   variant="outline"
                   size="sm"
@@ -179,6 +190,10 @@ const StepStructureTransform = ({
               rows={20}
               className="font-mono text-sm"
             />
+          ) : showTranslation && !isGenerating && translatedMap.has(structureTransform) ? (
+            <div className="max-h-[600px] overflow-auto">
+              <InterleavedText text={structureTransform} translatedLines={translatedMap.get(structureTransform)!} />
+            </div>
           ) : (
             <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
               {displayText}

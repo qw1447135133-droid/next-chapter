@@ -11,6 +11,7 @@ import { buildEpisodePrompt, buildSceneRegenPrompt, buildReviewPrompt } from "@/
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import type { DramaSetup, EpisodeEntry, EpisodeScript, EpisodeVersion } from "@/types/drama";
+import { useTranslation, InterleavedText, TranslateToggle, isNonChineseText } from "./TranslateButton";
 
 interface ReviewScore {
   score: number;
@@ -110,6 +111,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const [showBatchReviewDialog, setShowBatchReviewDialog] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const batchAbortRef = useRef<AbortController | null>(null);
+  const { isTranslating, showTranslation, translate, clearTranslation, translatedMap } = useTranslation();
 
   const DIMENSION_LABELS: Record<string, string> = {
     rhythm: "节奏",
@@ -571,6 +573,13 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                 onMouseEnter={() => setHoverEpisodeRegen(true)}
                 onMouseLeave={() => setHoverEpisodeRegen(false)}
               >
+                <TranslateToggle
+                  isNonChinese={isNonChineseText(selectedScript.content)}
+                  isTranslating={isTranslating}
+                  showTranslation={showTranslation}
+                  onTranslate={() => translate(selectedScript.content)}
+                  onClear={clearTranslation}
+                />
                 {(selectedScript.history?.length ?? 0) > 0 && (
                   <Button
                     variant="outline"
@@ -668,9 +677,13 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
             )}
 
             {selectedScript ? (
-              <>
-                {/* Scene-by-scene view with regen buttons */}
-                {scenes.length > 0 ? (
+            <>
+              {/* Translation interleaved view */}
+              {showTranslation && translatedMap.has(selectedScript.content) ? (
+                <div className="max-h-[600px] overflow-auto">
+                  <InterleavedText text={selectedScript.content} translatedLines={translatedMap.get(selectedScript.content)!} />
+                </div>
+              ) : scenes.length > 0 ? (
                   <div className="space-y-4">
                     {/* Preamble */}
                     {(() => {
