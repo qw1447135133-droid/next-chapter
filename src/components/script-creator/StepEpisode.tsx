@@ -465,10 +465,25 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                 停止
               </Button>
             ) : (
-              <Button onClick={() => handleGenerate()} className="gap-2">
-                <Play className="h-4 w-4" />
-                开始撰写
-              </Button>
+              <div className="flex gap-2">
+                <Button onClick={() => handleGenerate()} className="gap-2">
+                  <Play className="h-4 w-4" />
+                  开始撰写
+                </Button>
+                {nextUnwritten && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setRangeInput(String(nextUnwritten));
+                      handleGenerate(String(nextUnwritten));
+                    }}
+                    className="gap-2"
+                  >
+                    <ArrowRight className="h-4 w-4" />
+                    续写第{nextUnwritten}集
+                  </Button>
+                )}
+              </div>
             )}
           </div>
 
