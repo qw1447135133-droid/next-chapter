@@ -197,7 +197,7 @@ const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferen
 
     try {
       // Phase 1: Config detection
-      setProgress({ current: 0, total: 1, phase: "识别配置项…" });
+      setProgress({ done: 0, total: 1, processing: true, phase: "识别配置项…" });
 
       const configPrompt = `你是一位专业的短剧编辑。请分析以下剧本/故事文本，识别其基本属性。
 
