@@ -38,7 +38,7 @@ const StepStructureTransform = ({
   const [showComparison, setShowComparison] = useState(true);
   const [selectedStyle, setSelectedStyle] = useState(frameworkStyle || "");
   const abortRef = useRef<AbortController | null>(null);
-  const { isTranslating, showTranslation, translate, clearTranslation, translatedMap } = useTranslation();
+  const { isTranslating, showTranslation, translate, clearTranslation, getTranslation, hasTranslation } = useTranslation();
   const nonChinese = isNonChineseText(structureTransform);
 
   const handleGenerate = async () => {
