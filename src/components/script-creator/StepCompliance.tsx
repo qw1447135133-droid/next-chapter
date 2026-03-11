@@ -81,10 +81,20 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
           </CardTitle>
           <div className="flex gap-2">
             {complianceReport && !isGenerating && (
-              <Button variant="outline" size="sm" onClick={() => setEditing(!editing)} className="gap-1.5">
-                {editing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
-                {editing ? "预览" : "编辑"}
-              </Button>
+              <>
+                <TranslateToggle
+                  isNonChinese={nonChinese}
+                  isTranslating={isTranslating}
+                  showTranslation={showTranslation}
+                  onTranslate={() => translate(complianceReport)}
+                  onClear={clearTranslation}
+                  disabled={editing}
+                />
+                <Button variant="outline" size="sm" onClick={() => setEditing(!editing)} className="gap-1.5">
+                  {editing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+                  {editing ? "预览" : "编辑"}
+                </Button>
+              </>
             )}
             {isGenerating ? (
               <Button variant="destructive" size="sm" onClick={handleStop} className="gap-1.5">
