@@ -111,6 +111,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const [batchReviewProgress, setBatchReviewProgress] = useState<{ current: number; total: number; epNum: number | null }>({ current: 0, total: 0, epNum: null });
   const [showBatchReviewDialog, setShowBatchReviewDialog] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const scrollRef = useAutoScroll<HTMLDivElement>(isGenerating && regenSceneIdx == null, streamingText);
   const batchAbortRef = useRef<AbortController | null>(null);
   const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress, canResume: transCanResume, resumeTranslation } = useTranslation();
 
