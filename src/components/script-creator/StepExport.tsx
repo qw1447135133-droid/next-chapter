@@ -237,6 +237,10 @@ const StepExport = ({ setup, dramaTitle, creativePlan, characters, episodes }: S
               <Film className="h-4 w-4" />
               用于视频创作
             </Button>
+            <Button onClick={handleDownloadAll} variant="outline" className="gap-1.5" disabled={episodes.length === 0}>
+              <Download className="h-4 w-4" />
+              分集下载
+            </Button>
           </div>
         </CardContent>
       </Card>
