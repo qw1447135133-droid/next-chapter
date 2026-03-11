@@ -120,6 +120,28 @@ const CharacterSettings = ({
   const [charModelOpen, setCharModelOpen] = useState(false);
   const charModelDropdownRef = useRef<HTMLDivElement>(null);
 
+  // Character view mode: "tri-view" (16:9 three-view sheet) or "single" (9:16 front portrait)
+  type CharViewMode = "tri-view" | "single";
+  const [charViewMode, setCharViewModeState] = useState<CharViewMode>(() => {
+    try { return (localStorage.getItem("char-view-mode") as CharViewMode) || "tri-view"; } catch { return "tri-view"; }
+  });
+  const setCharViewMode = (v: CharViewMode) => {
+    setCharViewModeState(v);
+    try { localStorage.setItem("char-view-mode", v); } catch { /* ignore */ }
+  };
+  const [charViewModeOpen, setCharViewModeOpen] = useState(false);
+  const charViewModeDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (charViewModeDropdownRef.current && !charViewModeDropdownRef.current.contains(e.target as Node)) {
+        setCharViewModeOpen(false);
+      }
+    };
+    if (charViewModeOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [charViewModeOpen]);
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (charModelDropdownRef.current && !charModelDropdownRef.current.contains(e.target as Node)) {
