@@ -86,6 +86,8 @@ function getEpisodePostamble(content: string): string {
 }
 
 const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext }: StepEpisodeProps) => {
+  const completedNums = new Set(episodes.map((e) => e.number));
+  const nextUnwritten = directory.find(d => !completedNums.has(d.number))?.number;
   const [rangeInput, setRangeInput] = useState("1");
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentGen, setCurrentGen] = useState<number | null>(null);
