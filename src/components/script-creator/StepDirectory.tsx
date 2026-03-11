@@ -7,6 +7,7 @@ import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildDirectoryPrompt } from "@/lib/drama-prompts";
 import type { DramaSetup, EpisodeEntry } from "@/types/drama";
+import { useTranslation, InterleavedText, TranslateToggle, isNonChineseText } from "./TranslateButton";
 
 interface StepDirectoryProps {
   setup: DramaSetup;
