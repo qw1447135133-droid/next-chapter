@@ -1236,7 +1236,9 @@ const Workspace = () => {
             characters={characters}
             sceneSettings={sceneSettings}
             artStyle={artStyle}
+            customArtStylePrompt={customArtStylePrompt}
             onArtStyleChange={setArtStyle}
+            onCustomArtStylePromptChange={setCustomArtStylePrompt}
             onCharactersChange={setCharacters}
             onSceneSettingsChange={setSceneSettings}
             onNext={() => safeGoToStep(skipStoryboard ? 4 : 3)}
