@@ -47,7 +47,7 @@ const StepStructureTransform = ({
       return;
     }
     if (!referenceStructure) {
-      toast({ title: "请先在"参考剧本"步骤完成识别，提取原文结构", variant: "destructive" });
+      toast({ title: '请先在「参考剧本」步骤完成识别，提取原文结构', variant: "destructive" });
       return;
     }
     onStyleChange(selectedStyle);
