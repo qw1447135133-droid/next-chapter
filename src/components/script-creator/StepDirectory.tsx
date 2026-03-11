@@ -28,13 +28,17 @@ function parseDirectory(raw: string): EpisodeEntry[] {
       const title = match[2].trim();
       const rest = match[3];
       const hookMatch = rest.match(/\[(.*?钩)\]/);
+      // Parse emotion level from markers like [情绪:4] or (情绪强度:3)
+      const emotionMatch = line.match(/[情感情绪][：:强度]*\s*(\d)/);
       entries.push({
         number,
         title,
-        summary: rest.replace(/\[.*?\]/g, "").replace(/🔥/g, "").replace(/⚡/g, "").trim(),
+        summary: rest.replace(/\[.*?\]/g, "").replace(/🔥/g, "").replace(/⚡/g, "").replace(/💰/g, "").trim(),
         hookType: hookMatch?.[1] || "悬念钩",
         isKey: line.includes("🔥"),
         isClimax: line.includes("⚡"),
+        isPaywall: line.includes("💰"),
+        emotionLevel: emotionMatch ? parseInt(emotionMatch[1]) : undefined,
       });
     }
   }
@@ -96,6 +100,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
 
   const keyCount = directory.filter((d) => d.isKey).length;
   const climaxCount = directory.filter((d) => d.isClimax).length;
+  const paywallCount = directory.filter((d) => d.isPaywall).length;
 
   // Hook type distribution
   const hookDistribution = directory.reduce<Record<string, number>>((acc, ep) => {
@@ -134,7 +139,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
             分集目录
             {directory.length > 0 && (
               <span className="text-sm font-normal text-muted-foreground ml-2">
-                共 {directory.length} 集 · 🔥{keyCount} · ⚡{climaxCount}
+                共 {directory.length} 集 · 🔥{keyCount} · ⚡{climaxCount} · 💰{paywallCount}
               </span>
             )}
           </CardTitle>
@@ -228,9 +233,48 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                       </div>
                     </div>
                   </div>
-                  <div className="flex gap-4 text-xs text-muted-foreground border-t pt-2">
+
+                  {/* Emotional Waveform */}
+                  {directory.some(d => d.emotionLevel) && (
+                    <div className="border-t pt-3">
+                      <p className="text-xs font-semibold mb-2">🌊 情绪波形图</p>
+                      <div className="flex items-end gap-px h-16">
+                        {directory.map((ep) => {
+                          const level = ep.emotionLevel || 2;
+                          const heightPct = (level / 5) * 100;
+                          const seg = getSegmentForEp(ep.number);
+                          return (
+                            <div
+                              key={ep.number}
+                              className="flex-1 flex flex-col items-center justify-end group relative"
+                              title={`第${ep.number}集：${ep.title}（情绪:${level}）`}
+                            >
+                              <div
+                                className={`w-full min-w-[3px] rounded-t-sm ${seg.color} opacity-70 group-hover:opacity-100 transition-opacity`}
+                                style={{ height: `${heightPct}%` }}
+                              />
+                              {(ep.isClimax || ep.isPaywall) && (
+                                <div className="absolute -top-3 text-[8px]">
+                                  {ep.isClimax && "⚡"}
+                                  {ep.isPaywall && "💰"}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                        <span>第1集</span>
+                        <span>第{Math.round(directory.length / 2)}集</span>
+                        <span>第{directory.length}集</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex gap-4 text-xs text-muted-foreground border-t pt-2 flex-wrap">
                     <span>🔥 关键集 {keyCount} ({directory.length > 0 ? Math.round(keyCount / directory.length * 100) : 0}%，目标25-35%)</span>
                     <span>⚡ 高潮卡点 {climaxCount} ({directory.length > 0 ? Math.round(climaxCount / directory.length * 100) : 0}%，目标10-15%)</span>
+                    <span>💰 付费卡点 {paywallCount} ({directory.length > 0 ? Math.round(paywallCount / directory.length * 100) : 0}%，目标10-15%)</span>
                   </div>
                 </div>
               )}
@@ -254,6 +298,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                     <span className="shrink-0">
                       {ep.isKey && "🔥"}
                       {ep.isClimax && "⚡"}
+                      {ep.isPaywall && "💰"}
                     </span>
                   </div>
                 ))}

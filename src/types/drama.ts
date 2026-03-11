@@ -70,6 +70,7 @@ export const EPISODE_COUNTS = [
   { value: 60, label: "60集（标准）" },
   { value: 80, label: "80集（长线）" },
   { value: 100, label: "100集（超长）" },
+  { value: -1, label: "自定义" },
 ] as const;
 
 export type DramaStep = "setup" | "creative-plan" | "characters" | "directory" | "episodes" | "compliance" | "export";
@@ -120,8 +121,10 @@ export interface EpisodeEntry {
   title: string;
   summary: string;
   hookType: string;
-  isKey: boolean;    // 🔥
-  isClimax: boolean; // ⚡ 高潮卡点
+  isKey: boolean;      // 🔥
+  isClimax: boolean;   // ⚡ 高潮卡点
+  isPaywall: boolean;  // 💰 付费卡点
+  emotionLevel?: number; // 1-5 情绪强度
 }
 
 export interface EpisodeVersion {
