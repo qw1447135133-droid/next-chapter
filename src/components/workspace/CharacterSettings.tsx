@@ -1573,7 +1573,7 @@ const CharacterSettings = ({
                     ) : (
                       <Button size="sm" className="gap-1 text-xs" onClick={() => handleGenerateCharacter(c.id)} disabled={generatingCharImgIds.has(c.id) || !String(c.name || "").trim()}>
                         {generatingCharImgIds.has(c.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                        {hasCostumes ? `AI 生成全部服装图 (${costumeCount})` : "AI 生成三视图"}
+                        {hasCostumes ? `AI 生成全部服装图 (${costumeCount})` : charViewMode === "single" ? "AI 生成单图" : "AI 生成三视图"}
                       </Button>
                     )}
                   </div>
