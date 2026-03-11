@@ -125,10 +125,18 @@ const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferen
   const [analyzed, setAnalyzed] = useState(false);
   const [extractedStructure, setExtractedStructure] = useState("");
   // Progress state
-  const [progress, setProgress] = useState({ done: 0, total: 0, processing: false, phase: "" });
+  const [progress, setProgress] = useState<{ done: number; total: number; processing: boolean; phase: string; failed?: boolean }>({ done: 0, total: 0, processing: false, phase: "" });
   const fileRef = useRef<HTMLInputElement | null>(null);
   const isUploading = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
+  // Resume state: store partial results for continuing after error
+  const resumeRef = useRef<{
+    chunks: string[];
+    structureParts: string[];
+    startChunkIdx: number;
+    totalSteps: number;
+    configDone: boolean;
+  } | null>(null);
 
   // File upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
