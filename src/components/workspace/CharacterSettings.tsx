@@ -1385,6 +1385,7 @@ const CharacterSettings = ({
           </Card>
         )}
 
+        <div className={charViewMode === "single" ? "grid grid-cols-2 gap-3" : "contents"}>
         {characters.map((c) => {
           const hasCostumes = c.costumes && c.costumes.length > 0;
           const costumeCount = c.costumes?.length || 0;
