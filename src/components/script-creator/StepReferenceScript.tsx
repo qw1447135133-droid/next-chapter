@@ -459,14 +459,40 @@ ${structureParts.join("\n\n---\n\n")}
             )}
           </div>
 
-          {/* Progress bar */}
+          {/* Animated progress bar */}
           {isAnalyzing && progress.total > 0 && (
-            <div className="space-y-2 border rounded-lg p-3 bg-muted/20">
+            <div className="rounded-lg border border-border bg-card p-3 space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">{progress.phase}</span>
-                <span className="font-mono text-muted-foreground">{progressPct.toFixed(1)}%</span>
+                <AnimatePresence mode="wait">
+                  {isComplete ? (
+                    <motion.span
+                      key="complete"
+                      initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.4, ease: "easeOut" }}
+                      className="text-accent font-semibold flex items-center gap-1"
+                    >
+                      <CheckCircle2 className="h-3 w-3" />
+                      识别完成
+                    </motion.span>
+                  ) : (
+                    <motion.span
+                      key="progress"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.3 }}
+                      className="text-muted-foreground tabular-nums"
+                    >
+                      {progress.done}/{progress.total} 步
+                      <span className="ml-2 font-semibold text-foreground">{animatedPct.toFixed(1)}%</span>
+                    </motion.span>
+                  )}
+                </AnimatePresence>
               </div>
-              <Progress value={progressPct} className="h-2" />
+              <Progress value={animatedPct} className="h-2" />
             </div>
           )}
 
