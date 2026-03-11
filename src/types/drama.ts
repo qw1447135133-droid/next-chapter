@@ -163,6 +163,7 @@ export function createEmptyDramaProject(): DramaProject {
     directory: [],
     directoryRaw: "",
     episodes: [],
+    complianceReport: "",
     currentStep: "setup",
     dramaTitle: "",
     createdAt: new Date().toISOString(),
