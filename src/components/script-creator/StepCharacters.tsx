@@ -124,7 +124,7 @@ const StepCharacters = ({ setup, creativePlan, characters, onUpdate, onNext }: S
   };
 
   const handleStop = () => abortRef.current?.abort();
-  const displayText = isGenerating ? streamingText : characters;
+  const displayText = isGenerating ? streamingText : (characters ? removeMermaid(characters) : "");
   const mermaidCode = characters ? extractMermaid(characters) : null;
 
   return (
