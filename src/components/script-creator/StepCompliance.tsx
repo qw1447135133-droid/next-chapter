@@ -25,6 +25,7 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
   const [streamingText, setStreamingText] = useState("");
   const [editing, setEditing] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const scrollRef = useAutoScroll<HTMLPreElement>(isGenerating, streamingText);
   const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress, canResume: transCanResume, resumeTranslation } = useTranslation();
   const nonChinese = isNonChineseText(complianceReport);
 
