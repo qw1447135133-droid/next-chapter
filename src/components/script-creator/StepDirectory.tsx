@@ -233,6 +233,44 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                       </div>
                     </div>
                   </div>
+
+                  {/* Emotional Waveform */}
+                  {directory.some(d => d.emotionLevel) && (
+                    <div className="border-t pt-3">
+                      <p className="text-xs font-semibold mb-2">🌊 情绪波形图</p>
+                      <div className="flex items-end gap-px h-16">
+                        {directory.map((ep) => {
+                          const level = ep.emotionLevel || 2;
+                          const heightPct = (level / 5) * 100;
+                          const seg = getSegmentForEp(ep.number);
+                          return (
+                            <div
+                              key={ep.number}
+                              className="flex-1 flex flex-col items-center justify-end group relative"
+                              title={`第${ep.number}集：${ep.title}（情绪:${level}）`}
+                            >
+                              <div
+                                className={`w-full min-w-[3px] rounded-t-sm ${seg.color} opacity-70 group-hover:opacity-100 transition-opacity`}
+                                style={{ height: `${heightPct}%` }}
+                              />
+                              {(ep.isClimax || ep.isPaywall) && (
+                                <div className="absolute -top-3 text-[8px]">
+                                  {ep.isClimax && "⚡"}
+                                  {ep.isPaywall && "💰"}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                        <span>第1集</span>
+                        <span>第{Math.round(directory.length / 2)}集</span>
+                        <span>第{directory.length}集</span>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex gap-4 text-xs text-muted-foreground border-t pt-2 flex-wrap">
                     <span>🔥 关键集 {keyCount} ({directory.length > 0 ? Math.round(keyCount / directory.length * 100) : 0}%，目标25-35%)</span>
                     <span>⚡ 高潮卡点 {climaxCount} ({directory.length > 0 ? Math.round(climaxCount / directory.length * 100) : 0}%，目标10-15%)</span>
