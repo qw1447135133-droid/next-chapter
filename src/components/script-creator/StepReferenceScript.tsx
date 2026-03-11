@@ -389,7 +389,7 @@ ${structureParts.join("\n\n---\n\n")}
             <div className="space-y-2 border rounded-lg p-3 bg-muted/20">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">{progress.phase}</span>
-                <span className="font-mono text-muted-foreground">{progressPct}%</span>
+                <span className="font-mono text-muted-foreground">{progressPct.toFixed(1)}%</span>
               </div>
               <Progress value={progressPct} className="h-2" />
             </div>
