@@ -55,6 +55,7 @@ const StepCreativePlan = ({ setup, plan, onUpdate, onNext }: StepCreativePlanPro
 
   const handleStop = () => abortRef.current?.abort();
 
+  const scrollRef = useAutoScroll<HTMLPreElement>(isGenerating, streamingText);
   const displayText = isGenerating ? streamingText : plan;
 
   return (
