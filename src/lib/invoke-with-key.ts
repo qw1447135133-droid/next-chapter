@@ -903,34 +903,39 @@ DO NOT include ANY of the following:
 - Any narrative-specific elements that are NOT a permanent part of the physical location
 Think of this as an "empty stage" — show only what would exist in this location when no story events are occurring.`;
 
-  const refNote = referenceImageUrl
-    ? `\n\n⚠️ SCENE IDENTITY LOCK — HIGHEST PRIORITY — NON-NEGOTIABLE ⚠️
-The attached reference image shows the EXACT SAME location. You MUST reproduce this IDENTICAL place. Any deviation is a failure.
+  let prompt: string;
 
-PIXEL-LEVEL MANDATORY CONSTRAINTS:
-1. ARCHITECTURE & STRUCTURES: Copy the EXACT same buildings, walls, roofs, bridges, doors, windows, pillars, fences — every structural element must match in shape, size, and position.
-2. CAMERA ANGLE & FRAMING: Use the EXACT SAME camera position, height, tilt, and focal length. The perspective lines, vanishing points, and field of view MUST be identical. Imagine the camera is bolted to a tripod — it cannot move.
-3. SPATIAL LAYOUT & COMPOSITION: Same depth relationships, same proportions, same distances between all elements. Objects in foreground/midground/background must occupy the same screen positions.
-4. MATERIALS & SURFACES: Same textures on walls, ground, water, roofs. Same decorative elements and permanent props.
-5. VEGETATION & LANDSCAPE: Same trees, bushes, grass patches, rock formations in the same positions.
-6. ART STYLE: Identical rendering technique, line quality, and color palette base.
+  if (referenceImageUrl) {
+    // EDIT mode: treat it as an image modification task, not a new creation
+    prompt = `You are an image editor. The attached image is the ORIGINAL scene. Your task is to create a MODIFIED VERSION of this EXACT image.
 
-THE ONLY PERMITTED CHANGES:
-- Time of day (dawn/day/dusk/night)
-- Lighting direction, color temperature, and shadow angles
-- Weather conditions (clear/cloudy/rainy/snowy/foggy)
-- Atmospheric mood and sky appearance
+ABSOLUTE RULES — ZERO TOLERANCE FOR DEVIATION:
+1. DO NOT redraw, recreate, or reinterpret the scene. You are EDITING the existing image, not creating a new one.
+2. Every single pixel of structure, architecture, terrain, vegetation, water bodies, and objects MUST remain in the EXACT same position, shape, size, and proportion.
+3. The camera angle, perspective, focal length, and composition are LOCKED. Nothing moves.
+4. The art style, rendering technique, brush strokes, and color palette base MUST remain identical.
 
-Everything else — structure, angle, layout, composition — MUST be a perfect match.`
-    : "";
+YOUR ONLY PERMITTED MODIFICATIONS:
+- Change the time of day (dawn / day / dusk / night)
+- Adjust lighting direction, color temperature, and shadow angles accordingly
+- Change weather/atmosphere (clear / cloudy / rainy / snowy / foggy)
+- Adjust sky appearance to match the new time/weather
 
-  const prompt = `Create a detailed, high-quality background/environment concept art for a scene called "${name}".
+Think of this as applying a "time-of-day filter" or "weather filter" to the original photograph. The underlying image content must be 100% preserved.
+
+Target scene description: ${sceneDesc}
+Art style (maintain exactly): ${styleDesc}.
+${staticSceneRule}`;
+  } else {
+    // CREATE mode: first variant, generate from scratch
+    prompt = `Create a detailed, high-quality background/environment concept art for a scene called "${name}".
 
 Scene description: ${sceneDesc}
 
 Art style: ${styleDesc}.
 
-This is a wide establishing shot showing the full environment. Focus on atmosphere, lighting, and mood. Professional concept art quality.${staticSceneRule}${refNote}`;
+This is a wide establishing shot showing the full environment. Focus on atmosphere, lighting, and mood. Professional concept art quality.${staticSceneRule}`;
+  }
 
   const selectedModel = model || "gemini-3-pro-image-preview";
   const isSeedream = selectedModel.startsWith("doubao-seedream");
