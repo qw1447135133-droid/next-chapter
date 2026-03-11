@@ -309,7 +309,7 @@ const CharacterSettings = ({
       setGeneratingCharImgIds((prev) => new Set(prev).add(id));
       try {
         const { data, error } = await withTimeout(
-          invokeFunction("generate-character", { name: character.name, description: character.description, style: artStyle, model: charImageModel }),
+          invokeFunction("generate-character", { name: character.name, description: character.description, style: artStyle, model: charImageModel, viewMode: charViewMode }),
           CHAR_IMAGE_TIMEOUT_MS,
         );
         if (error) throw error;
