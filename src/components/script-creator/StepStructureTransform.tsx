@@ -14,6 +14,7 @@ import { useTranslation, InterleavedText, TranslateToggle, isNonChineseText } fr
 interface StepStructureTransformProps {
   setup: DramaSetup;
   referenceScript: string;
+  referenceStructure: string;
   frameworkStyle: string;
   structureTransform: string;
   onStyleChange: (style: string) => void;
@@ -24,6 +25,7 @@ interface StepStructureTransformProps {
 const StepStructureTransform = ({
   setup,
   referenceScript,
+  referenceStructure,
   frameworkStyle,
   structureTransform,
   onStyleChange,
@@ -33,7 +35,7 @@ const StepStructureTransform = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [editing, setEditing] = useState(false);
-  const [showComparison, setShowComparison] = useState(false);
+  const [showComparison, setShowComparison] = useState(true);
   const [selectedStyle, setSelectedStyle] = useState(frameworkStyle || "");
   const abortRef = useRef<AbortController | null>(null);
   const { isTranslating, showTranslation, translate, clearTranslation, translatedMap } = useTranslation();
@@ -49,7 +51,8 @@ const StepStructureTransform = ({
     setStreamingText("");
     abortRef.current = new AbortController();
     try {
-      const prompt = buildStructureTransformPrompt(setup, referenceScript, selectedStyle);
+      const transformInput = referenceStructure || referenceScript;
+      const prompt = buildStructureTransformPrompt(setup, transformInput, selectedStyle);
       const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
       const finalText = await callGeminiStream(
         model,
@@ -155,9 +158,11 @@ const StepStructureTransform = ({
           {showComparison && !isGenerating ? (
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <h4 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">原文剧本</h4>
+                <h4 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">
+                  {referenceStructure ? "提取的结构" : "原文剧本"}
+                </h4>
                 <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/70 max-h-[600px] overflow-auto border rounded-md p-3 bg-muted/30">
-                  {referenceScript}
+                  {referenceStructure || referenceScript}
                 </pre>
               </div>
               <div>

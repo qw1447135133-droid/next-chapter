@@ -864,7 +864,7 @@ export function buildStructureTransformPrompt(
 ${getMarketDirective(setup)}
 
 ## 你的任务
-将以下参考剧本转换为「${frameworkStyle}」风格的创作方案。
+将以下参考剧本的叙事结构转换为「${frameworkStyle}」风格的创作方案。
 
 ## 转换原则
 1. **保留核心情节骨架**：主要矛盾冲突、人物关系拓扑、关键转折点必须保留
@@ -875,7 +875,7 @@ ${getMarketDirective(setup)}
    - 原文中的情感表达 → ${frameworkStyle}对应的情感方式
 4. **强化风格特色**：加入${frameworkStyle}风格特有的元素、术语、场景设定
 
-## 参考剧本原文
+## 参考剧本结构
 ${referenceScript}
 
 ## 输出要求

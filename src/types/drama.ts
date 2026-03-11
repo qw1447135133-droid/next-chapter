@@ -187,6 +187,7 @@ export interface DramaProject {
   updatedAt: string;
   // Adaptation mode fields
   referenceScript?: string;
+  referenceStructure?: string; // Extracted structure from reference script
   frameworkStyle?: string;
   structureTransform?: string;
   characterTransform?: string;
@@ -208,6 +209,7 @@ export function createEmptyDramaProject(mode: DramaMode = "traditional"): DramaP
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     referenceScript: "",
+    referenceStructure: "",
     frameworkStyle: "",
     structureTransform: "",
     characterTransform: "",

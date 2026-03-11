@@ -150,10 +150,11 @@ const ScriptCreator = () => {
     setProject((p) => ({ ...p, setup, currentStep: "creative-plan" }));
   };
 
-  const handleReferenceScriptComplete = (referenceScript: string, setup: DramaSetup) => {
+  const handleReferenceScriptComplete = (referenceScript: string, setup: DramaSetup, referenceStructure: string) => {
     setProject((p) => ({
       ...p,
       referenceScript,
+      referenceStructure,
       setup,
       currentStep: "structure-transform",
     }));
@@ -287,6 +288,7 @@ const ScriptCreator = () => {
           <StepStructureTransform
             setup={project.setup}
             referenceScript={project.referenceScript || ""}
+            referenceStructure={project.referenceStructure || ""}
             frameworkStyle={project.frameworkStyle || ""}
             structureTransform={project.structureTransform || ""}
             onStyleChange={handleFrameworkStyleChange}
