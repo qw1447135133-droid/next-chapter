@@ -100,6 +100,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
 
   const keyCount = directory.filter((d) => d.isKey).length;
   const climaxCount = directory.filter((d) => d.isClimax).length;
+  const paywallCount = directory.filter((d) => d.isPaywall).length;
 
   // Hook type distribution
   const hookDistribution = directory.reduce<Record<string, number>>((acc, ep) => {
