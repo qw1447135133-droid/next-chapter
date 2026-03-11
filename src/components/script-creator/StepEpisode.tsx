@@ -11,7 +11,7 @@ import { buildEpisodePrompt, buildSceneRegenPrompt, buildReviewPrompt } from "@/
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import type { DramaSetup, EpisodeEntry, EpisodeScript, EpisodeVersion } from "@/types/drama";
-import { useTranslation, InterleavedText, TranslateToggle, isNonChineseText } from "./TranslateButton";
+import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "./TranslateButton";
 
 interface ReviewScore {
   score: number;
@@ -111,7 +111,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const [showBatchReviewDialog, setShowBatchReviewDialog] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const batchAbortRef = useRef<AbortController | null>(null);
-  const { isTranslating, showTranslation, translate, clearTranslation, getTranslation, hasTranslation } = useTranslation();
+  const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress } = useTranslation();
 
   const DIMENSION_LABELS: Record<string, string> = {
     rhythm: "节奏",
@@ -579,6 +579,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                   showTranslation={showTranslation}
                   onTranslate={() => translate(selectedScript.content)}
                   onClear={clearTranslation}
+                  onStop={stopTranslation}
                 />
                 {(selectedScript.history?.length ?? 0) > 0 && (
                   <Button
@@ -675,6 +676,8 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                 })}
               </div>
             )}
+
+            {isTranslating && <TranslationProgress progress={transProgress} />}
 
             {selectedScript ? (
             <>

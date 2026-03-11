@@ -18,7 +18,17 @@ interface StepReferenceScriptProps {
 }
 
 const ACCEPTED_TYPES = ".txt,.pdf,.doc,.docx";
-const CHUNK_SIZE = 10000; // ~10000 chars per chunk
+
+/** Detect if text is primarily logographic (Chinese/Japanese/Korean) */
+function isLogographicText(text: string): boolean {
+  const sample = text.slice(0, 2000);
+  const cjkChars = (sample.match(/[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g) || []).length;
+  return cjkChars / sample.length > 0.15;
+}
+
+function getChunkSize(text: string): number {
+  return isLogographicText(text) ? 10000 : 25000;
+}
 
 /** Split script into chunks for structure extraction */
 function splitIntoChunks(text: string, maxSize: number): string[] {
@@ -159,7 +169,8 @@ ${script.slice(0, 3000)}
       }
 
       // Phase 2: Structure extraction in chunks
-      const chunks = splitIntoChunks(script, CHUNK_SIZE);
+      const chunkSize = getChunkSize(script);
+      const chunks = splitIntoChunks(script, chunkSize);
       const totalSteps = chunks.length;
       const structureParts: string[] = [];
 
@@ -295,7 +306,7 @@ ${structureParts.join("\n\n---\n\n")}
     : "";
 
   const progressPct = progress.total > 0
-    ? Math.round((progress.current / (progress.total + 1)) * 100)
+    ? parseFloat(((progress.current / (progress.total + 1)) * 100).toFixed(1))
     : 0;
 
   return (
@@ -364,9 +375,9 @@ ${structureParts.join("\n\n---\n\n")}
             {script && (
               <p className="text-xs text-muted-foreground mt-1">
                 共 {script.length} 字
-                {script.length > CHUNK_SIZE && (
+                {script.length > getChunkSize(script) && (
                   <span className="ml-2">
-                    （将分 {splitIntoChunks(script, CHUNK_SIZE).length} 段识别）
+                    （将分 {splitIntoChunks(script, getChunkSize(script)).length} 段识别）
                   </span>
                 )}
               </p>
@@ -378,7 +389,7 @@ ${structureParts.join("\n\n---\n\n")}
             <div className="space-y-2 border rounded-lg p-3 bg-muted/20">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">{progress.phase}</span>
-                <span className="font-mono text-muted-foreground">{progressPct}%</span>
+                <span className="font-mono text-muted-foreground">{progressPct.toFixed(1)}%</span>
               </div>
               <Progress value={progressPct} className="h-2" />
             </div>

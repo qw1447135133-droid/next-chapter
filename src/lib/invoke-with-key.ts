@@ -647,8 +647,19 @@ ${lastScenesDesc}
   return { scenes };
 }
 
-const MAX_CHUNK_CHARS = 12000;
-const MIN_CHUNK_CHARS = 6000;
+/** Detect if text is primarily logographic (Chinese/Japanese/Korean) */
+function isLogographicText(text: string): boolean {
+  const sample = text.slice(0, 2000);
+  const cjkChars = (sample.match(/[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g) || []).length;
+  return cjkChars / sample.length > 0.15;
+}
+
+function getChunkLimits(text: string): { max: number; min: number } {
+  if (isLogographicText(text)) {
+    return { max: 12000, min: 6000 };
+  }
+  return { max: 30000, min: 15000 };
+}
 
 interface SplitResult {
   chunks: string[];
@@ -677,7 +688,7 @@ function chineseToNumber(s: string): number {
 
 /** Split a multi-episode script into chunks */
 function splitScriptByEpisodes(script: string): SplitResult {
-  // First try to detect episode markers before checking length
+  const { max: MAX_CHUNK_CHARS, min: MIN_CHUNK_CHARS } = getChunkLimits(script);
 
   // First try to split by episode markers (supports Arabic digits and Chinese numerals)
   const epPattern = /(?:^|\n)[\s\r]*(?:EP\s*(\d+)|第\s*([零一二三四五六七八九十百千万\d]+)\s*[集话期章]|Episode\s+(\d+))/gim;
@@ -688,7 +699,7 @@ function splitScriptByEpisodes(script: string): SplitResult {
     const num = /^\d+$/.test(numStr) ? parseInt(numStr) : chineseToNumber(numStr);
     markers.push({ index: m.index, num });
   }
-  console.log(`[splitScriptByEpisodes] 检测到 ${markers.length} 个集数标记`, markers.slice(0, 5).map(m => ({ index: m.index, num: m.num, preview: script.slice(m.index, m.index + 30) })));
+  console.log(`[splitScriptByEpisodes] 检测到 ${markers.length} 个集数标记, 分块上限=${MAX_CHUNK_CHARS}`, markers.slice(0, 5).map(m => ({ index: m.index, num: m.num, preview: script.slice(m.index, m.index + 30) })));
 
   let rawChunks: string[] = [];
   let isRealEpisodes = false;
@@ -708,13 +719,10 @@ function splitScriptByEpisodes(script: string): SplitResult {
       rawChunks = [script];
     }
   } else {
-    // No episode markers found - only split by length if script is large
     if (script.length <= MAX_CHUNK_CHARS) return { chunks: [script], isRealEpisodes: false, originallyEpisodes: false };
     rawChunks = [script];
   }
 
-  // Further split any chunk exceeding MAX_CHUNK_CHARS, targeting MIN~MAX per chunk
-  // If we need to sub-split real episodes, the result is no longer "real episodes"
   const finalChunks: string[] = [];
   let hadSubSplit = false;
   for (const chunk of rawChunks) {

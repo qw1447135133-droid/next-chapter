@@ -7,7 +7,7 @@ import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildCompliancePrompt } from "@/lib/drama-prompts";
 import type { DramaSetup, EpisodeScript } from "@/types/drama";
-import { useTranslation, InterleavedText, TranslateToggle, isNonChineseText } from "./TranslateButton";
+import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "./TranslateButton";
 
 interface StepComplianceProps {
   setup: DramaSetup;
@@ -24,7 +24,7 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
   const [streamingText, setStreamingText] = useState("");
   const [editing, setEditing] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
-  const { isTranslating, showTranslation, translate, clearTranslation, getTranslation, hasTranslation } = useTranslation();
+  const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress } = useTranslation();
   const nonChinese = isNonChineseText(complianceReport);
 
   const handleGenerate = async () => {
@@ -88,6 +88,7 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
                   showTranslation={showTranslation}
                   onTranslate={() => translate(complianceReport)}
                   onClear={clearTranslation}
+                  onStop={stopTranslation}
                   disabled={editing}
                 />
                 <Button variant="outline" size="sm" onClick={() => setEditing(!editing)} className="gap-1.5">
@@ -115,6 +116,7 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
           </div>
         </CardHeader>
         <CardContent>
+          {isTranslating && <TranslationProgress progress={transProgress} />}
           {!displayText ? (
             <div className="text-center py-16 text-muted-foreground">
               <p>点击"开始审核"按钮，AI 将对全部已完成的剧本内容进行合规检查</p>

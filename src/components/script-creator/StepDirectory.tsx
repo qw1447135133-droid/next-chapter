@@ -7,7 +7,7 @@ import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildDirectoryPrompt } from "@/lib/drama-prompts";
 import type { DramaSetup, EpisodeEntry } from "@/types/drama";
-import { useTranslation, InterleavedText, TranslateToggle, isNonChineseText } from "./TranslateButton";
+import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "./TranslateButton";
 
 interface StepDirectoryProps {
   setup: DramaSetup;
@@ -52,7 +52,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
   const [editing, setEditing] = useState(false);
   const [rawText, setRawText] = useState(directoryRaw);
   const abortRef = useRef<AbortController | null>(null);
-  const { isTranslating, showTranslation, translate, clearTranslation, getTranslation, hasTranslation } = useTranslation();
+  const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress } = useTranslation();
   const nonChinese = isNonChineseText(directoryRaw);
 
   const handleGenerate = async () => {
@@ -155,6 +155,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                   showTranslation={showTranslation}
                   onTranslate={() => translate(directoryRaw)}
                   onClear={clearTranslation}
+                  onStop={stopTranslation}
                   disabled={editing}
                 />
                 <Button variant="outline" size="sm" onClick={() => editing ? handleEditSave() : setEditing(true)} className="gap-1.5">
@@ -182,6 +183,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
           </div>
         </CardHeader>
         <CardContent>
+          {isTranslating && <TranslationProgress progress={transProgress} />}
           {isGenerating ? (
             <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
               {streamingText}

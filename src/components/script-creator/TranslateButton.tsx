@@ -1,11 +1,14 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Languages, Loader2, X } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Languages, Loader2, X, CheckCircle2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
+import { motion, AnimatePresence } from "framer-motion";
 
 const TRANSLATION_CACHE_KEY = "storyforge_translation_cache";
 const MAX_CACHE_ENTRIES = 30;
+const LINES_PER_BATCH = 200;
 
 /** Simple hash for cache key */
 function hashText(text: string): string {
@@ -30,28 +33,96 @@ function readCache(): Record<string, string[]> {
 function writeCache(cache: Record<string, string[]>) {
   const keys = Object.keys(cache);
   if (keys.length > MAX_CACHE_ENTRIES) {
-    // Remove oldest entries (first inserted)
     const toRemove = keys.slice(0, keys.length - MAX_CACHE_ENTRIES);
     for (const k of toRemove) delete cache[k];
   }
   try {
     localStorage.setItem(TRANSLATION_CACHE_KEY, JSON.stringify(cache));
   } catch {
-    // Storage full, clear and retry
     localStorage.removeItem(TRANSLATION_CACHE_KEY);
   }
 }
 
 /**
- * Shared translation hook with localStorage caching.
+ * Animated progress with creep + one decimal place.
+ * Matches DecomposeProgress logic.
+ */
+function useAnimatedProgress(ceilPercent: number, floorPercent: number, hasProcessing: boolean) {
+  const [display, setDisplay] = useState(0);
+  const rafRef = useRef<number>();
+  const lastTimeRef = useRef(performance.now());
+  const prevCeilRef = useRef(ceilPercent);
+
+  const ceilDropped = ceilPercent < prevCeilRef.current;
+  useEffect(() => {
+    prevCeilRef.current = ceilPercent;
+  }, [ceilPercent]);
+
+  useEffect(() => {
+    lastTimeRef.current = performance.now();
+
+    const tick = (now: number) => {
+      const dt = (now - lastTimeRef.current) / 1000;
+      lastTimeRef.current = now;
+
+      setDisplay(prev => {
+        const hardCap = Math.max(0, ceilPercent - 0.1);
+
+        if (!hasProcessing && !ceilDropped) {
+          if (prev > floorPercent) {
+            const diff = prev - floorPercent;
+            const rollSpeed = Math.max(1, diff * 0.08) * 12;
+            return Math.max(prev - rollSpeed * dt, floorPercent);
+          }
+          return floorPercent;
+        }
+
+        if (prev > hardCap) {
+          const diff = prev - hardCap;
+          const rollSpeed = Math.max(1, diff * 0.08) * 12;
+          return Math.max(prev - rollSpeed * dt, hardCap);
+        }
+
+        const base = Math.max(prev, floorPercent);
+        const gap = hardCap - base;
+        if (gap <= 0) return hardCap;
+
+        const chunkRange = ceilPercent - floorPercent;
+        const baseSpeed = chunkRange > 0 ? chunkRange / 75 : 0.2;
+        const ratio = gap / (chunkRange || 1);
+        const speed = baseSpeed * Math.max(0.05, ratio);
+        const next = base + speed * dt;
+        return Math.min(next, hardCap);
+      });
+
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [ceilPercent, floorPercent, hasProcessing, ceilDropped]);
+
+  useEffect(() => {
+    setDisplay(prev => Math.max(prev, floorPercent));
+  }, [floorPercent]);
+
+  return Math.round(display * 10) / 10;
+}
+
+export interface TranslationProgress {
+  done: number;
+  total: number;
+  processing: boolean;
+}
+
+/**
+ * Shared translation hook with localStorage caching and chunked translation.
  */
 export function useTranslation() {
-  const [translatedMap, setTranslatedMap] = useState<Map<string, string[]>>(() => {
-    // Pre-load from localStorage cache
-    return new Map();
-  });
+  const [translatedMap, setTranslatedMap] = useState<Map<string, string[]>>(new Map());
   const [isTranslating, setIsTranslating] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
+  const [progress, setProgress] = useState<TranslationProgress>({ done: 0, total: 0, processing: false });
   const abortRef = useRef<AbortController | null>(null);
 
   const translate = async (text: string) => {
@@ -82,45 +153,47 @@ export function useTranslation() {
     try {
       const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
       const originalLines = text.split("\n");
+      const totalLines = originalLines.length;
+      const resultLines = new Array<string>(totalLines).fill("");
 
-      // Build numbered lines for strict 1:1 alignment
-      const numberedText = originalLines
-        .map((line, i) => `[${i + 1}] ${line}`)
-        .join("\n");
+      // Split into batches of ~200 lines
+      const totalBatches = Math.ceil(totalLines / LINES_PER_BATCH);
 
-      const prompt = `你是一位专业的翻译。请将以下外语文本逐行翻译为中文。
-
-## 严格规则
-1. 原文共 ${originalLines.length} 行，你必须输出恰好 ${originalLines.length} 行翻译
-2. 每行格式为 [行号] 翻译内容，例如 [1] 这是翻译
-3. 空行也要保留，输出 [行号]（后面留空）
-4. 保留 Markdown 标记（## # ** 等）
-5. 保留特殊符号（🔥 ⚡ 💰 ⛔ ⚠️ ℹ️ 等）
-6. 只输出翻译行，不要输出任何解释或额外文字
-
-## 原文（${originalLines.length} 行）
-${numberedText}`;
-
-      const finalText = await callGeminiStream(
-        model,
-        [{ role: "user", parts: [{ text: prompt }] }],
-        () => {},
-        { maxOutputTokens: 8192 },
-        abortRef.current.signal,
-      );
-
-      // Parse numbered output back to array, aligned to original line count
-      const resultLines = new Array<string>(originalLines.length).fill("");
-      const outputLines = finalText.split("\n");
-
-      for (const line of outputLines) {
-        const match = line.match(/^\[(\d+)\]\s?(.*)/);
-        if (match) {
-          const idx = parseInt(match[1]) - 1;
-          if (idx >= 0 && idx < originalLines.length) {
-            resultLines[idx] = match[2] || "";
-          }
+      if (totalBatches <= 1) {
+        // Single batch — no progress needed
+        setProgress({ done: 0, total: 1, processing: true });
+        const batchResult = await translateBatch(model, originalLines, 0, totalLines, abortRef.current.signal);
+        for (let i = 0; i < batchResult.length; i++) {
+          resultLines[i] = batchResult[i];
         }
+        setProgress({ done: 1, total: 1, processing: false });
+      } else {
+        // Multi-batch with progress
+        setProgress({ done: 0, total: totalBatches, processing: true });
+
+        for (let batch = 0; batch < totalBatches; batch++) {
+          if (abortRef.current?.signal.aborted) break;
+
+          setProgress({ done: batch, total: totalBatches, processing: true });
+
+          const startLine = batch * LINES_PER_BATCH;
+          const endLine = Math.min(startLine + LINES_PER_BATCH, totalLines);
+          const batchLines = originalLines.slice(startLine, endLine);
+
+          const batchResult = await translateBatch(model, batchLines, 0, batchLines.length, abortRef.current!.signal);
+
+          for (let i = 0; i < batchResult.length; i++) {
+            resultLines[startLine + i] = batchResult[i];
+          }
+
+          setProgress({ done: batch + 1, total: totalBatches, processing: batch + 1 < totalBatches });
+        }
+      }
+
+      if (abortRef.current?.signal.aborted) {
+        toast({ title: "已停止翻译" });
+        setShowTranslation(false);
+        return;
       }
 
       // Save to in-memory and localStorage
@@ -131,7 +204,7 @@ ${numberedText}`;
 
       toast({ title: "翻译完成" });
     } catch (e: any) {
-      if (e?.message?.includes("取消")) {
+      if (e?.message?.includes("取消") || e?.name === "AbortError") {
         toast({ title: "已停止翻译" });
       } else {
         toast({ title: "翻译失败", description: e?.message, variant: "destructive" });
@@ -139,20 +212,23 @@ ${numberedText}`;
       setShowTranslation(false);
     } finally {
       setIsTranslating(false);
+      setProgress({ done: 0, total: 0, processing: false });
       abortRef.current = null;
     }
   };
+
+  const stopTranslation = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
 
   const clearTranslation = () => {
     setShowTranslation(false);
   };
 
-  /** Get translated lines for a text (by hash) */
   const getTranslation = (text: string): string[] | undefined => {
     return translatedMap.get(hashText(text));
   };
 
-  /** Check if translation exists for text */
   const hasTranslation = (text: string): boolean => {
     return translatedMap.has(hashText(text));
   };
@@ -161,10 +237,59 @@ ${numberedText}`;
     isTranslating,
     showTranslation,
     translate,
+    stopTranslation,
     clearTranslation,
     getTranslation,
     hasTranslation,
+    progress,
   };
+}
+
+/** Translate a batch of lines using numbered format */
+async function translateBatch(
+  model: string,
+  lines: string[],
+  _startIdx: number,
+  _endIdx: number,
+  signal: AbortSignal,
+): Promise<string[]> {
+  const numberedText = lines.map((line, i) => `[${i + 1}] ${line}`).join("\n");
+
+  const prompt = `你是一位专业的翻译。请将以下外语文本逐行翻译为中文。
+
+## 严格规则
+1. 原文共 ${lines.length} 行，你必须输出恰好 ${lines.length} 行翻译
+2. 每行格式为 [行号] 翻译内容，例如 [1] 这是翻译
+3. 空行也要保留，输出 [行号]（后面留空）
+4. 保留 Markdown 标记（## # ** 等）
+5. 保留特殊符号（🔥 ⚡ 💰 ⛔ ⚠️ ℹ️ 等）
+6. 只输出翻译行，不要输出任何解释或额外文字
+
+## 原文（${lines.length} 行）
+${numberedText}`;
+
+  const finalText = await callGeminiStream(
+    model,
+    [{ role: "user", parts: [{ text: prompt }] }],
+    () => {},
+    { maxOutputTokens: 8192 },
+    signal,
+  );
+
+  const resultLines = new Array<string>(lines.length).fill("");
+  const outputLines = finalText.split("\n");
+
+  for (const line of outputLines) {
+    const match = line.match(/^\[(\d+)\]\s?(.*)/);
+    if (match) {
+      const idx = parseInt(match[1]) - 1;
+      if (idx >= 0 && idx < lines.length) {
+        resultLines[idx] = match[2] || "";
+      }
+    }
+  }
+
+  return resultLines;
 }
 
 /** Render interleaved original + translated lines */
@@ -195,6 +320,53 @@ export function InterleavedText({
   );
 }
 
+/** Translation progress bar — decompose-style with animated creep */
+export function TranslationProgress({ progress }: { progress: TranslationProgress }) {
+  const { done, total, processing } = progress;
+  if (total <= 1) return null; // No progress bar for single-batch
+
+  const ceilPercent = total > 0 ? ((done + (processing ? 1 : 0)) / total) * 100 : 0;
+  const floorPercent = total > 0 ? (done / total) * 100 : 0;
+  const percent = useAnimatedProgress(ceilPercent, floorPercent, processing);
+  const isComplete = done === total && !processing;
+
+  return (
+    <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-muted-foreground">翻译进度</span>
+        <AnimatePresence mode="wait">
+          {isComplete ? (
+            <motion.span
+              key="complete"
+              initial={{ opacity: 0, y: 8, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.4, ease: "easeOut" }}
+              className="text-accent font-semibold flex items-center gap-1"
+            >
+              <CheckCircle2 className="h-3 w-3" />
+              翻译完成
+            </motion.span>
+          ) : (
+            <motion.span
+              key="progress"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.3 }}
+              className="text-muted-foreground tabular-nums"
+            >
+              {done}/{total} 段
+              <span className="ml-2 font-semibold text-foreground">{percent.toFixed(1)}%</span>
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </div>
+      <Progress value={percent} className="h-2" />
+    </div>
+  );
+}
+
 /** Translation toggle button */
 export function TranslateToggle({
   isNonChinese,
@@ -202,6 +374,7 @@ export function TranslateToggle({
   showTranslation,
   onTranslate,
   onClear,
+  onStop,
   disabled,
 }: {
   isNonChinese: boolean;
@@ -209,14 +382,20 @@ export function TranslateToggle({
   showTranslation: boolean;
   onTranslate: () => void;
   onClear: () => void;
+  onStop?: () => void;
   disabled?: boolean;
 }) {
   if (!isNonChinese) return null;
 
   return isTranslating ? (
-    <Button variant="outline" size="sm" disabled className="gap-1.5">
+    <Button
+      variant="destructive"
+      size="sm"
+      onClick={onStop}
+      className="gap-1.5"
+    >
       <Loader2 className="h-3.5 w-3.5 animate-spin" />
-      翻译中…
+      停止翻译
     </Button>
   ) : showTranslation ? (
     <Button variant="outline" size="sm" onClick={onClear} className="gap-1.5">

@@ -9,7 +9,7 @@ import { callGeminiStream } from "@/lib/gemini-client";
 import { buildStructureTransformPrompt } from "@/lib/drama-prompts";
 import { FRAMEWORK_STYLES } from "@/types/drama";
 import type { DramaSetup } from "@/types/drama";
-import { useTranslation, InterleavedText, TranslateToggle, isNonChineseText } from "./TranslateButton";
+import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "./TranslateButton";
 
 interface StepStructureTransformProps {
   setup: DramaSetup;
@@ -38,7 +38,7 @@ const StepStructureTransform = ({
   const [showComparison, setShowComparison] = useState(true);
   const [selectedStyle, setSelectedStyle] = useState(frameworkStyle || "");
   const abortRef = useRef<AbortController | null>(null);
-  const { isTranslating, showTranslation, translate, clearTranslation, getTranslation, hasTranslation } = useTranslation();
+  const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress } = useTranslation();
   const nonChinese = isNonChineseText(structureTransform);
 
   const handleGenerate = async () => {
@@ -118,6 +118,7 @@ const StepStructureTransform = ({
                   showTranslation={showTranslation}
                   onTranslate={() => translate(structureTransform)}
                   onClear={clearTranslation}
+                  onStop={stopTranslation}
                   disabled={editing}
                 />
                 <Button
@@ -155,6 +156,7 @@ const StepStructureTransform = ({
           </div>
         </CardHeader>
         <CardContent>
+          {isTranslating && <TranslationProgress progress={transProgress} />}
           {showComparison && !isGenerating ? (
             <div className="grid grid-cols-2 gap-4">
               <div>

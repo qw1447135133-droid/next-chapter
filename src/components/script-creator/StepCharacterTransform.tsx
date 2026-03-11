@@ -7,7 +7,7 @@ import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildCharacterTransformPrompt } from "@/lib/drama-prompts";
 import type { DramaSetup } from "@/types/drama";
-import { useTranslation, InterleavedText, TranslateToggle, isNonChineseText } from "./TranslateButton";
+import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "./TranslateButton";
 
 /** Extract mermaid code from text */
 function extractMermaid(text: string): string | null {
@@ -77,7 +77,7 @@ const StepCharacterTransform = ({
   const [showComparison, setShowComparison] = useState(false);
   const [showDiagram, setShowDiagram] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
-  const { isTranslating, showTranslation, translate, clearTranslation, getTranslation, hasTranslation } = useTranslation();
+  const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress } = useTranslation();
   const nonChinese = isNonChineseText(characterTransform);
 
   const handleGenerate = async () => {
@@ -135,6 +135,7 @@ const StepCharacterTransform = ({
                   showTranslation={showTranslation}
                   onTranslate={() => translate(removeMermaid(characterTransform))}
                   onClear={clearTranslation}
+                  onStop={stopTranslation}
                   disabled={editing}
                 />
                 <Button
@@ -171,6 +172,7 @@ const StepCharacterTransform = ({
           </div>
         </CardHeader>
         <CardContent>
+          {isTranslating && <TranslationProgress progress={transProgress} />}
           {showDiagram && mermaidCode && (
             <div className="mb-4 p-4 border rounded-lg bg-muted/30">
               <MermaidDiagram code={mermaidCode} />
