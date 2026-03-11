@@ -251,7 +251,11 @@ ${script.slice(0, 3000)}
           if (parsed.audience) setAudience(parsed.audience);
           if (parsed.tone) setTone(parsed.tone);
           if (parsed.ending) setEnding(parsed.ending);
-          if (parsed.suggestedEpisodes) setTotalEpisodes(Number(parsed.suggestedEpisodes));
+          if (parsed.suggestedEpisodes) {
+            const ep = Number(parsed.suggestedEpisodes);
+            setSuggestedEpisodes(ep);
+            setTotalEpisodes(ep);
+          }
         }
         configDone = true;
 
