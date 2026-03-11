@@ -119,6 +119,7 @@ const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferen
   const [script, setScript] = useState(referenceScript || "");
   const [targetMarket, setTargetMarket] = useState(setup?.targetMarket || "");
   const [totalEpisodes, setTotalEpisodes] = useState<number | null>(setup?.totalEpisodes || null);
+  const [suggestedEpisodes, setSuggestedEpisodes] = useState<number | null>(null);
   const [audience, setAudience] = useState(setup?.audience || "");
   const [tone, setTone] = useState(setup?.tone || "");
   const [ending, setEnding] = useState(setup?.ending || "");
