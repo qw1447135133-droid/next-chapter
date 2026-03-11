@@ -209,6 +209,7 @@ export function createEmptyDramaProject(mode: DramaMode = "traditional"): DramaP
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     referenceScript: "",
+    referenceStructure: "",
     frameworkStyle: "",
     structureTransform: "",
     characterTransform: "",
