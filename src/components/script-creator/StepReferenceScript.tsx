@@ -602,9 +602,26 @@ ${structureParts.join("\n\n---\n\n")}
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">目标集数</Label>
-                <div className="h-8 px-3 flex items-center rounded-md border bg-muted/40 text-sm">
-                  {episodeLabel || <span className="text-muted-foreground/50">待识别</span>}
-                </div>
+                <Select
+                  value={totalEpisodes ? String(totalEpisodes) : ""}
+                  onValueChange={(v) => setTotalEpisodes(Number(v))}
+                >
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue placeholder="待选择" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {suggestedEpisodes && (
+                      <SelectItem value={String(suggestedEpisodes)}>
+                        AI建议：{suggestedEpisodes}集
+                      </SelectItem>
+                    )}
+                    {EPISODE_COUNTS.filter(e => e.value > 0 && e.value !== suggestedEpisodes).map((ep) => (
+                      <SelectItem key={ep.value} value={String(ep.value)}>
+                        {ep.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">受众</Label>
