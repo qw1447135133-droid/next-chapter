@@ -422,7 +422,6 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
 
   const handleStop = () => abortRef.current?.abort();
 
-  const completedNums = new Set(episodes.map((e) => e.number));
   const selectedScript = episodes.find((e) => e.number === selectedEp);
   const scenes = selectedScript ? parseScenes(selectedScript.content) : [];
 
