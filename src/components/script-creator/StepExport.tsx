@@ -161,6 +161,25 @@ const StepExport = ({ setup, dramaTitle, creativePlan, characters, episodes }: S
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadEpisode = (ep: EpisodeScript) => {
+    const content = `# 第${ep.number}集：${ep.title}\n\n${ep.content}`;
+    const blob = new Blob([content], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ep${String(ep.number).padStart(3, "0")}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadAll = () => {
+    // Download each episode as separate files (zip not available, download sequentially)
+    episodes.sort((a, b) => a.number - b.number).forEach((ep, idx) => {
+      setTimeout(() => handleDownloadEpisode(ep), idx * 200);
+    });
+    toast({ title: `正在下载 ${episodes.length} 个分集文件…` });
+  };
+
   const handleUseInVideo = () => {
     const allScript = episodes
       .sort((a, b) => a.number - b.number)
