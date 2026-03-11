@@ -156,6 +156,7 @@ const StepStructureTransform = ({
           </div>
         </CardHeader>
         <CardContent>
+          {isTranslating && <TranslationProgress progress={transProgress} />}
           {showComparison && !isGenerating ? (
             <div className="grid grid-cols-2 gap-4">
               <div>

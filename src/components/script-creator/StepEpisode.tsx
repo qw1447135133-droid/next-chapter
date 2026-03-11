@@ -579,6 +579,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                   showTranslation={showTranslation}
                   onTranslate={() => translate(selectedScript.content)}
                   onClear={clearTranslation}
+                  onStop={stopTranslation}
                 />
                 {(selectedScript.history?.length ?? 0) > 0 && (
                   <Button
