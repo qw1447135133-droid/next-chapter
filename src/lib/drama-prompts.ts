@@ -284,6 +284,89 @@ function getScriptFormatTemplate(setup: DramaSetup, episodeNumber: number, hookT
 - High-concept pacing: open with a bang, escalate fast, end on a twist`;
   }
 
+  if (market === "kr") {
+    return `## 대본 형식 (한국 시장)
+
+\`\`\`
+# 제${episodeNumber}화: {에피소드 제목}
+
+> 키워드: {3개 키워드}
+> 감정 테마: {핵심 감정}
+> 이전 줄거리: {지난 화 클리프행어, 1-2문장}
+
+---
+
+## 씬 1
+
+**장소:** 실내/실외 · {장소} · 낮/밤
+**등장인물:** {인물 목록}
+
+△ (풀샷) {장면 묘사 — 분위기와 공간감}
+△ (미디엄샷) {인물의 표정·동작 — 감정 변화에 집중}
+
+**{캐릭터명}** ({말투/동작 지시}): "{대사}"
+
+△ (클로즈업) {핵심 디테일 — 감정 폭발의 순간}
+
+♪ OST: {배경음악 분위기 지시}
+
+---
+
+> 🎣 떡밥: {다음 화 궁금증 유발}
+> 📺 차회 예고: {다음 화 핵심}
+\`\`\`
+
+## 품질 기준
+- 각 화 3-5개 씬
+- 각 화 최소 800자 이상
+- 카메라 워크: 풀샷·미디엄샷·클로즈업·익스트림클로즈업 (최소 3종 사용)
+- 대사에 말투·동작 지시 포함
+- 감정 밀당과 반전을 각 씬에 배치
+- 결말은 ${hookType || "클리프행어"}로 마무리`;
+  }
+
+  if (market === "sea") {
+    return `## Script Format (Southeast Asian Market)
+
+\`\`\`
+# Episode ${episodeNumber}: {Episode Title}
+
+> Keywords: {3 keywords}
+> Emotional Core: {dominant emotion}
+> Previously: {Last episode's dramatic moment, 1-2 sentences}
+
+---
+
+## SCENE 1
+
+**INT./EXT. {LOCATION} — DAY/NIGHT**
+**CHARACTERS: {character list}**
+
+△ (WIDE) {Scene description — lush, atmospheric, emotionally charged}
+△ (MEDIUM) {Character interaction — body language conveying unspoken tension}
+
+**{CHARACTER NAME}** ({tone/action direction}): "{Dialogue}"
+
+△ (CLOSE-UP) {Emotional reaction — tears, rage, revelation}
+
+♪ Music: {Dramatic underscore or emotional ballad cue}
+
+---
+
+> 🎣 Drama Hook: {emotional cliffhanger}
+> 📺 Next Episode: {teaser}
+\`\`\`
+
+## Quality Standards
+- 3-5 scenes per episode
+- Minimum 800 words per episode
+- Camera directions: WIDE, MEDIUM, CLOSE-UP, EXTREME CLOSE-UP (use at least 3)
+- Dialogue must include tone/action parentheticals
+- Maximize emotional intensity — confrontation, confession, betrayal moments
+- End with a powerful ${hookType || "dramatic revelation"} hook
+- Melodramatic pacing: slow emotional build → explosive climax per episode`;
+  }
+
   // 国内默认
   return `## 剧本格式要求（国内模式）
 

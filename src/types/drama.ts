@@ -98,7 +98,7 @@ export interface DramaSetup {
   tone: string;
   ending: string;
   totalEpisodes: number;
-  targetMarket: string; // "cn" | "jp" | "west"
+  targetMarket: string; // "cn" | "jp" | "west" | "kr" | "sea"
   customTopic?: string; // user's additional description
 }
 
