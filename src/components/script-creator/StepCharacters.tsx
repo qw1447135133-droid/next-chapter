@@ -22,13 +22,20 @@ function extractMermaid(text: string): string | null {
   return match ? match[1].trim() : null;
 }
 
-/** Simple Mermaid renderer using a container div */
+/** Remove mermaid code blocks from text for display */
+function removeMermaid(text: string): string {
+  return text.replace(/```mermaid\s*\n[\s\S]*?```\s*/g, "").trim();
+}
+
+/** Lazy Mermaid renderer — only loads the library when mounted */
 function MermaidDiagram({ code }: { code: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string>("");
+  const [loading, setLoading] = useState(true);
 
   const renderDiagram = useCallback(async () => {
+    setLoading(true);
     try {
       const mermaid = (await import("mermaid")).default;
       mermaid.initialize({
@@ -43,12 +50,22 @@ function MermaidDiagram({ code }: { code: string }) {
     } catch (e: any) {
       setError(e?.message || "Mermaid 渲染失败");
       setSvg("");
+    } finally {
+      setLoading(false);
     }
   }, [code]);
 
   useEffect(() => {
     renderDiagram();
   }, [renderDiagram]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
+        加载关系图中…
+      </div>
+    );
+  }
 
   if (error) {
     return (
@@ -107,7 +124,7 @@ const StepCharacters = ({ setup, creativePlan, characters, onUpdate, onNext }: S
   };
 
   const handleStop = () => abortRef.current?.abort();
-  const displayText = isGenerating ? streamingText : characters;
+  const displayText = isGenerating ? streamingText : (characters ? removeMermaid(characters) : "");
   const mermaidCode = characters ? extractMermaid(characters) : null;
 
   return (
