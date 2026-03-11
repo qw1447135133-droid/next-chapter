@@ -979,7 +979,7 @@ async function localGenerateStoryboard(body: any) {
   const isPanorama = mode === "panorama";
   if (!description && !isPanorama) throw new Error("缺少分镜描述");
 
-  const styleDesc = STORYBOARD_STYLE_MAP[style] || STORYBOARD_STYLE_MAP["live-action"];
+  const styleDesc = style?.startsWith("custom:") ? style.slice(7) : (STORYBOARD_STYLE_MAP[style] || STORYBOARD_STYLE_MAP["live-action"]);
   let prompt: string;
 
   if (isPanorama) {
