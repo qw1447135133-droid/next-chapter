@@ -92,6 +92,7 @@ const StepCharacters = ({ setup, creativePlan, characters, onUpdate, onNext }: S
   const [editing, setEditing] = useState(false);
   const [showRelationship, setShowRelationship] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const scrollRef = useAutoScroll<HTMLPreElement>(isGenerating, streamingText);
 
   const handleGenerate = async () => {
     setIsGenerating(true);
