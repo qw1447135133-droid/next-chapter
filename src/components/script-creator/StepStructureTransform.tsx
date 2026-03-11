@@ -109,6 +109,14 @@ const StepStructureTransform = ({
           <div className="flex gap-2">
             {structureTransform && !isGenerating && (
               <>
+                <TranslateToggle
+                  isNonChinese={nonChinese}
+                  isTranslating={isTranslating}
+                  showTranslation={showTranslation}
+                  onTranslate={() => translate(structureTransform)}
+                  onClear={clearTranslation}
+                  disabled={editing}
+                />
                 <Button
                   variant="outline"
                   size="sm"
