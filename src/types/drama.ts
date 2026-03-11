@@ -73,12 +73,20 @@ export const EPISODE_COUNTS = [
   { value: -1, label: "自定义" },
 ] as const;
 
-export type DramaStep = "setup" | "creative-plan" | "characters" | "directory" | "episodes" | "compliance" | "export";
+export type DramaMode = "traditional" | "adaptation";
+
+export type DramaStep =
+  | "setup" | "creative-plan" | "characters"
+  | "reference-script" | "structure-transform" | "character-transform"
+  | "directory" | "episodes" | "compliance" | "export";
 
 export const DRAMA_STEP_LABELS: Record<DramaStep, string> = {
   setup: "选题立项",
   "creative-plan": "创作方案",
   characters: "角色开发",
+  "reference-script": "参考剧本",
+  "structure-transform": "结构转换",
+  "character-transform": "角色转换",
   directory: "分集目录",
   episodes: "分集撰写",
   compliance: "合规审核",
@@ -94,6 +102,27 @@ export const DRAMA_STEPS: DramaStep[] = [
   "compliance",
   "export",
 ];
+
+export const ADAPTATION_STEPS: DramaStep[] = [
+  "reference-script",
+  "structure-transform",
+  "character-transform",
+  "directory",
+  "episodes",
+  "compliance",
+  "export",
+];
+
+export const FRAMEWORK_STYLES = [
+  { value: "东方玄幻", label: "东方玄幻", desc: "仙侠修真、灵气法术、飞升渡劫" },
+  { value: "古装宫廷", label: "古装宫廷", desc: "深宫权谋、后妃争斗、皇权博弈" },
+  { value: "西方奇幻", label: "西方奇幻", desc: "魔法世界、骑士冒险、龙与精灵" },
+  { value: "现代都市", label: "现代都市", desc: "都市职场、商战情感、现代生活" },
+  { value: "末日废土", label: "末日废土", desc: "末世求生、废土冒险、人性考验" },
+  { value: "科幻未来", label: "科幻未来", desc: "星际探索、AI时代、赛博朋克" },
+  { value: "民国谍战", label: "民国谍战", desc: "乱世风云、谍影重重、家国情怀" },
+  { value: "校园青春", label: "校园青春", desc: "校园恋爱、青春成长、友情热血" },
+] as const;
 
 export interface DramaSetup {
   genres: string[]; // max 2
