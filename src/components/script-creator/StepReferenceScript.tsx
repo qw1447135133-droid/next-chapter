@@ -7,7 +7,6 @@ import { ArrowRight, FileText, Upload, Sparkles, Loader2 } from "lucide-react";
 import { callGemini, extractText } from "@/lib/gemini-client";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { callGeminiStream } from "@/lib/gemini-client";
 import { TARGET_MARKETS, EPISODE_COUNTS, AUDIENCES, TONES, ENDINGS } from "@/types/drama";
 import type { DramaSetup } from "@/types/drama";
 
