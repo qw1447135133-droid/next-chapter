@@ -147,6 +147,7 @@ export interface DramaProject {
   directory: EpisodeEntry[];
   directoryRaw: string;        // raw markdown
   episodes: EpisodeScript[];
+  complianceReport: string;    // compliance review markdown
   currentStep: DramaStep;
   dramaTitle: string;
   createdAt: string;
