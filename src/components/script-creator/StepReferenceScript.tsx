@@ -145,7 +145,7 @@ ${script.slice(0, 3000)}
       return;
     }
     if (!analyzed) {
-      toast({ title: "请先点击"AI 识别剧本"识别配置项", variant: "destructive" });
+      toast({ title: '请先点击「AI 识别剧本」识别配置项', variant: "destructive" });
       return;
     }
     const dramaSetup: DramaSetup = {
