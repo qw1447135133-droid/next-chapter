@@ -31,6 +31,69 @@ function getChunkSize(text: string): number {
   return isLogographicText(text) ? 10000 : 25000;
 }
 
+/** Animated progress with creep — matches DecomposeProgress logic */
+function useAnimatedProgress(ceilPercent: number, floorPercent: number, hasProcessing: boolean) {
+  const [display, setDisplay] = useState(0);
+  const rafRef = useRef<number>();
+  const lastTimeRef = useRef(performance.now());
+  const prevCeilRef = useRef(ceilPercent);
+
+  const ceilDropped = ceilPercent < prevCeilRef.current;
+  useEffect(() => {
+    prevCeilRef.current = ceilPercent;
+  }, [ceilPercent]);
+
+  useEffect(() => {
+    lastTimeRef.current = performance.now();
+
+    const tick = (now: number) => {
+      const dt = (now - lastTimeRef.current) / 1000;
+      lastTimeRef.current = now;
+
+      setDisplay(prev => {
+        const hardCap = Math.max(0, ceilPercent - 0.1);
+
+        if (!hasProcessing && !ceilDropped) {
+          if (prev > floorPercent) {
+            const diff = prev - floorPercent;
+            const rollSpeed = Math.max(1, diff * 0.08) * 12;
+            return Math.max(prev - rollSpeed * dt, floorPercent);
+          }
+          return floorPercent;
+        }
+
+        if (prev > hardCap) {
+          const diff = prev - hardCap;
+          const rollSpeed = Math.max(1, diff * 0.08) * 12;
+          return Math.max(prev - rollSpeed * dt, hardCap);
+        }
+
+        const base = Math.max(prev, floorPercent);
+        const gap = hardCap - base;
+        if (gap <= 0) return hardCap;
+
+        const chunkRange = ceilPercent - floorPercent;
+        const baseSpeed = chunkRange > 0 ? chunkRange / 75 : 0.2;
+        const ratio = gap / (chunkRange || 1);
+        const speed = baseSpeed * Math.max(0.05, ratio);
+        const next = base + speed * dt;
+        return Math.min(next, hardCap);
+      });
+
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [ceilPercent, floorPercent, hasProcessing, ceilDropped]);
+
+  useEffect(() => {
+    setDisplay(prev => Math.max(prev, floorPercent));
+  }, [floorPercent]);
+
+  return Math.round(display * 10) / 10;
+}
+
 /** Split script into chunks for structure extraction */
 function splitIntoChunks(text: string, maxSize: number): string[] {
   if (text.length <= maxSize) return [text];
