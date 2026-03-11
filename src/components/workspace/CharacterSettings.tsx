@@ -923,6 +923,7 @@ const CharacterSettings = ({
               style: artStyle,
               model: charImageModel,
               referenceImageUrl: isFirstCostume ? undefined : costumeAnchorUrl,
+              viewMode: charViewMode,
             }),
             CHAR_IMAGE_TIMEOUT_MS,
           );
