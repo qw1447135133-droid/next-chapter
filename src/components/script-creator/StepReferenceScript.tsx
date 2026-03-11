@@ -2,9 +2,7 @@ import { useState, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowRight, FileText, Upload, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -22,27 +20,17 @@ const ACCEPTED_TYPES = ".txt,.pdf,.doc,.docx";
 
 const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferenceScriptProps) => {
   const [script, setScript] = useState(referenceScript || "");
-  const [targetMarket, setTargetMarket] = useState(setup?.targetMarket || "cn");
-  const [totalEpisodes, setTotalEpisodes] = useState(setup?.totalEpisodes || 60);
-  const [episodeSelect, setEpisodeSelect] = useState(
-    EPISODE_COUNTS.some((e) => e.value === (setup?.totalEpisodes || 60))
-      ? String(setup?.totalEpisodes || 60)
-      : "-1"
-  );
-  const [customEpisodes, setCustomEpisodes] = useState("");
-  const [audience, setAudience] = useState(setup?.audience || "全龄");
-  const [tone, setTone] = useState(setup?.tone || "爽");
-  const [ending, setEnding] = useState(setup?.ending || "HE");
+  const [targetMarket, setTargetMarket] = useState(setup?.targetMarket || "");
+  const [totalEpisodes, setTotalEpisodes] = useState<number | null>(setup?.totalEpisodes || null);
+  const [audience, setAudience] = useState(setup?.audience || "");
+  const [tone, setTone] = useState(setup?.tone || "");
+  const [ending, setEnding] = useState(setup?.ending || "");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analyzed, setAnalyzed] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const isUploading = useRef(false);
 
-  const handleEpisodeChange = (val: string) => {
-    setEpisodeSelect(val);
-    if (val !== "-1") setTotalEpisodes(Number(val));
-  };
-
-  // File upload — reuse same logic as ScriptInput
+  // File upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || isUploading.current) return;
@@ -64,6 +52,7 @@ const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferen
       try {
         const text = await file.text();
         setScript(text);
+        setAnalyzed(false);
         toast({ title: "导入成功", description: `已导入 ${file.name}` });
       } catch {
         toast({ title: "读取失败", variant: "destructive" });
@@ -82,6 +71,7 @@ const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferen
       if (error) throw error;
       if (data?.error) throw new Error(data.error || "解析失败");
       setScript(data.text);
+      setAnalyzed(false);
       toast({ title: "导入成功", description: `已导入 ${file.name}` });
     } catch (err: any) {
       console.error("Document parse error:", err);
@@ -92,7 +82,7 @@ const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferen
     if (fileRef.current) fileRef.current.value = "";
   };
 
-  // AI auto-detect script setup
+  // AI auto-detect
   const handleAnalyze = async () => {
     if (!script.trim() || script.trim().length < 50) {
       toast({ title: "剧本内容过短，无法识别", variant: "destructive" });
@@ -107,11 +97,11 @@ ${script.slice(0, 3000)}
 
 ## 请以 JSON 格式输出以下字段：
 {
-  "targetMarket": "cn|jp|west|kr|sea",  // 根据文本语言和风格判断
-  "audience": "女频|男频|全龄",          // 根据内容题材判断
-  "tone": "甜|虐|甜虐|爽|燃|搞笑",      // 根据叙事基调判断
-  "ending": "HE|BE|OE",                // 根据内容倾向判断（如无法判断则 HE）
-  "suggestedEpisodes": 60,             // 根据内容体量建议集数（40-100）
+  "targetMarket": "cn|jp|west|kr|sea",
+  "audience": "女频|男频|全龄",
+  "tone": "甜|虐|甜虐|爽|燃|搞笑",
+  "ending": "HE|BE|OE",
+  "suggestedEpisodes": 60,
   "reason": "简短说明判断依据"
 }
 
@@ -125,7 +115,6 @@ ${script.slice(0, 3000)}
         { maxOutputTokens: 512 },
       );
 
-      // Parse JSON from result
       const jsonMatch = result.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
@@ -133,21 +122,9 @@ ${script.slice(0, 3000)}
         if (parsed.audience) setAudience(parsed.audience);
         if (parsed.tone) setTone(parsed.tone);
         if (parsed.ending) setEnding(parsed.ending);
-        if (parsed.suggestedEpisodes) {
-          const ep = Number(parsed.suggestedEpisodes);
-          const matched = EPISODE_COUNTS.find((e) => e.value === ep);
-          if (matched) {
-            setEpisodeSelect(String(ep));
-            setTotalEpisodes(ep);
-          } else {
-            setEpisodeSelect("-1");
-            setCustomEpisodes(String(ep));
-          }
-        }
-        toast({
-          title: "识别完成",
-          description: parsed.reason || "已自动填充配置项",
-        });
+        if (parsed.suggestedEpisodes) setTotalEpisodes(Number(parsed.suggestedEpisodes));
+        setAnalyzed(true);
+        toast({ title: "识别完成", description: parsed.reason || "已自动填充配置项" });
       } else {
         toast({ title: "识别失败", description: "无法解析 AI 返回结果", variant: "destructive" });
       }
@@ -167,17 +144,27 @@ ${script.slice(0, 3000)}
       toast({ title: "参考剧本内容过短，请输入更完整的剧本", variant: "destructive" });
       return;
     }
-    const finalEpisodes = episodeSelect === "-1" ? (Number(customEpisodes) || 60) : totalEpisodes;
+    if (!analyzed) {
+      toast({ title: '请先点击「AI 识别剧本」识别配置项', variant: "destructive" });
+      return;
+    }
     const dramaSetup: DramaSetup = {
       genres: [],
-      audience,
-      tone,
-      ending,
-      totalEpisodes: finalEpisodes,
-      targetMarket,
+      audience: audience || "全龄",
+      tone: tone || "爽",
+      ending: ending || "HE",
+      totalEpisodes: totalEpisodes || 60,
+      targetMarket: targetMarket || "cn",
     };
     onComplete(script, dramaSetup);
   };
+
+  const findLabel = (list: readonly { value: string; label: string }[], val: string) =>
+    list.find((i) => i.value === val)?.label || "";
+
+  const episodeLabel = totalEpisodes
+    ? (EPISODE_COUNTS.find((e) => e.value === totalEpisodes)?.label || `${totalEpisodes}集`)
+    : "";
 
   return (
     <div className="space-y-4">
@@ -204,16 +191,30 @@ ${script.slice(0, 3000)}
               <Upload className="h-3.5 w-3.5" />
               上传文档
             </Button>
+            <Button
+              variant={analyzed ? "outline" : "default"}
+              size="sm"
+              className="gap-1.5"
+              onClick={handleAnalyze}
+              disabled={!script.trim() || isAnalyzing}
+            >
+              {isAnalyzing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              {isAnalyzing ? "识别中…" : analyzed ? "重新识别" : "AI 识别剧本"}
+            </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
             <Label className="text-sm text-muted-foreground mb-2 block">
-              粘贴文本或上传文档（TXT / PDF / Word），AI 将基于此进行风格转换
+              粘贴文本或上传文档（TXT / PDF / Word），点击"AI 识别剧本"自动分析配置
             </Label>
             <Textarea
               value={script}
-              onChange={(e) => setScript(e.target.value)}
+              onChange={(e) => { setScript(e.target.value); setAnalyzed(false); }}
               placeholder="在此粘贴参考剧本原文……&#10;&#10;可以是完整剧本、小说节选、故事大纲等任何叙事文本"
               rows={16}
               className="font-mono text-sm"
@@ -225,121 +226,47 @@ ${script.slice(0, 3000)}
             )}
           </div>
 
-          <div className="flex items-center justify-between pt-2">
-            <h4 className="text-sm font-medium">配置项</h4>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              onClick={handleAnalyze}
-              disabled={!script.trim() || isAnalyzing}
-            >
-              {isAnalyzing ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" />
-              )}
-              {isAnalyzing ? "识别中…" : "AI 识别剧本"}
-            </Button>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs">目标市场</Label>
-              <Select value={targetMarket} onValueChange={setTargetMarket}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TARGET_MARKETS.map((m) => (
-                    <SelectItem key={m.value} value={m.value} className="text-xs">
-                      {m.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs">目标集数</Label>
-              <Select value={episodeSelect} onValueChange={handleEpisodeChange}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {EPISODE_COUNTS.map((e) => (
-                    <SelectItem key={e.value} value={String(e.value)} className="text-xs">
-                      {e.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {episodeSelect === "-1" && (
-                <Input
-                  type="number"
-                  min={10}
-                  max={200}
-                  value={customEpisodes}
-                  onChange={(e) => setCustomEpisodes(e.target.value)}
-                  placeholder="10-200"
-                  className="h-8 text-xs mt-1"
-                />
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs">受众</Label>
-              <Select value={audience} onValueChange={setAudience}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {AUDIENCES.map((a) => (
-                    <SelectItem key={a.value} value={a.value} className="text-xs">
-                      {a.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs">基调</Label>
-              <Select value={tone} onValueChange={setTone}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TONES.map((t) => (
-                    <SelectItem key={t.value} value={t.value} className="text-xs">
-                      {t.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs">结局</Label>
-              <Select value={ending} onValueChange={setEnding}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {ENDINGS.map((e) => (
-                    <SelectItem key={e.value} value={e.value} className="text-xs">
-                      {e.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {/* Read-only config display */}
+          <div>
+            <h4 className="text-sm font-medium mb-3">配置项（AI 自动识别）</h4>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">目标市场</Label>
+                <div className="h-8 px-3 flex items-center rounded-md border bg-muted/40 text-sm">
+                  {findLabel(TARGET_MARKETS, targetMarket) || <span className="text-muted-foreground/50">待识别</span>}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">目标集数</Label>
+                <div className="h-8 px-3 flex items-center rounded-md border bg-muted/40 text-sm">
+                  {episodeLabel || <span className="text-muted-foreground/50">待识别</span>}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">受众</Label>
+                <div className="h-8 px-3 flex items-center rounded-md border bg-muted/40 text-sm">
+                  {findLabel(AUDIENCES, audience) || <span className="text-muted-foreground/50">待识别</span>}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">基调</Label>
+                <div className="h-8 px-3 flex items-center rounded-md border bg-muted/40 text-sm">
+                  {findLabel(TONES, tone) || <span className="text-muted-foreground/50">待识别</span>}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">结局</Label>
+                <div className="h-8 px-3 flex items-center rounded-md border bg-muted/40 text-sm">
+                  {findLabel(ENDINGS, ending) || <span className="text-muted-foreground/50">待识别</span>}
+                </div>
+              </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
       <div className="flex justify-end">
-        <Button onClick={handleSubmit} className="gap-2" disabled={!script.trim()}>
+        <Button onClick={handleSubmit} className="gap-2" disabled={!script.trim() || !analyzed}>
           确认参考剧本，进入结构转换
           <ArrowRight className="h-4 w-4" />
         </Button>
