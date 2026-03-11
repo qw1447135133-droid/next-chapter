@@ -806,15 +806,30 @@ async function localGenerateCharacter(body: any) {
   const isSingleMode = viewMode === "single";
 
   const refImageNote = referenceImageUrl
-    ? `\n\nCRITICAL: The attached reference image shows the SAME character in a different costume. You MUST preserve the EXACT same face, facial features, bone structure, eye shape, nose, lips, skin tone, hair color, hairstyle, body proportions, and build. ONLY change the clothing/outfit as described. The character's identity must be unmistakably the same person.`
+    ? `\n\n⚠️ ABSOLUTE IDENTITY LOCK — HIGHEST PRIORITY ⚠️
+The attached reference image shows the EXACT SAME character. You MUST produce an image of the SAME PERSON — this is non-negotiable.
+
+MANDATORY IDENTITY CONSTRAINTS:
+- FACE: Preserve the EXACT same facial structure, bone structure, eye shape, eye color, nose shape, lip shape, jawline, cheekbones, brow ridge, ear shape. The face MUST be recognizable as the same individual.
+- SKIN: Same skin tone, complexion, and any visible marks/freckles.
+- HAIR: Same hair color, texture, length, and style (unless the description explicitly states a hair change).
+- BODY: Same height, build, body proportions, shoulder width, and physique.
+- AGE: Same apparent age (unless the costume description explicitly indicates an age change like "老年" or "少年时期").
+
+ONLY CHANGE: The clothing/outfit as described. Everything else about the person MUST remain pixel-level identical.
+If in doubt, prioritize facial identity over any other element.`
     : "";
 
+  const whiteBackgroundRule = `The background MUST be a plain, pure white background (#FFFFFF). No gradients, no shadows on the background, no environment elements. Clean white only.`;
+
   const prompt = isSingleMode
-    ? `Create a professional full-body character portrait for: "${name}" - ${characterDesc}.
+    ? `Create a professional full-body character design portrait for: "${name}" - ${characterDesc}.
 
 Art style: ${styleDesc}.
 
-The image should be a single full-body FRONT VIEW portrait on a clean, simple background. The character should be standing in a natural pose, facing the camera directly. Show the character from head to toe with clear details of face, clothing, and accessories. Professional character design quality. The entire image MUST be in ${styleDesc} style.
+${whiteBackgroundRule}
+
+The image should be a single full-body FRONT VIEW portrait of the character standing in a neutral, upright pose on a plain white background. The character should face the camera directly. Show the character from head to toe with clear details of face, clothing, and accessories. Professional character design sheet quality — NO text labels, clean composition. The entire image MUST be in ${styleDesc} style.
 
 CRITICAL: The character's clothing, armor, and accessories MUST match the era and setting described above. If the description mentions medieval, fantasy, ancient, or any specific historical period, ALL clothing must be era-appropriate. NEVER use modern clothing (suits, t-shirts, jeans, sneakers) for historical/fantasy characters.${refImageNote}`
     : `Create a professional character design reference sheet for an animated character: "${name}" - ${characterDesc}.
@@ -826,6 +841,8 @@ The image should be a clean character turnaround sheet with 4 views arranged in 
 - Top-right: SIDE VIEW (full body, profile view from the right)
 - Bottom-left: BACK VIEW (full body, facing away)
 - Bottom-right: FACE CLOSE-UP (detailed head/face portrait)
+
+${whiteBackgroundRule}
 
 Each view should be labeled clearly. The character design must be consistent across all 4 views. The entire image MUST be in ${styleDesc} style.
 
@@ -872,11 +889,25 @@ CRITICAL: The character's clothing, armor, and accessories MUST match the era an
 }
 
 async function localGenerateScene(body: any) {
-  const { name, description, style, model } = body;
+  const { name, description, style, model, referenceImageUrl } = body;
   if (!name) throw new Error("缺少场景名称");
 
   const sceneDesc = description || name;
   const styleDesc = SCENE_STYLE_MAP[style] || SCENE_STYLE_MAP["live-action"];
+
+  const refNote = referenceImageUrl
+    ? `\n\n⚠️ SCENE IDENTITY LOCK — HIGHEST PRIORITY ⚠️
+The attached reference image shows the EXACT SAME location/scene. You MUST produce an image of the SAME place — this is non-negotiable.
+
+MANDATORY SCENE CONSTRAINTS:
+- ARCHITECTURE: Preserve the EXACT same buildings, structures, room layout, walls, doors, windows, furniture arrangement.
+- CAMERA ANGLE: Use the SAME camera position, angle, and framing as the reference image. The viewpoint MUST match.
+- SPATIAL LAYOUT: Same depth, proportions, distances between elements.
+- MATERIALS & TEXTURES: Same wall materials, floor surfaces, decorative elements, props.
+- STYLE: Same art style and rendering quality.
+
+ONLY CHANGE: The time of day, lighting, weather, and atmosphere as described (e.g. dawn → dusk, clear → rainy). The physical environment and camera angle MUST remain identical.`
+    : "";
 
   const prompt = `Create a detailed, high-quality background/environment concept art for a scene called "${name}".
 
@@ -884,7 +915,7 @@ Scene description: ${sceneDesc}
 
 Art style: ${styleDesc}.
 
-This is a wide establishing shot showing the full environment. Focus on atmosphere, lighting, and mood. No characters or people in the scene - only the environment/location itself. Professional concept art quality.`;
+This is a wide establishing shot showing the full environment. Focus on atmosphere, lighting, and mood. No characters or people in the scene - only the environment/location itself. Professional concept art quality.${refNote}`;
 
   const selectedModel = model || "gemini-3-pro-image-preview";
   const isSeedream = selectedModel.startsWith("doubao-seedream");
@@ -897,8 +928,19 @@ This is a wide establishing shot showing the full environment. Focus on atmosphe
     imageBase64 = result.base64;
     mimeType = result.mimeType;
   } else {
+    // Build multimodal parts
+    const parts: any[] = [{ text: prompt }];
+
+    // Add reference image if provided (for time variants)
+    if (referenceImageUrl) {
+      const inlineData = await getInlineData(referenceImageUrl);
+      if (inlineData && inlineData.data.length < 2 * 1024 * 1024) {
+        parts.unshift({ inlineData: { mimeType: inlineData.mimeType, data: inlineData.data } });
+      }
+    }
+
     const data = await callGemini(selectedModel,
-      [{ role: "user", parts: [{ text: prompt }] }],
+      [{ role: "user", parts }],
       { responseModalities: ["IMAGE", "TEXT"], imageConfig: { aspectRatio: "16:9", imageSize: "2K" } },
     );
 
