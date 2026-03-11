@@ -148,6 +148,10 @@ const ScriptCreator = () => {
     setProject((p) => ({ ...p, episodes }));
   };
 
+  const handleComplianceUpdate = (complianceReport: string) => {
+    setProject((p) => ({ ...p, complianceReport }));
+  };
+
   const handleNewProject = () => {
     if (confirm("确定要新建项目吗？")) {
       const newProj = createEmptyDramaProject();
