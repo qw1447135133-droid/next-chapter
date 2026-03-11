@@ -889,11 +889,25 @@ CRITICAL: The character's clothing, armor, and accessories MUST match the era an
 }
 
 async function localGenerateScene(body: any) {
-  const { name, description, style, model } = body;
+  const { name, description, style, model, referenceImageUrl } = body;
   if (!name) throw new Error("缺少场景名称");
 
   const sceneDesc = description || name;
   const styleDesc = SCENE_STYLE_MAP[style] || SCENE_STYLE_MAP["live-action"];
+
+  const refNote = referenceImageUrl
+    ? `\n\n⚠️ SCENE IDENTITY LOCK — HIGHEST PRIORITY ⚠️
+The attached reference image shows the EXACT SAME location/scene. You MUST produce an image of the SAME place — this is non-negotiable.
+
+MANDATORY SCENE CONSTRAINTS:
+- ARCHITECTURE: Preserve the EXACT same buildings, structures, room layout, walls, doors, windows, furniture arrangement.
+- CAMERA ANGLE: Use the SAME camera position, angle, and framing as the reference image. The viewpoint MUST match.
+- SPATIAL LAYOUT: Same depth, proportions, distances between elements.
+- MATERIALS & TEXTURES: Same wall materials, floor surfaces, decorative elements, props.
+- STYLE: Same art style and rendering quality.
+
+ONLY CHANGE: The time of day, lighting, weather, and atmosphere as described (e.g. dawn → dusk, clear → rainy). The physical environment and camera angle MUST remain identical.`
+    : "";
 
   const prompt = `Create a detailed, high-quality background/environment concept art for a scene called "${name}".
 
@@ -901,7 +915,7 @@ Scene description: ${sceneDesc}
 
 Art style: ${styleDesc}.
 
-This is a wide establishing shot showing the full environment. Focus on atmosphere, lighting, and mood. No characters or people in the scene - only the environment/location itself. Professional concept art quality.`;
+This is a wide establishing shot showing the full environment. Focus on atmosphere, lighting, and mood. No characters or people in the scene - only the environment/location itself. Professional concept art quality.${refNote}`;
 
   const selectedModel = model || "gemini-3-pro-image-preview";
   const isSeedream = selectedModel.startsWith("doubao-seedream");
@@ -914,8 +928,19 @@ This is a wide establishing shot showing the full environment. Focus on atmosphe
     imageBase64 = result.base64;
     mimeType = result.mimeType;
   } else {
+    // Build multimodal parts
+    const parts: any[] = [{ text: prompt }];
+
+    // Add reference image if provided (for time variants)
+    if (referenceImageUrl) {
+      const inlineData = await getInlineData(referenceImageUrl);
+      if (inlineData && inlineData.data.length < 2 * 1024 * 1024) {
+        parts.unshift({ inlineData: { mimeType: inlineData.mimeType, data: inlineData.data } });
+      }
+    }
+
     const data = await callGemini(selectedModel,
-      [{ role: "user", parts: [{ text: prompt }] }],
+      [{ role: "user", parts }],
       { responseModalities: ["IMAGE", "TEXT"], imageConfig: { aspectRatio: "16:9", imageSize: "2K" } },
     );
 
