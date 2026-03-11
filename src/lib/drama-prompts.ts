@@ -20,6 +20,20 @@ function getMarketDirective(setup: DramaSetup): string {
 - **Narrative approach**: External conflict drives internal change. Favor direct plot propulsion, satisfying twists, and "page-turner" cliffhangers. Lean into spectacle and wish-fulfillment.
 - **Cultural fit**: Names, settings, social norms should feel authentic to a Western audience. Use standard screenplay/novel conventions.`;
   }
+  if (market === "kr") {
+    return `## 🌏 목표 시장: 한국
+- **창작 언어: 한국어** — 모든 출력은 한국어로 작성할 것.
+- **미학 경향**: 한국 드라마(K-Drama) 특유의 섬세한 감정선과 운명적 서사. 캐릭터 간의 밀고 당기는 관계 역학, 비밀과 오해에서 비롯된 갈등, 그리고 극적인 반전(plot twist)을 중시.
+- **서사 스타일**: 감정의 밀도를 높이되 전개는 긴박하게 유지. 주인공의 성장과 복수·사랑·운명의 교차를 핵심 축으로 삼는다. "밀당"과 "떡밥 회수"를 구조적으로 설계. 시청자의 감정 이입과 공감을 최우선.
+- **문화 적응**: 캐릭터명·장소·사회관계·존대어 체계는 한국 문화에 부합해야 한다. 재벌·신분 격차·가족 갈등 등 한국 드라마 특유의 소재를 적극 활용.`;
+  }
+  if (market === "sea") {
+    return `## 🌏 Target Market: Southeast Asia
+- **Writing Language: English** — All output must be written in English (universally accessible across SEA markets).
+- **Style**: Melodramatic storytelling with high emotional stakes. Blend family honor, social class conflict, and passionate romance. Think Philippine teleserye or Thai lakorn intensity — every emotion is felt deeply and expressed openly.
+- **Narrative approach**: Strong moral undercurrents with clear hero/villain dynamics. Favor rags-to-riches arcs, family loyalty vs. personal desire, and justice prevailing after prolonged suffering. Heavy use of dramatic irony and coincidence as plot devices.
+- **Cultural fit**: Reflect Southeast Asian social dynamics — extended family hierarchy, economic disparity, spiritual/superstitious elements. Names and settings should feel authentic to a multi-cultural SEA audience.`;
+  }
   return `## 🌏 目标市场：国内（中文）
 - **创作语言：中文** —— 全部输出内容使用中文撰写。
 - 符合国内短剧平台的节奏与审美。`;
@@ -268,6 +282,89 @@ function getScriptFormatTemplate(setup: DramaSetup, episodeNumber: number, hookT
 - Dialogue must include tone/action parentheticals
 - End with a strong ${hookType || "cliffhanger"} hook
 - High-concept pacing: open with a bang, escalate fast, end on a twist`;
+  }
+
+  if (market === "kr") {
+    return `## 대본 형식 (한국 시장)
+
+\`\`\`
+# 제${episodeNumber}화: {에피소드 제목}
+
+> 키워드: {3개 키워드}
+> 감정 테마: {핵심 감정}
+> 이전 줄거리: {지난 화 클리프행어, 1-2문장}
+
+---
+
+## 씬 1
+
+**장소:** 실내/실외 · {장소} · 낮/밤
+**등장인물:** {인물 목록}
+
+△ (풀샷) {장면 묘사 — 분위기와 공간감}
+△ (미디엄샷) {인물의 표정·동작 — 감정 변화에 집중}
+
+**{캐릭터명}** ({말투/동작 지시}): "{대사}"
+
+△ (클로즈업) {핵심 디테일 — 감정 폭발의 순간}
+
+♪ OST: {배경음악 분위기 지시}
+
+---
+
+> 🎣 떡밥: {다음 화 궁금증 유발}
+> 📺 차회 예고: {다음 화 핵심}
+\`\`\`
+
+## 품질 기준
+- 각 화 3-5개 씬
+- 각 화 최소 800자 이상
+- 카메라 워크: 풀샷·미디엄샷·클로즈업·익스트림클로즈업 (최소 3종 사용)
+- 대사에 말투·동작 지시 포함
+- 감정 밀당과 반전을 각 씬에 배치
+- 결말은 ${hookType || "클리프행어"}로 마무리`;
+  }
+
+  if (market === "sea") {
+    return `## Script Format (Southeast Asian Market)
+
+\`\`\`
+# Episode ${episodeNumber}: {Episode Title}
+
+> Keywords: {3 keywords}
+> Emotional Core: {dominant emotion}
+> Previously: {Last episode's dramatic moment, 1-2 sentences}
+
+---
+
+## SCENE 1
+
+**INT./EXT. {LOCATION} — DAY/NIGHT**
+**CHARACTERS: {character list}**
+
+△ (WIDE) {Scene description — lush, atmospheric, emotionally charged}
+△ (MEDIUM) {Character interaction — body language conveying unspoken tension}
+
+**{CHARACTER NAME}** ({tone/action direction}): "{Dialogue}"
+
+△ (CLOSE-UP) {Emotional reaction — tears, rage, revelation}
+
+♪ Music: {Dramatic underscore or emotional ballad cue}
+
+---
+
+> 🎣 Drama Hook: {emotional cliffhanger}
+> 📺 Next Episode: {teaser}
+\`\`\`
+
+## Quality Standards
+- 3-5 scenes per episode
+- Minimum 800 words per episode
+- Camera directions: WIDE, MEDIUM, CLOSE-UP, EXTREME CLOSE-UP (use at least 3)
+- Dialogue must include tone/action parentheticals
+- Maximize emotional intensity — confrontation, confession, betrayal moments
+- End with a powerful ${hookType || "dramatic revelation"} hook
+- Melodramatic pacing: slow emotional build → explosive climax per episode`;
   }
 
   // 国内默认

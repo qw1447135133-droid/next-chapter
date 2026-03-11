@@ -53,6 +53,16 @@ export const TARGET_MARKETS = [
     label: "欧美（英文）",
     desc: "英文创作，好莱坞高概念风格，强悬疑爽感与直接的情节推动",
   },
+  {
+    value: "kr",
+    label: "韩国（韩文）",
+    desc: "韩文创作，韩剧式情感节奏，细腻人物关系与命运反转",
+  },
+  {
+    value: "sea",
+    label: "东南亚（英文）",
+    desc: "英文创作，融合家庭伦理与社会阶层冲突，浓烈情感表达",
+  },
 ] as const;
 
 export const EPISODE_COUNTS = [
@@ -88,7 +98,7 @@ export interface DramaSetup {
   tone: string;
   ending: string;
   totalEpisodes: number;
-  targetMarket: string; // "cn" | "jp" | "west"
+  targetMarket: string; // "cn" | "jp" | "west" | "kr" | "sea"
   customTopic?: string; // user's additional description
 }
 
