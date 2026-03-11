@@ -802,7 +802,7 @@ async function localGenerateCharacter(body: any) {
   if (!name) throw new Error("缺少角色名称");
 
   const characterDesc = description || name;
-  const styleDesc = CHAR_STYLE_MAP[style] || CHAR_STYLE_MAP["live-action"];
+  const styleDesc = style?.startsWith("custom:") ? style.slice(7) : (CHAR_STYLE_MAP[style] || CHAR_STYLE_MAP["live-action"]);
   const isSingleMode = viewMode === "single";
 
   const refImageNote = referenceImageUrl
