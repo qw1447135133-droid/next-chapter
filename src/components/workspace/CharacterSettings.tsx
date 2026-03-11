@@ -43,7 +43,9 @@ interface CharacterSettingsProps {
   characters: CharacterSetting[];
   sceneSettings: SceneSetting[];
   artStyle: ArtStyle;
+  customArtStylePrompt?: string;
   onArtStyleChange: (style: ArtStyle) => void;
+  onCustomArtStylePromptChange?: (prompt: string) => void;
   onCharactersChange: (c: CharacterSetting[]) => void;
   onSceneSettingsChange: (s: SceneSetting[]) => void;
   onNext: () => void;
