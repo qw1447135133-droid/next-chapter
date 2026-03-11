@@ -1747,6 +1747,7 @@ const CharacterSettings = ({
           </Card>
           );
         })}
+        </div>
       </div>
 
       {/* Scene Settings */}
