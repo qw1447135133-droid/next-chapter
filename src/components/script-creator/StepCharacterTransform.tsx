@@ -77,7 +77,7 @@ const StepCharacterTransform = ({
   const [showComparison, setShowComparison] = useState(false);
   const [showDiagram, setShowDiagram] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
-  const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress } = useTranslation();
+  const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress, canResume: transCanResume, resumeTranslation } = useTranslation();
   const nonChinese = isNonChineseText(characterTransform);
 
   const handleGenerate = async () => {
@@ -172,7 +172,7 @@ const StepCharacterTransform = ({
           </div>
         </CardHeader>
         <CardContent>
-          {isTranslating && <TranslationProgress progress={transProgress} />}
+          {(isTranslating || transCanResume) && <TranslationProgress progress={transProgress} canResume={transCanResume} onResume={resumeTranslation} />}
           {showDiagram && mermaidCode && (
             <div className="mb-4 p-4 border rounded-lg bg-muted/30">
               <MermaidDiagram code={mermaidCode} />

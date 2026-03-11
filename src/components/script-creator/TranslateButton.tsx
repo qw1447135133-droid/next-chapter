@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Languages, Loader2, X, CheckCircle2 } from "lucide-react";
+import { Languages, Loader2, X, CheckCircle2, PlayCircle } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { motion, AnimatePresence } from "framer-motion";
@@ -113,10 +113,19 @@ export interface TranslationProgress {
   done: number;
   total: number;
   processing: boolean;
+  failed?: boolean;
+}
+
+interface ResumeState {
+  text: string;
+  key: string;
+  resultLines: string[];
+  startBatch: number;
+  totalBatches: number;
 }
 
 /**
- * Shared translation hook with localStorage caching and chunked translation.
+ * Shared translation hook with localStorage caching, chunked translation, and resume support.
  */
 export function useTranslation() {
   const [translatedMap, setTranslatedMap] = useState<Map<string, string[]>>(new Map());
@@ -124,6 +133,99 @@ export function useTranslation() {
   const [showTranslation, setShowTranslation] = useState(false);
   const [progress, setProgress] = useState<TranslationProgress>({ done: 0, total: 0, processing: false });
   const abortRef = useRef<AbortController | null>(null);
+  const resumeRef = useRef<ResumeState | null>(null);
+
+  const runTranslation = async (text: string, startBatch: number, existingResults?: string[]) => {
+    const key = hashText(text);
+    const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+    const originalLines = text.split("\n");
+    const totalLines = originalLines.length;
+    const resultLines = existingResults || new Array<string>(totalLines).fill("");
+    const totalBatches = Math.ceil(totalLines / LINES_PER_BATCH);
+
+    setIsTranslating(true);
+    setShowTranslation(true);
+    abortRef.current = new AbortController();
+    resumeRef.current = null;
+
+    try {
+      if (totalBatches <= 1) {
+        setProgress({ done: 0, total: 1, processing: true });
+        const batchResult = await translateBatch(model, originalLines, 0, totalLines, abortRef.current.signal);
+        for (let i = 0; i < batchResult.length; i++) {
+          resultLines[i] = batchResult[i];
+        }
+        setProgress({ done: 1, total: 1, processing: false });
+      } else {
+        setProgress({ done: startBatch, total: totalBatches, processing: true });
+
+        for (let batch = startBatch; batch < totalBatches; batch++) {
+          if (abortRef.current?.signal.aborted) break;
+
+          setProgress({ done: batch, total: totalBatches, processing: true });
+
+          const startLine = batch * LINES_PER_BATCH;
+          const endLine = Math.min(startLine + LINES_PER_BATCH, totalLines);
+          const batchLines = originalLines.slice(startLine, endLine);
+
+          const batchResult = await translateBatch(model, batchLines, 0, batchLines.length, abortRef.current!.signal);
+
+          for (let i = 0; i < batchResult.length; i++) {
+            resultLines[startLine + i] = batchResult[i];
+          }
+
+          setProgress({ done: batch + 1, total: totalBatches, processing: batch + 1 < totalBatches });
+        }
+      }
+
+      if (abortRef.current?.signal.aborted) {
+        toast({ title: "已停止翻译" });
+        // Save resume state for manual stop
+        const doneBatches = Math.max(startBatch, ...Array.from({ length: totalBatches }, (_, i) => {
+          const sl = i * LINES_PER_BATCH;
+          return resultLines[sl]?.trim() ? i + 1 : 0;
+        }));
+        if (doneBatches < totalBatches) {
+          resumeRef.current = { text, key, resultLines: [...resultLines], startBatch: doneBatches, totalBatches };
+          setProgress({ done: doneBatches, total: totalBatches, processing: false, failed: true });
+        }
+        return;
+      }
+
+      // Save to in-memory and localStorage
+      setTranslatedMap((prev) => new Map(prev).set(key, resultLines));
+      const updatedCache = readCache();
+      updatedCache[key] = resultLines;
+      writeCache(updatedCache);
+
+      toast({ title: "翻译完成" });
+      resumeRef.current = null;
+      setProgress({ done: 0, total: 0, processing: false });
+    } catch (e: any) {
+      if (e?.message?.includes("取消") || e?.name === "AbortError") {
+        toast({ title: "已停止翻译" });
+      } else {
+        toast({ title: "翻译失败", description: e?.message, variant: "destructive" });
+      }
+      // Calculate how many batches completed successfully
+      const doneBatches = Math.max(startBatch, ...Array.from({ length: totalBatches }, (_, i) => {
+        const sl = i * LINES_PER_BATCH;
+        return resultLines[sl]?.trim() ? i + 1 : 0;
+      }));
+      if (doneBatches < totalBatches && doneBatches > 0) {
+        resumeRef.current = { text, key, resultLines: [...resultLines], startBatch: doneBatches, totalBatches };
+        setProgress({ done: doneBatches, total: totalBatches, processing: false, failed: true });
+        // Show partial results
+        setTranslatedMap((prev) => new Map(prev).set(key, [...resultLines]));
+      } else {
+        setProgress({ done: 0, total: 0, processing: false });
+        setShowTranslation(false);
+      }
+    } finally {
+      setIsTranslating(false);
+      abortRef.current = null;
+    }
+  };
 
   const translate = async (text: string) => {
     if (!text.trim()) return;
@@ -146,76 +248,17 @@ export function useTranslation() {
       return;
     }
 
-    setIsTranslating(true);
-    setShowTranslation(true);
-    abortRef.current = new AbortController();
-
-    try {
-      const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
-      const originalLines = text.split("\n");
-      const totalLines = originalLines.length;
-      const resultLines = new Array<string>(totalLines).fill("");
-
-      // Split into batches of ~200 lines
-      const totalBatches = Math.ceil(totalLines / LINES_PER_BATCH);
-
-      if (totalBatches <= 1) {
-        // Single batch — no progress needed
-        setProgress({ done: 0, total: 1, processing: true });
-        const batchResult = await translateBatch(model, originalLines, 0, totalLines, abortRef.current.signal);
-        for (let i = 0; i < batchResult.length; i++) {
-          resultLines[i] = batchResult[i];
-        }
-        setProgress({ done: 1, total: 1, processing: false });
-      } else {
-        // Multi-batch with progress
-        setProgress({ done: 0, total: totalBatches, processing: true });
-
-        for (let batch = 0; batch < totalBatches; batch++) {
-          if (abortRef.current?.signal.aborted) break;
-
-          setProgress({ done: batch, total: totalBatches, processing: true });
-
-          const startLine = batch * LINES_PER_BATCH;
-          const endLine = Math.min(startLine + LINES_PER_BATCH, totalLines);
-          const batchLines = originalLines.slice(startLine, endLine);
-
-          const batchResult = await translateBatch(model, batchLines, 0, batchLines.length, abortRef.current!.signal);
-
-          for (let i = 0; i < batchResult.length; i++) {
-            resultLines[startLine + i] = batchResult[i];
-          }
-
-          setProgress({ done: batch + 1, total: totalBatches, processing: batch + 1 < totalBatches });
-        }
-      }
-
-      if (abortRef.current?.signal.aborted) {
-        toast({ title: "已停止翻译" });
-        setShowTranslation(false);
-        return;
-      }
-
-      // Save to in-memory and localStorage
-      setTranslatedMap((prev) => new Map(prev).set(key, resultLines));
-      const updatedCache = readCache();
-      updatedCache[key] = resultLines;
-      writeCache(updatedCache);
-
-      toast({ title: "翻译完成" });
-    } catch (e: any) {
-      if (e?.message?.includes("取消") || e?.name === "AbortError") {
-        toast({ title: "已停止翻译" });
-      } else {
-        toast({ title: "翻译失败", description: e?.message, variant: "destructive" });
-      }
-      setShowTranslation(false);
-    } finally {
-      setIsTranslating(false);
-      setProgress({ done: 0, total: 0, processing: false });
-      abortRef.current = null;
-    }
+    resumeRef.current = null;
+    await runTranslation(text, 0);
   };
+
+  const resumeTranslation = useCallback(async () => {
+    const state = resumeRef.current;
+    if (!state) return;
+    await runTranslation(state.text, state.startBatch, [...state.resultLines]);
+  }, []);
+
+  const canResume = !isTranslating && resumeRef.current !== null;
 
   const stopTranslation = useCallback(() => {
     abortRef.current?.abort();
@@ -223,6 +266,8 @@ export function useTranslation() {
 
   const clearTranslation = () => {
     setShowTranslation(false);
+    resumeRef.current = null;
+    setProgress({ done: 0, total: 0, processing: false });
   };
 
   const getTranslation = (text: string): string[] | undefined => {
@@ -242,6 +287,8 @@ export function useTranslation() {
     getTranslation,
     hasTranslation,
     progress,
+    canResume,
+    resumeTranslation,
   };
 }
 
@@ -320,15 +367,23 @@ export function InterleavedText({
   );
 }
 
-/** Translation progress bar — decompose-style with animated creep */
-export function TranslationProgress({ progress }: { progress: TranslationProgress }) {
-  const { done, total, processing } = progress;
-  if (total <= 1) return null; // No progress bar for single-batch
+/** Translation progress bar — decompose-style with animated creep + resume button */
+export function TranslationProgress({
+  progress,
+  canResume,
+  onResume,
+}: {
+  progress: TranslationProgress;
+  canResume?: boolean;
+  onResume?: () => void;
+}) {
+  const { done, total, processing, failed } = progress;
+  if (total <= 1 && !failed) return null;
 
   const ceilPercent = total > 0 ? ((done + (processing ? 1 : 0)) / total) * 100 : 0;
   const floorPercent = total > 0 ? (done / total) * 100 : 0;
   const percent = useAnimatedProgress(ceilPercent, floorPercent, processing);
-  const isComplete = done === total && !processing;
+  const isComplete = done === total && !processing && !failed;
 
   return (
     <div className="rounded-lg border border-border bg-card p-3 space-y-2">
@@ -347,6 +402,18 @@ export function TranslationProgress({ progress }: { progress: TranslationProgres
               <CheckCircle2 className="h-3 w-3" />
               翻译完成
             </motion.span>
+          ) : failed ? (
+            <motion.span
+              key="failed"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.3 }}
+              className="text-destructive tabular-nums"
+            >
+              {done}/{total} 段（已中断）
+              <span className="ml-2 font-semibold">{percent.toFixed(1)}%</span>
+            </motion.span>
           ) : (
             <motion.span
               key="progress"
@@ -363,6 +430,17 @@ export function TranslationProgress({ progress }: { progress: TranslationProgres
         </AnimatePresence>
       </div>
       <Progress value={percent} className="h-2" />
+      {canResume && onResume && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onResume}
+          className="gap-1.5 w-full mt-1"
+        >
+          <PlayCircle className="h-3.5 w-3.5" />
+          继续翻译（从第 {done + 1} 段）
+        </Button>
+      )}
     </div>
   );
 }

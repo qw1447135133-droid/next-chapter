@@ -38,7 +38,7 @@ const StepStructureTransform = ({
   const [showComparison, setShowComparison] = useState(true);
   const [selectedStyle, setSelectedStyle] = useState(frameworkStyle || "");
   const abortRef = useRef<AbortController | null>(null);
-  const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress } = useTranslation();
+  const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress, canResume: transCanResume, resumeTranslation } = useTranslation();
   const nonChinese = isNonChineseText(structureTransform);
 
   const handleGenerate = async () => {
@@ -156,7 +156,7 @@ const StepStructureTransform = ({
           </div>
         </CardHeader>
         <CardContent>
-          {isTranslating && <TranslationProgress progress={transProgress} />}
+          {(isTranslating || transCanResume) && <TranslationProgress progress={transProgress} canResume={transCanResume} onResume={resumeTranslation} />}
           {showComparison && !isGenerating ? (
             <div className="grid grid-cols-2 gap-4">
               <div>
