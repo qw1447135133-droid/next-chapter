@@ -316,8 +316,8 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                   </div>
                 ))}
               {directory.length === 0 && directoryRaw && (
-                showTranslation && translatedMap.has(directoryRaw) ? (
-                  <InterleavedText text={directoryRaw} translatedLines={translatedMap.get(directoryRaw)!} />
+                showTranslation && hasTranslation(directoryRaw) ? (
+                  <InterleavedText text={directoryRaw} translatedLines={getTranslation(directoryRaw)!} />
                 ) : (
                   <pre className="whitespace-pre-wrap text-sm text-foreground/90">{directoryRaw}</pre>
                 )

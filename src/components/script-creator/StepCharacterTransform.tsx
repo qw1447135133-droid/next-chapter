@@ -215,9 +215,9 @@ const StepCharacterTransform = ({
               rows={20}
               className="font-mono text-sm"
             />
-          ) : showTranslation && !isGenerating && translatedMap.has(removeMermaid(characterTransform)) ? (
+          ) : showTranslation && !isGenerating && hasTranslation(removeMermaid(characterTransform)) ? (
             <div className="max-h-[600px] overflow-auto">
-              <InterleavedText text={removeMermaid(characterTransform)} translatedLines={translatedMap.get(removeMermaid(characterTransform))!} />
+              <InterleavedText text={removeMermaid(characterTransform)} translatedLines={getTranslation(removeMermaid(characterTransform))!} />
             </div>
           ) : (
             <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">

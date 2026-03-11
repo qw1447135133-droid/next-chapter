@@ -195,9 +195,9 @@ const StepStructureTransform = ({
               rows={20}
               className="font-mono text-sm"
             />
-          ) : showTranslation && !isGenerating && translatedMap.has(structureTransform) ? (
+          ) : showTranslation && !isGenerating && hasTranslation(structureTransform) ? (
             <div className="max-h-[600px] overflow-auto">
-              <InterleavedText text={structureTransform} translatedLines={translatedMap.get(structureTransform)!} />
+              <InterleavedText text={structureTransform} translatedLines={getTranslation(structureTransform)!} />
             </div>
           ) : (
             <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
