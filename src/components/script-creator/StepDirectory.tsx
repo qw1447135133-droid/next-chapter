@@ -260,6 +260,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                     <span className="shrink-0">
                       {ep.isKey && "🔥"}
                       {ep.isClimax && "⚡"}
+                      {ep.isPaywall && "💰"}
                     </span>
                   </div>
                 ))}
