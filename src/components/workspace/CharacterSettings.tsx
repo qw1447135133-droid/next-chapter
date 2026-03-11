@@ -1329,10 +1329,47 @@ const CharacterSettings = ({
       {/* Characters */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold font-[Space_Grotesk] flex items-center gap-2">
-            <User className="h-5 w-5 text-primary" />
-            角色设定
-          </h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-semibold font-[Space_Grotesk] flex items-center gap-2">
+              <User className="h-5 w-5 text-primary" />
+              角色设定
+            </h2>
+            {/* View mode selector pill */}
+            <div className="relative" ref={charViewModeDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setCharViewModeOpen((v) => !v)}
+                disabled={isAutoDetectingAll}
+                className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {charViewMode === "tri-view" ? <LayoutGrid className="h-3 w-3" /> : <Image className="h-3 w-3" />}
+                {charViewMode === "tri-view" ? "三视图模式" : "单图模式"}
+                <ChevronDown className={`h-3 w-3 transition-transform ${charViewModeOpen ? "rotate-180" : ""}`} />
+              </button>
+              {charViewModeOpen && (
+                <div className="absolute left-0 top-full mt-1 z-50 min-w-[140px] rounded-lg border border-border bg-popover shadow-lg py-1">
+                  <button
+                    type="button"
+                    onClick={() => { setCharViewMode("tri-view"); setCharViewModeOpen(false); }}
+                    className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent flex items-center gap-2 ${charViewMode === "tri-view" ? "text-primary font-semibold" : "text-popover-foreground"}`}
+                  >
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                    三视图模式
+                    <span className="text-[10px] text-muted-foreground ml-auto">16:9</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setCharViewMode("single"); setCharViewModeOpen(false); }}
+                    className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent flex items-center gap-2 ${charViewMode === "single" ? "text-primary font-semibold" : "text-popover-foreground"}`}
+                  >
+                    <Image className="h-3.5 w-3.5" />
+                    单图模式
+                    <span className="text-[10px] text-muted-foreground ml-auto">9:16</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
           <Button variant="outline" size="sm" onClick={addCharacter} className="gap-1">
             <Plus className="h-3.5 w-3.5" />
             手动添加
