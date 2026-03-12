@@ -25,9 +25,12 @@ function removeMermaid(text: string): string {
 function sanitiseMermaidCode(code: string): string {
   return code
     .replace(/&/g, "&amp;")
-    .replace(/[""]/g, '"');
+    .replace(/[""]/g, '"')
+    // Replace single quotes inside node labels with backtick to avoid mermaid parse errors
+    .replace(/\[([^\]]*)'([^\]]*)\]/g, (match) => match.replace(/'/g, "`"))
+    // Also handle bare single quotes in edge labels
+    .replace(/--\s*([^>[\]|]*?)'([^>[\]|]*?)\s*-->/g, (_, a, b) => `-- ${a}\`${b} -->`);
 }
-
 /** Lazy mermaid renderer */
 function MermaidDiagram({ code }: { code: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
