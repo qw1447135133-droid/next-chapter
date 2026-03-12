@@ -527,6 +527,17 @@ Characters: {character list}
 - 结尾必须有悬念钩子（${hookType || "悬念钩"}）`;
 }
 
+/** 根据单集时长计算△和台词数量约束 */
+export function getDurationConstraints(durationSeconds: number): { triangleMin: number; triangleMax: number; maxDialogues: number; label: string } {
+  const segments = Math.ceil(durationSeconds / 30);
+  return {
+    triangleMin: segments * 9,
+    triangleMax: segments * 11,
+    maxDialogues: segments * 4,
+    label: `${durationSeconds}秒`,
+  };
+}
+
 /** 分集撰写 Prompt */
 export function buildEpisodePrompt(
   setup: DramaSetup,
@@ -535,6 +546,7 @@ export function buildEpisodePrompt(
   episodeNumber: number,
   previousEpisodes: string,
   customInstruction?: string,
+  durationSeconds?: number,
 ): string {
   const ep = directory.find((e) => e.number === episodeNumber);
   const prevEp = directory.find((e) => e.number === episodeNumber - 1);
@@ -571,6 +583,16 @@ ${isFirstEp ? `## 重要：开篇黄金法则
 - 禁止：大段旁白、慢节奏空镜、流水账、平铺直叙` : ""}
 
 ${getScriptFormatTemplate(setup, episodeNumber, ep?.hookType || "")}
+
+${durationSeconds ? (() => {
+  const c = getDurationConstraints(durationSeconds);
+  return `## 单集时长与内容量约束（${c.label}）
+- 本集目标时长：${c.label}
+- △（描写/动作/镜头指示）数量：${c.triangleMin}~${c.triangleMax} 个
+- 台词总数：不超过 ${c.maxDialogues} 句
+- 每30秒对应 9~11 个△描写和最多 4 句台词
+- 严格控制内容密度，不要超出或不足上述范围`;
+})() : ""}
 
 - 确保角色行为与档案一致
 - 确保剧情推进与分集目录一致

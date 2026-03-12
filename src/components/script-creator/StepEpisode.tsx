@@ -2,13 +2,14 @@ import { useState, useRef, useMemo } from "react";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ArrowRight, Loader2, Play, Check, Square, RefreshCw, History, ChevronDown, ChevronUp, Trash2, ClipboardCheck, X, Wrench, BarChart3 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
-import { buildEpisodePrompt, buildSceneRegenPrompt, buildReviewPrompt } from "@/lib/drama-prompts";
+import { buildEpisodePrompt, buildSceneRegenPrompt, buildReviewPrompt, getDurationConstraints } from "@/lib/drama-prompts";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import type { DramaSetup, EpisodeEntry, EpisodeScript, EpisodeVersion } from "@/types/drama";
@@ -106,6 +107,8 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const isLocked = (num: number) => num > 1 && !completedNums.has(num - 1);
   const nextUnwritten = displayDirectory.find(d => !completedNums.has(d.number))?.number;
   const [rangeInput, setRangeInput] = useState(String(nextUnwritten || 1));
+  const [durationOption, setDurationOption] = useState("90");
+  const [customDuration, setCustomDuration] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentGen, setCurrentGen] = useState<number | null>(null);
   const [streamingText, setStreamingText] = useState("");
@@ -299,7 +302,8 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
           .map((ep) => `--- 第${ep.number}集 ---\n${ep.content.slice(-800)}`)
           .join("\n\n");
 
-        const prompt = buildEpisodePrompt(setup, characters, displayDirectory, num, previousContent, instruction.trim() || undefined);
+        const effectiveDuration = durationOption === "custom" ? parseInt(customDuration) || 90 : parseInt(durationOption);
+        const prompt = buildEpisodePrompt(setup, characters, displayDirectory, num, previousContent, instruction.trim() || undefined, effectiveDuration);
         const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
         const finalText = await callGeminiStream(
           model,
@@ -476,8 +480,8 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
           )}
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-end gap-3">
-            <div className="flex-1">
+          <div className="flex items-end gap-3 flex-wrap">
+            <div className="flex-1 min-w-[180px]">
               <Label className="text-sm mb-1.5 block">生成集数（支持范围如 1-5，或逗号分隔如 1,3,5）</Label>
               <Input
                 value={rangeInput}
@@ -485,6 +489,43 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                 placeholder="例如：1-5"
                 disabled={isGenerating}
               />
+            </div>
+            <div className="min-w-[140px]">
+              <Label className="text-sm mb-1.5 block">单集时长</Label>
+              <div className="flex gap-2">
+                <Select value={durationOption} onValueChange={(v) => setDurationOption(v)} disabled={isGenerating}>
+                  <SelectTrigger className="w-[110px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="60">60秒</SelectItem>
+                    <SelectItem value="90">90秒</SelectItem>
+                    <SelectItem value="120">120秒</SelectItem>
+                    <SelectItem value="custom">自定义</SelectItem>
+                  </SelectContent>
+                </Select>
+                {durationOption === "custom" && (
+                  <Input
+                    type="number"
+                    min={30}
+                    max={600}
+                    value={customDuration}
+                    onChange={(e) => setCustomDuration(e.target.value)}
+                    placeholder="秒"
+                    className="w-[80px]"
+                    disabled={isGenerating}
+                  />
+                )}
+              </div>
+              {(() => {
+                const dur = durationOption === "custom" ? parseInt(customDuration) || 90 : parseInt(durationOption);
+                const c = getDurationConstraints(dur);
+                return (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    △ {c.triangleMin}-{c.triangleMax}个 · 台词≤{c.maxDialogues}句
+                  </p>
+                );
+              })()}
             </div>
             {isGenerating ? (
               <Button variant="destructive" onClick={handleStop} className="gap-2">
