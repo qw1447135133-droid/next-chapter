@@ -7,10 +7,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import {
-  Plus, Trash2, Upload, Sparkles, ArrowRight, User, MapPin, Loader2, ImageIcon, ChevronDown, Shirt, Square, Clock, LayoutGrid, Image, Download,
+  Plus, Trash2, Upload, Sparkles, ArrowRight, User, MapPin, Loader2, ImageIcon, ChevronDown, Shirt, Square, Clock, LayoutGrid, Image,
 } from "lucide-react";
 import ImageThumbnail, { prewarmThumbnail } from "./ImageThumbnail";
-import JSZip from "jszip";
 
 export type CharImageModel = "gemini-3-pro-image-preview" | "gemini-3.1-flash-image-preview" | "doubao-seedream-5-0-260128";
 
@@ -1171,102 +1170,6 @@ const CharacterSettings = ({
     });
   };
 
-  // Download all generated images as ZIP
-  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
-
-  const handleDownloadAll = async () => {
-    // Collect all image URLs (excluding history)
-    const images: { url: string; filename: string }[] = [];
-
-    // Character images
-    characters.forEach((c) => {
-      const charName = c.name?.trim() || "未命名角色";
-      // Main character image (if no costumes)
-      if (!c.costumes?.length && c.imageUrl) {
-        images.push({ url: c.imageUrl, filename: `角色/${charName}/人设图.png` });
-      }
-      // Costume images
-      c.costumes?.forEach((cos, idx) => {
-        if (cos.imageUrl) {
-          const cosLabel = cos.label?.trim() || `服装${idx + 1}`;
-          images.push({ url: cos.imageUrl, filename: `角色/${charName}/${cosLabel}.png` });
-        }
-      });
-    });
-
-    // Scene images
-    sceneSettings.forEach((s) => {
-      const sceneName = s.name?.trim() || "未命名场景";
-      // Main scene image (if no time variants)
-      if (!s.timeVariants?.length && s.imageUrl) {
-        images.push({ url: s.imageUrl, filename: `场景/${sceneName}/场景图.png` });
-      }
-      // Time variant images
-      s.timeVariants?.forEach((tv, idx) => {
-        if (tv.imageUrl) {
-          const tvLabel = tv.label?.trim() || `时间${idx + 1}`;
-          images.push({ url: tv.imageUrl, filename: `场景/${sceneName}/${tvLabel}.png` });
-        }
-      });
-    });
-
-    if (images.length === 0) {
-      toast({ title: "没有可下载的图片", description: "请先生成角色或场景图片", variant: "destructive" });
-      return;
-    }
-
-    setIsDownloadingAll(true);
-    try {
-      const zip = new JSZip();
-
-      // Download all images
-      const results = await Promise.allSettled(
-        images.map(async ({ url, filename }) => {
-          const response = await fetch(url);
-          if (!response.ok) throw new Error(`Failed to fetch ${url}`);
-          const blob = await response.blob();
-          return { filename, blob };
-        })
-      );
-
-      let successCount = 0;
-      let failCount = 0;
-
-      results.forEach((result, idx) => {
-        if (result.status === "fulfilled") {
-          zip.file(result.value.filename, result.value.blob);
-          successCount++;
-        } else {
-          console.error(`Failed to download ${images[idx].filename}:`, result.reason);
-          failCount++;
-        }
-      });
-
-      if (successCount === 0) {
-        toast({ title: "下载失败", description: "无法下载任何图片", variant: "destructive" });
-        return;
-      }
-
-      // Generate ZIP and trigger download
-      const zipBlob = await zip.generateAsync({ type: "blob" });
-      const downloadUrl = URL.createObjectURL(zipBlob);
-      const link = document.createElement("a");
-      link.href = downloadUrl;
-      link.download = `角色与场景图片_${new Date().toISOString().slice(0, 10)}.zip`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(downloadUrl);
-
-      toast({ title: "下载完成", description: `成功下载 ${successCount} 张图片${failCount > 0 ? `，失败 ${failCount} 张` : ""}` });
-    } catch (e: any) {
-      console.error("Download error:", e);
-      toast({ title: "下载失败", description: e?.message || "未知错误", variant: "destructive" });
-    } finally {
-      setIsDownloadingAll(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* One-click auto detect all */}
@@ -1308,19 +1211,6 @@ const CharacterSettings = ({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Download All button */}
-          <Button
-            onClick={handleDownloadAll}
-            disabled={isDownloadingAll || isAutoDetectingAll}
-            className="gap-1.5"
-          >
-            {isDownloadingAll ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="h-4 w-4" />
-            )}
-            全部下载
-          </Button>
           {(() => {
             const allDescsFilled = characters.every(c => {
               if (!String(c.name || "").trim()) return true;

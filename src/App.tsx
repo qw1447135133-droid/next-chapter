@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 import Modules from "./pages/Modules";
 import Workspace from "./pages/Workspace";
+import ScriptCreator from "./pages/ScriptCreator";
 import Settings from "./pages/Settings";
 import History from "./pages/History";
 import NotFound from "./pages/NotFound";
@@ -22,6 +23,7 @@ const App = () => (
           <Route path="/" element={<Home />} />
           <Route path="/modules" element={<Modules />} />
           <Route path="/workspace" element={<Workspace />} />
+          <Route path="/script-creator" element={<ScriptCreator />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/history" element={<History />} />
           <Route path="*" element={<NotFound />} />

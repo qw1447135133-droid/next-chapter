@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Sparkles, Loader2, Upload, ChevronDown } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { VideoPace, VIDEO_PACE_OPTIONS, EpisodeDuration, EPISODE_DURATION_OPTIONS } from "@/types/project";
+import { Input } from "@/components/ui/input";
 
 export type DecomposeModel = "gemini-3.1-pro-preview" | "gemini-3-pro-preview" | "gemini-3-pro-preview-thinking" | "gemini-3-flash-preview";
 
@@ -22,23 +24,35 @@ interface ScriptInputProps {
   isAnalyzing: boolean;
   decomposeModel: DecomposeModel;
   onDecomposeModelChange: (model: DecomposeModel) => void;
+  videoPace: VideoPace;
+  onVideoPaceChange: (pace: VideoPace) => void;
+  episodeDuration: EpisodeDuration;
+  onEpisodeDurationChange: (d: EpisodeDuration) => void;
+  customDuration: string;
+  onCustomDurationChange: (v: string) => void;
 }
 
 const ACCEPTED_TYPES = ".txt,.pdf,.doc,.docx";
 
-const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAnalyzing, decomposeModel, onDecomposeModelChange }: ScriptInputProps) => {
+const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAnalyzing, decomposeModel, onDecomposeModelChange, videoPace, onVideoPaceChange, episodeDuration, onEpisodeDurationChange, customDuration, onCustomDurationChange }: ScriptInputProps) => {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const isUploading = useRef(false);
   const [modelOpen, setModelOpen] = useState(false);
+  const [paceOpen, setPaceOpen] = useState(false);
+  const [durationOpen, setDurationOpen] = useState(false);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const paceDropdownRef = useRef<HTMLDivElement>(null);
+  const durationDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) setModelOpen(false);
+      if (paceDropdownRef.current && !paceDropdownRef.current.contains(e.target as Node)) setPaceOpen(false);
+      if (durationDropdownRef.current && !durationDropdownRef.current.contains(e.target as Node)) setDurationOpen(false);
     };
-    if (modelOpen) document.addEventListener("mousedown", handleClickOutside);
+    if (modelOpen || paceOpen || durationOpen) document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [modelOpen]);
+  }, [modelOpen, paceOpen, durationOpen]);
 
   const currentModel = DECOMPOSE_MODEL_OPTIONS.find((o) => o.value === decomposeModel)!;
 
@@ -65,33 +79,32 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
         onScriptChange(text);
         toast({ title: "导入成功", description: `已导入 ${file.name}` });
       } catch {
-        toast({ title: "读取失败", description: "无法读取文件内容", variant: "destructive" });
-      } finally {
-        isUploading.current = false;
+        toast({ title: "读取失败", variant: "destructive" });
       }
-    } else {
-      // PDF, DOC, DOCX - call Supabase Edge Function
-      try {
-        const formData = new FormData();
-        formData.append("file", file);
-
-        const { data, error } = await supabase.functions.invoke("parse-document", {
-          body: formData,
-        });
-
-        if (error) throw new Error(error.message);
-        if (!data?.text) throw new Error("解析结果为空");
-
-        onScriptChange(data.text);
-        toast({ title: "导入成功", description: `已导入 ${file.name}` });
-      } catch (err: any) {
-        toast({ title: "解析失败", description: err?.message || "无法解析文档，请尝试复制文本内容", variant: "destructive" });
-      } finally {
-        isUploading.current = false;
-      }
+      isUploading.current = false;
+      if (fileRef.current) fileRef.current.value = "";
+      return;
     }
 
-    e.target.value = "";
+    toast({ title: "正在解析文档...", description: "PDF/Word 解析可能需要几秒钟" });
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const { data, error } = await supabase.functions.invoke("parse-document", { body: formData });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error || "解析失败");
+
+      onScriptChange(data.text);
+      toast({ title: "导入成功", description: `已导入 ${file.name}` });
+    } catch (err: any) {
+      console.error("Document parse error:", err);
+      toast({ title: "解析失败", description: err.message || "请重试", variant: "destructive" });
+    }
+
+    isUploading.current = false;
+    if (fileRef.current) fileRef.current.value = "";
   };
 
   return (
@@ -100,7 +113,7 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
         <div>
           <div className="flex items-center gap-3 mb-1">
             <h2 className="text-xl font-semibold font-[Space_Grotesk]">输入剧本</h2>
-            {/* Model Selector */}
+            {/* Model Selector — pill style matching CharacterSettings */}
             <div className="relative" ref={modelDropdownRef}>
               <button
                 type="button"
@@ -130,7 +143,7 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
             </div>
           </div>
           <p className="text-sm text-muted-foreground">
-            粘贴文本或上传文档（TXT / PDF / Word），AI 将自动识别角色与场景
+            粘贴文本或上传文档（TXT / PDF / Word），AI 将自动拆解为分镜列表
           </p>
         </div>
         <div>
@@ -165,6 +178,79 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
           {script.length} 字
         </span>
         <div className="flex items-center gap-3">
+          {/* Episode Duration Selector */}
+          <div className="relative" ref={durationDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setDurationOpen((v) => !v)}
+              disabled={isAnalyzing}
+              className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+            >
+              单集时长：{episodeDuration === 'custom' ? (customDuration ? `${customDuration}s` : '自定义') : `${episodeDuration}s`}
+              <ChevronDown className={`h-3 w-3 transition-transform ${durationOpen ? "rotate-180" : ""}`} />
+            </button>
+            {durationOpen && (
+              <div className="absolute right-0 bottom-full mb-1 z-50 w-full rounded-lg border border-border bg-popover shadow-lg py-0.5">
+                {EPISODE_DURATION_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { onEpisodeDurationChange(opt.value); if (opt.value !== 'custom') setDurationOpen(false); }}
+                    className={`w-full text-left px-4 py-1 text-sm transition-colors rounded-md ${
+                      opt.value === episodeDuration ? "bg-blue-500 text-white" : "text-popover-foreground hover:bg-accent"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+                {episodeDuration === 'custom' && (
+                  <div className="px-4 py-2">
+                    <Input
+                      type="number"
+                      min={15}
+                      max={600}
+                      step={15}
+                      placeholder="输入秒数"
+                      value={customDuration}
+                      onChange={(e) => onCustomDurationChange(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Video Pace Selector */}
+          <div className="relative" ref={paceDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setPaceOpen((v) => !v)}
+              disabled={isAnalyzing}
+              className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+            >
+              视频节奏：{VIDEO_PACE_OPTIONS.find((o) => o.value === videoPace)?.label}
+              <ChevronDown className={`h-3 w-3 transition-transform ${paceOpen ? "rotate-180" : ""}`} />
+            </button>
+            {paceOpen && (
+              <div className="absolute right-0 bottom-full mb-1 z-50 w-full rounded-lg border border-border bg-popover shadow-lg py-0.5">
+                {VIDEO_PACE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { onVideoPaceChange(opt.value); setPaceOpen(false); }}
+                    className={`w-full text-left px-4 py-1 text-sm transition-colors rounded-md ${
+                      opt.value === videoPace ? "bg-blue-500 text-white" : "text-popover-foreground hover:bg-accent"
+                    }`}
+                  >
+                    <span className="font-medium">{opt.label}</span>
+                    <span className={`ml-2 text-xs ${opt.value === videoPace ? "text-white" : "text-muted-foreground"}`}>{opt.desc}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {isAnalyzing && onCancelAnalyze ? (
             <Button
               variant="destructive"
@@ -181,7 +267,7 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
               className="gap-2"
             >
               <Sparkles className="h-4 w-4" />
-              AI 角色分析
+              AI 拆解分镜
             </Button>
           )}
         </div>
