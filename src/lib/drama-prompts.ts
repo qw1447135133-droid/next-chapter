@@ -272,27 +272,27 @@ function getScriptFormatTemplate(setup: DramaSetup, episodeNumber: number, hookT
     return `## 脚本フォーマット（日本市場向け）
 
 \`\`\`
-# 第${episodeNumber}話：{エピソードタイトル}
+# 第${episodeNumber}話
 
-> キーワード：{3つのキーワード}
-> 感情テーマ：{感情の核心}
-> 前回のあらすじ：{前話の余韻、1-2文}
+# ${episodeNumber}-1 {時間帯} {屋内/屋外} {場所}
 
----
+出演人物：{人物リスト}
 
-## シーン1
+△{情景描写 — 季節感・空気感を重視}
 
-**場面：** 屋内/屋外 · {場所} · 昼/夜
-**登場人物：** {人物リスト}
+△{人物の所作・微細な表情変化}
 
-△ （ロングショット）{情景描写 — 季節感・空気感を重視}
-△ （ミディアムショット）{人物の所作・微細な表情変化}
+**{キャラクター名}**（{口調/動作指示}）：{台詞}
 
-**{キャラクター名}**（{口調/動作指示}）：「{台詞}」
-
-△ （クローズアップ）{象徴的ディテール — 物哀の瞬間}
+△{象徴的ディテール — 物哀の瞬間}
 
 ♪ 音楽：{和楽器・アンビエント系の雰囲気}
+
+# ${episodeNumber}-2 {時間帯} {屋内/屋外} {場所}
+
+出演人物：{人物リスト}
+
+……以下同形式……
 
 ---
 
@@ -303,8 +303,9 @@ function getScriptFormatTemplate(setup: DramaSetup, episodeNumber: number, hookT
 ## 品質基準
 - 各話 3-5 シーン
 - 各話 800文字以上
-- カメラワーク：ロング・ミディアム・アップ・クローズアップ（最低3種使用）
-- 台詞には口調・動作指示を付記
+- シーン番号は ${episodeNumber}-1, ${episodeNumber}-2 形式で通し番号
+- △で全ての描写・動作・ト書きを開始
+- 台詞は独立行に記載
 - 物哀・余韻を意識した描写を各シーンに1箇所以上
 - 結末は${hookType || "余韻"}で締める`;
   }
@@ -313,50 +314,38 @@ function getScriptFormatTemplate(setup: DramaSetup, episodeNumber: number, hookT
     return `## Script Format (Western Market — Overseas AI Short Drama Spec)
 
 \`\`\`
-# Episode ${episodeNumber}: {Episode Title}
+# Episode ${episodeNumber}
 
-> Keywords: {3 keywords}
-> Hook Type: {satisfaction/thrill type}
-> Previously: {Last episode's cliffhanger, 1-2 sentences}
+# ${episodeNumber}-1 {TIME (DAY/NIGHT/DAWN/DUSK)} {INT./EXT.} {LOCATION}
 
----
+Characters: {character list}
 
-## SCENE 1
+△{3-SECOND HOOK — visual/audio explosive moment to stop scrolling}
+△{Character action — body language, tension}
 
-**INT./EXT. {LOCATION} — DAY/NIGHT**
-**CHARACTERS: {character list}**
+{CHARACTER NAME}: ({tone/action direction}) {Dialogue}
 
-🔵 △ (WIDE) {3-SECOND HOOK — visual/audio explosive moment to stop scrolling}
-△ (MEDIUM) {Character action — body language, tension}
+△{Key detail — plot-critical visual}
 
-**{CHARACTER NAME}** ({tone/action direction}): "{Dialogue}"
+# ${episodeNumber}-2 {TIME} {INT./EXT.} {LOCATION}
 
-🟢 **{CHARACTER NAME}** ({provocative tone}): "{Debate-triggering line — designed for comments/shares}"
+Characters: {character list}
 
-△ (CLOSE-UP) {Key detail — plot-critical visual}
+△{Scene description…}
 
-♪ Score: {Music/sound design cue}
-
----
-
-🔴 > 🎣 Cliffhanger: {COMPLETION BAIT — strong suspense to force next episode entry}
-> 📺 Next Episode: {teaser}
+……continue same format……
 \`\`\`
 
 ## Quality Standards (Per-Episode Checklist)
 - **Minimum 2 scenes** per episode, recommended 3-5
 - **Minimum 800 words** per episode
-- **Target duration: 60 seconds** per episode
-- **Dialogue limits**: total dialogue ≤ 40s reading time; single line ≤ 12s
-- Camera directions: WIDE, MEDIUM, CLOSE-UP, EXTREME CLOSE-UP (use at least 3)
-- Dialogue must include tone/action parentheticals
-- **Dialogue must be DIRECT and SIMPLE** — no euphemisms, no subtext, no subtle hints. Punchy and emotionally charged.
-- **Every episode MUST contain at least one conflict or climax moment**
-- 🔵 **3-Second Hook**: Mark the visual/audio hook moment in BLUE annotation
+- Scene numbers use \`${episodeNumber}-1, ${episodeNumber}-2\` format
+- △ prefix for ALL descriptive/action/direction text (no space after △)
+- Dialogue on separate lines: \`CHARACTER: (direction) dialogue\` — no quotes, no bold
+- 🔵 **3-Second Hook**: Mark the hook moment in BLUE annotation
 - 🔴 **Completion Bait**: End with strong cliffhanger, mark in RED annotation
-- 🟢 **Interaction Trigger**: Include at least one debate-worthy line/moment, mark in GREEN annotation
+- 🟢 **Interaction Trigger**: Include debate-worthy line, mark in GREEN annotation
 - End with a strong ${hookType || "cliffhanger"} hook
-- High-concept pacing: open with a bang, escalate fast, end on a twist
 - ⛔ NO real names, real places, real brands — all must be fictional`;
   }
 
@@ -364,39 +353,31 @@ function getScriptFormatTemplate(setup: DramaSetup, episodeNumber: number, hookT
     return `## 대본 형식 (한국 시장)
 
 \`\`\`
-# 제${episodeNumber}화: {에피소드 제목}
+# 제${episodeNumber}화
 
-> 키워드: {3개 키워드}
-> 감정 테마: {핵심 감정}
-> 이전 줄거리: {지난 화 클리프행어, 1-2문장}
+# ${episodeNumber}-1 {시간} {실내/실외} {장소}
 
----
+등장인물: {인물 목록}
 
-## 씬 1
+△{장면 묘사 — 분위기와 공간감}
+△{인물의 표정·동작 — 감정 변화에 집중}
 
-**장소:** 실내/실외 · {장소} · 낮/밤
-**등장인물:** {인물 목록}
+{캐릭터명}: ({말투/동작 지시}) {대사}
 
-△ (풀샷) {장면 묘사 — 분위기와 공간감}
-△ (미디엄샷) {인물의 표정·동작 — 감정 변화에 집중}
+△{핵심 디테일 — 감정 폭발의 순간}
 
-**{캐릭터명}** ({말투/동작 지시}): "{대사}"
+# ${episodeNumber}-2 {시간} {실내/실외} {장소}
 
-△ (클로즈업) {핵심 디테일 — 감정 폭발의 순간}
+등장인물: {인물 목록}
 
-♪ OST: {배경음악 분위기 지시}
-
----
-
-> 🎣 떡밥: {다음 화 궁금증 유발}
-> 📺 차회 예고: {다음 화 핵심}
+……이하 동일 형식……
 \`\`\`
 
 ## 품질 기준
-- 각 화 3-5개 씬
-- 각 화 최소 800자 이상
-- 카메라 워크: 풀샷·미디엄샷·클로즈업·익스트림클로즈업 (최소 3종 사용)
-- 대사에 말투·동작 지시 포함
+- 각 화 3-5개 씬, 최소 800자 이상
+- 씬 번호는 \`${episodeNumber}-1, ${episodeNumber}-2\` 형식
+- △로 모든 묘사/동작/지시문 시작 (△ 뒤 공백 없음)
+- 대사는 별도 행: \`캐릭터명: (지시) 대사\` — 따옴표·볼드 없음
 - 감정 밀당과 반전을 각 씬에 배치
 - 결말은 ${hookType || "클리프행어"}로 마무리`;
   }
@@ -405,81 +386,84 @@ function getScriptFormatTemplate(setup: DramaSetup, episodeNumber: number, hookT
     return `## Script Format (Southeast Asian Market)
 
 \`\`\`
-# Episode ${episodeNumber}: {Episode Title}
+# Episode ${episodeNumber}
 
-> Keywords: {3 keywords}
-> Emotional Core: {dominant emotion}
-> Previously: {Last episode's dramatic moment, 1-2 sentences}
+# ${episodeNumber}-1 {TIME} {INT./EXT.} {LOCATION}
 
----
+Characters: {character list}
 
-## SCENE 1
+△{Scene description — lush, atmospheric, emotionally charged}
+△{Character interaction — body language conveying unspoken tension}
 
-**INT./EXT. {LOCATION} — DAY/NIGHT**
-**CHARACTERS: {character list}**
+{CHARACTER NAME}: ({tone/action direction}) {Dialogue}
 
-△ (WIDE) {Scene description — lush, atmospheric, emotionally charged}
-△ (MEDIUM) {Character interaction — body language conveying unspoken tension}
+△{Emotional reaction — tears, rage, revelation}
 
-**{CHARACTER NAME}** ({tone/action direction}): "{Dialogue}"
+# ${episodeNumber}-2 {TIME} {INT./EXT.} {LOCATION}
 
-△ (CLOSE-UP) {Emotional reaction — tears, rage, revelation}
+Characters: {character list}
 
-♪ Music: {Dramatic underscore or emotional ballad cue}
-
----
-
-> 🎣 Drama Hook: {emotional cliffhanger}
-> 📺 Next Episode: {teaser}
+……continue same format……
 \`\`\`
 
 ## Quality Standards
-- 3-5 scenes per episode
-- Minimum 800 words per episode
-- Camera directions: WIDE, MEDIUM, CLOSE-UP, EXTREME CLOSE-UP (use at least 3)
-- Dialogue must include tone/action parentheticals
+- 3-5 scenes per episode, minimum 800 words
+- Scene numbers use \`${episodeNumber}-1, ${episodeNumber}-2\` format
+- △ prefix for ALL descriptive/action/direction text (no space after △)
+- Dialogue on separate lines: \`CHARACTER: (direction) dialogue\` — no quotes, no bold
 - Maximize emotional intensity — confrontation, confession, betrayal moments
-- End with a powerful ${hookType || "dramatic revelation"} hook
-- Melodramatic pacing: slow emotional build → explosive climax per episode`;
+- End with a powerful ${hookType || "dramatic revelation"} hook`;
   }
 
   // 国内默认
   return `## 剧本格式要求（国内模式）
 
+**严格遵循以下格式规范，不得偏离：**
+
+### 场次编号规则
+- 场次编号采用"集数-场次序号"格式，如第${episodeNumber}集的场次依次为 ${episodeNumber}-1、${episodeNumber}-2、${episodeNumber}-3……
+- 每个场次标题格式：\`# ${episodeNumber}-{N} {时间} {内/外} {地点}\`，其中 {N} 为该集内的场次序号
+
+### 格式模板
+
 \`\`\`
-# 第${episodeNumber}集：{集标题}
+# 第${episodeNumber}集
 
-> 本集关键词：{3个关键词}
-> 本集爽点：{爽点类型}
-> 前情提要：{上集结尾悬念，1-2句}
+# ${episodeNumber}-1 {时间（日/夜/清晨/黄昏等）} {内/外} {地点}
 
----
+出场人物：{人物A}，{人物B}，{人物C}
 
-## 场次一
+△{场景描写与人物动作描写。所有非台词的叙述性内容（包括场景描写、动作描写、神态描写、镜头指示等）都必须以△开头。}
 
-**场景：** 内景/外景 · {地点} · 日/夜
-**出场人物：** {人物列表}
+{角色名}：（{语气/动作指示}）{台词内容}
 
-△ （全景）{场景描写}
-△ （中景）{人物动作描写}
+△{后续动作或场景描写，继续以△开头。}
 
-**{角色名}**（{语气/动作指示}）："{台词}"
+{角色名}：（{语气/动作指示}）{台词内容}
 
-△ （特写）{关键细节描写}
+△{更多动作/描写。}
 
-♪ 音乐提示：{音乐氛围描述}
+# ${episodeNumber}-2 {时间} {内/外} {地点}
 
----
+出场人物：{人物列表}
 
-> 🎣 本集钩子：{悬念描述}
-> 📺 下集预告：{下集核心看点}
+△{场景描写……}
+
+……以此类推……
 \`\`\`
+
+### 关键格式规则（必须严格执行）
+
+1. **△符号**：所有描写性文字（场景、动作、神态、镜头方向等）必须以△开头，△紧跟文字内容，中间无空格
+2. **人物对话**：台词必须单独成行，格式为 \`角色名：（语气/动作指示）台词内容\`，不加引号，不加粗
+3. **场次编号**：使用 \`# ${episodeNumber}-{N}\` 格式，N从1开始递增
+4. **出场人物**：每个场次开头必须列出 \`出场人物：\` 并用逗号分隔
+5. **集标题**：首行为 \`# 第${episodeNumber}集\`，不附加集标题
 
 ## 质量要求
 - 每集 3-5 个场次
 - 每集至少 800 字
-- 景别提示：全景、中景、近景、特写（至少使用3种）
-- 台词带语气或动作指示
+- 台词带语气或动作指示（用圆括号包裹）
 - 结尾必须有悬念钩子（${hookType || "悬念钩"}）`;
 }
 
@@ -550,7 +534,7 @@ export function buildSceneRegenPrompt(
     : "";
 
   // --- Extract adjacent scenes as anchors ---
-  const sceneRegex = /^(##\s*场次.*)$/gm;
+  const sceneRegex = /^(#\s*\d+-\d+\s+.*)$|^(##\s*场次.*)$/gm;
   const matches = [...episodeContent.matchAll(sceneRegex)];
   const extractScene = (idx: number): string | null => {
     if (idx < 0 || idx >= matches.length) return null;

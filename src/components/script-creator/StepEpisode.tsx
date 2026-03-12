@@ -43,10 +43,10 @@ interface StepEpisodeProps {
   onNext: () => void;
 }
 
-/** Parse episode content into scenes by splitting on ## 场次 headers */
+/** Parse episode content into scenes by splitting on scene headers like "# N-M ..." or "## 场次..." */
 function parseScenes(content: string): { header: string; body: string }[] {
-  // Split by scene headers like "## 场次一", "## 场次二" etc.
-  const sceneRegex = /^(##\s*场次.*)$/gm;
+  // Match both new format "# N-M ..." and legacy "## 场次..." headers
+  const sceneRegex = /^(#\s*\d+-\d+\s+.*)$|^(##\s*场次.*)$/gm;
   const matches = [...content.matchAll(sceneRegex)];
   if (matches.length === 0) return [];
 
@@ -66,20 +66,18 @@ function parseScenes(content: string): { header: string; body: string }[] {
 
 /** Get the content before the first scene (metadata/header) */
 function getEpisodePreamble(content: string): string {
-  const firstScene = content.match(/^##\s*场次/m);
+  const firstScene = content.match(/^#\s*\d+-\d+\s+/m) || content.match(/^##\s*场次/m);
   if (!firstScene || firstScene.index === undefined) return content;
   return content.slice(0, firstScene.index).trim();
 }
 
 /** Get the content after the last scene (hooks/preview) */
 function getEpisodePostamble(content: string): string {
-  const sceneRegex = /^##\s*场次/gm;
+  const sceneRegex = /^(?:#\s*\d+-\d+\s+|##\s*场次)/gm;
   const matches = [...content.matchAll(sceneRegex)];
   if (matches.length === 0) return "";
   const lastMatch = matches[matches.length - 1];
-  // Find the next --- after the last scene to get postamble
   const afterLastScene = content.slice(lastMatch.index!);
-  // Look for closing section (钩子/下集预告)
   const hookMatch = afterLastScene.match(/\n>\s*🎣/);
   if (hookMatch && hookMatch.index !== undefined) {
     return afterLastScene.slice(hookMatch.index).trim();
