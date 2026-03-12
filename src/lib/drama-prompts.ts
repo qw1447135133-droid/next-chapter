@@ -40,7 +40,7 @@ Preferred genres for the Western market:
 - ⛔ **NO non-American character profiles** — names, backgrounds, appearances, and body types must feel authentically Western/American.
 - ⛔ **NO non-American cultural elements** — no Eastern fortune-telling, Eastern traditions, Eastern philosophical framing.
 - ⛔ **NO real person names, real place names, real brand names, or real product names** — use fictional or lightly altered versions.
-- All character bios MUST include **bilingual names** (Chinese + English).
+- All character bios MUST include **bilingual names** (Chinese + English). However, in the actual script body, use English names ONLY.
 
 ### Character Requirements
 - **Character bio**: background story, full name, age, role positioning (lead / supporting / antagonist), personality, backstory.
@@ -402,6 +402,8 @@ Characters: {character list}
 - Scene numbers use \`${episodeNumber}-1, ${episodeNumber}-2\` format
 - △ prefix for ALL descriptive/action/direction text (no space after △)
 - Dialogue on separate lines: \`CHARACTER: (direction) dialogue\` — no quotes, no bold
+- ⛔ **MONOLINGUAL RULE**: The script body MUST be written entirely in ONE language (English for Western market). Do NOT add Chinese translations, subtitles, or parenthetical translations after dialogue lines. Do NOT mix Chinese and English in dialogue or descriptions.
+- Character names in the script body must use English names ONLY — do NOT use Chinese names or bilingual format in dialogue/descriptions.
 - 🔵 **3-Second Hook**: Mark the hook moment in BLUE annotation
 - 🔴 **Completion Bait**: End with strong cliffhanger, mark in RED annotation
 - 🟢 **Interaction Trigger**: Include debate-worthy line, mark in GREEN annotation
@@ -553,6 +555,8 @@ export function buildEpisodePrompt(
   const nextEp = directory.find((e) => e.number === episodeNumber + 1);
   const isFirstEp = episodeNumber === 1;
 
+  const isNonChinese = ["west", "jp", "kr", "sea"].includes(setup.targetMarket || "");
+
   return `你是一位专业的微短剧编剧。
 
 ${getMarketDirective(setup)}
@@ -596,6 +600,12 @@ ${durationSeconds ? (() => {
 
 - 确保角色行为与档案一致
 - 确保剧情推进与分集目录一致
+${isNonChinese ? `
+## ⛔ 语言纯净规则（最高优先级）
+- 剧本正文必须使用**单一语言**书写，严禁中外文混杂
+- 对话后面**禁止**附加括号翻译（如"（这是翻译）"）
+- 角色名在剧本正文中统一使用目标语言名称
+- △描写和所有叙述性文字也必须使用目标语言` : ""}
 
 ${customInstruction ? `\n## 用户重写指令\n${customInstruction}\n请在撰写时重点体现以上指令要求。\n` : ""}
 请直接输出完整的第 ${episodeNumber} 集剧本。`;
