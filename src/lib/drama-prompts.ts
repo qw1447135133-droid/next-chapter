@@ -534,7 +534,7 @@ export function buildSceneRegenPrompt(
     : "";
 
   // --- Extract adjacent scenes as anchors ---
-  const sceneRegex = /^(##\s*场次.*)$/gm;
+  const sceneRegex = /^(#\s*\d+-\d+\s+.*)$|^(##\s*场次.*)$/gm;
   const matches = [...episodeContent.matchAll(sceneRegex)];
   const extractScene = (idx: number): string | null => {
     if (idx < 0 || idx >= matches.length) return null;
