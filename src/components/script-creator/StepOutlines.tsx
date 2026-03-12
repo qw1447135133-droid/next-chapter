@@ -501,6 +501,65 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
                             ep.outline
                           )}
                         </div>
+                        {/* Per-episode regen button with hover instruction */}
+                        <div className="ml-14 mr-4 mb-2 flex items-start gap-2">
+                          <div
+                            className="relative"
+                            onMouseEnter={() => setHoverRegenEp(ep.number)}
+                            onMouseLeave={() => setHoverRegenEp(null)}
+                          >
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="gap-1.5 text-xs h-7"
+                              disabled={isGeneratingOutlines || regenEpNum !== null}
+                              onClick={() => handleSingleRegen(ep.number)}
+                            >
+                              {regenEpNum === ep.number ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <RefreshCw className="h-3 w-3" />
+                              )}
+                              {regenEpNum === ep.number ? "生成中…" : "重新生成"}
+                            </Button>
+                            {/* Hover bridge */}
+                            {hoverRegenEp === ep.number && regenEpNum !== ep.number && (
+                              <div className="pt-1 absolute left-0 top-full z-10">
+                                <div
+                                  className="flex items-center gap-1.5 p-1.5 rounded-md border border-border bg-popover shadow-md"
+                                  onMouseEnter={() => setHoverRegenEp(ep.number)}
+                                  onMouseLeave={() => setHoverRegenEp(null)}
+                                >
+                                  <Input
+                                    className="h-7 text-xs w-56"
+                                    placeholder="输入调整指令，如：加强冲突…"
+                                    value={regenInstructions[ep.number] || ""}
+                                    onChange={e => setRegenInstructions(prev => ({ ...prev, [ep.number]: e.target.value }))}
+                                    onClick={e => e.stopPropagation()}
+                                    onKeyDown={e => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        handleSingleRegen(ep.number);
+                                        setHoverRegenEp(null);
+                                      }
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          {regenEpNum === ep.number && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs text-destructive"
+                              onClick={() => singleAbortRef.current?.abort()}
+                            >
+                              <Square className="h-3 w-3 mr-1" />
+                              停止
+                            </Button>
+                          )}
+                        </div>
                       </motion.div>
                     )}
                   </AnimatePresence>
