@@ -314,50 +314,38 @@ function getScriptFormatTemplate(setup: DramaSetup, episodeNumber: number, hookT
     return `## Script Format (Western Market — Overseas AI Short Drama Spec)
 
 \`\`\`
-# Episode ${episodeNumber}: {Episode Title}
+# Episode ${episodeNumber}
 
-> Keywords: {3 keywords}
-> Hook Type: {satisfaction/thrill type}
-> Previously: {Last episode's cliffhanger, 1-2 sentences}
+# ${episodeNumber}-1 {TIME (DAY/NIGHT/DAWN/DUSK)} {INT./EXT.} {LOCATION}
 
----
+Characters: {character list}
 
-## SCENE 1
+△{3-SECOND HOOK — visual/audio explosive moment to stop scrolling}
+△{Character action — body language, tension}
 
-**INT./EXT. {LOCATION} — DAY/NIGHT**
-**CHARACTERS: {character list}**
+{CHARACTER NAME}: ({tone/action direction}) {Dialogue}
 
-🔵 △ (WIDE) {3-SECOND HOOK — visual/audio explosive moment to stop scrolling}
-△ (MEDIUM) {Character action — body language, tension}
+△{Key detail — plot-critical visual}
 
-**{CHARACTER NAME}** ({tone/action direction}): "{Dialogue}"
+# ${episodeNumber}-2 {TIME} {INT./EXT.} {LOCATION}
 
-🟢 **{CHARACTER NAME}** ({provocative tone}): "{Debate-triggering line — designed for comments/shares}"
+Characters: {character list}
 
-△ (CLOSE-UP) {Key detail — plot-critical visual}
+△{Scene description…}
 
-♪ Score: {Music/sound design cue}
-
----
-
-🔴 > 🎣 Cliffhanger: {COMPLETION BAIT — strong suspense to force next episode entry}
-> 📺 Next Episode: {teaser}
+……continue same format……
 \`\`\`
 
 ## Quality Standards (Per-Episode Checklist)
 - **Minimum 2 scenes** per episode, recommended 3-5
 - **Minimum 800 words** per episode
-- **Target duration: 60 seconds** per episode
-- **Dialogue limits**: total dialogue ≤ 40s reading time; single line ≤ 12s
-- Camera directions: WIDE, MEDIUM, CLOSE-UP, EXTREME CLOSE-UP (use at least 3)
-- Dialogue must include tone/action parentheticals
-- **Dialogue must be DIRECT and SIMPLE** — no euphemisms, no subtext, no subtle hints. Punchy and emotionally charged.
-- **Every episode MUST contain at least one conflict or climax moment**
-- 🔵 **3-Second Hook**: Mark the visual/audio hook moment in BLUE annotation
+- Scene numbers use \`${episodeNumber}-1, ${episodeNumber}-2\` format
+- △ prefix for ALL descriptive/action/direction text (no space after △)
+- Dialogue on separate lines: \`CHARACTER: (direction) dialogue\` — no quotes, no bold
+- 🔵 **3-Second Hook**: Mark the hook moment in BLUE annotation
 - 🔴 **Completion Bait**: End with strong cliffhanger, mark in RED annotation
-- 🟢 **Interaction Trigger**: Include at least one debate-worthy line/moment, mark in GREEN annotation
+- 🟢 **Interaction Trigger**: Include debate-worthy line, mark in GREEN annotation
 - End with a strong ${hookType || "cliffhanger"} hook
-- High-concept pacing: open with a bang, escalate fast, end on a twist
 - ⛔ NO real names, real places, real brands — all must be fictional`;
   }
 
