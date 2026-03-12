@@ -320,7 +320,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
         onUpdate([...updatedEpisodes]);
         toast({ title: `第 ${num} 集撰写完成（${finalText.length}字）` });
       } catch (e: any) {
-        if (e?.message?.includes("取消")) {
+        if (e?.message?.includes("取消") || e?.name === "AbortError") {
           const partial = streamingText;
           if (partial) {
             const epEntry = displayDirectory.find((d) => d.number === num);
@@ -339,10 +339,12 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
             onUpdate([...updatedEpisodes]);
           }
           toast({ title: "已停止生成" });
+          break; // Only break on user cancellation
         } else {
           toast({ title: `第 ${num} 集生成失败`, description: e?.message, variant: "destructive" });
+          // Continue to next episode instead of stopping the entire batch
+          continue;
         }
-        break;
       }
     }
 
