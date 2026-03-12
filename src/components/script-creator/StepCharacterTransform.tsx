@@ -157,15 +157,6 @@ const StepCharacterTransform = ({
                   onStop={stopTranslation}
                   disabled={editing}
                 />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowComparison(!showComparison)}
-                  className="gap-1.5"
-                >
-                  <Columns2 className="h-3.5 w-3.5" />
-                  {showComparison ? "关闭对照" : "原文对照"}
-                </Button>
                 <Button variant="outline" size="sm" onClick={() => setEditing(!editing)} className="gap-1.5">
                   {editing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
                   {editing ? "预览" : "编辑"}
