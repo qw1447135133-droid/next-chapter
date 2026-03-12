@@ -328,6 +328,18 @@ const ScriptCreator = () => {
             directory={project.directory}
             directoryRaw={project.directoryRaw}
             onUpdate={handleDirectoryUpdate}
+            onNext={() => goToStep("outlines")}
+          />
+        ) : null;
+      case "outlines":
+        return project.setup ? (
+          <StepOutlines
+            setup={project.setup}
+            creativePlan={project.creativePlan}
+            characters={project.characters}
+            directory={project.directory}
+            directoryRaw={project.directoryRaw}
+            onUpdate={handleDirectoryUpdate}
             onNext={() => goToStep("episodes")}
           />
         ) : null;
