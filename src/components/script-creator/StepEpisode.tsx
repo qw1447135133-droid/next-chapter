@@ -514,10 +514,15 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
               const done = completedNums.has(ep.number);
               const active = selectedEp === ep.number;
               const generating = currentGen === ep.number;
+              const locked = isLocked(ep.number) && !done;
               return (
                 <button
                   key={ep.number}
                   onClick={() => {
+                    if (locked) {
+                      toast({ title: `请先生成第 ${ep.number - 1} 集`, description: "需要按顺序生成剧本以保证剧情连贯", variant: "destructive" });
+                      return;
+                    }
                     const next = ep.number === selectedEp ? null : ep.number;
                     setSelectedEp(next);
                     if (next != null) {
@@ -525,18 +530,20 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                     }
                     setShowHistory(false);
                   }}
-                  className={`w-9 h-9 rounded text-xs font-mono flex items-center justify-center border transition-all cursor-pointer ${
-                    generating
-                      ? "border-primary bg-primary/20 animate-pulse"
+                  className={`w-9 h-9 rounded text-xs font-mono flex items-center justify-center border transition-all ${
+                    locked
+                      ? "border-border bg-muted text-muted-foreground/40 cursor-not-allowed"
+                      : generating
+                      ? "border-primary bg-primary/20 animate-pulse cursor-pointer"
                       : done
                       ? active
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-accent bg-accent/10 text-accent-foreground hover:bg-accent/20"
+                        ? "border-primary bg-primary text-primary-foreground cursor-pointer"
+                        : "border-accent bg-accent/10 text-accent-foreground hover:bg-accent/20 cursor-pointer"
                       : active
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border text-muted-foreground hover:border-muted-foreground/50"
+                        ? "border-primary bg-primary/10 text-primary cursor-pointer"
+                        : "border-border text-muted-foreground hover:border-muted-foreground/50 cursor-pointer"
                   }`}
-                  title={`第${ep.number}集：${ep.title}`}
+                  title={locked ? `需先生成第${ep.number - 1}集` : `第${ep.number}集：${ep.title}`}
                 >
                   {generating ? (
                     <Loader2 className="h-3 w-3 animate-spin" />
