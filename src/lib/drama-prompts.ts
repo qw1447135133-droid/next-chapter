@@ -402,6 +402,8 @@ Characters: {character list}
 - Scene numbers use \`${episodeNumber}-1, ${episodeNumber}-2\` format
 - △ prefix for ALL descriptive/action/direction text (no space after △)
 - Dialogue on separate lines: \`CHARACTER: (direction) dialogue\` — no quotes, no bold
+- ⛔ **MONOLINGUAL RULE**: The script body MUST be written entirely in ONE language (English for Western market). Do NOT add Chinese translations, subtitles, or parenthetical translations after dialogue lines. Do NOT mix Chinese and English in dialogue or descriptions.
+- Character names in the script body must use English names ONLY — do NOT use Chinese names or bilingual format in dialogue/descriptions.
 - 🔵 **3-Second Hook**: Mark the hook moment in BLUE annotation
 - 🔴 **Completion Bait**: End with strong cliffhanger, mark in RED annotation
 - 🟢 **Interaction Trigger**: Include debate-worthy line, mark in GREEN annotation
