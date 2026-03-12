@@ -436,7 +436,7 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
                       >
                         <div className="ml-14 mr-4 mb-2 px-3 py-2 rounded bg-muted/30 border border-border/50 text-sm text-foreground/80 whitespace-pre-wrap leading-relaxed">
                           {showTranslation && hasTranslation(allOutlinesText) ? (
-                            <InterleavedText text={ep.outline} translatedLines={getTranslation(allOutlinesText)!} />
+                            <InterleavedText text={ep.outline} translatedLines={epTranslationSlices.get(ep.number) || []} />
                           ) : (
                             ep.outline
                           )}
