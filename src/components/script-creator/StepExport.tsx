@@ -255,6 +255,10 @@ const StepExport = ({ setup, dramaTitle, creativePlan, characters, episodes }: S
               <Download className="h-4 w-4" />
               分集下载
             </Button>
+            <Button onClick={handleExportDocx} variant="outline" className="gap-1.5" disabled={episodes.length === 0 || isExportingDocx}>
+              {isExportingDocx ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+              导出 Word
+            </Button>
           </div>
         </CardContent>
       </Card>
