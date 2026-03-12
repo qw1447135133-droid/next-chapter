@@ -244,6 +244,29 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
   const nonChinese = isNonChineseText(allOutlinesText);
   const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress, canResume: transCanResume, resumeTranslation } = useTranslation();
 
+  // Build per-episode translation line slices
+  const epTranslationSlices = (() => {
+    const translatedLines = showTranslation && hasTranslation(allOutlinesText) ? getTranslation(allOutlinesText)! : null;
+    if (!translatedLines) return new Map<number, string[]>();
+    const map = new Map<number, string[]>();
+    let lineOffset = 0;
+    const epsWithOutline = directory.filter(ep => ep.outline);
+    for (let i = 0; i < epsWithOutline.length; i++) {
+      const ep = epsWithOutline[i];
+      const headerLine = `【第${ep.number}集】`;
+      const epLines = (headerLine + "\n" + ep.outline!).split("\n");
+      const outlineOnlyLines = ep.outline!.split("\n");
+      // skip the header line offset + 1, then take outline lines
+      map.set(ep.number, translatedLines.slice(lineOffset + 1, lineOffset + 1 + outlineOnlyLines.length));
+      // total lines for this block = header(1) + outline lines + separator(blank line between blocks, except last)
+      lineOffset += epLines.length;
+      if (i < epsWithOutline.length - 1) {
+        lineOffset += 1; // the "\n\n" join adds one extra blank line
+      }
+    }
+    return map;
+  })();
+
   return (
     <div className="space-y-4">
       <Card>
