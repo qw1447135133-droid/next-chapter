@@ -302,7 +302,8 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
           .map((ep) => `--- 第${ep.number}集 ---\n${ep.content.slice(-800)}`)
           .join("\n\n");
 
-        const prompt = buildEpisodePrompt(setup, characters, displayDirectory, num, previousContent, instruction.trim() || undefined);
+        const effectiveDuration = durationOption === "custom" ? parseInt(customDuration) || 90 : parseInt(durationOption);
+        const prompt = buildEpisodePrompt(setup, characters, displayDirectory, num, previousContent, instruction.trim() || undefined, effectiveDuration);
         const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
         const finalText = await callGeminiStream(
           model,
