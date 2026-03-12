@@ -772,34 +772,31 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                               重写中…
                             </span>
                           ) : (
-                            <div
-                              className="relative"
-                              onMouseEnter={() => setHoverSceneIdx(idx)}
-                              onMouseLeave={() => setHoverSceneIdx(null)}
-                            >
+                            <div className="flex items-center gap-2">
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleSceneRegen(idx)}
                                 disabled={isGenerating}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity gap-1 h-7 text-xs"
+                                className="opacity-0 group-hover:opacity-100 transition-opacity gap-1 h-7 text-xs shrink-0"
                               >
                                 <RefreshCw className="h-3 w-3" />
                                 重写场次
                               </Button>
-                              {hoverSceneIdx === idx && (
-                                <div className="absolute top-full right-0 pt-1 z-10">
-                                  <div className="bg-popover border rounded-lg shadow-lg p-2 min-w-[260px]">
-                                    <Input
-                                      value={sceneRegenInstructions[idx] || ""}
-                                      onChange={(e) => setSceneRegenInstructions(prev => ({ ...prev, [idx]: e.target.value }))}
-                                      placeholder="场次重写指令（如：增加对话…）"
-                                      className="text-xs h-7"
-                                      onClick={(e) => e.stopPropagation()}
-                                    />
-                                  </div>
-                                </div>
-                              )}
+                              <Input
+                                value={sceneRegenInstructions[idx] || ""}
+                                onChange={(e) => setSceneRegenInstructions(prev => ({ ...prev, [idx]: e.target.value }))}
+                                placeholder="重写指令…"
+                                className="text-xs h-7 w-48 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    handleSceneRegen(idx);
+                                  }
+                                }}
+                                disabled={isGenerating}
+                              />
                             </div>
                           )}
                         </div>
@@ -811,9 +808,31 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                             </pre>
                           </div>
                         ) : (
-                          <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
-                            {scene.body}
-                          </pre>
+                          <textarea
+                            className="w-full whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 bg-transparent border-none resize-y min-h-[60px] focus:outline-none focus:ring-1 focus:ring-ring rounded p-0"
+                            value={scene.body}
+                            onChange={(e) => {
+                              // Rebuild content with edited scene body
+                              const preamble = getEpisodePreamble(selectedScript.content);
+                              const newScenes = [...scenes];
+                              newScenes[idx] = { ...newScenes[idx], body: e.target.value };
+                              const postamble = getEpisodePostamble(selectedScript.content);
+                              const rebuiltContent = [
+                                preamble,
+                                "",
+                                ...newScenes.map((s) => `${s.header}\n\n${s.body}`),
+                                "",
+                                postamble,
+                              ].filter(Boolean).join("\n\n");
+                              const updatedEp: EpisodeScript = {
+                                ...selectedScript,
+                                content: rebuiltContent,
+                                wordCount: rebuiltContent.length,
+                              };
+                              onUpdate(episodes.map((e) => e.number === selectedEp ? updatedEp : e));
+                            }}
+                            rows={Math.max(3, scene.body.split("\n").length)}
+                          />
                         )}
                       </div>
                     ))}
