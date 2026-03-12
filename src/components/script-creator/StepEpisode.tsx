@@ -323,7 +323,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
         if (e?.message?.includes("取消")) {
           const partial = streamingText;
           if (partial) {
-            const epEntry = directory.find((d) => d.number === num);
+            const epEntry = displayDirectory.find((d) => d.number === num);
             const existing = updatedEpisodes.find((e) => e.number === num);
             const history = existing ? pushHistory(existing, "整集重写（中断）") : [];
             const newEp: EpisodeScript = {
