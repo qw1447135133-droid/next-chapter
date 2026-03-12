@@ -7,6 +7,7 @@ import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildExportPrompt } from "@/lib/drama-prompts";
 import type { DramaSetup, EpisodeScript } from "@/types/drama";
+import { exportToDocx } from "@/lib/export-docx";
 
 interface StepExportProps {
   setup: DramaSetup;
