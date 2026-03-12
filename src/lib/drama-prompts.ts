@@ -588,9 +588,11 @@ ${durationSeconds ? (() => {
   const c = getDurationConstraints(durationSeconds);
   return `## 单集时长与内容量约束（${c.label}）
 - 本集目标时长：${c.label}
-- △（描写/动作/镜头指示）数量：${c.triangleMin}~${c.triangleMax} 个
-- 台词总数：不超过 ${c.maxDialogues} 句
-- 每30秒对应 9~11 个△描写和最多 4 句台词
+- △（描写/动作/镜头指示）数量：${c.triangleMin}~${c.triangleMax} 个（△仅用于非台词的叙述性内容，不包括任何对话和旁白）
+- 台词总数（含旁白）：不超过 ${c.maxDialogues} 句
+- 每30秒对应 9~11 个△描写和最多 4 句台词（旁白算作台词，不算△）
+- 严格区分：△ = 场景描写、动作描写、神态描写、镜头指示；台词 = 角色对话 + 旁白（旁白格式：旁白：内容）
+- 对话和旁白前绝对不能加△符号
 - 严格控制内容密度，不要超出或不足上述范围`;
 })() : ""}
 
