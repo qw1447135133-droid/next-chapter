@@ -527,13 +527,33 @@ Characters: {character list}
 - 结尾必须有悬念钩子（${hookType || "悬念钩"}）`;
 }
 
-/** 根据单集时长计算△和台词数量约束 */
-export function getDurationConstraints(durationSeconds: number): { triangleMin: number; triangleMax: number; maxDialogues: number; label: string } {
+/** 根据单集时长计算△、台词、场景数量及字数约束 */
+export function getDurationConstraints(durationSeconds: number): {
+  triangleMin: number; triangleMax: number; maxDialogues: number;
+  sceneMin: number; sceneMax: number;
+  cjkWordsMin: number; cjkWordsMax: number;
+  latinWordsMin: number; latinWordsMax: number;
+  label: string;
+} {
   const segments = Math.ceil(durationSeconds / 30);
+
+  // 场景数量：60s→2~3, 90s→3~5, 120s→4~6
+  let sceneMin: number, sceneMax: number;
+  if (durationSeconds <= 60) { sceneMin = 2; sceneMax = 3; }
+  else if (durationSeconds <= 90) { sceneMin = 3; sceneMax = 5; }
+  else if (durationSeconds <= 120) { sceneMin = 4; sceneMax = 6; }
+  else { sceneMin = Math.round(durationSeconds / 30); sceneMax = Math.round(durationSeconds / 20); }
+
   return {
     triangleMin: segments * 9,
     triangleMax: segments * 11,
     maxDialogues: segments * 4,
+    sceneMin,
+    sceneMax,
+    cjkWordsMin: segments * 300,
+    cjkWordsMax: segments * 400,
+    latinWordsMin: segments * 800,
+    latinWordsMax: segments * 1200,
     label: `${durationSeconds}秒`,
   };
 }
@@ -586,10 +606,13 @@ ${getScriptFormatTemplate(setup, episodeNumber, ep?.hookType || "")}
 
 ${durationSeconds ? (() => {
   const c = getDurationConstraints(durationSeconds);
+  const isCJK = ['cn', 'jp', 'kr'].includes(setup.targetMarket);
   return `## 单集时长与内容量约束（${c.label}）
 - 本集目标时长：${c.label}
+- 场景数量：${c.sceneMin}~${c.sceneMax} 个场景（每个场景以 # 集数-场次 格式标注）
 - △（描写/动作/镜头指示）数量：${c.triangleMin}~${c.triangleMax} 个（△仅用于非台词的叙述性内容，不包括任何对话和旁白）
 - 台词总数（含旁白）：不超过 ${c.maxDialogues} 句
+- 全集总字数：${isCJK ? `${c.cjkWordsMin}~${c.cjkWordsMax} 个中文字` : `${c.latinWordsMin}~${c.latinWordsMax} 个英文单词`}（每30秒约${isCJK ? '300~400中文字' : '800~1200英文单词'}）
 - 每30秒对应 9~11 个△描写和最多 4 句台词（旁白算作台词，不算△）
 - 严格区分：△ = 场景描写、动作描写、神态描写、镜头指示；台词 = 角色对话 + 旁白（旁白格式：旁白：内容）
 - 对话和旁白前绝对不能加△符号
