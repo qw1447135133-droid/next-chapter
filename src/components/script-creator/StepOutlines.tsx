@@ -96,6 +96,11 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
   const [isGeneratingOutlines, setIsGeneratingOutlines] = useState(false);
   const outlineAbortRef = useRef<AbortController | null>(null);
   const [expandedOutlines, setExpandedOutlines] = useState<Set<number>>(new Set());
+  // Per-episode regen state
+  const [regenEpNum, setRegenEpNum] = useState<number | null>(null);
+  const [hoverRegenEp, setHoverRegenEp] = useState<number | null>(null);
+  const [regenInstructions, setRegenInstructions] = useState<Record<number, string>>({});
+  const singleAbortRef = useRef<AbortController | null>(null);
 
   const buildBatches = useCallback((): OutlineBatchStatus[] => {
     const batches: OutlineBatchStatus[] = [];
