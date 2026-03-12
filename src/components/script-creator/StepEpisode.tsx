@@ -210,7 +210,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
         const prevEp = episodes.find(e => e.number === ep.number - 1);
         const nextEp = episodes.find(e => e.number === ep.number + 1);
         const prompt = buildReviewPrompt(
-          setup, characters, directory, ep.number, ep.content,
+          setup, characters, displayDirectory, ep.number, ep.content,
           prevEp?.content, nextEp?.content,
         );
         const finalText = await callGeminiStream(
