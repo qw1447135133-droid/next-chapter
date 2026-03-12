@@ -24,6 +24,19 @@ const StepExport = ({ setup, dramaTitle, creativePlan, characters, episodes }: S
   const [isExporting, setIsExporting] = useState(false);
   const [copied, setCopied] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const [isExportingDocx, setIsExportingDocx] = useState(false);
+
+  const handleExportDocx = async () => {
+    setIsExportingDocx(true);
+    try {
+      await exportToDocx(setup, dramaTitle, creativePlan, characters, episodes);
+      toast({ title: "Word 文档导出成功" });
+    } catch (e: any) {
+      toast({ title: "Word 导出失败", description: e?.message, variant: "destructive" });
+    } finally {
+      setIsExportingDocx(false);
+    }
+  };
 
   const handleExport = async () => {
     setIsExporting(true);
