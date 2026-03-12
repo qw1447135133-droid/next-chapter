@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -88,8 +88,23 @@ function getEpisodePostamble(content: string): string {
 }
 
 const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext }: StepEpisodeProps) => {
+  // Fallback: if directory is empty (e.g. adaptation mode), generate placeholder entries from totalEpisodes
+  const displayDirectory: EpisodeEntry[] = useMemo(() => {
+    if (directory.length > 0) return directory;
+    const total = setup.totalEpisodes || 60;
+    return Array.from({ length: total }, (_, i) => ({
+      number: i + 1,
+      title: `第${i + 1}集`,
+      summary: "",
+      hookType: "",
+      isKey: false,
+      isClimax: false,
+      isPaywall: false,
+    }));
+  }, [directory, setup.totalEpisodes]);
+
   const completedNums = new Set(episodes.map((e) => e.number));
-  const nextUnwritten = directory.find(d => !completedNums.has(d.number))?.number;
+  const nextUnwritten = displayDirectory.find(d => !completedNums.has(d.number))?.number;
   const [rangeInput, setRangeInput] = useState(String(nextUnwritten || 1));
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentGen, setCurrentGen] = useState<number | null>(null);
@@ -145,7 +160,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
       const nextEp = episodes.find(e => e.number === epNum + 1);
 
       const prompt = buildReviewPrompt(
-        setup, characters, directory, epNum, ep.content,
+        setup, characters, displayDirectory, epNum, ep.content,
         prevEp?.content, nextEp?.content,
       );
       const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
@@ -195,7 +210,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
         const prevEp = episodes.find(e => e.number === ep.number - 1);
         const nextEp = episodes.find(e => e.number === ep.number + 1);
         const prompt = buildReviewPrompt(
-          setup, characters, directory, ep.number, ep.content,
+          setup, characters, displayDirectory, ep.number, ep.content,
           prevEp?.content, nextEp?.content,
         );
         const finalText = await callGeminiStream(
@@ -276,7 +291,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
           .map((ep) => `--- 第${ep.number}集 ---\n${ep.content.slice(-800)}`)
           .join("\n\n");
 
-        const prompt = buildEpisodePrompt(setup, characters, directory, num, previousContent, instruction.trim() || undefined);
+        const prompt = buildEpisodePrompt(setup, characters, displayDirectory, num, previousContent, instruction.trim() || undefined);
         const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
         const finalText = await callGeminiStream(
           model,
@@ -286,7 +301,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
           abortRef.current.signal,
         );
 
-        const epEntry = directory.find((d) => d.number === num);
+        const epEntry = displayDirectory.find((d) => d.number === num);
         const existing = updatedEpisodes.find((e) => e.number === num);
         const history = existing ? pushHistory(existing, "整集重写") : [];
 
@@ -308,7 +323,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
         if (e?.message?.includes("取消")) {
           const partial = streamingText;
           if (partial) {
-            const epEntry = directory.find((d) => d.number === num);
+            const epEntry = displayDirectory.find((d) => d.number === num);
             const existing = updatedEpisodes.find((e) => e.number === num);
             const history = existing ? pushHistory(existing, "整集重写（中断）") : [];
             const newEp: EpisodeScript = {
@@ -493,7 +508,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
 
           {/* 集数列表 */}
           <div className="flex flex-wrap gap-1.5">
-            {directory.map((ep) => {
+            {displayDirectory.map((ep) => {
               const done = completedNums.has(ep.number);
               const active = selectedEp === ep.number;
               const generating = currentGen === ep.number;
@@ -562,7 +577,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg">
-              第 {selectedEp} 集：{selectedScript?.title || directory.find(d => d.number === selectedEp)?.title || `第${selectedEp}集`}
+              第 {selectedEp} 集：{selectedScript?.title || displayDirectory.find(d => d.number === selectedEp)?.title || `第${selectedEp}集`}
               {selectedScript && (
                 <span className="text-sm font-normal text-muted-foreground ml-2">
                   {selectedScript.wordCount} 字
