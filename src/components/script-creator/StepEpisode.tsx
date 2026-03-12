@@ -508,7 +508,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
 
           {/* 集数列表 */}
           <div className="flex flex-wrap gap-1.5">
-            {directory.map((ep) => {
+            {displayDirectory.map((ep) => {
               const done = completedNums.has(ep.number);
               const active = selectedEp === ep.number;
               const generating = currentGen === ep.number;
