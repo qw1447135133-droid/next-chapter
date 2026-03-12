@@ -21,15 +21,26 @@ function removeMermaid(text: string): string {
   return text.replace(/```mermaid\s*\n[\s\S]*?```\s*/g, "").trim();
 }
 
-/** Sanitise mermaid code – escape ampersands & problematic chars */
+/** Sanitise mermaid code – make AI-generated graphs parseable */
 function sanitiseMermaidCode(code: string): string {
-  return code
-    .replace(/&/g, "&amp;")
-    .replace(/[""]/g, '"')
-    // Replace single quotes inside node labels with backtick to avoid mermaid parse errors
-    .replace(/\[([^\]]*)'([^\]]*)\]/g, (match) => match.replace(/'/g, "`"))
-    // Also handle bare single quotes in edge labels
-    .replace(/--\s*([^>[\]|]*?)'([^>[\]|]*?)\s*-->/g, (_, a, b) => `-- ${a}\`${b} -->`);
+  // Process line by line for reliability
+  return code.split("\n").map(line => {
+    // Skip declaration lines (graph TD, etc.)
+    if (/^\s*(graph|flowchart|subgraph|end|style|classDef|click)\b/i.test(line.trim())) return line;
+    // Replace smart quotes
+    let l = line.replace(/[""]/g, '"').replace(/['']/g, "'");
+    // Escape ampersands inside labels
+    l = l.replace(/&(?!amp;|lt;|gt;|quot;)/g, "&amp;");
+    // Replace single quotes with backticks everywhere (mermaid chokes on them)
+    l = l.replace(/'/g, "`");
+    // Wrap bare node labels that contain special chars: A[Some-Label] → A["Some-Label"]
+    l = l.replace(/\[([^\]"]+)\]/g, (_m, inner: string) => {
+      // Only quote if it contains chars that might confuse mermaid
+      if (/[#`/\\(){}|<>]/.test(inner)) return `["${inner}"]`;
+      return `[${inner}]`;
+    });
+    return l;
+  }).join("\n");
 }
 /** Lazy mermaid renderer */
 function MermaidDiagram({ code }: { code: string }) {
