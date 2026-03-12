@@ -276,6 +276,14 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
       return;
     }
 
+    // Check prerequisites: for the first episode in range, previous must exist (unless it's ep 1 or already completed)
+    const currentCompleted = new Set(episodes.map(e => e.number));
+    const firstBlocked = nums.find(n => n > 1 && !currentCompleted.has(n - 1) && !currentCompleted.has(n) && !nums.includes(n - 1));
+    if (firstBlocked) {
+      toast({ title: `无法生成第 ${firstBlocked} 集`, description: `请先生成第 ${firstBlocked - 1} 集，需要按顺序生成以保证剧情连贯`, variant: "destructive" });
+      return;
+    }
+
     setIsGenerating(true);
     abortRef.current = new AbortController();
     const updatedEpisodes = [...episodes];
