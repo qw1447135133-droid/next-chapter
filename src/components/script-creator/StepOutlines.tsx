@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { ArrowRight, Loader2, RefreshCw, Square, FileText, CheckCircle2, XCircle, RotateCw, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
@@ -95,6 +96,11 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
   const [isGeneratingOutlines, setIsGeneratingOutlines] = useState(false);
   const outlineAbortRef = useRef<AbortController | null>(null);
   const [expandedOutlines, setExpandedOutlines] = useState<Set<number>>(new Set());
+  // Per-episode regen state
+  const [regenEpNum, setRegenEpNum] = useState<number | null>(null);
+  const [hoverRegenEp, setHoverRegenEp] = useState<number | null>(null);
+  const [regenInstructions, setRegenInstructions] = useState<Record<number, string>>({});
+  const singleAbortRef = useRef<AbortController | null>(null);
 
   const buildBatches = useCallback((): OutlineBatchStatus[] => {
     const batches: OutlineBatchStatus[] = [];
@@ -214,6 +220,60 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
   };
 
   const handleStopOutlines = () => outlineAbortRef.current?.abort();
+
+  /** Regenerate a single episode outline with optional user instruction */
+  const handleSingleRegen = async (epNum: number) => {
+    const ep = directory.find(e => e.number === epNum);
+    if (!ep) return;
+
+    setRegenEpNum(epNum);
+    singleAbortRef.current = new AbortController();
+
+    const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+    const instruction = regenInstructions[epNum]?.trim();
+    
+    // Build prompt for single episode with optional instruction
+    let prompt = buildOutlinePrompt(
+      setup, creativePlan, characters,
+      [{ number: ep.number, title: ep.title, summary: ep.summary, hookType: ep.hookType }],
+      directoryRaw,
+    );
+    if (instruction) {
+      prompt += `\n\n## 特别要求\n用户对本集细纲有如下调整要求，请在生成时重点满足：\n${instruction}`;
+    }
+    if (ep.outline) {
+      prompt += `\n\n## 原有细纲（供参考改进）\n${ep.outline}`;
+    }
+
+    try {
+      const result = await callGeminiStream(
+        model,
+        [{ role: "user", parts: [{ text: prompt }] }],
+        () => {},
+        { maxOutputTokens: 4096 },
+        singleAbortRef.current!.signal,
+      );
+
+      const outlines = parseOutlines(result);
+      const newOutline = outlines.get(epNum);
+      if (newOutline) {
+        const updatedDirectory = directory.map(d =>
+          d.number === epNum ? { ...d, outline: newOutline } : d
+        );
+        onUpdate(updatedDirectory, directoryRaw);
+        toast({ title: `第${epNum}集细纲已重新生成` });
+      } else {
+        toast({ title: "未能解析生成结果", variant: "destructive" });
+      }
+    } catch (e: any) {
+      if (!e?.message?.includes("取消")) {
+        toast({ title: "重新生成失败", description: e?.message, variant: "destructive" });
+      }
+    } finally {
+      setRegenEpNum(null);
+      singleAbortRef.current = null;
+    }
+  };
 
   const toggleOutline = (epNumber: number) => {
     setExpandedOutlines(prev => {
@@ -439,6 +499,65 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
                             <InterleavedText text={ep.outline} translatedLines={epTranslationSlices.get(ep.number) || []} />
                           ) : (
                             ep.outline
+                          )}
+                        </div>
+                        {/* Per-episode regen button with hover instruction */}
+                        <div className="ml-14 mr-4 mb-2 flex items-start gap-2">
+                          <div
+                            className="relative"
+                            onMouseEnter={() => setHoverRegenEp(ep.number)}
+                            onMouseLeave={() => setHoverRegenEp(null)}
+                          >
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="gap-1.5 text-xs h-7"
+                              disabled={isGeneratingOutlines || regenEpNum !== null}
+                              onClick={() => handleSingleRegen(ep.number)}
+                            >
+                              {regenEpNum === ep.number ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <RefreshCw className="h-3 w-3" />
+                              )}
+                              {regenEpNum === ep.number ? "生成中…" : "重新生成"}
+                            </Button>
+                            {/* Hover bridge */}
+                            {hoverRegenEp === ep.number && regenEpNum !== ep.number && (
+                              <div className="pt-1 absolute left-0 top-full z-10">
+                                <div
+                                  className="flex items-center gap-1.5 p-1.5 rounded-md border border-border bg-popover shadow-md"
+                                  onMouseEnter={() => setHoverRegenEp(ep.number)}
+                                  onMouseLeave={() => setHoverRegenEp(null)}
+                                >
+                                  <Input
+                                    className="h-7 text-xs w-56"
+                                    placeholder="输入调整指令，如：加强冲突…"
+                                    value={regenInstructions[ep.number] || ""}
+                                    onChange={e => setRegenInstructions(prev => ({ ...prev, [ep.number]: e.target.value }))}
+                                    onClick={e => e.stopPropagation()}
+                                    onKeyDown={e => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        handleSingleRegen(ep.number);
+                                        setHoverRegenEp(null);
+                                      }
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          {regenEpNum === ep.number && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs text-destructive"
+                              onClick={() => singleAbortRef.current?.abort()}
+                            >
+                              <Square className="h-3 w-3 mr-1" />
+                              停止
+                            </Button>
                           )}
                         </div>
                       </motion.div>
