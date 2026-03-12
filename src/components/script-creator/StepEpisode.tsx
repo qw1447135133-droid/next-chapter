@@ -160,7 +160,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
       const nextEp = episodes.find(e => e.number === epNum + 1);
 
       const prompt = buildReviewPrompt(
-        setup, characters, directory, epNum, ep.content,
+        setup, characters, displayDirectory, epNum, ep.content,
         prevEp?.content, nextEp?.content,
       );
       const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
