@@ -521,9 +521,9 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                 const dur = durationOption === "custom" ? parseInt(customDuration) || 90 : parseInt(durationOption);
                 const c = getDurationConstraints(dur);
                 return (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    △ {c.triangleMin}-{c.triangleMax}个 · 台词≤{c.maxDialogues}句
-                  </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      场景 {c.sceneMin}-{c.sceneMax}个 · △ {c.triangleMin}-{c.triangleMax}个 · 台词≤{c.maxDialogues}句 · 约{c.cjkWordsMin}-{c.cjkWordsMax}字
+                    </p>
                 );
               })()}
             </div>
