@@ -494,65 +494,60 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
                         transition={{ duration: 0.2 }}
                         className="overflow-hidden"
                       >
-                        <div className="ml-14 mr-4 mb-2 px-3 py-2 rounded bg-muted/30 border border-border/50 text-sm text-foreground/80 whitespace-pre-wrap leading-relaxed">
+                        <div className="ml-14 mr-4 mb-2">
                           {showTranslation && hasTranslation(allOutlinesText) ? (
-                            <InterleavedText text={ep.outline} translatedLines={epTranslationSlices.get(ep.number) || []} />
+                            <div className="px-3 py-2 rounded bg-muted/30 border border-border/50 text-sm text-foreground/80 whitespace-pre-wrap leading-relaxed">
+                              <InterleavedText text={ep.outline} translatedLines={epTranslationSlices.get(ep.number) || []} />
+                            </div>
                           ) : (
-                            ep.outline
+                            <textarea
+                              className="w-full rounded bg-muted/30 border border-border/50 text-sm text-foreground/80 whitespace-pre-wrap leading-relaxed px-3 py-2 resize-y min-h-[80px] focus:outline-none focus:ring-1 focus:ring-ring"
+                              value={ep.outline}
+                              onChange={(e) => {
+                                const updatedDirectory = directory.map(d =>
+                                  d.number === ep.number ? { ...d, outline: e.target.value } : d
+                                );
+                                onUpdate(updatedDirectory, directoryRaw);
+                              }}
+                              rows={Math.max(4, (ep.outline?.split("\n").length || 4))}
+                            />
                           )}
                         </div>
-                        {/* Per-episode regen button with hover instruction */}
-                        <div className="ml-14 mr-4 mb-2 flex items-start gap-2">
-                          <div
-                            className="relative"
-                            onMouseEnter={() => setHoverRegenEp(ep.number)}
-                            onMouseLeave={() => setHoverRegenEp(null)}
+                        {/* Per-episode regen button with inline instruction input */}
+                        <div className="ml-14 mr-4 mb-2 flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1.5 text-xs h-7 shrink-0"
+                            disabled={isGeneratingOutlines || regenEpNum !== null}
+                            onClick={() => handleSingleRegen(ep.number)}
                           >
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="gap-1.5 text-xs h-7"
-                              disabled={isGeneratingOutlines || regenEpNum !== null}
-                              onClick={() => handleSingleRegen(ep.number)}
-                            >
-                              {regenEpNum === ep.number ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <RefreshCw className="h-3 w-3" />
-                              )}
-                              {regenEpNum === ep.number ? "生成中…" : "重新生成"}
-                            </Button>
-                            {/* Hover bridge */}
-                            {hoverRegenEp === ep.number && regenEpNum !== ep.number && (
-                              <div className="pt-1 absolute left-0 top-full z-10">
-                                <div
-                                  className="flex items-center gap-1.5 p-1.5 rounded-md border border-border bg-popover shadow-md"
-                                  onMouseEnter={() => setHoverRegenEp(ep.number)}
-                                  onMouseLeave={() => setHoverRegenEp(null)}
-                                >
-                                  <Input
-                                    className="h-7 text-xs w-56"
-                                    placeholder="输入调整指令，如：加强冲突…"
-                                    value={regenInstructions[ep.number] || ""}
-                                    onChange={e => setRegenInstructions(prev => ({ ...prev, [ep.number]: e.target.value }))}
-                                    onClick={e => e.stopPropagation()}
-                                    onKeyDown={e => {
-                                      if (e.key === "Enter") {
-                                        e.preventDefault();
-                                        handleSingleRegen(ep.number);
-                                        setHoverRegenEp(null);
-                                      }
-                                    }}
-                                  />
-                                </div>
-                              </div>
+                            {regenEpNum === ep.number ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <RefreshCw className="h-3 w-3" />
                             )}
-                          </div>
+                            {regenEpNum === ep.number ? "生成中…" : "重新生成"}
+                          </Button>
+                          <Input
+                            className="h-7 text-xs flex-1"
+                            placeholder="输入调整指令，如：加强冲突…"
+                            value={regenInstructions[ep.number] || ""}
+                            onChange={e => setRegenInstructions(prev => ({ ...prev, [ep.number]: e.target.value }))}
+                            onClick={e => e.stopPropagation()}
+                            onKeyDown={e => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleSingleRegen(ep.number);
+                              }
+                            }}
+                            disabled={isGeneratingOutlines || regenEpNum !== null}
+                          />
                           {regenEpNum === ep.number && (
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-7 text-xs text-destructive"
+                              className="h-7 text-xs text-destructive shrink-0"
                               onClick={() => singleAbortRef.current?.abort()}
                             >
                               <Square className="h-3 w-3 mr-1" />

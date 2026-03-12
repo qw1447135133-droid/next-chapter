@@ -641,11 +641,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
               )}
             </CardTitle>
             {selectedScript && (
-              <div
-                className="relative flex gap-2"
-                onMouseEnter={() => setHoverEpisodeRegen(true)}
-                onMouseLeave={() => setHoverEpisodeRegen(false)}
-              >
+              <div className="flex gap-2 items-center">
                 <TranslateToggle
                   isNonChinese={isNonChineseText(selectedScript.content)}
                   isTranslating={isTranslating}
@@ -684,24 +680,18 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                     handleGenerate(String(selectedEp));
                   }}
                   disabled={isGenerating}
-                  className="gap-1.5"
+                  className="gap-1.5 shrink-0"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                   重新生成
                 </Button>
-                {hoverEpisodeRegen && (
-                  <div className="absolute top-full right-0 pt-1 z-10">
-                    <div className="bg-popover border rounded-lg shadow-lg p-2 min-w-[300px]">
-                      <Input
-                        value={episodeRegenInstruction}
-                        onChange={(e) => setEpisodeRegenInstruction(e.target.value)}
-                        placeholder="整集重写指令（如：加强冲突感、调整节奏…）"
-                        className="text-xs h-8"
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </div>
-                  </div>
-                )}
+                <Input
+                  value={episodeRegenInstruction}
+                  onChange={(e) => setEpisodeRegenInstruction(e.target.value)}
+                  placeholder="重写指令（如：加强冲突感…）"
+                  className="text-xs h-8 w-56"
+                  onClick={(e) => e.stopPropagation()}
+                />
               </div>
             )}
           </CardHeader>
