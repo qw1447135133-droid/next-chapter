@@ -3,7 +3,7 @@ import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, RefreshCw, Pencil, Eye, Square, Columns2, GitBranch } from "lucide-react";
+import { ArrowRight, RefreshCw, Pencil, Eye, Square, GitBranch } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildCharacterTransformPrompt } from "@/lib/drama-prompts";
