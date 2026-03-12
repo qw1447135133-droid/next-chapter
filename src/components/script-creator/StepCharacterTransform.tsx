@@ -93,7 +93,6 @@ const StepCharacterTransform = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [editing, setEditing] = useState(false);
-  const [showComparison, setShowComparison] = useState(false);
   const [showDiagram, setShowDiagram] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useAutoScroll<HTMLPreElement>(isGenerating, streamingText);
