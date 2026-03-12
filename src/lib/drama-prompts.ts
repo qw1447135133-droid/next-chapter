@@ -606,10 +606,13 @@ ${getScriptFormatTemplate(setup, episodeNumber, ep?.hookType || "")}
 
 ${durationSeconds ? (() => {
   const c = getDurationConstraints(durationSeconds);
+  const isCJK = ['cn', 'jp', 'kr'].includes(setup.targetMarket);
   return `## 单集时长与内容量约束（${c.label}）
 - 本集目标时长：${c.label}
+- 场景数量：${c.sceneMin}~${c.sceneMax} 个场景（每个场景以 # 集数-场次 格式标注）
 - △（描写/动作/镜头指示）数量：${c.triangleMin}~${c.triangleMax} 个（△仅用于非台词的叙述性内容，不包括任何对话和旁白）
 - 台词总数（含旁白）：不超过 ${c.maxDialogues} 句
+- 全集总字数：${isCJK ? `${c.cjkWordsMin}~${c.cjkWordsMax} 个中文字` : `${c.latinWordsMin}~${c.latinWordsMax} 个英文单词`}（每30秒约${isCJK ? '300~400中文字' : '800~1200英文单词'}）
 - 每30秒对应 9~11 个△描写和最多 4 句台词（旁白算作台词，不算△）
 - 严格区分：△ = 场景描写、动作描写、神态描写、镜头指示；台词 = 角色对话 + 旁白（旁白格式：旁白：内容）
 - 对话和旁白前绝对不能加△符号
