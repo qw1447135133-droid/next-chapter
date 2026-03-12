@@ -8,6 +8,7 @@ import { callGeminiStream } from "@/lib/gemini-client";
 import { buildOutlinePrompt } from "@/lib/drama-prompts";
 import type { DramaSetup, EpisodeEntry } from "@/types/drama";
 import { motion, AnimatePresence } from "framer-motion";
+import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "./TranslateButton";
 
 interface StepOutlinesProps {
   setup: DramaSetup;
@@ -235,6 +236,14 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
   const outlinesExist = directory.some(ep => ep.outline);
   const outlinesCount = directory.filter(ep => ep.outline).length;
 
+  // Translation
+  const allOutlinesText = directory
+    .filter(ep => ep.outline)
+    .map(ep => `【第${ep.number}集】\n${ep.outline}`)
+    .join("\n\n");
+  const nonChinese = isNonChineseText(allOutlinesText);
+  const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress, canResume: transCanResume, resumeTranslation } = useTranslation();
+
   return (
     <div className="space-y-4">
       <Card>
@@ -249,6 +258,17 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
             )}
           </CardTitle>
           <div className="flex gap-2">
+            {outlinesExist && !isGeneratingOutlines && (
+              <TranslateToggle
+                isNonChinese={nonChinese}
+                isTranslating={isTranslating}
+                showTranslation={showTranslation}
+                onTranslate={() => translate(allOutlinesText)}
+                onClear={clearTranslation}
+                onStop={stopTranslation}
+                disabled={false}
+              />
+            )}
             {isGeneratingOutlines ? (
               <Button variant="destructive" size="sm" onClick={handleStopOutlines} className="gap-1.5">
                 <Square className="h-3.5 w-3.5" />
@@ -268,6 +288,7 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
           </div>
         </CardHeader>
         <CardContent>
+          {(isTranslating || transCanResume) && <TranslationProgress progress={transProgress} canResume={transCanResume} onResume={resumeTranslation} />}
           {!outlinesExist && !isGeneratingOutlines && outlineBatches.length === 0 && (
             <div className="text-center py-8 text-muted-foreground">
               <p>点击"生成细纲"按钮，为每集生成约 300 字的详细细纲</p>
@@ -391,7 +412,11 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
                         className="overflow-hidden"
                       >
                         <div className="ml-14 mr-4 mb-2 px-3 py-2 rounded bg-muted/30 border border-border/50 text-sm text-foreground/80 whitespace-pre-wrap leading-relaxed">
-                          {ep.outline}
+                          {showTranslation && hasTranslation(allOutlinesText) ? (
+                            <InterleavedText text={ep.outline} translatedLines={getTranslation(allOutlinesText)!} />
+                          ) : (
+                            ep.outline
+                          )}
                         </div>
                       </motion.div>
                     )}
