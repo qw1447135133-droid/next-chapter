@@ -49,80 +49,6 @@ function parseDirectory(raw: string): EpisodeEntry[] {
   return entries;
 }
 
-/** Parse outline generation output and attach to episodes */
-function parseOutlines(text: string): Map<number, string> {
-  const map = new Map<number, string>();
-  // Split by 【第N集细纲】
-  const blocks = text.split(/【第(\d+)集细纲】/);
-  // blocks: ["", "1", "title\ncontent...", "2", "title\ncontent...", ...]
-  for (let i = 1; i < blocks.length; i += 2) {
-    const num = parseInt(blocks[i]);
-    const content = (blocks[i + 1] || "").replace(/^[^\n]*\n/, "").replace(/---\s*$/, "").trim();
-    if (num && content) {
-      map.set(num, content);
-    }
-  }
-  return map;
-}
-
-interface OutlineBatchStatus {
-  index: number;
-  label: string;
-  status: "pending" | "processing" | "done" | "failed";
-  error?: string;
-  startEp: number;
-  endEp: number;
-}
-
-/** Animated progress hook (same logic as DecomposeProgress) */
-function useAnimatedProgress(ceilPercent: number, floorPercent: number, hasProcessing: boolean) {
-  const [display, setDisplay] = useState(0);
-  const rafRef = useRef<number>();
-  const lastTimeRef = useRef(performance.now());
-  const prevCeilRef = useRef(ceilPercent);
-  const ceilDropped = ceilPercent < prevCeilRef.current;
-
-  useEffect(() => { prevCeilRef.current = ceilPercent; }, [ceilPercent]);
-
-  useEffect(() => {
-    lastTimeRef.current = performance.now();
-    const tick = (now: number) => {
-      const dt = (now - lastTimeRef.current) / 1000;
-      lastTimeRef.current = now;
-      setDisplay(prev => {
-        const hardCap = Math.max(0, ceilPercent - 0.1);
-        if (!hasProcessing && !ceilDropped) {
-          if (prev > floorPercent) {
-            const rollSpeed = Math.max(1, (prev - floorPercent) * 0.08) * 12;
-            return Math.max(prev - rollSpeed * dt, floorPercent);
-          }
-          return floorPercent;
-        }
-        if (prev > hardCap) {
-          const rollSpeed = Math.max(1, (prev - hardCap) * 0.08) * 12;
-          return Math.max(prev - rollSpeed * dt, hardCap);
-        }
-        const base = Math.max(prev, floorPercent);
-        const gap = hardCap - base;
-        if (gap <= 0) return hardCap;
-        const chunkRange = ceilPercent - floorPercent;
-        const baseSpeed = chunkRange > 0 ? chunkRange / 75 : 0.2;
-        const ratio = gap / (chunkRange || 1);
-        const speed = baseSpeed * Math.max(0.05, ratio);
-        return Math.min(base + speed * dt, hardCap);
-      });
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [ceilPercent, floorPercent, hasProcessing, ceilDropped]);
-
-  useEffect(() => { setDisplay(prev => Math.max(prev, floorPercent)); }, [floorPercent]);
-  return Math.round(display * 10) / 10;
-}
-
-const BATCH_SIZE = 30;
-
 const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRaw, onUpdate, onNext }: StepDirectoryProps) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamingText, setStreamingText] = useState("");
@@ -132,12 +58,6 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
   const scrollRef = useAutoScroll<HTMLPreElement>(isGenerating, streamingText);
   const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress, canResume: transCanResume, resumeTranslation } = useTranslation();
   const nonChinese = isNonChineseText(directoryRaw);
-
-  // Outline generation state
-  const [outlineBatches, setOutlineBatches] = useState<OutlineBatchStatus[]>([]);
-  const [isGeneratingOutlines, setIsGeneratingOutlines] = useState(false);
-  const outlineAbortRef = useRef<AbortController | null>(null);
-  const [expandedOutlines, setExpandedOutlines] = useState<Set<number>>(new Set());
 
   const handleGenerate = async () => {
     setIsGenerating(true);
