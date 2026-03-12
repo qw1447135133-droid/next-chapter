@@ -2,11 +2,12 @@ import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Copy, Check, Download, Film, Loader2, Square } from "lucide-react";
+import { Copy, Check, Download, Film, Loader2, Square, FileText } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildExportPrompt } from "@/lib/drama-prompts";
 import type { DramaSetup, EpisodeScript } from "@/types/drama";
+import { exportToDocx } from "@/lib/export-docx";
 
 interface StepExportProps {
   setup: DramaSetup;
@@ -23,6 +24,19 @@ const StepExport = ({ setup, dramaTitle, creativePlan, characters, episodes }: S
   const [isExporting, setIsExporting] = useState(false);
   const [copied, setCopied] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const [isExportingDocx, setIsExportingDocx] = useState(false);
+
+  const handleExportDocx = async () => {
+    setIsExportingDocx(true);
+    try {
+      await exportToDocx(setup, dramaTitle, creativePlan, characters, episodes);
+      toast({ title: "Word 文档导出成功" });
+    } catch (e: any) {
+      toast({ title: "Word 导出失败", description: e?.message, variant: "destructive" });
+    } finally {
+      setIsExportingDocx(false);
+    }
+  };
 
   const handleExport = async () => {
     setIsExporting(true);
@@ -240,6 +254,10 @@ const StepExport = ({ setup, dramaTitle, creativePlan, characters, episodes }: S
             <Button onClick={handleDownloadAll} variant="outline" className="gap-1.5" disabled={episodes.length === 0}>
               <Download className="h-4 w-4" />
               分集下载
+            </Button>
+            <Button onClick={handleExportDocx} variant="outline" className="gap-1.5" disabled={episodes.length === 0 || isExportingDocx}>
+              {isExportingDocx ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+              导出 Word
             </Button>
           </div>
         </CardContent>
