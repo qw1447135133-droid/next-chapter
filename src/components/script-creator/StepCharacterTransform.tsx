@@ -3,7 +3,7 @@ import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, RefreshCw, Pencil, Eye, Square, Columns2, GitBranch } from "lucide-react";
+import { ArrowRight, RefreshCw, Pencil, Eye, Square, GitBranch } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildCharacterTransformPrompt } from "@/lib/drama-prompts";
@@ -93,7 +93,6 @@ const StepCharacterTransform = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [editing, setEditing] = useState(false);
-  const [showComparison, setShowComparison] = useState(false);
   const [showDiagram, setShowDiagram] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useAutoScroll<HTMLPreElement>(isGenerating, streamingText);
@@ -158,15 +157,6 @@ const StepCharacterTransform = ({
                   onStop={stopTranslation}
                   disabled={editing}
                 />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowComparison(!showComparison)}
-                  className="gap-1.5"
-                >
-                  <Columns2 className="h-3.5 w-3.5" />
-                  {showComparison ? "关闭对照" : "原文对照"}
-                </Button>
                 <Button variant="outline" size="sm" onClick={() => setEditing(!editing)} className="gap-1.5">
                   {editing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
                   {editing ? "预览" : "编辑"}
@@ -199,42 +189,7 @@ const StepCharacterTransform = ({
             </div>
           )}
 
-          {showComparison && !isGenerating ? (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <h4 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">原文角色信息</h4>
-                <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/70 max-h-[600px] overflow-auto border rounded-md p-3 bg-muted/30">
-                  {referenceScript}
-                </pre>
-              </div>
-              <div>
-                <h4 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">
-                  转换角色（{frameworkStyle}）
-                </h4>
-                {editing ? (
-                  <Textarea
-                    value={characterTransform}
-                    onChange={(e) => onUpdate(e.target.value)}
-                    rows={20}
-                    className="font-mono text-sm"
-                  />
-                ) : showTranslation && hasTranslation(removeMermaid(characterTransform)) ? (
-                  <div className="max-h-[600px] overflow-auto border rounded-md p-3">
-                    <InterleavedText text={removeMermaid(characterTransform)} translatedLines={getTranslation(removeMermaid(characterTransform))!} />
-                  </div>
-                ) : (
-                  <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto border rounded-md p-3">
-                    {cleanText}
-                  </pre>
-                )}
-              </div>
-            </div>
-          ) : !cleanText && !isGenerating ? (
-            <div className="text-center py-16 text-muted-foreground">
-              <p>点击"AI 转换"按钮，AI 将根据{frameworkStyle}风格转换角色体系</p>
-              <p className="text-xs mt-2">保留原文角色核心关系，适配新的世界观和风格</p>
-            </div>
-          ) : editing && !isGenerating ? (
+          {editing && !isGenerating ? (
             <Textarea
               value={characterTransform}
               onChange={(e) => onUpdate(e.target.value)}
