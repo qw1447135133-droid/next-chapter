@@ -189,42 +189,7 @@ const StepCharacterTransform = ({
             </div>
           )}
 
-          {showComparison && !isGenerating ? (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <h4 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">原文角色信息</h4>
-                <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/70 max-h-[600px] overflow-auto border rounded-md p-3 bg-muted/30">
-                  {referenceScript}
-                </pre>
-              </div>
-              <div>
-                <h4 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">
-                  转换角色（{frameworkStyle}）
-                </h4>
-                {editing ? (
-                  <Textarea
-                    value={characterTransform}
-                    onChange={(e) => onUpdate(e.target.value)}
-                    rows={20}
-                    className="font-mono text-sm"
-                  />
-                ) : showTranslation && hasTranslation(removeMermaid(characterTransform)) ? (
-                  <div className="max-h-[600px] overflow-auto border rounded-md p-3">
-                    <InterleavedText text={removeMermaid(characterTransform)} translatedLines={getTranslation(removeMermaid(characterTransform))!} />
-                  </div>
-                ) : (
-                  <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto border rounded-md p-3">
-                    {cleanText}
-                  </pre>
-                )}
-              </div>
-            </div>
-          ) : !cleanText && !isGenerating ? (
-            <div className="text-center py-16 text-muted-foreground">
-              <p>点击"AI 转换"按钮，AI 将根据{frameworkStyle}风格转换角色体系</p>
-              <p className="text-xs mt-2">保留原文角色核心关系，适配新的世界观和风格</p>
-            </div>
-          ) : editing && !isGenerating ? (
+          {editing && !isGenerating ? (
             <Textarea
               value={characterTransform}
               onChange={(e) => onUpdate(e.target.value)}
