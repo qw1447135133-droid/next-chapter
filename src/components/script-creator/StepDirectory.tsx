@@ -1,16 +1,14 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef } from "react";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Progress } from "@/components/ui/progress";
-import { ArrowRight, Loader2, RefreshCw, Pencil, Eye, Square, FileText, CheckCircle2, XCircle, RotateCw, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowRight, RefreshCw, Pencil, Eye, Square } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
-import { buildDirectoryPrompt, buildOutlinePrompt } from "@/lib/drama-prompts";
+import { buildDirectoryPrompt } from "@/lib/drama-prompts";
 import type { DramaSetup, EpisodeEntry } from "@/types/drama";
 import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "./TranslateButton";
-import { motion, AnimatePresence } from "framer-motion";
 
 interface StepDirectoryProps {
   setup: DramaSetup;
