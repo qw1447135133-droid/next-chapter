@@ -8,6 +8,7 @@ import { callGeminiStream } from "@/lib/gemini-client";
 import { buildOutlinePrompt } from "@/lib/drama-prompts";
 import type { DramaSetup, EpisodeEntry } from "@/types/drama";
 import { motion, AnimatePresence } from "framer-motion";
+import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "./TranslateButton";
 
 interface StepOutlinesProps {
   setup: DramaSetup;
