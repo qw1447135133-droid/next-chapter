@@ -24,13 +24,17 @@ function parseDirectory(raw: string): EpisodeEntry[] {
   const lines = raw.split("\n");
   const entries: EpisodeEntry[] = [];
   for (const line of lines) {
-    const match = line.match(/第(\d+)集[：:]\s*(.+?)(?:\s*——\s*|\s*—\s*)(.+)/);
+    // Primary format: 第N集：标题 —— 描述
+    let match = line.match(/第(\d+)集[：:]\s*(.+?)(?:\s*[-——–—]+\s*)(.+)/);
+    // Fallback: numbered list like "1. 标题 —— 描述" or "1、标题 - 描述"
+    if (!match) {
+      match = line.match(/^(\d+)[\.、）\)]\s*(.+?)(?:\s*[-——–—]+\s*)(.+)/);
+    }
     if (match) {
       const number = parseInt(match[1]);
       const title = match[2].trim();
       const rest = match[3];
       const hookMatch = rest.match(/\[(.*?钩)\]/);
-      // Parse emotion level from markers like [情绪:4] or (情绪强度:3)
       const emotionMatch = line.match(/[情感情绪][：:强度]*\s*(\d)/);
       entries.push({
         number,
