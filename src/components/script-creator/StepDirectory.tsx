@@ -298,15 +298,14 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                 </div>
               )}
 
-              {/* Episode list with outlines */}
+              {/* Episode list */}
               <div className="max-h-[500px] overflow-auto space-y-1">
                 {directory.map((ep) => (
                   <div key={ep.number}>
                     <div
-                      className={`flex items-start gap-2 px-3 py-2 rounded text-sm cursor-pointer hover:bg-muted/30 transition-colors ${
+                      className={`flex items-start gap-2 px-3 py-2 rounded text-sm hover:bg-muted/30 transition-colors ${
                         ep.isClimax ? "bg-amber-500/10" : ep.isKey ? "bg-primary/5" : ""
                       }`}
-                      onClick={() => ep.outline && toggleOutline(ep.number)}
                     >
                       <span className="text-muted-foreground w-12 shrink-0 font-mono">
                         {String(ep.number).padStart(2, "0")}
@@ -320,28 +319,7 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
                         {ep.isClimax && "⚡"}
                         {ep.isPaywall && "💰"}
                       </span>
-                      {ep.outline && (
-                        <span className="shrink-0 text-muted-foreground">
-                          {expandedOutlines.has(ep.number) ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                        </span>
-                      )}
                     </div>
-                    {/* Expanded outline */}
-                    <AnimatePresence>
-                      {ep.outline && expandedOutlines.has(ep.number) && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: "auto", opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.2 }}
-                          className="overflow-hidden"
-                        >
-                          <div className="ml-14 mr-4 mb-2 px-3 py-2 rounded bg-muted/30 border border-border/50 text-sm text-foreground/80 whitespace-pre-wrap leading-relaxed">
-                            {ep.outline}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
                   </div>
                 ))}
                 {directory.length === 0 && directoryRaw && (
@@ -357,135 +335,10 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
         </CardContent>
       </Card>
 
-      {/* Outline generation section */}
-      {directory.length > 0 && directoryRaw && !isGenerating && !editing && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <FileText className="h-5 w-5 text-primary" />
-              单集细纲
-              {outlinesExist && (
-                <span className="text-sm font-normal text-muted-foreground">
-                  {directory.filter(ep => ep.outline).length}/{directory.length} 集已生成
-                </span>
-              )}
-            </CardTitle>
-            <div className="flex gap-2">
-              {isGeneratingOutlines ? (
-                <Button variant="destructive" size="sm" onClick={handleStopOutlines} className="gap-1.5">
-                  <Square className="h-3.5 w-3.5" />
-                  停止
-                </Button>
-              ) : (
-                <Button
-                  variant={outlinesExist ? "outline" : "default"}
-                  size="sm"
-                  onClick={handleGenerateOutlines}
-                  className="gap-1.5"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  {outlinesExist ? "重新生成细纲" : "生成细纲"}
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent>
-            {!outlinesExist && !isGeneratingOutlines && outlineBatches.length === 0 && (
-              <div className="text-center py-8 text-muted-foreground">
-                <p>点击"生成细纲"按钮，为每集生成约 300 字的详细细纲</p>
-                <p className="text-xs mt-2">
-                  {directory.length > BATCH_SIZE
-                    ? `将分 ${Math.ceil(directory.length / BATCH_SIZE)} 批生成（每批 ${BATCH_SIZE} 集）`
-                    : `共 ${directory.length} 集，一次性生成`}
-                </p>
-              </div>
-            )}
-
-            {/* Progress bar (DecomposeProgress style) */}
-            {outlineBatches.length > 0 && (
-              <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-medium text-foreground">细纲生成进度</span>
-                  <AnimatePresence mode="wait">
-                    {outlineComplete ? (
-                      <motion.span
-                        key="complete"
-                        initial={{ opacity: 0, y: 8, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: -8 }}
-                        transition={{ duration: 0.4, ease: "easeOut" }}
-                        className="text-accent font-semibold flex items-center gap-1"
-                      >
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        细纲生成完成
-                      </motion.span>
-                    ) : (
-                      <motion.span
-                        key="progress"
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -8 }}
-                        transition={{ duration: 0.3 }}
-                        className="text-muted-foreground tabular-nums"
-                      >
-                        {outlineDone}/{outlineTotal} 批完成
-                        {outlineFailed > 0 && <span className="text-destructive ml-1">（{outlineFailed} 批失败）</span>}
-                        <span className="ml-2 font-semibold text-foreground">{outlinePercent.toFixed(1)}%</span>
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
-                </div>
-
-                <Progress
-                  value={outlinePercent}
-                  className={`h-2 transition-all duration-500 ${outlineComplete ? "progress-done" : ""}`}
-                />
-
-                {/* Batch grid */}
-                <div className={`grid gap-1.5 ${outlineTotal > 10 ? 'grid-cols-4 sm:grid-cols-6 md:grid-cols-8' : 'grid-cols-3 sm:grid-cols-4 md:grid-cols-5'}`}>
-                  {outlineBatches.map((batch) => (
-                    <div
-                      key={batch.index}
-                      className={`group relative flex items-center justify-center gap-1 px-1.5 py-1 rounded text-[11px] font-medium border transition-colors ${
-                        batch.status === "done"
-                          ? "bg-primary/10 text-primary border-primary/20"
-                          : batch.status === "failed"
-                          ? "bg-destructive/10 text-destructive border-destructive/20"
-                          : batch.status === "processing"
-                          ? "bg-accent text-accent-foreground border-border animate-pulse"
-                          : "bg-muted text-muted-foreground border-border"
-                      }`}
-                      title={batch.error || batch.label}
-                    >
-                      {batch.status === "done" && <CheckCircle2 className="h-2.5 w-2.5 shrink-0" />}
-                      {batch.status === "failed" && <XCircle className="h-2.5 w-2.5 shrink-0" />}
-                      {batch.status === "processing" && <Loader2 className="h-2.5 w-2.5 animate-spin shrink-0" />}
-                      <span className="truncate">{batch.label}</span>
-                      {batch.status === "failed" && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-4 w-4 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={() => handleRetryBatch(batch.index)}
-                          disabled={isGeneratingOutlines}
-                          title="重试"
-                        >
-                          <RotateCw className="h-2.5 w-2.5" />
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
       {directoryRaw && !isGenerating && (
         <div className="flex justify-end">
           <Button onClick={onNext} className="gap-2">
-            确认目录，进入分集撰写
+            确认目录，进入单集细纲
             <ArrowRight className="h-4 w-4" />
           </Button>
         </div>

@@ -19,6 +19,7 @@ import StepSetup from "@/components/script-creator/StepSetup";
 import StepCreativePlan from "@/components/script-creator/StepCreativePlan";
 import StepCharacters from "@/components/script-creator/StepCharacters";
 import StepDirectory from "@/components/script-creator/StepDirectory";
+import StepOutlines from "@/components/script-creator/StepOutlines";
 import StepEpisode from "@/components/script-creator/StepEpisode";
 import StepExport from "@/components/script-creator/StepExport";
 import StepCompliance from "@/components/script-creator/StepCompliance";
