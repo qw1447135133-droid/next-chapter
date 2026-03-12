@@ -577,7 +577,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg">
-              第 {selectedEp} 集：{selectedScript?.title || directory.find(d => d.number === selectedEp)?.title || `第${selectedEp}集`}
+              第 {selectedEp} 集：{selectedScript?.title || displayDirectory.find(d => d.number === selectedEp)?.title || `第${selectedEp}集`}
               {selectedScript && (
                 <span className="text-sm font-normal text-muted-foreground ml-2">
                   {selectedScript.wordCount} 字
