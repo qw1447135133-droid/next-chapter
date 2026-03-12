@@ -104,6 +104,8 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   }, [directory, setup.totalEpisodes]);
 
   const completedNums = new Set(episodes.map((e) => e.number));
+  /** Check if an episode is locked (previous episode not yet generated) */
+  const isLocked = (num: number) => num > 1 && !completedNums.has(num - 1);
   const nextUnwritten = displayDirectory.find(d => !completedNums.has(d.number))?.number;
   const [rangeInput, setRangeInput] = useState(String(nextUnwritten || 1));
   const [isGenerating, setIsGenerating] = useState(false);
