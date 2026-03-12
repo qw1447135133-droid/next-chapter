@@ -607,16 +607,24 @@ ${getScriptFormatTemplate(setup, episodeNumber, ep?.hookType || "")}
 ${durationSeconds ? (() => {
   const c = getDurationConstraints(durationSeconds);
   const isCJK = ['cn', 'jp', 'kr'].includes(setup.targetMarket);
-  return `## 单集时长与内容量约束（${c.label}）
-- 本集目标时长：${c.label}
-- 场景数量：${c.sceneMin}~${c.sceneMax} 个场景（每个场景以 # 集数-场次 格式标注）
-- △（描写/动作/镜头指示）数量：${c.triangleMin}~${c.triangleMax} 个（△仅用于非台词的叙述性内容，不包括任何对话和旁白）
+  const wordLimit = isCJK
+    ? `${c.cjkWordsMin}~${c.cjkWordsMax} 个中文字（象形文字）`
+    : `${c.latinWordsMin}~${c.latinWordsMax} 个英文单词（拼音文字）`;
+  const per30 = isCJK ? '300~400中文字' : '800~1200英文单词';
+  return `## ⚠️ 最高优先级：字数硬性限制
+【铁律】本集总字数必须控制在 ${wordLimit} 以内。这是不可违反的硬性上限。
+- 每30秒对应约 ${per30}，本集 ${c.label} 对应 ${wordLimit}
+- 若内容超出字数上限，必须精简台词和描写，删除冗余修饰，缩短动作描述
+- 宁可内容精炼不足字数，也绝不允许超出上限
+
+## 单集时长与结构约束（${c.label}）
+- 场景数量：严格 ${c.sceneMin}~${c.sceneMax} 个场景（每个场景以 # 集数-场次 格式标注）
+- △（描写/动作/镜头指示）数量：${c.triangleMin}~${c.triangleMax} 个（△仅用于非台词的叙述性内容）
 - 台词总数（含旁白）：不超过 ${c.maxDialogues} 句
-- 全集总字数：${isCJK ? `${c.cjkWordsMin}~${c.cjkWordsMax} 个中文字` : `${c.latinWordsMin}~${c.latinWordsMax} 个英文单词`}（每30秒约${isCJK ? '300~400中文字' : '800~1200英文单词'}）
 - 每30秒对应 9~11 个△描写和最多 4 句台词（旁白算作台词，不算△）
 - 严格区分：△ = 场景描写、动作描写、神态描写、镜头指示；台词 = 角色对话 + 旁白（旁白格式：旁白：内容）
 - 对话和旁白前绝对不能加△符号
-- 严格控制内容密度，不要超出或不足上述范围`;
+- 写完后请自查字数，若超出 ${wordLimit} 则必须删减后再输出`;
 })() : ""}
 
 - 确保角色行为与档案一致
