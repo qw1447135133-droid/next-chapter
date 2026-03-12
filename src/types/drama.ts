@@ -154,6 +154,7 @@ export interface EpisodeEntry {
   isClimax: boolean;   // ⚡ 高潮卡点
   isPaywall: boolean;  // 💰 付费卡点
   emotionLevel?: number; // 1-5 情绪强度
+  outline?: string;    // 单集细纲（约300字）
 }
 
 export interface EpisodeVersion {

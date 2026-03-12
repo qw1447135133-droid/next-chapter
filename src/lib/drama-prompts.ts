@@ -261,7 +261,67 @@ ${characters}
 例如：第1集：命运序章 —— 女主初入公司遭受冷遇 [悬念钩] [情绪:2] 🔥
 不要使用其他分隔符（如"-"或"："代替"——"），不要省略集数编号"第N集："的格式。
 
-末尾附统计信息：🔥数量、⚡数量、💰数量、各钩子类型占比。`;
+  末尾附统计信息：🔥数量、⚡数量、💰数量、各钩子类型占比。`;
+}
+
+/** 单集细纲生成 Prompt（批量） */
+export function buildOutlinePrompt(
+  setup: DramaSetup,
+  creativePlan: string,
+  characters: string,
+  episodes: { number: number; title: string; summary: string; hookType: string }[],
+  allDirectoryRaw: string,
+): string {
+  const epList = episodes
+    .map((ep) => `第${ep.number}集：${ep.title} —— ${ep.summary} [${ep.hookType}]`)
+    .join("\n");
+
+  const rangeLabel = episodes.length === 1
+    ? `第${episodes[0].number}集`
+    : `第${episodes[0].number}-${episodes[episodes.length - 1].number}集`;
+
+  return `你是一位专业的微短剧编剧。
+
+${getMarketDirective(setup)}
+
+## 已有创作方案
+${creativePlan}
+
+## 已有角色档案
+${characters}
+
+## 完整分集目录（供参考节奏上下文）
+${allDirectoryRaw}
+
+## 你的任务
+为以下集数生成**单集细纲**（${rangeLabel}，共${episodes.length}集）。
+
+需要生成细纲的集数：
+${epList}
+
+## 细纲要求
+1. 每集细纲约 300 字左右
+2. 需要在满足大纲节奏的基础上，合理分配本集的剧情节奏
+3. 细纲内容应包含：
+   - 本集核心事件与冲突
+   - 主要场景转换（列出 3-5 个关键场景）
+   - 人物情感走向与变化
+   - 本集结尾钩子的具体设计
+   - 与前后集的剧情衔接点
+4. 注意整体节奏的连贯性，前后集之间要有因果关系
+
+## 输出格式
+严格按以下格式输出，每集之间用空行分隔：
+
+【第{N}集细纲】{集标题}
+{细纲内容，约300字，分段落书写}
+
+---
+
+【第{N+1}集细纲】{集标题}
+{细纲内容}
+
+不要输出其他多余内容。`;
 }
 
 /** 获取市场对应的剧本格式模板 */
