@@ -40,7 +40,7 @@ Preferred genres for the Western market:
 - ⛔ **NO non-American character profiles** — names, backgrounds, appearances, and body types must feel authentically Western/American.
 - ⛔ **NO non-American cultural elements** — no Eastern fortune-telling, Eastern traditions, Eastern philosophical framing.
 - ⛔ **NO real person names, real place names, real brand names, or real product names** — use fictional or lightly altered versions.
-- All character bios MUST include **bilingual names** (Chinese + English).
+- All character bios MUST include **bilingual names** (Chinese + English). However, in the actual script body, use English names ONLY.
 
 ### Character Requirements
 - **Character bio**: background story, full name, age, role positioning (lead / supporting / antagonist), personality, backstory.
