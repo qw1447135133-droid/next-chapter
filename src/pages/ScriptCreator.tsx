@@ -19,6 +19,7 @@ import StepSetup from "@/components/script-creator/StepSetup";
 import StepCreativePlan from "@/components/script-creator/StepCreativePlan";
 import StepCharacters from "@/components/script-creator/StepCharacters";
 import StepDirectory from "@/components/script-creator/StepDirectory";
+import StepOutlines from "@/components/script-creator/StepOutlines";
 import StepEpisode from "@/components/script-creator/StepEpisode";
 import StepExport from "@/components/script-creator/StepExport";
 import StepCompliance from "@/components/script-creator/StepCompliance";
@@ -327,6 +328,18 @@ const ScriptCreator = () => {
             directory={project.directory}
             directoryRaw={project.directoryRaw}
             onUpdate={handleDirectoryUpdate}
+            onNext={() => goToStep("outlines")}
+          />
+        ) : null;
+      case "outlines":
+        return project.setup ? (
+          <StepOutlines
+            setup={project.setup}
+            creativePlan={project.creativePlan}
+            characters={project.characters}
+            directory={project.directory}
+            directoryRaw={project.directoryRaw}
+            onUpdate={handleDirectoryUpdate}
             onNext={() => goToStep("episodes")}
           />
         ) : null;
@@ -468,6 +481,7 @@ function canAdvanceTo(project: DramaProject, step: DramaStep): boolean {
     case "characters": return !!project.creativePlan;
     case "character-transform": return !!project.structureTransform;
     case "directory": return !!project.characters;
+    case "outlines": return project.directory.length > 0 || !!project.directoryRaw;
     case "episodes": return project.directory.length > 0 || !!project.directoryRaw;
     case "compliance": return project.episodes.length > 0;
     case "export": return project.episodes.length > 0;

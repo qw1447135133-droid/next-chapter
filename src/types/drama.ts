@@ -78,7 +78,7 @@ export type DramaMode = "traditional" | "adaptation";
 export type DramaStep =
   | "setup" | "creative-plan" | "characters"
   | "reference-script" | "structure-transform" | "character-transform"
-  | "directory" | "episodes" | "compliance" | "export";
+  | "directory" | "outlines" | "episodes" | "compliance" | "export";
 
 export const DRAMA_STEP_LABELS: Record<DramaStep, string> = {
   setup: "选题立项",
@@ -88,6 +88,7 @@ export const DRAMA_STEP_LABELS: Record<DramaStep, string> = {
   "structure-transform": "结构转换",
   "character-transform": "角色转换",
   directory: "分集目录",
+  outlines: "单集细纲",
   episodes: "分集撰写",
   compliance: "合规审核",
   export: "导出",
@@ -98,6 +99,7 @@ export const DRAMA_STEPS: DramaStep[] = [
   "creative-plan",
   "characters",
   "directory",
+  "outlines",
   "episodes",
   "compliance",
   "export",
@@ -108,6 +110,7 @@ export const ADAPTATION_STEPS: DramaStep[] = [
   "structure-transform",
   "character-transform",
   "directory",
+  "outlines",
   "episodes",
   "compliance",
   "export",
