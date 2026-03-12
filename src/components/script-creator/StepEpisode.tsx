@@ -104,6 +104,8 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   }, [directory, setup.totalEpisodes]);
 
   const completedNums = new Set(episodes.map((e) => e.number));
+  /** Check if an episode is locked (previous episode not yet generated) */
+  const isLocked = (num: number) => num > 1 && !completedNums.has(num - 1);
   const nextUnwritten = displayDirectory.find(d => !completedNums.has(d.number))?.number;
   const [rangeInput, setRangeInput] = useState(String(nextUnwritten || 1));
   const [isGenerating, setIsGenerating] = useState(false);
@@ -271,6 +273,14 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
     const instruction = overrideInstruction ?? episodeRegenInstruction;
     if (nums.length === 0) {
       toast({ title: "请输入有效的集数", variant: "destructive" });
+      return;
+    }
+
+    // Check prerequisites: for the first episode in range, previous must exist (unless it's ep 1 or already completed)
+    const currentCompleted = new Set(episodes.map(e => e.number));
+    const firstBlocked = nums.find(n => n > 1 && !currentCompleted.has(n - 1) && !currentCompleted.has(n) && !nums.includes(n - 1));
+    if (firstBlocked) {
+      toast({ title: `无法生成第 ${firstBlocked} 集`, description: `请先生成第 ${firstBlocked - 1} 集，需要按顺序生成以保证剧情连贯`, variant: "destructive" });
       return;
     }
 
@@ -512,10 +522,15 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
               const done = completedNums.has(ep.number);
               const active = selectedEp === ep.number;
               const generating = currentGen === ep.number;
+              const locked = isLocked(ep.number) && !done;
               return (
                 <button
                   key={ep.number}
                   onClick={() => {
+                    if (locked) {
+                      toast({ title: `请先生成第 ${ep.number - 1} 集`, description: "需要按顺序生成剧本以保证剧情连贯", variant: "destructive" });
+                      return;
+                    }
                     const next = ep.number === selectedEp ? null : ep.number;
                     setSelectedEp(next);
                     if (next != null) {
@@ -523,18 +538,20 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                     }
                     setShowHistory(false);
                   }}
-                  className={`w-9 h-9 rounded text-xs font-mono flex items-center justify-center border transition-all cursor-pointer ${
-                    generating
-                      ? "border-primary bg-primary/20 animate-pulse"
+                  className={`w-9 h-9 rounded text-xs font-mono flex items-center justify-center border transition-all ${
+                    locked
+                      ? "border-border bg-muted text-muted-foreground/40 cursor-not-allowed"
+                      : generating
+                      ? "border-primary bg-primary/20 animate-pulse cursor-pointer"
                       : done
                       ? active
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-accent bg-accent/10 text-accent-foreground hover:bg-accent/20"
+                        ? "border-primary bg-primary text-primary-foreground cursor-pointer"
+                        : "border-accent bg-accent/10 text-accent-foreground hover:bg-accent/20 cursor-pointer"
                       : active
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border text-muted-foreground hover:border-muted-foreground/50"
+                        ? "border-primary bg-primary/10 text-primary cursor-pointer"
+                        : "border-border text-muted-foreground hover:border-muted-foreground/50 cursor-pointer"
                   }`}
-                  title={`第${ep.number}集：${ep.title}`}
+                  title={locked ? `需先生成第${ep.number - 1}集` : `第${ep.number}集：${ep.title}`}
                 >
                   {generating ? (
                     <Loader2 className="h-3 w-3 animate-spin" />
