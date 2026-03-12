@@ -527,13 +527,33 @@ Characters: {character list}
 - 结尾必须有悬念钩子（${hookType || "悬念钩"}）`;
 }
 
-/** 根据单集时长计算△和台词数量约束 */
-export function getDurationConstraints(durationSeconds: number): { triangleMin: number; triangleMax: number; maxDialogues: number; label: string } {
+/** 根据单集时长计算△、台词、场景数量及字数约束 */
+export function getDurationConstraints(durationSeconds: number): {
+  triangleMin: number; triangleMax: number; maxDialogues: number;
+  sceneMin: number; sceneMax: number;
+  cjkWordsMin: number; cjkWordsMax: number;
+  latinWordsMin: number; latinWordsMax: number;
+  label: string;
+} {
   const segments = Math.ceil(durationSeconds / 30);
+
+  // 场景数量：60s→2~3, 90s→3~5, 120s→4~6
+  let sceneMin: number, sceneMax: number;
+  if (durationSeconds <= 60) { sceneMin = 2; sceneMax = 3; }
+  else if (durationSeconds <= 90) { sceneMin = 3; sceneMax = 5; }
+  else if (durationSeconds <= 120) { sceneMin = 4; sceneMax = 6; }
+  else { sceneMin = Math.round(durationSeconds / 30); sceneMax = Math.round(durationSeconds / 20); }
+
   return {
     triangleMin: segments * 9,
     triangleMax: segments * 11,
     maxDialogues: segments * 4,
+    sceneMin,
+    sceneMax,
+    cjkWordsMin: segments * 300,
+    cjkWordsMax: segments * 400,
+    latinWordsMin: segments * 800,
+    latinWordsMax: segments * 1200,
     label: `${durationSeconds}秒`,
   };
 }
