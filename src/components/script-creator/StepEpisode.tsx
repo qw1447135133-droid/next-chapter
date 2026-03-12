@@ -107,6 +107,8 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const isLocked = (num: number) => num > 1 && !completedNums.has(num - 1);
   const nextUnwritten = displayDirectory.find(d => !completedNums.has(d.number))?.number;
   const [rangeInput, setRangeInput] = useState(String(nextUnwritten || 1));
+  const [durationOption, setDurationOption] = useState("90");
+  const [customDuration, setCustomDuration] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentGen, setCurrentGen] = useState<number | null>(null);
   const [streamingText, setStreamingText] = useState("");
