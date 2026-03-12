@@ -221,6 +221,60 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
 
   const handleStopOutlines = () => outlineAbortRef.current?.abort();
 
+  /** Regenerate a single episode outline with optional user instruction */
+  const handleSingleRegen = async (epNum: number) => {
+    const ep = directory.find(e => e.number === epNum);
+    if (!ep) return;
+
+    setRegenEpNum(epNum);
+    singleAbortRef.current = new AbortController();
+
+    const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+    const instruction = regenInstructions[epNum]?.trim();
+    
+    // Build prompt for single episode with optional instruction
+    let prompt = buildOutlinePrompt(
+      setup, creativePlan, characters,
+      [{ number: ep.number, title: ep.title, summary: ep.summary, hookType: ep.hookType }],
+      directoryRaw,
+    );
+    if (instruction) {
+      prompt += `\n\n## 特别要求\n用户对本集细纲有如下调整要求，请在生成时重点满足：\n${instruction}`;
+    }
+    if (ep.outline) {
+      prompt += `\n\n## 原有细纲（供参考改进）\n${ep.outline}`;
+    }
+
+    try {
+      const result = await callGeminiStream(
+        model,
+        [{ role: "user", parts: [{ text: prompt }] }],
+        () => {},
+        { maxOutputTokens: 4096 },
+        singleAbortRef.current!.signal,
+      );
+
+      const outlines = parseOutlines(result);
+      const newOutline = outlines.get(epNum);
+      if (newOutline) {
+        const updatedDirectory = directory.map(d =>
+          d.number === epNum ? { ...d, outline: newOutline } : d
+        );
+        onUpdate(updatedDirectory, directoryRaw);
+        toast({ title: `第${epNum}集细纲已重新生成` });
+      } else {
+        toast({ title: "未能解析生成结果", variant: "destructive" });
+      }
+    } catch (e: any) {
+      if (!e?.message?.includes("取消")) {
+        toast({ title: "重新生成失败", description: e?.message, variant: "destructive" });
+      }
+    } finally {
+      setRegenEpNum(null);
+      singleAbortRef.current = null;
+    }
+  };
+
   const toggleOutline = (epNumber: number) => {
     setExpandedOutlines(prev => {
       const next = new Set(prev);
