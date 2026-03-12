@@ -584,6 +584,16 @@ ${isFirstEp ? `## 重要：开篇黄金法则
 
 ${getScriptFormatTemplate(setup, episodeNumber, ep?.hookType || "")}
 
+${durationSeconds ? (() => {
+  const c = getDurationConstraints(durationSeconds);
+  return `## 单集时长与内容量约束（${c.label}）
+- 本集目标时长：${c.label}
+- △（描写/动作/镜头指示）数量：${c.triangleMin}~${c.triangleMax} 个
+- 台词总数：不超过 ${c.maxDialogues} 句
+- 每30秒对应 9~11 个△描写和最多 4 句台词
+- 严格控制内容密度，不要超出或不足上述范围`;
+})() : ""}
+
 - 确保角色行为与档案一致
 - 确保剧情推进与分集目录一致
 
