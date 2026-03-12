@@ -301,7 +301,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
           abortRef.current.signal,
         );
 
-        const epEntry = directory.find((d) => d.number === num);
+        const epEntry = displayDirectory.find((d) => d.number === num);
         const existing = updatedEpisodes.find((e) => e.number === num);
         const history = existing ? pushHistory(existing, "整集重写") : [];
 
