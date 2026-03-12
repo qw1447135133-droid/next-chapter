@@ -527,6 +527,17 @@ Characters: {character list}
 - 结尾必须有悬念钩子（${hookType || "悬念钩"}）`;
 }
 
+/** 根据单集时长计算△和台词数量约束 */
+export function getDurationConstraints(durationSeconds: number): { triangleMin: number; triangleMax: number; maxDialogues: number; label: string } {
+  const segments = Math.ceil(durationSeconds / 30);
+  return {
+    triangleMin: segments * 9,
+    triangleMax: segments * 11,
+    maxDialogues: segments * 4,
+    label: `${durationSeconds}秒`,
+  };
+}
+
 /** 分集撰写 Prompt */
 export function buildEpisodePrompt(
   setup: DramaSetup,
@@ -535,6 +546,7 @@ export function buildEpisodePrompt(
   episodeNumber: number,
   previousEpisodes: string,
   customInstruction?: string,
+  durationSeconds?: number,
 ): string {
   const ep = directory.find((e) => e.number === episodeNumber);
   const prevEp = directory.find((e) => e.number === episodeNumber - 1);
