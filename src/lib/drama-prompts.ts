@@ -386,42 +386,33 @@ Characters: {character list}
     return `## Script Format (Southeast Asian Market)
 
 \`\`\`
-# Episode ${episodeNumber}: {Episode Title}
+# Episode ${episodeNumber}
 
-> Keywords: {3 keywords}
-> Emotional Core: {dominant emotion}
-> Previously: {Last episode's dramatic moment, 1-2 sentences}
+# ${episodeNumber}-1 {TIME} {INT./EXT.} {LOCATION}
 
----
+Characters: {character list}
 
-## SCENE 1
+△{Scene description — lush, atmospheric, emotionally charged}
+△{Character interaction — body language conveying unspoken tension}
 
-**INT./EXT. {LOCATION} — DAY/NIGHT**
-**CHARACTERS: {character list}**
+{CHARACTER NAME}: ({tone/action direction}) {Dialogue}
 
-△ (WIDE) {Scene description — lush, atmospheric, emotionally charged}
-△ (MEDIUM) {Character interaction — body language conveying unspoken tension}
+△{Emotional reaction — tears, rage, revelation}
 
-**{CHARACTER NAME}** ({tone/action direction}): "{Dialogue}"
+# ${episodeNumber}-2 {TIME} {INT./EXT.} {LOCATION}
 
-△ (CLOSE-UP) {Emotional reaction — tears, rage, revelation}
+Characters: {character list}
 
-♪ Music: {Dramatic underscore or emotional ballad cue}
-
----
-
-> 🎣 Drama Hook: {emotional cliffhanger}
-> 📺 Next Episode: {teaser}
+……continue same format……
 \`\`\`
 
 ## Quality Standards
-- 3-5 scenes per episode
-- Minimum 800 words per episode
-- Camera directions: WIDE, MEDIUM, CLOSE-UP, EXTREME CLOSE-UP (use at least 3)
-- Dialogue must include tone/action parentheticals
+- 3-5 scenes per episode, minimum 800 words
+- Scene numbers use \`${episodeNumber}-1, ${episodeNumber}-2\` format
+- △ prefix for ALL descriptive/action/direction text (no space after △)
+- Dialogue on separate lines: \`CHARACTER: (direction) dialogue\` — no quotes, no bold
 - Maximize emotional intensity — confrontation, confession, betrayal moments
-- End with a powerful ${hookType || "dramatic revelation"} hook
-- Melodramatic pacing: slow emotional build → explosive climax per episode`;
+- End with a powerful ${hookType || "dramatic revelation"} hook`;
   }
 
   // 国内默认
