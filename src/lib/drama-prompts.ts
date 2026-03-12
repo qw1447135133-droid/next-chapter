@@ -555,6 +555,8 @@ export function buildEpisodePrompt(
   const nextEp = directory.find((e) => e.number === episodeNumber + 1);
   const isFirstEp = episodeNumber === 1;
 
+  const isNonChinese = ["west", "jp", "kr", "sea"].includes(setup.targetMarket || "");
+
   return `你是一位专业的微短剧编剧。
 
 ${getMarketDirective(setup)}
