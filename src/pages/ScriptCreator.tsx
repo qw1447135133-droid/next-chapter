@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import type { SetupMode } from "@/types/drama";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, PenTool, Settings, Cpu, BookOpen, Repeat2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
