@@ -235,13 +235,13 @@ const ScriptCreator = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl w-full">
             <button
               onClick={() => handleModeSelect("traditional")}
-              className="group flex flex-col items-center gap-4 p-8 rounded-xl border-2 border-border hover:border-primary transition-all hover:shadow-lg bg-card"
+              className="group flex flex-col items-center gap-4 p-8 rounded-xl border-2 border-border hover:border-emerald-400 dark:hover:border-emerald-500/60 transition-all hover:shadow-lg bg-gradient-to-br from-emerald-500/5 to-teal-500/5 dark:from-emerald-500/10 dark:to-teal-500/10 bg-card"
             >
-              <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
-                <BookOpen className="h-7 w-7 text-primary" />
+              <div className="w-14 h-14 rounded-full bg-emerald-500/10 dark:bg-emerald-500/15 flex items-center justify-center group-hover:bg-emerald-500/20 transition-colors">
+                <BookOpen className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
               </div>
               <div className="text-center">
-                <h3 className="font-semibold text-lg">传统创作</h3>
+                <h3 className="font-semibold text-lg text-foreground">传统创作</h3>
                 <p className="text-sm text-muted-foreground mt-1">
                   从零开始，选题立项 → 创作方案 → 角色开发 → 分集撰写
                 </p>
@@ -249,13 +249,13 @@ const ScriptCreator = () => {
             </button>
             <button
               onClick={() => handleModeSelect("adaptation")}
-              className="group flex flex-col items-center gap-4 p-8 rounded-xl border-2 border-border hover:border-primary transition-all hover:shadow-lg bg-card"
+              className="group flex flex-col items-center gap-4 p-8 rounded-xl border-2 border-border hover:border-violet-400 dark:hover:border-violet-500/60 transition-all hover:shadow-lg bg-gradient-to-br from-violet-500/5 to-purple-500/5 dark:from-violet-500/10 dark:to-purple-500/10 bg-card"
             >
-              <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
-                <Repeat2 className="h-7 w-7 text-primary" />
+              <div className="w-14 h-14 rounded-full bg-violet-500/10 dark:bg-violet-500/15 flex items-center justify-center group-hover:bg-violet-500/20 transition-colors">
+                <Repeat2 className="h-7 w-7 text-violet-600 dark:text-violet-400" />
               </div>
               <div className="text-center">
-                <h3 className="font-semibold text-lg">同款创作</h3>
+                <h3 className="font-semibold text-lg text-foreground">同款创作</h3>
                 <p className="text-sm text-muted-foreground mt-1">
                   基于参考剧本，结构转换 → 角色转换 → 分集撰写
                 </p>

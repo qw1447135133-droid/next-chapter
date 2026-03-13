@@ -14,9 +14,10 @@ const modules = [
       { icon: FileText, text: "多种体裁支持" },
     ],
     route: "/script-creator",
-    gradient: "from-amber-500/20 to-orange-500/20",
-    iconBg: "bg-amber-500/10",
+    gradient: "from-amber-500/15 to-orange-500/15 dark:from-amber-500/10 dark:to-orange-600/10",
+    iconBg: "bg-amber-500/10 dark:bg-amber-500/15",
     iconColor: "text-amber-600 dark:text-amber-400",
+    borderHover: "hover:border-amber-400/50 dark:hover:border-amber-500/40",
   },
   {
     id: "video",
@@ -28,9 +29,10 @@ const modules = [
       { icon: Play, text: "AI 视频合成" },
     ],
     route: "/workspace",
-    gradient: "from-primary/20 to-accent/20",
-    iconBg: "bg-primary/10",
-    iconColor: "text-primary",
+    gradient: "from-indigo-500/15 to-cyan-500/15 dark:from-indigo-500/10 dark:to-cyan-500/10",
+    iconBg: "bg-indigo-500/10 dark:bg-indigo-500/15",
+    iconColor: "text-indigo-600 dark:text-indigo-400",
+    borderHover: "hover:border-indigo-400/50 dark:hover:border-indigo-500/40",
   },
 ];
 
@@ -80,7 +82,7 @@ const Modules = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: i * 0.15 }}
               onClick={() => navigate(m.route)}
-              className={`group relative flex flex-col items-start gap-5 p-8 rounded-2xl border border-border/60 bg-gradient-to-br ${m.gradient} backdrop-blur-sm text-left transition-all hover:shadow-lg hover:border-border hover:scale-[1.02] active:scale-[0.99]`}
+              className={`group relative flex flex-col items-start gap-5 p-8 rounded-2xl border border-border/60 bg-gradient-to-br ${m.gradient} backdrop-blur-sm text-left transition-all hover:shadow-lg ${m.borderHover} hover:scale-[1.02] active:scale-[0.99]`}
             >
               <div className={`h-14 w-14 rounded-xl ${m.iconBg} flex items-center justify-center`}>
                 <m.icon className={`h-7 w-7 ${m.iconColor}`} />
