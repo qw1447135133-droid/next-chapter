@@ -8,16 +8,25 @@ const features = [
     icon: Sparkles,
     title: "AI 剧本拆解",
     desc: "智能分析剧本，自动生成分镜列表",
+    iconBg: "bg-amber-500/10 dark:bg-amber-500/15",
+    iconColor: "text-amber-600 dark:text-amber-400",
+    borderColor: "border-amber-200/60 dark:border-amber-500/20",
   },
   {
     icon: Layers,
     title: "分镜图生成",
     desc: "根据角色与场景设定，AI 绘制每一帧",
+    iconBg: "bg-indigo-500/10 dark:bg-indigo-500/15",
+    iconColor: "text-indigo-600 dark:text-indigo-400",
+    borderColor: "border-indigo-200/60 dark:border-indigo-500/20",
   },
   {
     icon: Play,
     title: "视频合成",
     desc: "一键将分镜图转化为流畅视频",
+    iconBg: "bg-rose-500/10 dark:bg-rose-500/15",
+    iconColor: "text-rose-600 dark:text-rose-400",
+    borderColor: "border-rose-200/60 dark:border-rose-500/20",
   },
 ];
 
