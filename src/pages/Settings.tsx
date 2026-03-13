@@ -241,7 +241,7 @@ const Settings = () => {
         <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <h1 className="text-lg font-semibold font-[Space_Grotesk]">API 设置</h1>
+        <h1 className="text-lg font-semibold font-[Space_Grotesk]">设置</h1>
       </header>
 
       <main className="max-w-3xl mx-auto px-6 py-6 space-y-6">
