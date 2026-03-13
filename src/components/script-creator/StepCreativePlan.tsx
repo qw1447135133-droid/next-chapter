@@ -83,14 +83,11 @@ const StepCreativePlan = ({
             )
           : buildCreativePlanPrompt(project.setup!);
 
-      let accumulated = "";
-      await callGeminiStream(
-        prompt,
-        (chunk) => {
-          accumulated += chunk;
-          setStreamText(accumulated);
-        },
-        undefined,
+      const contents = [{ role: "user", parts: [{ text: prompt }] }];
+      const result = await callGeminiStream(
+        "gemini-2.5-flash",
+        contents,
+        (acc) => setStreamText(acc),
       );
       onUpdate({ creativePlan: accumulated });
       setStreamText("");
