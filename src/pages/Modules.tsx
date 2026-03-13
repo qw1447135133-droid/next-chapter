@@ -77,9 +77,9 @@ const Modules = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl w-full">
           {/* 剧本创作卡片 - 含两个子入口 */}
           <motion.div
-            initial={{ opacity: 0, y: 30 }}
+            initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.1 }}
+            transition={{ duration: 0.4 }}
             className="relative flex items-stretch gap-0 rounded-2xl border border-border/60 bg-gradient-to-br from-amber-500/15 to-orange-500/15 dark:from-amber-500/10 dark:to-orange-600/10 backdrop-blur-sm text-left overflow-hidden"
           >
             {/* 左侧信息区 */}
