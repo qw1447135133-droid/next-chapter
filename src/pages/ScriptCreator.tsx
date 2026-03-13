@@ -109,6 +109,7 @@ const ScriptCreator = () => {
   });
 
   const [model, setModel] = useState(() => localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview");
+  const [setupMode, setSetupMode] = useState<SetupMode>(() => project.setup?.setupMode || "topic");
 
   const handleModelChange = (value: string) => {
     setModel(value);
