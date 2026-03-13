@@ -93,19 +93,22 @@ const ScriptCreator = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const resumeId = searchParams.get("id");
+  const modeParam = searchParams.get("mode") as DramaMode | null;
 
   const [project, setProject] = useState<DramaProject>(() => {
     if (resumeId) {
       const loaded = loadProjectById(resumeId);
       if (loaded) return { ...loaded, mode: loaded.mode || "traditional" };
     }
-    // Without ?id=, always start fresh with mode selector
+    if (modeParam === "traditional" || modeParam === "adaptation") {
+      return createEmptyDramaProject(modeParam);
+    }
     return createEmptyDramaProject();
   });
 
-  // Show mode selector when entering without ?id= (fresh start)
+  // Show mode selector only when entering without ?id= and without ?mode=
   const [showModeSelector, setShowModeSelector] = useState(() => {
-    return !resumeId;
+    return !resumeId && !modeParam;
   });
 
   const [model, setModel] = useState(() => localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview");
@@ -390,11 +393,13 @@ const ScriptCreator = () => {
       <header className="flex items-center justify-between px-6 py-3 border-b border-border/50">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => {
-            if (!resumeId) {
+            if (resumeId) {
+              navigate("/modules");
+            } else if (modeParam) {
+              navigate("/modules");
+            } else {
               setShowModeSelector(true);
               setProject(createEmptyDramaProject());
-            } else {
-              navigate("/modules");
             }
           }}>
             <ArrowLeft className="h-4 w-4" />
