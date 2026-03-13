@@ -13,10 +13,10 @@ import { GENRES, AUDIENCES, TONES, ENDINGS, EPISODE_COUNTS, TARGET_MARKETS, type
 interface StepSetupProps {
   setup: DramaSetup | null;
   onComplete: (setup: DramaSetup) => void;
+  setupMode: SetupMode;
 }
 
-const StepSetup = ({ setup, onComplete }: StepSetupProps) => {
-  const [setupMode, setSetupMode] = useState<SetupMode>(setup?.setupMode || "topic");
+const StepSetup = ({ setup, onComplete, setupMode }: StepSetupProps) => {
   const [selectedGenres, setSelectedGenres] = useState<string[]>(setup?.genres || []);
   const [audience, setAudience] = useState(setup?.audience || "女频");
   const [tone, setTone] = useState(setup?.tone || "甜虐");
