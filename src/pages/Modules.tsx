@@ -130,9 +130,9 @@ const Modules = () => {
 
           {/* 视频创作卡片 */}
           <motion.button
-            initial={{ opacity: 0, y: 30 }}
+            initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.1 }}
+            transition={{ duration: 0.4 }}
             onClick={() => navigate("/workspace")}
             className="group relative flex flex-col items-start gap-5 p-8 rounded-2xl border border-border/60 bg-gradient-to-br from-indigo-500/15 to-cyan-500/15 dark:from-indigo-500/10 dark:to-cyan-500/10 backdrop-blur-sm text-left transition-all hover:shadow-lg hover:border-indigo-400/50 dark:hover:border-indigo-500/40 hover:scale-[1.02] active:scale-[0.99]"
           >
