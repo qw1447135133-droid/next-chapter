@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Key, Save, Database, HardDrive, Cloud, Globe, RotateCcw, Trash2, Wifi, WifiOff, Loader2 } from "lucide-react";
+import { useTheme } from "next-themes";
+import { ArrowLeft, Key, Save, Database, HardDrive, Cloud, Globe, RotateCcw, Trash2, Wifi, WifiOff, Loader2, Moon, Sun } from "lucide-react";
 import { proxiedFetch } from "@/lib/gemini-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
