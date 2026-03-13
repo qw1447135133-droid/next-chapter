@@ -6,9 +6,9 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 import Modules from "./pages/Modules";
 import Workspace from "./pages/Workspace";
-import ScriptCreator from "./pages/ScriptCreator";
 import Settings from "./pages/Settings";
 import History from "./pages/History";
+import ScriptCreator from "./pages/ScriptCreator";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
