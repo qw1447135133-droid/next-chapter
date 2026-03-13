@@ -429,7 +429,7 @@ const ScriptCreator = () => {
             {steps.map((step, idx) => {
               const isCurrent = step === project.currentStep;
               const isDone = idx < currentStepIdx;
-              const isClickable = idx <= currentStepIdx || (idx === currentStepIdx + 1 && canAdvanceTo(project, step));
+              const isClickable = idx <= currentStepIdx || canAdvanceTo(project, step);
               return (
                 <button
                   key={step}
