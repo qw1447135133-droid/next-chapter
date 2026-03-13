@@ -80,51 +80,49 @@ const Modules = () => {
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="relative flex flex-col items-start gap-5 p-8 rounded-2xl border border-border/60 bg-gradient-to-br from-amber-500/15 to-orange-500/15 dark:from-amber-500/10 dark:to-orange-600/10 backdrop-blur-sm text-left"
+            className="relative flex items-stretch gap-0 rounded-2xl border border-border/60 bg-gradient-to-br from-amber-500/15 to-orange-500/15 dark:from-amber-500/10 dark:to-orange-600/10 backdrop-blur-sm text-left overflow-hidden"
           >
-            <div className="h-14 w-14 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 flex items-center justify-center">
-              <PenTool className="h-7 w-7 text-amber-600 dark:text-amber-400" />
-            </div>
-
-            <div>
-              <h2 className="text-xl font-bold font-[Space_Grotesk] mb-1.5">剧本创作</h2>
-              <p className="text-sm text-muted-foreground leading-relaxed">AI 辅助创作完整剧本，从主题大纲到成稿</p>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Sparkles className="h-3.5 w-3.5" />
-                AI 智能生成
+            {/* 左侧信息区 */}
+            <div className="flex flex-col items-start gap-4 p-8 flex-1">
+              <div className="h-14 w-14 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 flex items-center justify-center">
+                <PenTool className="h-7 w-7 text-amber-600 dark:text-amber-400" />
               </div>
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <FileText className="h-3.5 w-3.5" />
-                多种体裁支持
+              <div>
+                <h2 className="text-xl font-bold font-[Space_Grotesk] mb-1.5">剧本创作</h2>
+                <p className="text-sm text-muted-foreground leading-relaxed">AI 辅助创作完整剧本，从主题大纲到成稿</p>
+              </div>
+              <div className="flex items-center gap-4 mt-auto">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  AI 智能生成
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <FileText className="h-3.5 w-3.5" />
+                  多种体裁支持
+                </div>
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 w-full mt-2">
+            {/* 右侧按钮区 */}
+            <div className="flex flex-col gap-3 p-5 justify-center border-l border-border/40 bg-background/30 backdrop-blur-md min-w-[180px]">
               <button
                 onClick={() => navigate("/script-creator?mode=traditional")}
-                className="flex items-center gap-3 px-5 py-4 rounded-xl border border-emerald-400/30 dark:border-emerald-500/25 bg-emerald-500/5 dark:bg-emerald-500/8 backdrop-blur-md font-semibold text-base text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/15 dark:hover:bg-emerald-500/15 hover:border-emerald-400/60 hover:shadow-lg hover:shadow-emerald-500/10 active:scale-[0.98] transition-all"
+                className="flex items-center gap-3 px-4 py-3.5 rounded-xl border border-emerald-400/30 dark:border-emerald-500/25 bg-emerald-500/5 dark:bg-emerald-500/8 backdrop-blur-md font-semibold text-sm text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/15 dark:hover:bg-emerald-500/15 hover:border-emerald-400/60 hover:shadow-lg hover:shadow-emerald-500/10 active:scale-[0.97] transition-all"
               >
-                <div className="h-10 w-10 rounded-lg bg-emerald-500/10 dark:bg-emerald-500/15 backdrop-blur-sm flex items-center justify-center shrink-0">
-                  <BookOpen className="h-5 w-5" />
-                </div>
+                <BookOpen className="h-5 w-5 shrink-0" />
                 <div className="text-left">
                   <div>传统创作</div>
-                  <div className="text-xs font-normal text-emerald-600/70 dark:text-emerald-400/60">从零开始，选题立项到分集撰写</div>
+                  <div className="text-[11px] font-normal text-emerald-600/70 dark:text-emerald-400/60">从零开始创作</div>
                 </div>
               </button>
               <button
                 onClick={() => navigate("/script-creator?mode=adaptation")}
-                className="flex items-center gap-3 px-5 py-4 rounded-xl border border-violet-400/30 dark:border-violet-500/25 bg-violet-500/5 dark:bg-violet-500/8 backdrop-blur-md font-semibold text-base text-violet-700 dark:text-violet-300 hover:bg-violet-500/15 dark:hover:bg-violet-500/15 hover:border-violet-400/60 hover:shadow-lg hover:shadow-violet-500/10 active:scale-[0.98] transition-all"
+                className="flex items-center gap-3 px-4 py-3.5 rounded-xl border border-violet-400/30 dark:border-violet-500/25 bg-violet-500/5 dark:bg-violet-500/8 backdrop-blur-md font-semibold text-sm text-violet-700 dark:text-violet-300 hover:bg-violet-500/15 dark:hover:bg-violet-500/15 hover:border-violet-400/60 hover:shadow-lg hover:shadow-violet-500/10 active:scale-[0.97] transition-all"
               >
-                <div className="h-10 w-10 rounded-lg bg-violet-500/10 dark:bg-violet-500/15 backdrop-blur-sm flex items-center justify-center shrink-0">
-                  <Repeat2 className="h-5 w-5" />
-                </div>
+                <Repeat2 className="h-5 w-5 shrink-0" />
                 <div className="text-left">
                   <div>同款创作</div>
-                  <div className="text-xs font-normal text-violet-600/70 dark:text-violet-400/60">基于参考剧本，结构与角色转换</div>
+                  <div className="text-[11px] font-normal text-violet-600/70 dark:text-violet-400/60">基于参考剧本</div>
                 </div>
               </button>
             </div>
