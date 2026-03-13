@@ -127,6 +127,8 @@ export const FRAMEWORK_STYLES = [
   { value: "校园青春", label: "校园青春", desc: "校园恋爱、青春成长、友情热血" },
 ] as const;
 
+export type SetupMode = "topic" | "creative";
+
 export interface DramaSetup {
   genres: string[]; // max 2
   audience: string;
@@ -135,6 +137,8 @@ export interface DramaSetup {
   totalEpisodes: number;
   targetMarket: string; // "cn" | "jp" | "west" | "kr" | "sea"
   customTopic?: string; // user's additional description
+  setupMode?: SetupMode; // "topic" = genre-based, "creative" = free-form idea
+  creativeInput?: string; // free-form creative idea text
 }
 
 export interface DramaCharacter {
