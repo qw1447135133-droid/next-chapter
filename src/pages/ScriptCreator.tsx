@@ -93,19 +93,22 @@ const ScriptCreator = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const resumeId = searchParams.get("id");
+  const modeParam = searchParams.get("mode") as DramaMode | null;
 
   const [project, setProject] = useState<DramaProject>(() => {
     if (resumeId) {
       const loaded = loadProjectById(resumeId);
       if (loaded) return { ...loaded, mode: loaded.mode || "traditional" };
     }
-    // Without ?id=, always start fresh with mode selector
+    if (modeParam === "traditional" || modeParam === "adaptation") {
+      return createEmptyDramaProject(modeParam);
+    }
     return createEmptyDramaProject();
   });
 
-  // Show mode selector when entering without ?id= (fresh start)
+  // Show mode selector only when entering without ?id= and without ?mode=
   const [showModeSelector, setShowModeSelector] = useState(() => {
-    return !resumeId;
+    return !resumeId && !modeParam;
   });
 
   const [model, setModel] = useState(() => localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview");
