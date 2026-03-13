@@ -389,7 +389,14 @@ const ScriptCreator = () => {
     <div className="min-h-screen bg-background flex flex-col">
       <header className="flex items-center justify-between px-6 py-3 border-b border-border/50">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/modules")}>
+          <Button variant="ghost" size="icon" onClick={() => {
+            if (!resumeId) {
+              setShowModeSelector(true);
+              setProject(createEmptyDramaProject());
+            } else {
+              navigate("/modules");
+            }
+          }}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex items-center gap-2">
