@@ -102,20 +102,30 @@ const Modules = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 w-full mt-2">
+            <div className="flex flex-col gap-3 w-full mt-2">
               <button
                 onClick={() => navigate("/script-creator?mode=traditional")}
-                className="flex flex-col items-center justify-center gap-2 px-6 py-5 rounded-xl border-2 border-emerald-400/50 dark:border-emerald-500/40 bg-emerald-500/5 dark:bg-emerald-500/10 font-semibold text-base text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/15 dark:hover:bg-emerald-500/20 hover:border-emerald-400 hover:scale-[1.03] active:scale-[0.98] transition-all"
+                className="flex items-center gap-3 px-5 py-4 rounded-xl border border-emerald-400/30 dark:border-emerald-500/25 bg-emerald-500/5 dark:bg-emerald-500/8 backdrop-blur-md font-semibold text-base text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/15 dark:hover:bg-emerald-500/15 hover:border-emerald-400/60 hover:shadow-lg hover:shadow-emerald-500/10 active:scale-[0.98] transition-all"
               >
-                <BookOpen className="h-6 w-6" />
-                传统创作
+                <div className="h-10 w-10 rounded-lg bg-emerald-500/10 dark:bg-emerald-500/15 backdrop-blur-sm flex items-center justify-center shrink-0">
+                  <BookOpen className="h-5 w-5" />
+                </div>
+                <div className="text-left">
+                  <div>传统创作</div>
+                  <div className="text-xs font-normal text-emerald-600/70 dark:text-emerald-400/60">从零开始，选题立项到分集撰写</div>
+                </div>
               </button>
               <button
                 onClick={() => navigate("/script-creator?mode=adaptation")}
-                className="flex flex-col items-center justify-center gap-2 px-6 py-5 rounded-xl border-2 border-violet-400/50 dark:border-violet-500/40 bg-violet-500/5 dark:bg-violet-500/10 font-semibold text-base text-violet-700 dark:text-violet-300 hover:bg-violet-500/15 dark:hover:bg-violet-500/20 hover:border-violet-400 hover:scale-[1.03] active:scale-[0.98] transition-all"
+                className="flex items-center gap-3 px-5 py-4 rounded-xl border border-violet-400/30 dark:border-violet-500/25 bg-violet-500/5 dark:bg-violet-500/8 backdrop-blur-md font-semibold text-base text-violet-700 dark:text-violet-300 hover:bg-violet-500/15 dark:hover:bg-violet-500/15 hover:border-violet-400/60 hover:shadow-lg hover:shadow-violet-500/10 active:scale-[0.98] transition-all"
               >
-                <Repeat2 className="h-6 w-6" />
-                同款创作
+                <div className="h-10 w-10 rounded-lg bg-violet-500/10 dark:bg-violet-500/15 backdrop-blur-sm flex items-center justify-center shrink-0">
+                  <Repeat2 className="h-5 w-5" />
+                </div>
+                <div className="text-left">
+                  <div>同款创作</div>
+                  <div className="text-xs font-normal text-violet-600/70 dark:text-violet-400/60">基于参考剧本，结构与角色转换</div>
+                </div>
               </button>
             </div>
           </motion.div>
