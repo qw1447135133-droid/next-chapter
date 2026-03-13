@@ -1387,16 +1387,26 @@ async function localGenerateVideo(body: any) {
       formData.append("first_frame_image", imageBlob, `frame.${ext}`);
     }
 
-    // Use direct fetch through proxy with FormData (browser sets boundary automatically)
     const config = getApiConfig();
     const targetUrl = `${endpoint}/videos`;
     const targetHeaders: Record<string, string> = {
       Authorization: `Bearer ${apiKey}`,
     };
-
-    // For FormData, we need to use the proxy differently - send as binary through proxy
     const proxyUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api-proxy`;
-    
+
+    // Helper: send FormData through proxy by forwarding binary body directly
+    const sendViaProxy = async (fd: FormData): Promise<Response> => {
+      return fetch(proxyUrl, {
+        method: "POST",
+        headers: {
+          "x-target-url": targetUrl,
+          "x-target-headers": JSON.stringify(targetHeaders),
+          // Don't set Content-Type — browser sets multipart boundary automatically for FormData
+        },
+        body: fd,
+      });
+    };
+
     let res: Response;
     if (config.directMode) {
       try {
@@ -1406,57 +1416,16 @@ async function localGenerateVideo(body: any) {
           body: formData,
         });
       } catch {
-        // Fallback to proxy - but proxy can't handle binary FormData well,
-        // so try without image as last resort
-        console.warn("直连失败，通过代理重试（不含首帧图片）");
-        const fallbackFields = { ...textFields };
-        const boundary = `----FormBoundary${Date.now()}${Math.random().toString(36).slice(2)}`;
-        let fallbackBody = "";
-        for (const [key, value] of Object.entries(fallbackFields)) {
-          fallbackBody += `--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${value}\r\n`;
-        }
-        fallbackBody += `--${boundary}--\r\n`;
-        res = await proxiedFetch(targetUrl, {
-          ...targetHeaders,
-          "Content-Type": `multipart/form-data; boundary=${boundary}`,
-        }, fallbackBody);
+        console.warn("直连失败，通过代理重试（含首帧图片）");
+        res = await sendViaProxy(formData);
       }
     } else {
-      // Through proxy: if we have an image, try sending without it to avoid buffer issues
-      // The proxy text-based approach can't handle large binary data
-      if (imageBlob) {
-        // Try direct fetch first for image support
-        try {
-          res = await fetch(targetUrl, {
-            method: "POST",
-            headers: targetHeaders,
-            body: formData,
-          });
-        } catch {
-          // If direct fails (mixed content), send via proxy without image
-          console.warn("直连失败（混合内容），通过代理发送（不含首帧图片）");
-          const boundary = `----FormBoundary${Date.now()}${Math.random().toString(36).slice(2)}`;
-          let fallbackBody = "";
-          for (const [key, value] of Object.entries(textFields)) {
-            fallbackBody += `--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${value}\r\n`;
-          }
-          fallbackBody += `--${boundary}--\r\n`;
-          res = await proxiedFetch(targetUrl, {
-            ...targetHeaders,
-            "Content-Type": `multipart/form-data; boundary=${boundary}`,
-          }, fallbackBody);
-        }
-      } else {
-        const boundary = `----FormBoundary${Date.now()}${Math.random().toString(36).slice(2)}`;
-        let formBody = "";
-        for (const [key, value] of Object.entries(textFields)) {
-          formBody += `--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${value}\r\n`;
-        }
-        formBody += `--${boundary}--\r\n`;
-        res = await proxiedFetch(targetUrl, {
-          ...targetHeaders,
-          "Content-Type": `multipart/form-data; boundary=${boundary}`,
-        }, formBody);
+      // Proxy mode: send FormData directly to proxy (proxy reads arrayBuffer, supports binary)
+      try {
+        res = await sendViaProxy(formData);
+      } catch (e) {
+        console.error("代理发送失败:", e);
+        throw new Error("视频生成请求发送失败");
       }
     }
 
