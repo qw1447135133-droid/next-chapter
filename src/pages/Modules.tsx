@@ -104,25 +104,25 @@ const Modules = () => {
             </div>
 
             {/* 右侧按钮区 */}
-            <div className="flex flex-col gap-4 p-6 justify-center min-w-[200px]">
+            <div className="flex flex-col gap-5 p-6 justify-center min-w-[240px]">
               <button
                 onClick={() => navigate("/script-creator?mode=traditional")}
-                className="flex items-center gap-3 px-5 py-4 rounded-xl border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/5 backdrop-blur-xl shadow-md shadow-emerald-500/10 dark:shadow-emerald-500/5 font-semibold text-base text-emerald-700 dark:text-emerald-300 hover:bg-white/60 dark:hover:bg-white/10 hover:shadow-lg hover:shadow-emerald-500/20 hover:-translate-y-0.5 active:translate-y-0 transition-all"
+                className="flex items-center gap-4 px-6 py-5 rounded-2xl border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/5 backdrop-blur-xl shadow-lg shadow-emerald-500/12 dark:shadow-emerald-500/8 font-semibold text-lg text-emerald-700 dark:text-emerald-300 hover:bg-white/60 dark:hover:bg-white/10 hover:shadow-xl hover:shadow-emerald-500/20 hover:-translate-y-0.5 active:translate-y-0 transition-all"
               >
-                <BookOpen className="h-5 w-5 shrink-0" />
-                <div className="text-left">
+                <BookOpen className="h-6 w-6 shrink-0" />
+                <div className="text-left leading-tight">
                   <div>传统创作</div>
-                  <div className="text-xs font-normal text-emerald-600/70 dark:text-emerald-400/60">从零开始创作</div>
+                  <div className="text-sm font-normal text-emerald-600/70 dark:text-emerald-400/60 mt-1">从零开始创作</div>
                 </div>
               </button>
               <button
                 onClick={() => navigate("/script-creator?mode=adaptation")}
-                className="flex items-center gap-3 px-5 py-4 rounded-xl border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/5 backdrop-blur-xl shadow-md shadow-violet-500/10 dark:shadow-violet-500/5 font-semibold text-base text-violet-700 dark:text-violet-300 hover:bg-white/60 dark:hover:bg-white/10 hover:shadow-lg hover:shadow-violet-500/20 hover:-translate-y-0.5 active:translate-y-0 transition-all"
+                className="flex items-center gap-4 px-6 py-5 rounded-2xl border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/5 backdrop-blur-xl shadow-lg shadow-violet-500/12 dark:shadow-violet-500/8 font-semibold text-lg text-violet-700 dark:text-violet-300 hover:bg-white/60 dark:hover:bg-white/10 hover:shadow-xl hover:shadow-violet-500/20 hover:-translate-y-0.5 active:translate-y-0 transition-all"
               >
-                <Repeat2 className="h-5 w-5 shrink-0" />
-                <div className="text-left">
+                <Repeat2 className="h-6 w-6 shrink-0" />
+                <div className="text-left leading-tight">
                   <div>同款创作</div>
-                  <div className="text-xs font-normal text-violet-600/70 dark:text-violet-400/60">基于参考剧本</div>
+                  <div className="text-sm font-normal text-violet-600/70 dark:text-violet-400/60 mt-1">基于参考剧本</div>
                 </div>
               </button>
             </div>
