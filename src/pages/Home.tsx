@@ -39,7 +39,7 @@ const Home = () => {
       <header className="flex items-center justify-between px-6 py-4 border-b border-border/50">
         <div className="flex items-center gap-2">
           <Film className="h-6 w-6 text-primary" />
-          <span className="text-lg font-semibold font-[Space_Grotesk]">StoryForge</span>
+          <span className="text-lg font-semibold font-[Space_Grotesk]">Infinio</span>
         </div>
         <Button variant="ghost" size="sm" onClick={() => navigate("/settings")}>
           <Settings className="h-4 w-4 mr-1" />
