@@ -115,7 +115,7 @@ const Home = () => {
       </main>
 
       <footer className="text-center py-6 text-xs text-muted-foreground">
-        StoryForge · AI 剧本转视频平台
+        Infinio · AI 剧本转视频平台
       </footer>
     </div>
   );
