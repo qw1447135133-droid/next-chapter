@@ -89,18 +89,20 @@ Preferred genres for the Western market:
 
 /** 创作方案 Prompt */
 export function buildCreativePlanPrompt(setup: DramaSetup): string {
-  const genreStr = setup.genres.join(" + ");
+  const isCreativeMode = setup.setupMode === "creative" && setup.creativeInput;
+  const genreStr = setup.genres.length > 0 ? setup.genres.join(" + ") : "由 AI 根据创意内容自动判定";
   return `你是一位专业的微短剧编剧，精通短视频平台的爆款短剧创作方法论。
 
 ${getMarketDirective(setup)}
 
 ## 当前项目配置
-- 题材组合：${genreStr}
+${isCreativeMode ? `- 创作模式：创意创作（基于用户提供的创意灵感）` : `- 题材组合：${genreStr}`}
 - 目标受众：${setup.audience}
 - 故事基调：${setup.tone}
 - 结局类型：${setup.ending}
 - 总集数：${setup.totalEpisodes}集
 ${setup.customTopic ? `- 用户补充描述：${setup.customTopic}` : ""}
+${isCreativeMode ? `\n## 用户创意内容\n以下是用户提供的创意灵感/故事构思，请以此为核心基础来构建完整的创作方案：\n\n${setup.creativeInput}` : ""}
 
 ## 参考知识：节奏曲线
 微短剧节奏公式：紧张蓄力 → 爽点释放 → 短暂喘息 → 新一轮蓄力
