@@ -34,8 +34,25 @@ function getProjects(): StoredProject[] {
   }
 }
 
-function saveProjects(projects: StoredProject[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+function saveProjects(projects: StoredProject[]): boolean {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+    return true;
+  } catch (e) {
+    console.error("[Persistence] localStorage 保存失败（可能已满）:", e);
+    // Try to save by trimming old projects
+    if (projects.length > 5) {
+      try {
+        const trimmed = projects.slice(0, 5);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+        console.warn("[Persistence] 已自动裁剪至最近 5 个项目");
+        return true;
+      } catch {
+        console.error("[Persistence] 裁剪后仍无法保存");
+      }
+    }
+    return false;
+  }
 }
 
 export function useProjectPersistence() {
