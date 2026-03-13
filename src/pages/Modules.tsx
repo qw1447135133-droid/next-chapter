@@ -54,7 +54,7 @@ const Modules = () => {
         </div>
         <Button variant="ghost" size="sm" onClick={() => navigate("/settings")}>
           <Settings className="h-4 w-4 mr-1" />
-          API 设置
+          设置
         </Button>
       </header>
 
