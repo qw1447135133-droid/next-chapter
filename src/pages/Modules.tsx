@@ -14,9 +14,10 @@ const modules = [
       { icon: FileText, text: "多种体裁支持" },
     ],
     route: "/script-creator",
-    gradient: "from-amber-500/20 to-orange-500/20",
-    iconBg: "bg-amber-500/10",
+    gradient: "from-amber-500/15 to-orange-500/15 dark:from-amber-500/10 dark:to-orange-600/10",
+    iconBg: "bg-amber-500/10 dark:bg-amber-500/15",
     iconColor: "text-amber-600 dark:text-amber-400",
+    borderHover: "hover:border-amber-400/50 dark:hover:border-amber-500/40",
   },
   {
     id: "video",
@@ -28,9 +29,10 @@ const modules = [
       { icon: Play, text: "AI 视频合成" },
     ],
     route: "/workspace",
-    gradient: "from-primary/20 to-accent/20",
-    iconBg: "bg-primary/10",
-    iconColor: "text-primary",
+    gradient: "from-indigo-500/15 to-cyan-500/15 dark:from-indigo-500/10 dark:to-cyan-500/10",
+    iconBg: "bg-indigo-500/10 dark:bg-indigo-500/15",
+    iconColor: "text-indigo-600 dark:text-indigo-400",
+    borderHover: "hover:border-indigo-400/50 dark:hover:border-indigo-500/40",
   },
 ];
 
