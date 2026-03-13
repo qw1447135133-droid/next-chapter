@@ -87,6 +87,33 @@ Preferred genres for the Western market:
 - 符合国内短剧平台的节奏与审美。`;
 }
 
+/** 非中文市场的双语对话规则（附加到 getMarketDirective 输出之后） */
+function getBilingualDialogueRule(setup: DramaSetup): string {
+  const market = setup.targetMarket || "cn";
+  if (market === "cn") return "";
+  const langMap: Record<string, string> = {
+    jp: "日文",
+    west: "英文",
+    kr: "韩文",
+    sea: "英文",
+  };
+  const lang = langMap[market] || "英文";
+  return `
+
+## ⚠️ 语言输出铁律（最高优先级）
+- **所有非对话内容**（创作方案、角色档案、分集目录、单集细纲、场景描写、动作描写、镜头指示、旁白等）**必须使用中文撰写**，无论目标市场是什么。
+- **人物对话内容使用${lang}**，每句对话后紧跟小括号中文翻译。
+- 格式示例：
+  角色名：（动作/语气描写）What are you staring at?
+  （看什么看？）
+- 旁白也遵循此规则：旁白使用${lang}，后附中文翻译。
+- 此规则覆盖上方市场指令中的语言要求。`;
+}
+
+function getFullMarketDirective(setup: DramaSetup): string {
+  return getMarketDirective(setup) + getBilingualDialogueRule(setup);
+}
+
 /** 创作方案 Prompt */
 export function buildCreativePlanPrompt(setup: DramaSetup): string {
   const isCreativeMode = setup.setupMode === "creative" && setup.creativeInput;
