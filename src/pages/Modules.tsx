@@ -104,10 +104,10 @@ const Modules = () => {
             </div>
 
             {/* 右侧按钮区 */}
-            <div className="flex flex-col gap-3 p-5 justify-center border-l border-border/40 bg-background/30 backdrop-blur-md min-w-[180px]">
+            <div className="flex flex-col gap-3 p-5 justify-center min-w-[180px]">
               <button
                 onClick={() => navigate("/script-creator?mode=traditional")}
-                className="flex items-center gap-3 px-4 py-3.5 rounded-xl border border-emerald-400/30 dark:border-emerald-500/25 bg-emerald-500/5 dark:bg-emerald-500/8 backdrop-blur-md font-semibold text-sm text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/15 dark:hover:bg-emerald-500/15 hover:border-emerald-400/60 hover:shadow-lg hover:shadow-emerald-500/10 active:scale-[0.97] transition-all"
+                className="flex items-center gap-3 px-4 py-3.5 rounded-xl border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/5 backdrop-blur-xl shadow-md shadow-emerald-500/10 dark:shadow-emerald-500/5 font-semibold text-sm text-emerald-700 dark:text-emerald-300 hover:bg-white/60 dark:hover:bg-white/10 hover:shadow-lg hover:shadow-emerald-500/20 hover:-translate-y-0.5 active:translate-y-0 transition-all"
               >
                 <BookOpen className="h-5 w-5 shrink-0" />
                 <div className="text-left">
@@ -117,7 +117,7 @@ const Modules = () => {
               </button>
               <button
                 onClick={() => navigate("/script-creator?mode=adaptation")}
-                className="flex items-center gap-3 px-4 py-3.5 rounded-xl border border-violet-400/30 dark:border-violet-500/25 bg-violet-500/5 dark:bg-violet-500/8 backdrop-blur-md font-semibold text-sm text-violet-700 dark:text-violet-300 hover:bg-violet-500/15 dark:hover:bg-violet-500/15 hover:border-violet-400/60 hover:shadow-lg hover:shadow-violet-500/10 active:scale-[0.97] transition-all"
+                className="flex items-center gap-3 px-4 py-3.5 rounded-xl border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/5 backdrop-blur-xl shadow-md shadow-violet-500/10 dark:shadow-violet-500/5 font-semibold text-sm text-violet-700 dark:text-violet-300 hover:bg-white/60 dark:hover:bg-white/10 hover:shadow-lg hover:shadow-violet-500/20 hover:-translate-y-0.5 active:translate-y-0 transition-all"
               >
                 <Repeat2 className="h-5 w-5 shrink-0" />
                 <div className="text-left">
