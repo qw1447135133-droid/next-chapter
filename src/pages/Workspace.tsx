@@ -961,10 +961,24 @@ const Workspace = () => {
         duration: recommendedDuration,
         aspectRatio: (() => { try { return localStorage.getItem("storyboard-aspect-ratio") || "16:9"; } catch { return "16:9"; } })(),
       };
-      if (scene.storyboardUrl) {
+      if (!skipStoryboard && scene.storyboardUrl) {
         // Compress image to under 10MB before sending
         const { compressImage } = await import("@/lib/image-compress");
-        body.imageUrl = await compressImage(scene.storyboardUrl);
+        const compressed = await compressImage(scene.storyboardUrl);
+
+        // For Vidu, we need a real URL — upload to storage if it's a data URI
+        if (videoModel === "vidu-q3" && compressed.startsWith("data:")) {
+          const { uploadImageToStorage } = await import("@/lib/gemini-client");
+          const match = compressed.match(/^data:(image\/\w+);base64,(.+)$/);
+          if (match) {
+            const publicUrl = await uploadImageToStorage(match[2], match[1], "video-frames");
+            body.imageUrl = publicUrl;
+          } else {
+            body.imageUrl = compressed;
+          }
+        } else {
+          body.imageUrl = compressed;
+        }
       }
 
       const { data, error } = await invokeFunction("generate-video", body);
