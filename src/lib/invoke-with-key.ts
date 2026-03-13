@@ -1263,7 +1263,17 @@ async function localGenerateVideo(body: any) {
       resolution: "1080p",
       audio: true,
     };
-    if (body.imageUrl) payload.images = [body.imageUrl];
+    if (body.imageUrl) {
+      // Vidu requires a real URL, not a data URI
+      let imageUrl = body.imageUrl as string;
+      if (imageUrl.startsWith("data:")) {
+        const match = imageUrl.match(/^data:(image\/\w+);base64,(.+)$/);
+        if (match) {
+          imageUrl = await uploadImageToStorage(match[2], match[1], "video-frames");
+        }
+      }
+      payload.images = [imageUrl];
+    }
 
     const res = await proxiedFetch(viduUrl, {
       Authorization: `Token ${apiKey}`,
