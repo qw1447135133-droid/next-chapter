@@ -5,7 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { SetupMode } from "@/pages/ScriptCreator";
 import type { DramaProject } from "@/types/drama";
 import { buildCreativePlanPrompt } from "@/lib/drama-prompts";
-import { callGeminiStream, extractText } from "@/lib/gemini-client";
+import { callGeminiStream } from "@/lib/gemini-client";
 import { getApiConfig } from "@/pages/Settings";
 import { toast } from "@/hooks/use-toast";
 
