@@ -8,6 +8,7 @@ import Modules from "./pages/Modules";
 import Workspace from "./pages/Workspace";
 import Settings from "./pages/Settings";
 import History from "./pages/History";
+import ScriptCreator from "./pages/ScriptCreator";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -22,6 +23,7 @@ const App = () => (
           <Route path="/" element={<Home />} />
           <Route path="/modules" element={<Modules />} />
           <Route path="/workspace" element={<Workspace />} />
+          <Route path="/script-creator" element={<ScriptCreator />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/history" element={<History />} />
           <Route path="*" element={<NotFound />} />
