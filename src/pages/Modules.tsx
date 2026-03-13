@@ -102,19 +102,19 @@ const Modules = () => {
               </div>
             </div>
 
-            <div className="flex gap-3 w-full mt-1">
+            <div className="grid grid-cols-2 gap-4 w-full mt-2">
               <button
                 onClick={() => navigate("/script-creator?mode=traditional")}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-emerald-400/50 dark:border-emerald-500/40 bg-emerald-500/5 dark:bg-emerald-500/10 text-sm font-medium text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/15 dark:hover:bg-emerald-500/20 hover:border-emerald-400 transition-all"
+                className="flex flex-col items-center justify-center gap-2 px-6 py-5 rounded-xl border-2 border-emerald-400/50 dark:border-emerald-500/40 bg-emerald-500/5 dark:bg-emerald-500/10 font-semibold text-base text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/15 dark:hover:bg-emerald-500/20 hover:border-emerald-400 hover:scale-[1.03] active:scale-[0.98] transition-all"
               >
-                <BookOpen className="h-4 w-4" />
+                <BookOpen className="h-6 w-6" />
                 传统创作
               </button>
               <button
                 onClick={() => navigate("/script-creator?mode=adaptation")}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-violet-400/50 dark:border-violet-500/40 bg-violet-500/5 dark:bg-violet-500/10 text-sm font-medium text-violet-700 dark:text-violet-300 hover:bg-violet-500/15 dark:hover:bg-violet-500/20 hover:border-violet-400 transition-all"
+                className="flex flex-col items-center justify-center gap-2 px-6 py-5 rounded-xl border-2 border-violet-400/50 dark:border-violet-500/40 bg-violet-500/5 dark:bg-violet-500/10 font-semibold text-base text-violet-700 dark:text-violet-300 hover:bg-violet-500/15 dark:hover:bg-violet-500/20 hover:border-violet-400 hover:scale-[1.03] active:scale-[0.98] transition-all"
               >
-                <Repeat2 className="h-4 w-4" />
+                <Repeat2 className="h-6 w-6" />
                 同款创作
               </button>
             </div>
