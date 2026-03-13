@@ -69,7 +69,7 @@ const Home = () => {
           </h1>
 
           <p className="text-lg text-muted-foreground max-w-lg mx-auto">
-            从选题策划、剧本创作到分镜生成与视频合成，全链路 AI 驱动。支持多市场适配、合规审核与一键导出，让专业级内容生产提速 10 倍。
+            全链路 AI 驱动，从剧本创作到视频合成一站完成，专业内容生产提速 10 倍。
           </p>
 
           <div className="flex items-center justify-center gap-3 pt-2">
