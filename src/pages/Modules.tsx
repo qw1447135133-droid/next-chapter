@@ -107,20 +107,26 @@ const Modules = () => {
             <div className="flex flex-col gap-5 p-6 justify-center min-w-[240px]">
               <button
                 onClick={() => navigate("/script-creator?mode=traditional")}
-                className="flex items-center gap-4 px-6 py-5 rounded-2xl border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/5 backdrop-blur-xl shadow-lg shadow-emerald-500/12 dark:shadow-emerald-500/8 font-semibold text-lg text-emerald-700 dark:text-emerald-300 hover:bg-white/60 dark:hover:bg-white/10 hover:shadow-xl hover:shadow-emerald-500/20 hover:-translate-y-0.5 active:translate-y-0 transition-all"
+                className="relative overflow-hidden flex items-center gap-4 px-6 py-5 rounded-2xl border border-emerald-300/40 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-50 to-teal-50/80 dark:from-emerald-900/20 dark:to-teal-900/15 backdrop-blur-xl shadow-[0_6px_24px_-4px_rgba(16,185,129,0.25),0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_6px_24px_-4px_rgba(16,185,129,0.15)] font-semibold text-lg text-emerald-700 dark:text-emerald-300 hover:shadow-[0_10px_36px_-4px_rgba(16,185,129,0.35),0_4px_12px_-2px_rgba(0,0,0,0.1)] hover:-translate-y-1 active:translate-y-0.5 active:shadow-[0_2px_8px_-2px_rgba(16,185,129,0.2)] transition-all duration-200"
               >
-                <BookOpen className="h-6 w-6 shrink-0" />
-                <div className="text-left leading-tight">
+                <div className="absolute inset-0 bg-gradient-to-br from-white/60 via-transparent to-transparent dark:from-white/5 pointer-events-none" />
+                <div className="h-11 w-11 rounded-xl bg-emerald-500/15 dark:bg-emerald-500/20 flex items-center justify-center shrink-0 shadow-inner">
+                  <BookOpen className="h-6 w-6 shrink-0" />
+                </div>
+                <div className="text-left leading-tight relative">
                   <div>传统创作</div>
                   <div className="text-sm font-normal text-emerald-600/70 dark:text-emerald-400/60 mt-1">从零开始创作</div>
                 </div>
               </button>
               <button
                 onClick={() => navigate("/script-creator?mode=adaptation")}
-                className="flex items-center gap-4 px-6 py-5 rounded-2xl border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/5 backdrop-blur-xl shadow-lg shadow-violet-500/12 dark:shadow-violet-500/8 font-semibold text-lg text-violet-700 dark:text-violet-300 hover:bg-white/60 dark:hover:bg-white/10 hover:shadow-xl hover:shadow-violet-500/20 hover:-translate-y-0.5 active:translate-y-0 transition-all"
+                className="relative overflow-hidden flex items-center gap-4 px-6 py-5 rounded-2xl border border-violet-300/40 dark:border-violet-500/20 bg-gradient-to-br from-violet-50 to-purple-50/80 dark:from-violet-900/20 dark:to-purple-900/15 backdrop-blur-xl shadow-[0_6px_24px_-4px_rgba(139,92,246,0.25),0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_6px_24px_-4px_rgba(139,92,246,0.15)] font-semibold text-lg text-violet-700 dark:text-violet-300 hover:shadow-[0_10px_36px_-4px_rgba(139,92,246,0.35),0_4px_12px_-2px_rgba(0,0,0,0.1)] hover:-translate-y-1 active:translate-y-0.5 active:shadow-[0_2px_8px_-2px_rgba(139,92,246,0.2)] transition-all duration-200"
               >
-                <Repeat2 className="h-6 w-6 shrink-0" />
-                <div className="text-left leading-tight">
+                <div className="absolute inset-0 bg-gradient-to-br from-white/60 via-transparent to-transparent dark:from-white/5 pointer-events-none" />
+                <div className="h-11 w-11 rounded-xl bg-violet-500/15 dark:bg-violet-500/20 flex items-center justify-center shrink-0 shadow-inner">
+                  <Repeat2 className="h-6 w-6 shrink-0" />
+                </div>
+                <div className="text-left leading-tight relative">
                   <div>同款创作</div>
                   <div className="text-sm font-normal text-violet-600/70 dark:text-violet-400/60 mt-1">基于参考剧本</div>
                 </div>
