@@ -82,7 +82,7 @@ const Modules = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: i * 0.15 }}
               onClick={() => navigate(m.route)}
-              className={`group relative flex flex-col items-start gap-5 p-8 rounded-2xl border border-border/60 bg-gradient-to-br ${m.gradient} backdrop-blur-sm text-left transition-all hover:shadow-lg hover:border-border hover:scale-[1.02] active:scale-[0.99]`}
+              className={`group relative flex flex-col items-start gap-5 p-8 rounded-2xl border border-border/60 bg-gradient-to-br ${m.gradient} backdrop-blur-sm text-left transition-all hover:shadow-lg ${m.borderHover} hover:scale-[1.02] active:scale-[0.99]`}
             >
               <div className={`h-14 w-14 rounded-xl ${m.iconBg} flex items-center justify-center`}>
                 <m.icon className={`h-7 w-7 ${m.iconColor}`} />
