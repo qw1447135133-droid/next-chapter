@@ -67,7 +67,7 @@ const Home = () => {
             <Button
               size="lg"
               className="gap-2 rounded-xl px-6 bg-primary text-primary-foreground hover:bg-primary/90"
-              onClick={() => navigate("/workspace")}
+              onClick={() => navigate("/modules")}
             >
               开始创作
               <ArrowRight className="h-4 w-4" />
