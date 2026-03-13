@@ -268,7 +268,7 @@ const ScriptCreator = () => {
 
     switch (project.currentStep) {
       case "setup":
-        return <StepSetup setup={project.setup} onComplete={handleSetupComplete} />;
+        return <StepSetup setup={project.setup} onComplete={handleSetupComplete} setupMode={setupMode} />;
       case "reference-script":
         return (
           <StepReferenceScript
