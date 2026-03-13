@@ -140,7 +140,7 @@ const Modules = () => {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4 }}
             onClick={() => navigate("/workspace")}
-            className="group relative flex flex-col items-start gap-5 p-8 rounded-2xl border border-border/60 bg-gradient-to-br from-indigo-500/15 to-cyan-500/15 dark:from-indigo-500/10 dark:to-cyan-500/10 backdrop-blur-sm text-left transition-all hover:shadow-lg hover:border-indigo-400/50 dark:hover:border-indigo-500/40 hover:scale-[1.02] active:scale-[0.99]"
+            className="group relative flex flex-col items-start gap-5 p-8 rounded-2xl border border-border/60 bg-gradient-to-br from-indigo-500/15 to-cyan-500/15 dark:from-indigo-500/10 dark:to-cyan-500/10 backdrop-blur-sm text-left transition-all hover:shadow-lg hover:border-indigo-400/50 dark:hover:border-indigo-500/40 active:scale-[0.99]"
           >
             <div className="h-14 w-14 rounded-xl bg-indigo-500/10 dark:bg-indigo-500/15 flex items-center justify-center">
               <Film className="h-7 w-7 text-indigo-600 dark:text-indigo-400" />
