@@ -98,31 +98,6 @@ const StepSetup = ({ setup, onComplete, setupMode }: StepSetupProps) => {
 
   return (
     <div className="space-y-6">
-      {/* Mode Toggle */}
-      <div className="flex justify-center">
-        <div className="inline-flex rounded-lg border border-border bg-muted p-0.5">
-          <button
-            onClick={() => setSetupMode("topic")}
-            className={`px-5 py-1.5 rounded-md text-sm font-medium transition-all ${
-              setupMode === "topic"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            选题创作
-          </button>
-          <button
-            onClick={() => setSetupMode("creative")}
-            className={`px-5 py-1.5 rounded-md text-sm font-medium transition-all ${
-              setupMode === "creative"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            创意创作
-          </button>
-        </div>
-      </div>
 
       {setupMode === "topic" ? (
         <>
