@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Key, Save, Database, HardDrive, Cloud, Globe, RotateCcw, Trash2, Wifi, WifiOff, Loader2 } from "lucide-react";
+import { useTheme } from "next-themes";
+import { ArrowLeft, Key, Save, Database, HardDrive, Cloud, Globe, RotateCcw, Trash2, Wifi, WifiOff, Loader2, Moon, Sun } from "lucide-react";
 import { proxiedFetch } from "@/lib/gemini-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -115,6 +116,7 @@ export function initSupabase(): void {
 
 const Settings = () => {
   const navigate = useNavigate();
+  const { theme, setTheme } = useTheme();
   const [config, setConfig] = useState<ApiConfig>(getApiConfig);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{success: boolean;message: string;} | null>(null);
@@ -243,6 +245,29 @@ const Settings = () => {
       </header>
 
       <main className="max-w-3xl mx-auto px-6 py-6 space-y-6">
+        {/* 外观设置 */}
+        <div className="space-y-4">
+          <h2 className="text-sm font-medium flex items-center gap-2">
+            {theme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+            外观设置
+          </h2>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <Label className="text-sm font-medium">暗色模式</Label>
+                  <p className="text-xs text-muted-foreground">
+                    切换明亮/暗色界面主题
+                  </p>
+                </div>
+                <Switch
+                  checked={theme === "dark"}
+                  onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")} />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
         <p className="text-sm text-muted-foreground">
           配置你的 API 密钥。所有配置仅保存在本地浏览器中。
         </p>
