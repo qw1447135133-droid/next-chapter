@@ -79,7 +79,7 @@ const Modules = () => {
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
+            transition={{ duration: 0.5, delay: 0.1 }}
             className="relative flex items-stretch gap-0 rounded-2xl border border-border/60 bg-gradient-to-br from-amber-500/15 to-orange-500/15 dark:from-amber-500/10 dark:to-orange-600/10 backdrop-blur-sm text-left overflow-hidden"
           >
             {/* 左侧信息区 */}
@@ -104,25 +104,25 @@ const Modules = () => {
             </div>
 
             {/* 右侧按钮区 */}
-            <div className="flex flex-col gap-3 p-5 justify-center min-w-[180px]">
+            <div className="flex flex-col gap-4 p-6 justify-center min-w-[200px]">
               <button
                 onClick={() => navigate("/script-creator?mode=traditional")}
-                className="flex items-center gap-3 px-4 py-3.5 rounded-xl border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/5 backdrop-blur-xl shadow-md shadow-emerald-500/10 dark:shadow-emerald-500/5 font-semibold text-sm text-emerald-700 dark:text-emerald-300 hover:bg-white/60 dark:hover:bg-white/10 hover:shadow-lg hover:shadow-emerald-500/20 hover:-translate-y-0.5 active:translate-y-0 transition-all"
+                className="flex items-center gap-3 px-5 py-4 rounded-xl border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/5 backdrop-blur-xl shadow-md shadow-emerald-500/10 dark:shadow-emerald-500/5 font-semibold text-base text-emerald-700 dark:text-emerald-300 hover:bg-white/60 dark:hover:bg-white/10 hover:shadow-lg hover:shadow-emerald-500/20 hover:-translate-y-0.5 active:translate-y-0 transition-all"
               >
                 <BookOpen className="h-5 w-5 shrink-0" />
                 <div className="text-left">
                   <div>传统创作</div>
-                  <div className="text-[11px] font-normal text-emerald-600/70 dark:text-emerald-400/60">从零开始创作</div>
+                  <div className="text-xs font-normal text-emerald-600/70 dark:text-emerald-400/60">从零开始创作</div>
                 </div>
               </button>
               <button
                 onClick={() => navigate("/script-creator?mode=adaptation")}
-                className="flex items-center gap-3 px-4 py-3.5 rounded-xl border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/5 backdrop-blur-xl shadow-md shadow-violet-500/10 dark:shadow-violet-500/5 font-semibold text-sm text-violet-700 dark:text-violet-300 hover:bg-white/60 dark:hover:bg-white/10 hover:shadow-lg hover:shadow-violet-500/20 hover:-translate-y-0.5 active:translate-y-0 transition-all"
+                className="flex items-center gap-3 px-5 py-4 rounded-xl border border-white/20 dark:border-white/10 bg-white/40 dark:bg-white/5 backdrop-blur-xl shadow-md shadow-violet-500/10 dark:shadow-violet-500/5 font-semibold text-base text-violet-700 dark:text-violet-300 hover:bg-white/60 dark:hover:bg-white/10 hover:shadow-lg hover:shadow-violet-500/20 hover:-translate-y-0.5 active:translate-y-0 transition-all"
               >
                 <Repeat2 className="h-5 w-5 shrink-0" />
                 <div className="text-left">
                   <div>同款创作</div>
-                  <div className="text-[11px] font-normal text-violet-600/70 dark:text-violet-400/60">基于参考剧本</div>
+                  <div className="text-xs font-normal text-violet-600/70 dark:text-violet-400/60">基于参考剧本</div>
                 </div>
               </button>
             </div>
@@ -132,7 +132,7 @@ const Modules = () => {
           <motion.button
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.15 }}
+            transition={{ duration: 0.5, delay: 0.1 }}
             onClick={() => navigate("/workspace")}
             className="group relative flex flex-col items-start gap-5 p-8 rounded-2xl border border-border/60 bg-gradient-to-br from-indigo-500/15 to-cyan-500/15 dark:from-indigo-500/10 dark:to-cyan-500/10 backdrop-blur-sm text-left transition-all hover:shadow-lg hover:border-indigo-400/50 dark:hover:border-indigo-500/40 hover:scale-[1.02] active:scale-[0.99]"
           >
