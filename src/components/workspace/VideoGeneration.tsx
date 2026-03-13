@@ -401,9 +401,13 @@ const VideoGeneration = ({
                           if (fallback) fallback.style.display = "none";
                         }}
                       />
-                      <div className="absolute inset-0 flex-col items-center justify-center gap-2 bg-muted" style={{ display: "none" }}>
+                      <div
+                        className="absolute inset-0 flex-col items-center justify-center gap-2 bg-muted cursor-pointer"
+                        style={{ display: "none" }}
+                        onClick={() => window.open(scene.videoUrl!, "_blank")}
+                      >
                         <XCircle className="h-5 w-5 text-muted-foreground/50" />
-                        <span className="text-xs text-muted-foreground">视频加载失败，点击放大查看</span>
+                        <span className="text-xs text-muted-foreground">视频加载失败，点击新窗口查看</span>
                       </div>
                     </>
                   ) : isSceneProcessing ? (
