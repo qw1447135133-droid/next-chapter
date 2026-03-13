@@ -87,13 +87,40 @@ Preferred genres for the Western market:
 - 符合国内短剧平台的节奏与审美。`;
 }
 
+/** 非中文市场的双语对话规则（附加到 getMarketDirective 输出之后） */
+function getBilingualDialogueRule(setup: DramaSetup): string {
+  const market = setup.targetMarket || "cn";
+  if (market === "cn") return "";
+  const langMap: Record<string, string> = {
+    jp: "日文",
+    west: "英文",
+    kr: "韩文",
+    sea: "英文",
+  };
+  const lang = langMap[market] || "英文";
+  return `
+
+## ⚠️ 语言输出铁律（最高优先级）
+- **所有非对话内容**（创作方案、角色档案、分集目录、单集细纲、场景描写、动作描写、镜头指示、旁白等）**必须使用中文撰写**，无论目标市场是什么。
+- **人物对话内容使用${lang}**，每句对话后紧跟小括号中文翻译。
+- 格式示例：
+  角色名：（动作/语气描写）What are you staring at?
+  （看什么看？）
+- 旁白也遵循此规则：旁白使用${lang}，后附中文翻译。
+- 此规则覆盖上方市场指令中的语言要求。`;
+}
+
+function getFullMarketDirective(setup: DramaSetup): string {
+  return getMarketDirective(setup) + getBilingualDialogueRule(setup);
+}
+
 /** 创作方案 Prompt */
 export function buildCreativePlanPrompt(setup: DramaSetup): string {
   const isCreativeMode = setup.setupMode === "creative" && setup.creativeInput;
   const genreStr = setup.genres.length > 0 ? setup.genres.join(" + ") : "由 AI 根据创意内容自动判定";
   return `你是一位专业的微短剧编剧，精通短视频平台的爆款短剧创作方法论。
 
-${getMarketDirective(setup)}
+${getFullMarketDirective(setup)}
 
 ## 当前项目配置
 ${isCreativeMode ? `- 创作模式：创意创作（基于用户提供的创意灵感）` : `- 题材组合：${genreStr}`}
@@ -148,7 +175,7 @@ export function buildCharactersPrompt(setup: DramaSetup, creativePlan: string): 
   const genreStr = setup.genres.join(" + ");
   return `你是一位专业的微短剧编剧。
 
-${getMarketDirective(setup)}
+${getFullMarketDirective(setup)}
 
 ## 当前项目
 - 题材：${genreStr}
@@ -207,7 +234,7 @@ graph TD
 export function buildDirectoryPrompt(setup: DramaSetup, creativePlan: string, characters: string): string {
   return `你是一位专业的微短剧编剧。
 
-${getMarketDirective(setup)}
+${getFullMarketDirective(setup)}
 
 ## 已有创作方案
 ${creativePlan}
@@ -284,7 +311,7 @@ export function buildOutlinePrompt(
 
   return `你是一位专业的微短剧编剧。
 
-${getMarketDirective(setup)}
+${getFullMarketDirective(setup)}
 
 ## 已有创作方案
 ${creativePlan}
@@ -577,7 +604,7 @@ export function buildEpisodePrompt(
 
   return `你是一位专业的微短剧编剧。
 
-${getMarketDirective(setup)}
+${getFullMarketDirective(setup)}
 
 ## 项目配置
 - 题材：${setup.genres.join(" + ")}
@@ -666,7 +693,7 @@ export function buildSceneRegenPrompt(
 
   return `你是一位专业的微短剧编剧，擅长在不改变核心剧情的前提下提升场次的表现力。
 
-${getMarketDirective(setup)}
+${getFullMarketDirective(setup)}
 
 ## 项目配置
 - 题材：${setup.genres.join(" + ")}
@@ -732,7 +759,7 @@ export function buildExportPrompt(
 ): string {
   return `你是一位专业编辑。请将以下创作内容整合为一份完整、排版规范的剧本文档。
 
-${getMarketDirective(setup)}
+${getFullMarketDirective(setup)}
 
 ## 元信息
 - 剧名：${dramaTitle}
@@ -775,7 +802,7 @@ export function buildCompliancePrompt(
 
   return `你是一位资深的短剧内容合规审核专家，精通各类内容监管法规与平台规范。
 
-${getMarketDirective(setup)}
+${getFullMarketDirective(setup)}
 
 ## 项目信息
 - 题材：${setup.genres.join(" + ")}
@@ -881,7 +908,7 @@ export function buildReviewPrompt(
 
   return `你是一位资深短剧质检编辑，精通微短剧的创作标准和行业规范。
 
-${getMarketDirective(setup)}
+${getFullMarketDirective(setup)}
 
 ## 任务
 对以下第 ${episodeNumber} 集剧本进行五维度质量评分和审查。
@@ -959,7 +986,7 @@ export function buildStructureTransformPrompt(
 ): string {
   return `你是一位专业的微短剧改编编剧，擅长将不同风格的故事进行框架转换。
 
-${getMarketDirective(setup)}
+${getFullMarketDirective(setup)}
 
 ## 你的任务
 将以下参考剧本的叙事结构转换为「${frameworkStyle}」风格的创作方案。
@@ -1004,7 +1031,7 @@ export function buildCharacterTransformPrompt(
 ): string {
   return `你是一位专业的微短剧改编编剧。
 
-${getMarketDirective(setup)}
+${getFullMarketDirective(setup)}
 
 ## 你的任务
 基于已完成的结构转换方案，将原文中的角色体系转换为「${frameworkStyle}」风格。
