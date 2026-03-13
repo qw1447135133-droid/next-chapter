@@ -89,7 +89,7 @@ const StepCreativePlan = ({
         contents,
         (acc) => setStreamText(acc),
       );
-      onUpdate({ creativePlan: accumulated });
+      onUpdate({ creativePlan: result });
       setStreamText("");
     } catch (err: any) {
       toast({ title: "生成失败", description: err.message, variant: "destructive" });
