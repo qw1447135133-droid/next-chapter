@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import type { SetupMode } from "@/types/drama";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, PenTool, Settings, Cpu, BookOpen, Repeat2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -108,6 +109,7 @@ const ScriptCreator = () => {
   });
 
   const [model, setModel] = useState(() => localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview");
+  const [setupMode, setSetupMode] = useState<SetupMode>(() => project.setup?.setupMode || "topic");
 
   const handleModelChange = (value: string) => {
     setModel(value);
@@ -266,7 +268,7 @@ const ScriptCreator = () => {
 
     switch (project.currentStep) {
       case "setup":
-        return <StepSetup setup={project.setup} onComplete={handleSetupComplete} />;
+        return <StepSetup setup={project.setup} onComplete={handleSetupComplete} setupMode={setupMode} />;
       case "reference-script":
         return (
           <StepReferenceScript
@@ -450,7 +452,31 @@ const ScriptCreator = () => {
       <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-6">
         {/* Model selector toolbar - hide during mode selection */}
         {!showModeSelector && (
-          <div className="flex items-center justify-end mb-4">
+          <div className="flex items-center justify-end mb-4 gap-3">
+            {project.currentStep === "setup" && (
+              <div className="inline-flex rounded-lg border border-border bg-muted p-0.5">
+                <button
+                  onClick={() => setSetupMode("topic")}
+                  className={`px-5 py-1 rounded-md text-xs font-medium transition-all ${
+                    setupMode === "topic"
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  选题创作
+                </button>
+                <button
+                  onClick={() => setSetupMode("creative")}
+                  className={`px-5 py-1 rounded-md text-xs font-medium transition-all ${
+                    setupMode === "creative"
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  创意创作
+                </button>
+              </div>
+            )}
             <Select value={model} onValueChange={handleModelChange}>
               <SelectTrigger className="w-[200px] h-8 text-xs">
                 <Cpu className="h-3 w-3 mr-1 text-muted-foreground" />
