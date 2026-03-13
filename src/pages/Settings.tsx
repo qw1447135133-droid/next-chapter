@@ -116,6 +116,7 @@ export function initSupabase(): void {
 
 const Settings = () => {
   const navigate = useNavigate();
+  const { theme, setTheme } = useTheme();
   const [config, setConfig] = useState<ApiConfig>(getApiConfig);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{success: boolean;message: string;} | null>(null);
