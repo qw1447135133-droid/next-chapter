@@ -1,23 +1,23 @@
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Film, Sparkles, Users, MapPin, ArrowRight, Settings } from "lucide-react";
+import { Film, Sparkles, Layers, Play, ArrowRight, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const features = [
   {
     icon: Sparkles,
-    title: "AI 角色分析",
-    desc: "智能识别剧本中的角色与场景",
+    title: "AI 剧本拆解",
+    desc: "智能分析剧本，自动生成分镜列表",
   },
   {
-    icon: Users,
-    title: "角色设定",
-    desc: "为每个角色定义外貌特征与造型",
+    icon: Layers,
+    title: "分镜图生成",
+    desc: "根据角色与场景设定，AI 绘制每一帧",
   },
   {
-    icon: MapPin,
-    title: "场景管理",
-    desc: "设定场景环境与视觉风格",
+    icon: Play,
+    title: "视频合成",
+    desc: "一键将分镜图转化为流畅视频",
   },
 ];
 
@@ -48,19 +48,19 @@ const Home = () => {
         >
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-1.5 text-sm text-primary">
             <Sparkles className="h-3.5 w-3.5" />
-            AI 驱动的剧本分析
+            AI 驱动的视频创作
           </div>
 
           <h1 className="text-5xl md:text-6xl font-bold tracking-tight font-[Space_Grotesk] leading-[1.1]">
-            剧本智能拆解
+            从剧本到视频
             <br />
             <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-              角色与场景设定
+              一站式 AI 生成
             </span>
           </h1>
 
           <p className="text-lg text-muted-foreground max-w-md mx-auto">
-            输入剧本，AI 自动识别角色与场景。为每个角色定义外貌，为每个场景设定风格。
+            输入剧本，AI 自动拆解分镜、生成画面、合成视频。每一步都可调整，完全掌控创作流程。
           </p>
 
           <div className="flex items-center justify-center gap-3 pt-2">
@@ -106,7 +106,7 @@ const Home = () => {
       </main>
 
       <footer className="text-center py-6 text-xs text-muted-foreground">
-        StoryForge · AI 剧本分析平台
+        StoryForge · AI 剧本转视频平台
       </footer>
     </div>
   );

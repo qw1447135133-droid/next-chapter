@@ -1,146 +1,120 @@
-import { useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { useState, useRef } from "react";
+import { useAutoScroll } from "@/hooks/use-auto-scroll";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { SetupMode } from "@/pages/ScriptCreator";
-import type { DramaProject } from "@/types/drama";
-import { buildCreativePlanPrompt } from "@/lib/drama-prompts";
-import { callGeminiStream } from "@/lib/gemini-client";
-import { getApiConfig } from "@/pages/Settings";
+import { ArrowRight, Loader2, RefreshCw, Pencil, Eye, Square } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { callGeminiStream } from "@/lib/gemini-client";
+import { buildCreativePlanPrompt } from "@/lib/drama-prompts";
+import type { DramaSetup } from "@/types/drama";
 
-interface Props {
-  project: DramaProject;
-  onUpdate: (partial: Partial<DramaProject>) => void;
-  setupMode: SetupMode;
-  creativeInput: string;
-  creativeFile: string;
+interface StepCreativePlanProps {
+  setup: DramaSetup;
+  plan: string;
+  onUpdate: (plan: string) => void;
   onNext: () => void;
-  onBack: () => void;
 }
 
-function buildCreativeModePlanPrompt(
-  creativeInput: string,
-  creativeFile: string,
-  targetMarket: string,
-  totalEpisodes: number
-) {
-  const inputText = [creativeInput, creativeFile].filter(Boolean).join("\n\n---\n\n");
-  return `你是一位专业的微短剧编剧，精通短视频平台的爆款短剧创作方法论。
-
-## 用户创意输入
-${inputText}
-
-## 基础设定
-- 目标市场：${targetMarket}
-- 总集数：${totalEpisodes}集
-
-## 你的任务
-根据用户提供的创意灵感，生成完整的创作方案。你需要先从创意中推断出最合适的题材类型、目标受众、故事基调和结局类型，然后生成以下内容：
-
-1. **题材与基调推断**：从创意中分析最合适的题材组合、受众、基调、结局类型
-2. **剧名备选**（3个），每个附一句话说明
-3. **时空背景**：时代、地点、社会环境、阶层关系
-4. **一句话故事线** + **核心冲突**
-5. **三幕结构拆解**：
-   - 第一幕（建置）：集数范围、核心事件、人物关系建立
-   - 第二幕（对抗）：集数范围、冲突升级、转折点
-   - 第三幕（高潮/结局）：集数范围、终极对决、结局处理
-6. **全剧节奏波形描述**：标注高潮点、低谷点位置
-7. **付费卡点规划**：具体集数 + 卡点类型 + 悬念设计
-8. **爽感矩阵**：规划全剧各类爽点分布和配比
-9. **结局设计**：主线结局 + 感情线结局 + 伏笔回收
-
-用 Markdown 格式输出，清晰分区。`;
-}
-
-const StepCreativePlan = ({
-  project,
-  onUpdate,
-  setupMode,
-  creativeInput,
-  creativeFile,
-  onNext,
-  onBack,
-}: Props) => {
-  const [generating, setGenerating] = useState(false);
-  const [streamText, setStreamText] = useState("");
-
-  const plan = project.creativePlan;
+const StepCreativePlan = ({ setup, plan, onUpdate, onNext }: StepCreativePlanProps) => {
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [streamingText, setStreamingText] = useState("");
+  const [editing, setEditing] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const handleGenerate = async () => {
-    setGenerating(true);
-    setStreamText("");
+    setIsGenerating(true);
+    setStreamingText("");
+    abortRef.current = new AbortController();
     try {
-      const config = getApiConfig();
-      const prompt =
-        setupMode === "creative"
-          ? buildCreativeModePlanPrompt(
-              creativeInput,
-              creativeFile,
-              project.setup?.targetMarket || "cn",
-              project.setup?.totalEpisodes || 60
-            )
-          : buildCreativePlanPrompt(project.setup!);
-
-      const contents = [{ role: "user", parts: [{ text: prompt }] }];
-      const result = await callGeminiStream(
-        "gemini-2.5-flash",
-        contents,
-        (acc) => setStreamText(acc),
+      const prompt = buildCreativePlanPrompt(setup);
+      const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+      const finalText = await callGeminiStream(
+        model,
+        [{ role: "user", parts: [{ text: prompt }] }],
+        (chunk) => setStreamingText(chunk),
+        { maxOutputTokens: 8192 },
+        abortRef.current.signal,
       );
-      onUpdate({ creativePlan: result });
-      setStreamText("");
-    } catch (err: any) {
-      toast({ title: "生成失败", description: err.message, variant: "destructive" });
+      onUpdate(finalText);
+      setStreamingText("");
+      toast({ title: "创作方案生成完成" });
+    } catch (e: any) {
+      if (e?.message?.includes("取消")) {
+        const partial = streamingText;
+        if (partial) onUpdate(partial);
+        toast({ title: "已停止生成" });
+      } else {
+        toast({ title: "生成失败", description: e?.message, variant: "destructive" });
+      }
     } finally {
-      setGenerating(false);
+      setIsGenerating(false);
+      abortRef.current = null;
     }
   };
 
-  const displayText = generating ? streamText : plan;
+  const handleStop = () => abortRef.current?.abort();
+
+  const scrollRef = useAutoScroll<HTMLPreElement>(isGenerating, streamingText);
+  const displayText = isGenerating ? streamingText : plan;
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold font-[Space_Grotesk]">创作方案</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            {setupMode === "creative"
-              ? "基于你的创意灵感，AI 将生成完整的创作方案"
-              : "基于选题配置，AI 将生成完整的创作方案"}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={onBack}>
-            <ArrowLeft className="h-4 w-4 mr-1" />
-            返回
-          </Button>
-          <Button onClick={handleGenerate} disabled={generating} size="sm">
-            {generating ? "生成中…" : plan ? "重新生成" : "生成创作方案"}
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-lg">创作方案</CardTitle>
+          <div className="flex gap-2">
+            {plan && !isGenerating && (
+              <Button variant="outline" size="sm" onClick={() => setEditing(!editing)} className="gap-1.5">
+                {editing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+                {editing ? "预览" : "编辑"}
+              </Button>
+            )}
+            {isGenerating ? (
+              <Button variant="destructive" size="sm" onClick={handleStop} className="gap-1.5">
+                <Square className="h-3.5 w-3.5" />
+                停止
+              </Button>
+            ) : (
+              <Button
+                variant={plan ? "outline" : "default"}
+                size="sm"
+                onClick={handleGenerate}
+                className="gap-1.5"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                {plan ? "重新生成" : "AI 生成"}
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!displayText ? (
+            <div className="text-center py-16 text-muted-foreground">
+              <p>点击"AI 生成"按钮，AI 将根据选题配置生成完整的创作方案</p>
+              <p className="text-xs mt-2">包含：剧名备选、时空背景、三幕结构、节奏曲线、付费卡点、爽感矩阵</p>
+            </div>
+          ) : editing && !isGenerating ? (
+            <Textarea
+              value={plan}
+              onChange={(e) => onUpdate(e.target.value)}
+              rows={20}
+              className="font-mono text-sm"
+            />
+          ) : (
+            <pre ref={scrollRef} className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
+              {displayText}
+              {isGenerating && <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />}
+            </pre>
+          )}
+        </CardContent>
+      </Card>
 
-      {displayText ? (
-        <div className="rounded-xl border border-border bg-card p-6">
-          <Textarea
-            value={displayText}
-            readOnly={generating}
-            onChange={(e) => onUpdate({ creativePlan: e.target.value })}
-            className="min-h-[500px] resize-y text-sm leading-relaxed border-none p-0 focus-visible:ring-0"
-          />
-        </div>
-      ) : (
-        <div className="rounded-xl border border-dashed border-border bg-muted/30 p-16 text-center text-muted-foreground">
-          <p>点击"生成创作方案"开始</p>
-        </div>
-      )}
-
-      {plan && !generating && (
+      {plan && !isGenerating && (
         <div className="flex justify-end">
-          <Button onClick={onNext} size="lg" className="px-8">
-            下一步：角色开发
+          <Button onClick={onNext} className="gap-2">
+            确认方案，进入角色开发
+            <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
       )}
