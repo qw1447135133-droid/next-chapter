@@ -248,7 +248,7 @@ ${paletteText}`;
       while ((match = replaceRegex.exec(result)) !== null) {
         const original = match[1];
         const replacement = match[2];
-        newText = newText.replaceAll(original, replacement);
+        newText = newText.split(original).join(replacement);
       }
       setPaletteText(newText);
       setAdjustingPhrases(new Set());
