@@ -78,7 +78,11 @@ ${scriptText}
 6. **问题清单汇总**：按严重程度排序的完整问题列表
 7. **修改建议**：针对每个问题的具体修改方案
 
-**重要：在修改建议中，请明确引用原文中存在合规风险的具体语句或段落，用【】标记出原文中的风险片段，例如：【风险原文片段】。这将用于后续自动标注。**
+**重要：在修改建议中，请明确引用原文中存在合规风险的具体语句或段落，按严重程度使用不同标记：
+- 红线问题用 ⛔【风险原文片段】 标记
+- 高风险内容用 ⚠️【风险原文片段】 标记  
+- 优化建议用 ℹ️【风险原文片段】 标记
+这些标记将用于后续自动分级标注。**
 
 用 Markdown 格式输出，清晰分区。`;
 
@@ -119,32 +123,62 @@ const ComplianceReview = () => {
     setModelDropdownOpen(false);
   };
 
-  // Extract risk phrases from report (marked with 【】)
-  const riskPhrases = useMemo(() => {
-    if (!complianceReport) return [];
-    const matches = complianceReport.match(/【([^】]+)】/g);
-    if (!matches) return [];
-    return [...new Set(matches.map(m => m.slice(1, -1)))];
+  // Extract risk phrases with severity levels from report
+  type RiskLevel = "red" | "high" | "info";
+  const riskMap = useMemo(() => {
+    if (!complianceReport) return new Map<string, RiskLevel>();
+    const map = new Map<string, RiskLevel>();
+    // Match ⛔【...】, ⚠️【...】, ℹ️【...】 patterns
+    const patterns: [RegExp, RiskLevel][] = [
+      [/⛔\s*【([^】]+)】/g, "red"],
+      [/⚠️\s*【([^】]+)】/g, "high"],
+      [/ℹ️\s*【([^】]+)】/g, "info"],
+    ];
+    for (const [regex, level] of patterns) {
+      let m: RegExpExecArray | null;
+      while ((m = regex.exec(complianceReport)) !== null) {
+        const phrase = m[1];
+        // Keep highest severity if duplicate
+        if (!map.has(phrase) || (level === "red") || (level === "high" && map.get(phrase) === "info")) {
+          map.set(phrase, level);
+        }
+      }
+    }
+    // Also fallback: plain 【...】 without prefix → info
+    const plain = /(?<!⛔\s*)(?<!⚠️\s*)(?<!ℹ️\s*)【([^】]+)】/g;
+    let pm: RegExpExecArray | null;
+    while ((pm = plain.exec(complianceReport)) !== null) {
+      if (!map.has(pm[1])) map.set(pm[1], "info");
+    }
+    return map;
   }, [complianceReport]);
 
-  // Build highlighted script with risk phrases marked
+  const riskPhrases = useMemo(() => [...riskMap.keys()], [riskMap]);
+
+  const RISK_STYLES: Record<RiskLevel, string> = {
+    red: "bg-red-200 dark:bg-red-800/60 border-b-2 border-red-500",
+    high: "bg-orange-200 dark:bg-orange-700/60 border-b-2 border-orange-500",
+    info: "bg-yellow-200 dark:bg-yellow-700/60 border-b-2 border-yellow-500",
+  };
+
+  // Build highlighted script with risk phrases marked by severity color
   const highlightedScript = useMemo(() => {
     if (!scriptText || riskPhrases.length === 0) return null;
-    // Build a regex matching any risk phrase
     const escaped = riskPhrases.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     const regex = new RegExp(`(${escaped.join("|")})`, "g");
     const parts = scriptText.split(regex);
     return parts.map((part, i) => {
-      if (riskPhrases.includes(part)) {
+      const level = riskMap.get(part);
+      if (level) {
         return (
-          <mark key={i} className="bg-yellow-200 dark:bg-yellow-700/60 text-foreground rounded px-0.5">
+          <mark key={i} className={`${RISK_STYLES[level]} text-foreground rounded px-0.5`}>
             {part}
           </mark>
         );
       }
       return <span key={i}>{part}</span>;
     });
-  }, [scriptText, riskPhrases]);
+  }, [scriptText, riskPhrases, riskMap]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -403,10 +437,18 @@ const ComplianceReview = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-wrap gap-2 mb-4">
-                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                  <span className="inline-block w-3 h-3 rounded bg-yellow-200 dark:bg-yellow-700/60 border border-yellow-400/50" />
-                  合规风险标记
+              <div className="flex flex-wrap gap-4 mb-4">
+                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="inline-block w-3 h-3 rounded bg-red-200 dark:bg-red-800/60 border border-red-500" />
+                  ⛔ 红线问题
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="inline-block w-3 h-3 rounded bg-orange-200 dark:bg-orange-700/60 border border-orange-500" />
+                  ⚠️ 高风险内容
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="inline-block w-3 h-3 rounded bg-yellow-200 dark:bg-yellow-700/60 border border-yellow-500" />
+                  ℹ️ 优化建议
                 </span>
               </div>
               <div className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
