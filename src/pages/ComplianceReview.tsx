@@ -309,7 +309,7 @@ ${paletteText}`;
       const paragraphs = lines.map(line => {
         // Check if this line contains a risk phrase for coloring
         const matchingPhrases: { phrase: string; level: RiskLevel; start: number }[] = [];
-        for (const [phrase, level] of riskMap.entries()) {
+        for (const [phrase, level] of activeRiskMap.entries()) {
           let idx = line.indexOf(phrase);
           while (idx !== -1) {
             matchingPhrases.push({ phrase, level, start: idx });
