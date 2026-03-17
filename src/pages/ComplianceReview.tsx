@@ -107,6 +107,8 @@ const ComplianceReview = () => {
   const autoAdjustAbortRef = useRef<AbortController | null>(null);
   const [adjustingPhrases, setAdjustingPhrases] = useState<Set<string>>(new Set());
   const paletteEditRef = useRef<HTMLPreElement>(null);
+  // Track phrase replacements so re-adjust works: original -> current
+  const [phraseReplacements, setPhraseReplacements] = useState<Map<string, string>>(new Map());
 
   // Sync palette text with script text when not editing
   useEffect(() => {
@@ -164,16 +166,31 @@ const ComplianceReview = () => {
 
   // Build highlighted script with risk phrases marked by severity color
   // Supports: normal view, editing (contentEditable), and auto-adjusting (blanks for adjusting phrases)
+  // Build a combined map that includes both original phrases and their replacements
+  const activeRiskMap = useMemo(() => {
+    const map = new Map<string, RiskLevel>(riskMap);
+    // Add replaced phrases with their original risk level
+    for (const [original, replacement] of phraseReplacements.entries()) {
+      const level = riskMap.get(original);
+      if (level && !map.has(replacement)) {
+        map.set(replacement, level);
+      }
+    }
+    return map;
+  }, [riskMap, phraseReplacements]);
+
+  const activeRiskPhrases = useMemo(() => [...activeRiskMap.keys()], [activeRiskMap]);
+
   const buildHighlightedParts = useCallback((text: string, blankPhrases?: Set<string>) => {
-    if (!text || riskPhrases.length === 0) return null;
-    const sorted = [...riskPhrases].sort((a, b) => b.length - a.length);
+    if (!text || activeRiskPhrases.length === 0) return null;
+    const sorted = [...activeRiskPhrases].sort((a, b) => b.length - a.length);
     const matching = sorted.filter(p => text.includes(p));
     if (matching.length === 0) return null;
     const escaped = matching.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     const regex = new RegExp(`(${escaped.join("|")})`, "g");
     const parts = text.split(regex);
     return parts.map((part, i) => {
-      const level = riskMap.get(part);
+      const level = activeRiskMap.get(part);
       if (level) {
         const isBlank = blankPhrases?.has(part);
         return (
@@ -184,7 +201,7 @@ const ComplianceReview = () => {
       }
       return <span key={i}>{part}</span>;
     });
-  }, [riskPhrases, riskMap]);
+  }, [activeRiskPhrases, activeRiskMap]);
 
   const highlightedScript = useMemo(() => {
     const text = paletteEditing ? paletteText : scriptText;
@@ -192,23 +209,33 @@ const ComplianceReview = () => {
   }, [paletteEditing, paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases]);
   // Auto-adjust: only red-line and high-risk, show blanks during adjustment
   const handleAutoAdjust = useCallback(async () => {
-    // Only adjust red and high risk, NOT info/suggestions
-    const targetPhrases = riskPhrases.filter(p => {
-      const level = riskMap.get(p);
-      return (level === "red" || level === "high") && paletteText.includes(p);
-    });
-    if (targetPhrases.length === 0) {
+    // Build current text → original phrase mapping for re-adjustment
+    // Find phrases that exist in paletteText (either original or previously replaced)
+    const targetEntries: { original: string; current: string; level: RiskLevel }[] = [];
+    for (const [phrase, level] of riskMap.entries()) {
+      if (level !== "red" && level !== "high") continue;
+      // Check if original phrase still exists
+      if (paletteText.includes(phrase)) {
+        targetEntries.push({ original: phrase, current: phrase, level });
+      } else {
+        // Check if a previous replacement exists in text
+        const replaced = phraseReplacements.get(phrase);
+        if (replaced && paletteText.includes(replaced)) {
+          targetEntries.push({ original: phrase, current: replaced, level });
+        }
+      }
+    }
+    if (targetEntries.length === 0) {
       toast({ title: "没有需要调整的红线或高风险内容" });
       return;
     }
     setIsAutoAdjusting(true);
-    setAdjustingPhrases(new Set(targetPhrases));
+    setAdjustingPhrases(new Set(targetEntries.map(e => e.current)));
     autoAdjustAbortRef.current = new AbortController();
     try {
-      const issueList = targetPhrases.map((phrase, i) => {
-        const level = riskMap.get(phrase);
-        const label = level === "red" ? "红线问题" : "高风险内容";
-        return `${i + 1}. [${label}] "${phrase}"`;
+      const issueList = targetEntries.map((entry, i) => {
+        const label = entry.level === "red" ? "红线问题" : "高风险内容";
+        return `${i + 1}. [${label}] "${entry.current}"`;
       }).join("\n");
       const prompt = `你是一位专业的剧本合规改写专家。
 
@@ -222,6 +249,7 @@ const ComplianceReview = () => {
 4. 色情描写改为含蓄暗示
 5. 版权内容改为原创替代
 6. 替代文本长度尽量与原文相近
+7. 替代文本必须与原文有明显区别，不能相同或仅做微小调整
 
 ## 输出格式
 严格按以下格式输出，每行一个替换对，不要任何多余文字：
@@ -243,16 +271,25 @@ ${paletteText}`;
 
       // Parse REPLACE: "original" -> "replacement" lines
       let newText = paletteText;
+      const newReplacements = new Map(phraseReplacements);
       const replaceRegex = /REPLACE:\s*"([^"]+)"\s*->\s*"([^"]+)"/g;
       let match;
       while ((match = replaceRegex.exec(result)) !== null) {
         const original = match[1];
         const replacement = match[2];
-        newText = newText.split(original).join(replacement);
+        if (original !== replacement && newText.includes(original)) {
+          newText = newText.split(original).join(replacement);
+          // Track: find which riskMap key this corresponds to
+          const entry = targetEntries.find(e => e.current === original);
+          if (entry) {
+            newReplacements.set(entry.original, replacement);
+          }
+        }
       }
+      setPhraseReplacements(newReplacements);
       setPaletteText(newText);
       setAdjustingPhrases(new Set());
-      toast({ title: "自动调整完成", description: "请检查修改结果" });
+      toast({ title: "自动调整完成", description: "请检查修改结果，可再次点击调整" });
     } catch (e: any) {
       setAdjustingPhrases(new Set());
       if (!e?.message?.includes("取消")) {
@@ -262,7 +299,7 @@ ${paletteText}`;
       setIsAutoAdjusting(false);
       autoAdjustAbortRef.current = null;
     }
-  }, [paletteText, riskPhrases, riskMap, model]);
+  }, [paletteText, riskPhrases, riskMap, model, phraseReplacements]);
 
   // Export palette text as Word document
   const handlePaletteExport = useCallback(async () => {
@@ -272,7 +309,7 @@ ${paletteText}`;
       const paragraphs = lines.map(line => {
         // Check if this line contains a risk phrase for coloring
         const matchingPhrases: { phrase: string; level: RiskLevel; start: number }[] = [];
-        for (const [phrase, level] of riskMap.entries()) {
+        for (const [phrase, level] of activeRiskMap.entries()) {
           let idx = line.indexOf(phrase);
           while (idx !== -1) {
             matchingPhrases.push({ phrase, level, start: idx });
@@ -322,7 +359,7 @@ ${paletteText}`;
     } catch (e: any) {
       toast({ title: "导出失败", description: e?.message, variant: "destructive" });
     }
-  }, [paletteEditing, paletteText, scriptText, riskMap]);
+  }, [paletteEditing, paletteText, scriptText, activeRiskMap]);
 
   const handlePaletteEditToggle = () => {
     if (paletteEditing) {
@@ -414,9 +451,10 @@ ${paletteText}`;
   const handleStop = () => abortRef.current?.abort();
   const displayText = isGenerating ? streamingText : complianceReport;
 
-  const redLineCount = (complianceReport.match(/⛔/g) || []).length;
-  const highRiskCount = (complianceReport.match(/⚠️/g) || []).length;
-  const infoCount = (complianceReport.match(/ℹ️/g) || []).length;
+  // Count unique phrases per level from riskMap (not emoji occurrences)
+  const redLineCount = useMemo(() => [...riskMap.values()].filter(l => l === "red").length, [riskMap]);
+  const highRiskCount = useMemo(() => [...riskMap.values()].filter(l => l === "high").length, [riskMap]);
+  const infoCount = useMemo(() => [...riskMap.values()].filter(l => l === "info").length, [riskMap]);
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
