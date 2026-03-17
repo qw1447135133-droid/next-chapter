@@ -66,7 +66,7 @@ ${scriptText}
 5. **问题清单汇总**：按严重程度排序的完整问题列表
 6. **修改建议**：针对每个问题的具体修改方案
 
-**⚠️ 极其重要的标记规则 — 必须严格遵守：**
+**⚠️ 极其重要的标记规则 - 必须严格遵守：**
 
 在整个报告中，每当你提到原文中存在合规风险的具体语句时，**必须**从原文中逐字逐句复制该片段（不得改写、缩写、省略或重新措辞），并用以下格式包裹：
 - 红线问题：⛔【原文中逐字复制的风险片段】
@@ -110,10 +110,13 @@ const ComplianceReview = () => {
   // Track phrase replacements so re-adjust works: original -> current
   const [phraseReplacements, setPhraseReplacements] = useState<Map<string, string>>(new Map());
 
-  // Sync palette text with script text when not editing
+  // Sync palette text with script text initially or when script changes and no adjustments made
   useEffect(() => {
-    if (!paletteEditing) setPaletteText(scriptText);
-  }, [scriptText, paletteEditing]);
+    // Only sync if no adjustments have been made yet
+    if (phraseReplacements.size === 0 && scriptText) {
+      setPaletteText(scriptText);
+    }
+  }, [scriptText, phraseReplacements.size]);
 
   // Close model dropdown on outside click
   useEffect(() => {
@@ -204,10 +207,48 @@ const ComplianceReview = () => {
   }, [activeRiskPhrases, activeRiskMap]);
 
   const highlightedScript = useMemo(() => {
-    const text = paletteEditing ? paletteText : scriptText;
+    // Always use paletteText in the palette view (it syncs with scriptText when no changes)
+    const text = paletteText || scriptText;
     return buildHighlightedParts(text, isAutoAdjusting ? adjustingPhrases : undefined);
-  }, [paletteEditing, paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases]);
+  }, [paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases]);
   const normalizeForCompare = (value: string) => value.replace(/\s+/g, "").trim();
+
+  // Check if replacement is genuinely different (not just punctuation/whitespace changes)
+  const isGenuinelyDifferent = (original: string, replacement: string) => {
+    const normOrig = normalizeForCompare(original);
+    const normRep = normalizeForCompare(replacement);
+    
+    // Must not be identical after normalization
+    if (normOrig === normRep) return false;
+    
+    // Remove all punctuation and compare again
+    const noPunctOrig = normOrig.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "");
+    const noPunctRep = normRep.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "");
+    
+    // If only punctuation differs, it's not genuinely different
+    if (noPunctOrig === noPunctRep) return false;
+    
+    // Check character-level similarity (must have at least 30% different characters)
+    const minLen = Math.min(noPunctOrig.length, noPunctRep.length);
+    const maxLen = Math.max(noPunctOrig.length, noPunctRep.length);
+    
+    // If lengths are very different, it's definitely different
+    if (maxLen > minLen * 1.5 || minLen < maxLen * 0.7) return true;
+    
+    // Count character differences
+    let diffCount = 0;
+    const shorter = noPunctOrig.length <= noPunctRep.length ? noPunctOrig : noPunctRep;
+    const longer = noPunctOrig.length > noPunctRep.length ? noPunctOrig : noPunctRep;
+    
+    for (let i = 0; i < shorter.length; i++) {
+      if (shorter[i] !== longer[i]) diffCount++;
+    }
+    diffCount += longer.length - shorter.length;
+    
+    // At least 30% of characters should be different
+    const diffRatio = diffCount / maxLen;
+    return diffRatio >= 0.3;
+  };
 
   const parseRewriteJson = (raw: string) => {
     const fallback = new Map<number, string>();
@@ -265,7 +306,36 @@ const ComplianceReview = () => {
         text: entry.current,
       }));
 
-      const prompt = `你是短剧合规改写助手。\n\n你只会收到“需要修改的片段”，不要处理全文。\n目标：对片段做和谐化处理，保留原有表达意思、剧情信息、人物关系和语气，不新增事实。\n\n硬性要求：\n1) 只改写给定片段，不输出解释\n2) replacement 必须与原文不同，不能原样返回\n3) 保持语义等价，长度尽量接近原文\n4) 不要使用空字符串\n${strict ? "5) 如果第一次改写仍接近原文，请使用更明确但同义的合规表达" : ""}\n\n请只输出 JSON 数组（不要 markdown）：\n[{\"id\":1,\"replacement\":\"...\"}]\n\n待改写片段：\n${JSON.stringify(payload, null, 2)}`;
+      const prompt = `你是短剧内容合规改写专家。
+
+## 你的任务
+你将收到"需要修改的风险片段"，请对每个片段进行**和谐化改写**，使其能够通过内容审核。
+
+## 和谐化改写原则
+1. **替换敏感表达**：用委婉、含蓄的说法替代直接、露骨的描写
+   - 血腥暴力：弱化细节描写，用"受伤"、"倒下"等模糊表达
+   - 色情内容：用"亲密"、"温存"等含蓄表达替代露骨描写
+   - 版权问题：改写为原创表达，保留剧情但换种说法
+
+2. **保持语义等价**：改写后的内容要与原文表达相同的意思
+   - 剧情发展不变
+   - 人物关系不变
+   - 情感基调不变
+   - 对话意图不变
+
+3. **必须实际改写**：
+   - ❌ 禁止原样返回原文
+   - ❌ 禁止只改动标点符号
+   - ❌ 禁止返回空字符串
+   - ✅ 必须用不同的文字表达相同的意思
+${strict ? "\n4. **二次改写提醒**：上一次改写仍与原文过于相似，请使用更明显的不同表达方式，确保文字有明显变化。" : ""}
+
+## 输出格式
+只输出 JSON 数组，不要 markdown 代码块，不要任何解释：
+[{"id":1,"replacement":"改写后的文本"}]
+
+## 待改写片段
+${JSON.stringify(payload, null, 2)}`;
 
       const raw = await callGeminiStream(
         model,
@@ -275,7 +345,10 @@ const ComplianceReview = () => {
         autoAdjustAbortRef.current?.signal,
       );
 
-      return parseRewriteJson(raw);
+      console.log(`[调试] AI 原始返回:`, raw);
+      const parsed = parseRewriteJson(raw);
+      console.log(`[调试] 解析结果:`, Object.fromEntries(parsed));
+      return parsed;
     };
 
     try {
@@ -292,15 +365,24 @@ const ComplianceReview = () => {
 
         pending.forEach((entry, idx) => {
           const replacement = rewrites.get(idx + 1)?.trim();
-          if (!replacement || normalizeForCompare(replacement) === normalizeForCompare(entry.current)) {
+          console.log(`[调试] 片段 ${idx + 1}:`, {
+            原文: entry.current,
+            AI返回: replacement,
+            是否不同: replacement ? isGenuinelyDifferent(entry.current, replacement) : false,
+          });
+          // Check if replacement is genuinely different, not just punctuation changes
+          if (!replacement || !isGenuinelyDifferent(entry.current, replacement)) {
+            console.log(`[调试] 跳过: 改写结果与原文过于相似`);
             nextPending.push(entry);
             return;
           }
           if (!workingText.includes(entry.current)) {
+            console.log(`[调试] 跳过: 原文中找不到该片段`);
             nextPending.push(entry);
             return;
           }
 
+          console.log(`[调试] 应用改写: "${entry.current}" -> "${replacement}"`);
           workingText = workingText.split(entry.current).join(replacement);
           workingReplacements.set(entry.original, replacement);
           appliedCount += 1;
@@ -310,7 +392,7 @@ const ComplianceReview = () => {
       }
 
       if (appliedCount === 0) {
-        toast({ title: "自动调整未生效", description: "AI 返回与原文一致，请重试或手动编辑", variant: "destructive" });
+        toast({ title: "自动调整未生效", description: "AI 改写结果与原文过于相似，请点击「自动调整」重试，或手动编辑文本", variant: "destructive" });
         return;
       }
 
@@ -372,7 +454,7 @@ const ComplianceReview = () => {
           properties: {},
           children: [
             new Paragraph({
-              children: [new TextRun({ text: "合规审核 — 调色盘文本对比", bold: true, size: 32 })],
+              children: [new TextRun({ text: "合规审核 - 调色盘文本对比", bold: true, size: 32 })],
               heading: HeadingLevel.HEADING_1,
             }),
             new Paragraph({
@@ -393,7 +475,7 @@ const ComplianceReview = () => {
 
   const handlePaletteEditToggle = () => {
     if (paletteEditing) {
-      // Exiting edit mode — sync text from contentEditable
+      // Exiting edit mode - sync text from contentEditable
       if (paletteEditRef.current) {
         const newText = paletteEditRef.current.innerText;
         setPaletteText(newText);
@@ -569,7 +651,7 @@ const ComplianceReview = () => {
           </CardContent>
         </Card>
 
-        {/* Compliance Report Card — Collapsible */}
+        {/* Compliance Report Card - Collapsible */}
         <Collapsible open={reportOpen} onOpenChange={setReportOpen}>
           <Card>
             <CollapsibleTrigger asChild>
