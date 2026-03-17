@@ -307,7 +307,7 @@ ${paletteText}`;
     setPaletteEditing(!paletteEditing);
   };
 
-
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const ext = file.name.split(".").pop()?.toLowerCase() || "";
