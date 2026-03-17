@@ -107,6 +107,8 @@ const ComplianceReview = () => {
   const autoAdjustAbortRef = useRef<AbortController | null>(null);
   const [adjustingPhrases, setAdjustingPhrases] = useState<Set<string>>(new Set());
   const paletteEditRef = useRef<HTMLPreElement>(null);
+  // Track phrase replacements so re-adjust works: original -> current
+  const [phraseReplacements, setPhraseReplacements] = useState<Map<string, string>>(new Map());
 
   // Sync palette text with script text when not editing
   useEffect(() => {
