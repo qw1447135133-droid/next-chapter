@@ -345,10 +345,7 @@ ${JSON.stringify(payload, null, 2)}`;
         autoAdjustAbortRef.current?.signal,
       );
 
-      console.log(`[调试] AI 原始返回:`, raw);
-      const parsed = parseRewriteJson(raw);
-      console.log(`[调试] 解析结果:`, Object.fromEntries(parsed));
-      return parsed;
+      return parseRewriteJson(raw);
     };
 
     try {
@@ -365,24 +362,16 @@ ${JSON.stringify(payload, null, 2)}`;
 
         pending.forEach((entry, idx) => {
           const replacement = rewrites.get(idx + 1)?.trim();
-          console.log(`[调试] 片段 ${idx + 1}:`, {
-            原文: entry.current,
-            AI返回: replacement,
-            是否不同: replacement ? isGenuinelyDifferent(entry.current, replacement) : false,
-          });
           // Check if replacement is genuinely different, not just punctuation changes
           if (!replacement || !isGenuinelyDifferent(entry.current, replacement)) {
-            console.log(`[调试] 跳过: 改写结果与原文过于相似`);
             nextPending.push(entry);
             return;
           }
           if (!workingText.includes(entry.current)) {
-            console.log(`[调试] 跳过: 原文中找不到该片段`);
             nextPending.push(entry);
             return;
           }
 
-          console.log(`[调试] 应用改写: "${entry.current}" -> "${replacement}"`);
           workingText = workingText.split(entry.current).join(replacement);
           workingReplacements.set(entry.original, replacement);
           appliedCount += 1;
