@@ -105,6 +105,8 @@ const ComplianceReview = () => {
   const [paletteText, setPaletteText] = useState("");
   const [isAutoAdjusting, setIsAutoAdjusting] = useState(false);
   const autoAdjustAbortRef = useRef<AbortController | null>(null);
+  const [adjustingPhrases, setAdjustingPhrases] = useState<Set<string>>(new Set());
+  const paletteEditRef = useRef<HTMLPreElement>(null);
 
   // Sync palette text with script text when not editing
   useEffect(() => {
