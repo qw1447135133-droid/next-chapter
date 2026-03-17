@@ -554,14 +554,35 @@ ${paletteText}`;
         {/* Risk Highlight Comparison */}
         {complianceReport && !isGenerating && scriptText && riskPhrases.length > 0 && (
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg flex items-center gap-2">
                 <Palette className="h-5 w-5" />
                 调色盘文本对比
                 <span className="text-sm font-normal text-muted-foreground">
-                  共识别 {riskPhrases.length} 处风险片段，{riskPhrases.filter(p => scriptText.includes(p)).length} 处已在原文中标记
+                  共识别 {riskPhrases.length} 处风险片段，{riskPhrases.filter(p => (paletteEditing ? paletteText : scriptText).includes(p)).length} 处已标记
                 </span>
               </CardTitle>
+              <div className="flex gap-2">
+                {isAutoAdjusting ? (
+                  <Button variant="destructive" size="sm" onClick={() => autoAdjustAbortRef.current?.abort()} className="gap-1.5">
+                    <Square className="h-3.5 w-3.5" />
+                    停止
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="sm" onClick={handleAutoAdjust} className="gap-1.5" disabled={paletteEditing}>
+                    <Wand2 className="h-3.5 w-3.5" />
+                    自动调整
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={handlePaletteEditToggle} className="gap-1.5">
+                  {paletteEditing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+                  {paletteEditing ? "完成" : "编辑"}
+                </Button>
+                <Button variant="outline" size="sm" onClick={handlePaletteExport} className="gap-1.5">
+                  <Download className="h-3.5 w-3.5" />
+                  导出
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap gap-4 mb-4">
@@ -578,8 +599,16 @@ ${paletteText}`;
                   ℹ️ 优化建议
                 </span>
               </div>
-              {highlightedScript ? (
-                <div className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
+              {paletteEditing ? (
+                <Textarea
+                  value={paletteText}
+                  onChange={(e) => setPaletteText(e.target.value)}
+                  rows={20}
+                  className="font-mono text-sm"
+                  placeholder="编辑剧本内容..."
+                />
+              ) : highlightedScript ? (
+                <div ref={paletteScrollRef} className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
                   <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
                     {highlightedScript}
                   </pre>
