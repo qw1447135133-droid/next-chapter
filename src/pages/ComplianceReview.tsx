@@ -527,7 +527,7 @@ ${paletteText}`;
                 {!displayText ? (
                   <div className="text-center py-16 text-muted-foreground">
                     <p>输入或上传剧本内容后，点击"开始审核"进行合规检查</p>
-                    <p className="text-xs mt-2">检查维度：红线检测、高风险内容、正能量校验、广告植入合规</p>
+                    <p className="text-xs mt-2">检查维度：血腥暴力、版权侵犯、色情内容</p>
                   </div>
                 ) : editing && !isGenerating ? (
                   <Textarea
