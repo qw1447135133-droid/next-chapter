@@ -1,29 +1,29 @@
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Film, Sparkles, Layers, Play, ArrowRight, Settings } from "lucide-react";
+import { Film, Sparkles, PenTool, ShieldCheck, ArrowRight, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const features = [
   {
+    icon: PenTool,
+    title: "剧本创作",
+    desc: "AI 辅助创作完整剧本，从主题大纲到成稿",
+    iconBg: "bg-emerald-500/10 dark:bg-emerald-500/15",
+    iconColor: "text-emerald-600 dark:text-emerald-400",
+    borderColor: "border-emerald-200/60 dark:border-emerald-500/20",
+  },
+  {
     icon: Sparkles,
-    title: "AI 剧本拆解",
-    desc: "智能分析剧本，自动生成分镜列表",
-    iconBg: "bg-amber-500/10 dark:bg-amber-500/15",
-    iconColor: "text-amber-600 dark:text-amber-400",
-    borderColor: "border-amber-200/60 dark:border-amber-500/20",
+    title: "同款创作",
+    desc: "基于参考剧本改编，快速产出同款内容",
+    iconBg: "bg-violet-500/10 dark:bg-violet-500/15",
+    iconColor: "text-violet-600 dark:text-violet-400",
+    borderColor: "border-violet-200/60 dark:border-violet-500/20",
   },
   {
-    icon: Layers,
-    title: "分镜图生成",
-    desc: "根据角色与场景设定，AI 绘制每一帧",
-    iconBg: "bg-indigo-500/10 dark:bg-indigo-500/15",
-    iconColor: "text-indigo-600 dark:text-indigo-400",
-    borderColor: "border-indigo-200/60 dark:border-indigo-500/20",
-  },
-  {
-    icon: Play,
-    title: "视频合成",
-    desc: "一键将分镜图转化为流畅视频",
+    icon: ShieldCheck,
+    title: "合规审查",
+    desc: "智能审核剧本内容，自动识别风险并修正",
     iconBg: "bg-rose-500/10 dark:bg-rose-500/15",
     iconColor: "text-rose-600 dark:text-rose-400",
     borderColor: "border-rose-200/60 dark:border-rose-500/20",
@@ -57,19 +57,19 @@ const Home = () => {
         >
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-1.5 text-sm text-primary">
             <Sparkles className="h-3.5 w-3.5" />
-            AI 驱动的视频创作
+            AI 驱动的剧本创作
           </div>
 
           <h1 className="text-5xl md:text-6xl font-bold tracking-tight font-[Space_Grotesk] leading-[1.1]">
-            从剧本到视频
+            剧本创作与合规
             <br />
             <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-              一站式 AI 生成
+              AI 一站式完成
             </span>
           </h1>
 
           <p className="text-lg text-muted-foreground max-w-lg mx-auto">
-            全链路 AI 驱动，从剧本创作到视频合成一站完成，专业内容生产提速 10 倍。
+            AI 辅助剧本创作与合规审查，从创意到成稿，专业内容生产提速 10 倍。
           </p>
 
           <div className="flex items-center justify-center gap-3 pt-2">
@@ -115,7 +115,7 @@ const Home = () => {
       </main>
 
       <footer className="text-center py-6 text-xs text-muted-foreground">
-        Infinio · AI 剧本转视频平台
+        Infinio · AI 剧本创作与合规平台
       </footer>
     </div>
   );
