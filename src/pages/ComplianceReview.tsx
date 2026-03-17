@@ -163,28 +163,33 @@ const ComplianceReview = () => {
   };
 
   // Build highlighted script with risk phrases marked by severity color
-  const highlightedScript = useMemo(() => {
-    if (!scriptText || riskPhrases.length === 0) return null;
-    // Sort by length descending so longer phrases match first
+  // Supports: normal view, editing (contentEditable), and auto-adjusting (blanks for adjusting phrases)
+  const buildHighlightedParts = useCallback((text: string, blankPhrases?: Set<string>) => {
+    if (!text || riskPhrases.length === 0) return null;
     const sorted = [...riskPhrases].sort((a, b) => b.length - a.length);
-    // Filter to only phrases that actually appear in the script
-    const matching = sorted.filter(p => scriptText.includes(p));
+    const matching = sorted.filter(p => text.includes(p));
     if (matching.length === 0) return null;
     const escaped = matching.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     const regex = new RegExp(`(${escaped.join("|")})`, "g");
-    const parts = scriptText.split(regex);
+    const parts = text.split(regex);
     return parts.map((part, i) => {
       const level = riskMap.get(part);
       if (level) {
+        const isBlank = blankPhrases?.has(part);
         return (
-          <mark key={i} className={`${RISK_STYLES[level]} text-foreground rounded px-0.5`}>
-            {part}
+          <mark key={i} className={`${RISK_STYLES[level]} text-foreground rounded px-0.5 ${isBlank ? "inline-block min-w-[2em]" : ""}`}>
+            {isBlank ? "\u00A0".repeat(Math.max(part.length, 2)) : part}
           </mark>
         );
       }
       return <span key={i}>{part}</span>;
     });
-  }, [scriptText, riskPhrases, riskMap]);
+  }, [riskPhrases, riskMap]);
+
+  const highlightedScript = useMemo(() => {
+    const text = paletteEditing ? paletteText : scriptText;
+    return buildHighlightedParts(text, isAutoAdjusting ? adjustingPhrases : undefined);
+  }, [paletteEditing, paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases]);
   // Auto-adjust: AI rewrites only marked portions
   const handleAutoAdjust = useCallback(async () => {
     const matching = riskPhrases.filter(p => paletteText.includes(p));
