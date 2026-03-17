@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
