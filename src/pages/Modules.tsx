@@ -4,37 +4,37 @@ import { Film, PenTool, ArrowLeft, Settings, Sparkles, Play, Layers, FileText, B
 import { Button } from "@/components/ui/button";
 
 const modules = [
-  {
-    id: "script",
-    icon: PenTool,
-    title: "剧本创作",
-    desc: "AI 辅助创作完整剧本，从主题大纲到成稿",
-    features: [
-      { icon: Sparkles, text: "AI 智能生成" },
-      { icon: FileText, text: "多种体裁支持" },
-    ],
-    route: "/script-creator",
-    gradient: "from-amber-500/15 to-orange-500/15 dark:from-amber-500/10 dark:to-orange-600/10",
-    iconBg: "bg-amber-500/10 dark:bg-amber-500/15",
-    iconColor: "text-amber-600 dark:text-amber-400",
-    borderHover: "hover:border-amber-400/50 dark:hover:border-amber-500/40",
-  },
-  {
-    id: "video",
-    icon: Film,
-    title: "视频创作",
-    desc: "从剧本拆解分镜、生成画面到合成视频",
-    features: [
-      { icon: Layers, text: "分镜图生成" },
-      { icon: Play, text: "AI 视频合成" },
-    ],
-    route: "/workspace",
-    gradient: "from-indigo-500/15 to-cyan-500/15 dark:from-indigo-500/10 dark:to-cyan-500/10",
-    iconBg: "bg-indigo-500/10 dark:bg-indigo-500/15",
-    iconColor: "text-indigo-600 dark:text-indigo-400",
-    borderHover: "hover:border-indigo-400/50 dark:hover:border-indigo-500/40",
-  },
-];
+{
+  id: "script",
+  icon: PenTool,
+  title: "剧本创作",
+  desc: "AI 辅助创作完整剧本，从主题大纲到成稿",
+  features: [
+  { icon: Sparkles, text: "AI 智能生成" },
+  { icon: FileText, text: "多种体裁支持" }],
+
+  route: "/script-creator",
+  gradient: "from-amber-500/15 to-orange-500/15 dark:from-amber-500/10 dark:to-orange-600/10",
+  iconBg: "bg-amber-500/10 dark:bg-amber-500/15",
+  iconColor: "text-amber-600 dark:text-amber-400",
+  borderHover: "hover:border-amber-400/50 dark:hover:border-amber-500/40"
+},
+{
+  id: "video",
+  icon: Film,
+  title: "视频创作",
+  desc: "从剧本拆解分镜、生成画面到合成视频",
+  features: [
+  { icon: Layers, text: "分镜图生成" },
+  { icon: Play, text: "AI 视频合成" }],
+
+  route: "/workspace",
+  gradient: "from-indigo-500/15 to-cyan-500/15 dark:from-indigo-500/10 dark:to-cyan-500/10",
+  iconBg: "bg-indigo-500/10 dark:bg-indigo-500/15",
+  iconColor: "text-indigo-600 dark:text-indigo-400",
+  borderHover: "hover:border-indigo-400/50 dark:hover:border-indigo-500/40"
+}];
+
 
 const Modules = () => {
   const navigate = useNavigate();
@@ -64,8 +64,8 @@ const Modules = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="text-center mb-12"
-        >
+          className="text-center mb-12">
+          
           <h1 className="text-3xl md:text-4xl font-bold font-[Space_Grotesk] mb-3">
             选择创作模块
           </h1>
@@ -80,8 +80,8 @@ const Modules = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4 }}
-            className="relative flex items-stretch gap-0 rounded-2xl border border-border/60 bg-gradient-to-br from-amber-500/15 to-orange-500/15 dark:from-amber-500/10 dark:to-orange-600/10 backdrop-blur-sm text-left overflow-hidden"
-          >
+            className="relative flex items-stretch gap-0 rounded-2xl border border-border/60 bg-gradient-to-br from-amber-500/15 to-orange-500/15 dark:from-amber-500/10 dark:to-orange-600/10 backdrop-blur-sm text-left overflow-hidden">
+            
             {/* 左侧信息区 */}
             <div className="flex flex-col items-start gap-4 p-8 flex-1">
               <div className="h-14 w-14 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 flex items-center justify-center">
@@ -104,12 +104,12 @@ const Modules = () => {
             </div>
 
             {/* 合规审核小入口 */}
-            <div className="flex flex-col items-center justify-center p-3 gap-1.5">
+            <div className="p-3 py-[12px] px-[12px] mx-0 text-justify items-center justify-start flex flex-col gap-[5px] my-[55px]">
               <button
                 onClick={() => navigate("/compliance-review")}
                 title="合规审核"
-                className="h-12 w-12 shrink-0 rounded-full border border-rose-300/40 dark:border-rose-500/20 bg-gradient-to-br from-rose-50 to-pink-50/80 dark:from-rose-900/20 dark:to-pink-900/15 shadow-[0_4px_16px_-4px_rgba(244,63,94,0.25)] hover:shadow-[0_6px_24px_-4px_rgba(244,63,94,0.35)] hover:-translate-y-0.5 active:translate-y-0.5 transition-all duration-200 flex items-center justify-center"
-              >
+                className="h-12 w-12 shrink-0 rounded-full border border-rose-300/40 dark:border-rose-500/20 bg-gradient-to-br from-rose-50 to-pink-50/80 dark:from-rose-900/20 dark:to-pink-900/15 shadow-[0_4px_16px_-4px_rgba(244,63,94,0.25)] hover:shadow-[0_6px_24px_-4px_rgba(244,63,94,0.35)] hover:-translate-y-0.5 active:translate-y-0.5 transition-all duration-200 flex items-center justify-center">
+                
                 <ShieldCheck className="h-5 w-5 text-rose-600 dark:text-rose-400" />
               </button>
               <span className="text-[11px] text-rose-600/70 dark:text-rose-400/60 font-medium">合规审核</span>
@@ -119,8 +119,8 @@ const Modules = () => {
             <div className="flex flex-col gap-4 p-6 justify-center min-w-[240px]">
               <button
                 onClick={() => navigate("/script-creator?mode=traditional")}
-                className="relative overflow-hidden flex items-center gap-4 px-5 py-4 rounded-2xl border border-emerald-300/40 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-50 to-teal-50/80 dark:from-emerald-900/20 dark:to-teal-900/15 backdrop-blur-xl shadow-[0_6px_24px_-4px_rgba(16,185,129,0.25),0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_6px_24px_-4px_rgba(16,185,129,0.15)] font-semibold text-base text-emerald-700 dark:text-emerald-300 hover:shadow-[0_10px_36px_-4px_rgba(16,185,129,0.35),0_4px_12px_-2px_rgba(0,0,0,0.1)] hover:-translate-y-1 active:translate-y-0.5 active:shadow-[0_2px_8px_-2px_rgba(16,185,129,0.2)] transition-all duration-200"
-              >
+                className="relative overflow-hidden flex items-center gap-4 px-5 py-4 rounded-2xl border border-emerald-300/40 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-50 to-teal-50/80 dark:from-emerald-900/20 dark:to-teal-900/15 backdrop-blur-xl shadow-[0_6px_24px_-4px_rgba(16,185,129,0.25),0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_6px_24px_-4px_rgba(16,185,129,0.15)] font-semibold text-base text-emerald-700 dark:text-emerald-300 hover:shadow-[0_10px_36px_-4px_rgba(16,185,129,0.35),0_4px_12px_-2px_rgba(0,0,0,0.1)] hover:-translate-y-1 active:translate-y-0.5 active:shadow-[0_2px_8px_-2px_rgba(16,185,129,0.2)] transition-all duration-200">
+                
                 <div className="absolute inset-0 bg-gradient-to-br from-white/60 via-transparent to-transparent dark:from-white/5 pointer-events-none" />
                 <div className="h-11 w-11 rounded-xl bg-emerald-500/15 dark:bg-emerald-500/20 flex items-center justify-center shrink-0 shadow-inner">
                   <BookOpen className="h-6 w-6 shrink-0" />
@@ -132,8 +132,8 @@ const Modules = () => {
               </button>
               <button
                 onClick={() => navigate("/script-creator?mode=adaptation")}
-                className="relative overflow-hidden flex items-center gap-4 px-5 py-4 rounded-2xl border border-violet-300/40 dark:border-violet-500/20 bg-gradient-to-br from-violet-50 to-purple-50/80 dark:from-violet-900/20 dark:to-purple-900/15 backdrop-blur-xl shadow-[0_6px_24px_-4px_rgba(139,92,246,0.25),0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_6px_24px_-4px_rgba(139,92,246,0.15)] font-semibold text-base text-violet-700 dark:text-violet-300 hover:shadow-[0_10px_36px_-4px_rgba(139,92,246,0.35),0_4px_12px_-2px_rgba(0,0,0,0.1)] hover:-translate-y-1 active:translate-y-0.5 active:shadow-[0_2px_8px_-2px_rgba(139,92,246,0.2)] transition-all duration-200"
-              >
+                className="relative overflow-hidden flex items-center gap-4 px-5 py-4 rounded-2xl border border-violet-300/40 dark:border-violet-500/20 bg-gradient-to-br from-violet-50 to-purple-50/80 dark:from-violet-900/20 dark:to-purple-900/15 backdrop-blur-xl shadow-[0_6px_24px_-4px_rgba(139,92,246,0.25),0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_6px_24px_-4px_rgba(139,92,246,0.15)] font-semibold text-base text-violet-700 dark:text-violet-300 hover:shadow-[0_10px_36px_-4px_rgba(139,92,246,0.35),0_4px_12px_-2px_rgba(0,0,0,0.1)] hover:-translate-y-1 active:translate-y-0.5 active:shadow-[0_2px_8px_-2px_rgba(139,92,246,0.2)] transition-all duration-200">
+                
                 <div className="absolute inset-0 bg-gradient-to-br from-white/60 via-transparent to-transparent dark:from-white/5 pointer-events-none" />
                 <div className="h-11 w-11 rounded-xl bg-violet-500/15 dark:bg-violet-500/20 flex items-center justify-center shrink-0 shadow-inner">
                   <Repeat2 className="h-6 w-6 shrink-0" />
@@ -152,8 +152,8 @@ const Modules = () => {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4 }}
             onClick={() => navigate("/workspace")}
-            className="group relative flex flex-col items-start gap-5 p-8 rounded-2xl border border-border/60 bg-gradient-to-br from-indigo-500/15 to-cyan-500/15 dark:from-indigo-500/10 dark:to-cyan-500/10 backdrop-blur-sm text-left transition-all hover:shadow-lg hover:border-indigo-400/50 dark:hover:border-indigo-500/40 active:scale-[0.99]"
-          >
+            className="group relative flex flex-col items-start gap-5 p-8 rounded-2xl border border-border/60 bg-gradient-to-br from-indigo-500/15 to-cyan-500/15 dark:from-indigo-500/10 dark:to-cyan-500/10 backdrop-blur-sm text-left transition-all hover:shadow-lg hover:border-indigo-400/50 dark:hover:border-indigo-500/40 active:scale-[0.99]">
+            
             <div className="h-14 w-14 rounded-xl bg-indigo-500/10 dark:bg-indigo-500/15 flex items-center justify-center">
               <Film className="h-7 w-7 text-indigo-600 dark:text-indigo-400" />
             </div>
@@ -179,8 +179,8 @@ const Modules = () => {
           </motion.button>
         </div>
       </main>
-    </div>
-  );
+    </div>);
+
 };
 
 export default Modules;
