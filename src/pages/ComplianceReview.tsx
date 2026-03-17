@@ -183,8 +183,131 @@ const ComplianceReview = () => {
       return <span key={i}>{part}</span>;
     });
   }, [scriptText, riskPhrases, riskMap]);
+  // Auto-adjust: AI rewrites only marked portions
+  const handleAutoAdjust = useCallback(async () => {
+    const matching = riskPhrases.filter(p => paletteText.includes(p));
+    if (matching.length === 0) {
+      toast({ title: "没有需要调整的标记内容" });
+      return;
+    }
+    setIsAutoAdjusting(true);
+    autoAdjustAbortRef.current = new AbortController();
+    try {
+      const issueList = matching.map((phrase, i) => {
+        const level = riskMap.get(phrase);
+        const label = level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优化建议";
+        return `${i + 1}. [${label}] "${phrase}"`;
+      }).join("\n");
+      const prompt = `你是一位专业的剧本合规改写专家。
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+## 任务
+请修改以下剧本中被标记的不合规片段，使其通过合规审核。
+
+## 规则
+1. **仅改写**下方列出的不合规片段，其它所有文字必须保持原样，一个字都不能动
+2. 改写后的内容要保持叙事连贯，语言风格与上下文一致
+3. 血腥暴力描写改为隐晦、间接的表述
+4. 色情描写改为含蓄暗示
+5. 版权内容改为原创替代
+6. 直接输出完整的修改后剧本，不要任何解释或注释
+
+## 需要改写的片段
+${issueList}
+
+## 原文剧本
+${paletteText}`;
+
+      const result = await callGeminiStream(
+        model,
+        [{ role: "user", parts: [{ text: prompt }] }],
+        () => {},
+        { maxOutputTokens: 16384 },
+        autoAdjustAbortRef.current.signal,
+      );
+      setPaletteText(result);
+      setPaletteEditing(true); // Keep in edit mode so user can review
+      toast({ title: "自动调整完成", description: "请检查修改结果" });
+    } catch (e: any) {
+      if (!e?.message?.includes("取消")) {
+        toast({ title: "自动调整失败", description: e?.message, variant: "destructive" });
+      }
+    } finally {
+      setIsAutoAdjusting(false);
+      autoAdjustAbortRef.current = null;
+    }
+  }, [paletteText, riskPhrases, riskMap, model]);
+
+  // Export palette text as Word document
+  const handlePaletteExport = useCallback(async () => {
+    try {
+      const textToExport = paletteEditing ? paletteText : scriptText;
+      const lines = textToExport.split("\n");
+      const paragraphs = lines.map(line => {
+        // Check if this line contains a risk phrase for coloring
+        const matchingPhrases: { phrase: string; level: RiskLevel; start: number }[] = [];
+        for (const [phrase, level] of riskMap.entries()) {
+          let idx = line.indexOf(phrase);
+          while (idx !== -1) {
+            matchingPhrases.push({ phrase, level, start: idx });
+            idx = line.indexOf(phrase, idx + 1);
+          }
+        }
+        if (matchingPhrases.length === 0) {
+          return new Paragraph({ children: [new TextRun({ text: line, size: 24 })] });
+        }
+        // Build runs with highlights
+        matchingPhrases.sort((a, b) => a.start - b.start);
+        const runs: TextRun[] = [];
+        let cursor = 0;
+        for (const mp of matchingPhrases) {
+          if (mp.start > cursor) {
+            runs.push(new TextRun({ text: line.slice(cursor, mp.start), size: 24 }));
+          }
+          const color = mp.level === "red" ? "FF0000" : mp.level === "high" ? "FF8C00" : "2563EB";
+          runs.push(new TextRun({ text: mp.phrase, size: 24, highlight: mp.level === "red" ? "red" : mp.level === "high" ? "yellow" : "cyan", color }));
+          cursor = mp.start + mp.phrase.length;
+        }
+        if (cursor < line.length) {
+          runs.push(new TextRun({ text: line.slice(cursor), size: 24 }));
+        }
+        return new Paragraph({ children: runs });
+      });
+
+      const doc = new Document({
+        sections: [{
+          properties: {},
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "合规审核 — 调色盘文本对比", bold: true, size: 32 })],
+              heading: HeadingLevel.HEADING_1,
+            }),
+            new Paragraph({
+              children: [new TextRun({ text: `导出时间：${new Date().toLocaleString("zh-CN")}`, size: 20, color: "888888" })],
+              spacing: { after: 200 },
+            }),
+            ...paragraphs,
+          ],
+        }],
+      });
+      const blob = await Packer.toBlob(doc);
+      saveAs(blob, `合规审核_调色盘对比_${new Date().toISOString().slice(0, 10)}.docx`);
+      toast({ title: "导出成功" });
+    } catch (e: any) {
+      toast({ title: "导出失败", description: e?.message, variant: "destructive" });
+    }
+  }, [paletteEditing, paletteText, scriptText, riskMap]);
+
+  const handlePaletteEditToggle = () => {
+    if (paletteEditing) {
+      // Exiting edit mode — apply changes back to script
+      setScriptText(paletteText);
+    } else {
+      setPaletteText(scriptText);
+    }
+    setPaletteEditing(!paletteEditing);
+  };
+
+
     const file = e.target.files?.[0];
     if (!file) return;
     const ext = file.name.split(".").pop()?.toLowerCase() || "";
