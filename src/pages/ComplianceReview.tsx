@@ -416,9 +416,10 @@ ${paletteText}`;
   const handleStop = () => abortRef.current?.abort();
   const displayText = isGenerating ? streamingText : complianceReport;
 
-  const redLineCount = (complianceReport.match(/⛔/g) || []).length;
-  const highRiskCount = (complianceReport.match(/⚠️/g) || []).length;
-  const infoCount = (complianceReport.match(/ℹ️/g) || []).length;
+  // Count unique phrases per level from riskMap (not emoji occurrences)
+  const redLineCount = useMemo(() => [...riskMap.values()].filter(l => l === "red").length, [riskMap]);
+  const highRiskCount = useMemo(() => [...riskMap.values()].filter(l => l === "high").length, [riskMap]);
+  const infoCount = useMemo(() => [...riskMap.values()].filter(l => l === "info").length, [riskMap]);
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
