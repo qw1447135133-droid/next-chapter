@@ -139,12 +139,6 @@ const ComplianceReview = () => {
         }
       }
     }
-    // Also fallback: plain 【...】 without prefix → info
-    const plain = /(?<!⛔\s*)(?<!⚠️\s*)(?<!ℹ️\s*)【([^】]+)】/g;
-    let pm: RegExpExecArray | null;
-    while ((pm = plain.exec(complianceReport)) !== null) {
-      if (!map.has(pm[1])) map.set(pm[1], "info");
-    }
     return map;
   }, [complianceReport]);
 
