@@ -326,8 +326,14 @@ ${paletteText}`;
 
   const handlePaletteEditToggle = () => {
     if (paletteEditing) {
-      // Exiting edit mode — apply changes back to script
-      setScriptText(paletteText);
+      // Exiting edit mode — sync text from contentEditable
+      if (paletteEditRef.current) {
+        const newText = paletteEditRef.current.innerText;
+        setPaletteText(newText);
+        setScriptText(newText);
+      } else {
+        setScriptText(paletteText);
+      }
     } else {
       setPaletteText(scriptText);
     }
