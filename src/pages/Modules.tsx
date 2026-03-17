@@ -103,31 +103,33 @@ const Modules = () => {
               </div>
             </div>
 
+            {/* 合规审核小入口 */}
+            <div className="flex flex-col items-center justify-center p-3 gap-1.5">
+              <button
+                onClick={() => navigate("/compliance-review")}
+                title="合规审核"
+                className="h-12 w-12 shrink-0 rounded-full border border-rose-300/40 dark:border-rose-500/20 bg-gradient-to-br from-rose-50 to-pink-50/80 dark:from-rose-900/20 dark:to-pink-900/15 shadow-[0_4px_16px_-4px_rgba(244,63,94,0.25)] hover:shadow-[0_6px_24px_-4px_rgba(244,63,94,0.35)] hover:-translate-y-0.5 active:translate-y-0.5 transition-all duration-200 flex items-center justify-center"
+              >
+                <ShieldCheck className="h-5 w-5 text-rose-600 dark:text-rose-400" />
+              </button>
+              <span className="text-[11px] text-rose-600/70 dark:text-rose-400/60 font-medium">合规审核</span>
+            </div>
+
             {/* 右侧按钮区 */}
             <div className="flex flex-col gap-4 p-6 justify-center min-w-[240px]">
-              {/* 传统创作 + 合规审核小入口 */}
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => navigate("/compliance-review")}
-                  title="合规审核"
-                  className="h-11 w-11 shrink-0 rounded-full border border-rose-300/40 dark:border-rose-500/20 bg-gradient-to-br from-rose-50 to-pink-50/80 dark:from-rose-900/20 dark:to-pink-900/15 shadow-[0_4px_16px_-4px_rgba(244,63,94,0.25)] hover:shadow-[0_6px_24px_-4px_rgba(244,63,94,0.35)] hover:-translate-y-0.5 active:translate-y-0.5 transition-all duration-200 flex items-center justify-center"
-                >
-                  <ShieldCheck className="h-5 w-5 text-rose-600 dark:text-rose-400" />
-                </button>
-                <button
-                  onClick={() => navigate("/script-creator?mode=traditional")}
-                  className="relative overflow-hidden flex-1 flex items-center gap-4 px-5 py-4 rounded-2xl border border-emerald-300/40 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-50 to-teal-50/80 dark:from-emerald-900/20 dark:to-teal-900/15 backdrop-blur-xl shadow-[0_6px_24px_-4px_rgba(16,185,129,0.25),0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_6px_24px_-4px_rgba(16,185,129,0.15)] font-semibold text-base text-emerald-700 dark:text-emerald-300 hover:shadow-[0_10px_36px_-4px_rgba(16,185,129,0.35),0_4px_12px_-2px_rgba(0,0,0,0.1)] hover:-translate-y-1 active:translate-y-0.5 active:shadow-[0_2px_8px_-2px_rgba(16,185,129,0.2)] transition-all duration-200"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-br from-white/60 via-transparent to-transparent dark:from-white/5 pointer-events-none" />
-                  <div className="h-11 w-11 rounded-xl bg-emerald-500/15 dark:bg-emerald-500/20 flex items-center justify-center shrink-0 shadow-inner">
-                    <BookOpen className="h-6 w-6 shrink-0" />
-                  </div>
-                  <div className="text-left leading-tight relative">
-                    <div>传统创作</div>
-                    <div className="text-sm font-normal text-emerald-600/70 dark:text-emerald-400/60 mt-1">从零开始创作</div>
-                  </div>
-                </button>
-              </div>
+              <button
+                onClick={() => navigate("/script-creator?mode=traditional")}
+                className="relative overflow-hidden flex items-center gap-4 px-5 py-4 rounded-2xl border border-emerald-300/40 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-50 to-teal-50/80 dark:from-emerald-900/20 dark:to-teal-900/15 backdrop-blur-xl shadow-[0_6px_24px_-4px_rgba(16,185,129,0.25),0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_6px_24px_-4px_rgba(16,185,129,0.15)] font-semibold text-base text-emerald-700 dark:text-emerald-300 hover:shadow-[0_10px_36px_-4px_rgba(16,185,129,0.35),0_4px_12px_-2px_rgba(0,0,0,0.1)] hover:-translate-y-1 active:translate-y-0.5 active:shadow-[0_2px_8px_-2px_rgba(16,185,129,0.2)] transition-all duration-200"
+              >
+                <div className="absolute inset-0 bg-gradient-to-br from-white/60 via-transparent to-transparent dark:from-white/5 pointer-events-none" />
+                <div className="h-11 w-11 rounded-xl bg-emerald-500/15 dark:bg-emerald-500/20 flex items-center justify-center shrink-0 shadow-inner">
+                  <BookOpen className="h-6 w-6 shrink-0" />
+                </div>
+                <div className="text-left leading-tight relative">
+                  <div>传统创作</div>
+                  <div className="text-sm font-normal text-emerald-600/70 dark:text-emerald-400/60 mt-1">从零开始创作</div>
+                </div>
+              </button>
               <button
                 onClick={() => navigate("/script-creator?mode=adaptation")}
                 className="relative overflow-hidden flex items-center gap-4 px-5 py-4 rounded-2xl border border-violet-300/40 dark:border-violet-500/20 bg-gradient-to-br from-violet-50 to-purple-50/80 dark:from-violet-900/20 dark:to-purple-900/15 backdrop-blur-xl shadow-[0_6px_24px_-4px_rgba(139,92,246,0.25),0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_6px_24px_-4px_rgba(139,92,246,0.15)] font-semibold text-base text-violet-700 dark:text-violet-300 hover:shadow-[0_10px_36px_-4px_rgba(139,92,246,0.35),0_4px_12px_-2px_rgba(0,0,0,0.1)] hover:-translate-y-1 active:translate-y-0.5 active:shadow-[0_2px_8px_-2px_rgba(139,92,246,0.2)] transition-all duration-200"
