@@ -190,51 +190,71 @@ const ComplianceReview = () => {
     const text = paletteEditing ? paletteText : scriptText;
     return buildHighlightedParts(text, isAutoAdjusting ? adjustingPhrases : undefined);
   }, [paletteEditing, paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases]);
-  // Auto-adjust: AI rewrites only marked portions
+  // Auto-adjust: only red-line and high-risk, show blanks during adjustment
   const handleAutoAdjust = useCallback(async () => {
-    const matching = riskPhrases.filter(p => paletteText.includes(p));
-    if (matching.length === 0) {
-      toast({ title: "没有需要调整的标记内容" });
+    // Only adjust red and high risk, NOT info/suggestions
+    const targetPhrases = riskPhrases.filter(p => {
+      const level = riskMap.get(p);
+      return (level === "red" || level === "high") && paletteText.includes(p);
+    });
+    if (targetPhrases.length === 0) {
+      toast({ title: "没有需要调整的红线或高风险内容" });
       return;
     }
     setIsAutoAdjusting(true);
+    setAdjustingPhrases(new Set(targetPhrases));
     autoAdjustAbortRef.current = new AbortController();
     try {
-      const issueList = matching.map((phrase, i) => {
+      const issueList = targetPhrases.map((phrase, i) => {
         const level = riskMap.get(phrase);
-        const label = level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优化建议";
+        const label = level === "red" ? "红线问题" : "高风险内容";
         return `${i + 1}. [${label}] "${phrase}"`;
       }).join("\n");
       const prompt = `你是一位专业的剧本合规改写专家。
 
 ## 任务
-请修改以下剧本中被标记的不合规片段，使其通过合规审核。
+请为以下不合规片段提供改写替代文本。
 
 ## 规则
-1. **仅改写**下方列出的不合规片段，其它所有文字必须保持原样，一个字都不能动
+1. 仅对列出的片段提供替代文本
 2. 改写后的内容要保持叙事连贯，语言风格与上下文一致
 3. 血腥暴力描写改为隐晦、间接的表述
 4. 色情描写改为含蓄暗示
 5. 版权内容改为原创替代
-6. 直接输出完整的修改后剧本，不要任何解释或注释
+6. 替代文本长度尽量与原文相近
+
+## 输出格式
+严格按以下格式输出，每行一个替换对，不要任何多余文字：
+REPLACE: "原文片段" -> "替代文本"
 
 ## 需要改写的片段
 ${issueList}
 
-## 原文剧本
+## 上下文（完整剧本）
 ${paletteText}`;
 
       const result = await callGeminiStream(
         model,
         [{ role: "user", parts: [{ text: prompt }] }],
         () => {},
-        { maxOutputTokens: 16384 },
+        { maxOutputTokens: 8192 },
         autoAdjustAbortRef.current.signal,
       );
-      setPaletteText(result);
-      setPaletteEditing(true); // Keep in edit mode so user can review
+
+      // Parse REPLACE: "original" -> "replacement" lines
+      let newText = paletteText;
+      const replaceRegex = /REPLACE:\s*"([^"]+)"\s*->\s*"([^"]+)"/g;
+      let match;
+      while ((match = replaceRegex.exec(result)) !== null) {
+        const original = match[1];
+        const replacement = match[2];
+        newText = newText.replaceAll(original, replacement);
+      }
+      setPaletteText(newText);
+      setAdjustingPhrases(new Set());
       toast({ title: "自动调整完成", description: "请检查修改结果" });
     } catch (e: any) {
+      setAdjustingPhrases(new Set());
       if (!e?.message?.includes("取消")) {
         toast({ title: "自动调整失败", description: e?.message, variant: "destructive" });
       }
