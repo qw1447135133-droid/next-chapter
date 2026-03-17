@@ -150,7 +150,7 @@ const ComplianceReview = () => {
   const RISK_STYLES: Record<RiskLevel, string> = {
     red: "bg-red-200 dark:bg-red-800/60 border-b-2 border-red-500",
     high: "bg-orange-200 dark:bg-orange-700/60 border-b-2 border-orange-500",
-    info: "bg-yellow-200 dark:bg-yellow-700/60 border-b-2 border-yellow-500",
+    info: "bg-blue-200 dark:bg-blue-700/60 border-b-2 border-blue-500",
   };
 
   // Build highlighted script with risk phrases marked by severity color
