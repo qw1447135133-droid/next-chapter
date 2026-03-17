@@ -1,14 +1,23 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, RefreshCw, Pencil, Eye, Square, ShieldCheck, Upload, Film, FileText } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ArrowLeft, RefreshCw, Pencil, Eye, Square, ShieldCheck, Upload, Film, FileText, ChevronDown, ChevronUp, Palette } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "@/components/script-creator/TranslateButton";
+
+type ComplianceModel = "gemini-3.1-pro-preview" | "gemini-3-pro-preview" | "gemini-3-flash-preview";
+
+const MODEL_OPTIONS: { value: ComplianceModel; label: string }[] = [
+  { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
+  { value: "gemini-3-pro-preview", label: "Gemini 3 Pro" },
+  { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
+];
 
 const STANDALONE_COMPLIANCE_PROMPT = (scriptText: string) => `你是一位资深的短剧内容合规审核专家，精通各类内容监管法规与平台规范。
 
@@ -69,6 +78,8 @@ ${scriptText}
 6. **问题清单汇总**：按严重程度排序的完整问题列表
 7. **修改建议**：针对每个问题的具体修改方案
 
+**重要：在修改建议中，请明确引用原文中存在合规风险的具体语句或段落，用【】标记出原文中的风险片段，例如：【风险原文片段】。这将用于后续自动标注。**
+
 用 Markdown 格式输出，清晰分区。`;
 
 const ComplianceReview = () => {
@@ -79,11 +90,61 @@ const ComplianceReview = () => {
   const [streamingText, setStreamingText] = useState("");
   const [editing, setEditing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [reportOpen, setReportOpen] = useState(true);
+  const [model, setModel] = useState<ComplianceModel>(
+    () => (localStorage.getItem("compliance-model") as ComplianceModel) || "gemini-3.1-pro-preview"
+  );
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
   const scrollRef = useAutoScroll<HTMLPreElement>(isGenerating, streamingText);
   const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress, canResume: transCanResume, resumeTranslation } = useTranslation();
   const nonChinese = isNonChineseText(complianceReport);
+
+  // Close model dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setModelDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleModelChange = (m: ComplianceModel) => {
+    setModel(m);
+    localStorage.setItem("compliance-model", m);
+    setModelDropdownOpen(false);
+  };
+
+  // Extract risk phrases from report (marked with 【】)
+  const riskPhrases = useMemo(() => {
+    if (!complianceReport) return [];
+    const matches = complianceReport.match(/【([^】]+)】/g);
+    if (!matches) return [];
+    return [...new Set(matches.map(m => m.slice(1, -1)))];
+  }, [complianceReport]);
+
+  // Build highlighted script with risk phrases marked
+  const highlightedScript = useMemo(() => {
+    if (!scriptText || riskPhrases.length === 0) return null;
+    // Build a regex matching any risk phrase
+    const escaped = riskPhrases.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const regex = new RegExp(`(${escaped.join("|")})`, "g");
+    const parts = scriptText.split(regex);
+    return parts.map((part, i) => {
+      if (riskPhrases.includes(part)) {
+        return (
+          <mark key={i} className="bg-yellow-200 dark:bg-yellow-700/60 text-foreground rounded px-0.5">
+            {part}
+          </mark>
+        );
+      }
+      return <span key={i}>{part}</span>;
+    });
+  }, [scriptText, riskPhrases]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -128,10 +189,10 @@ const ComplianceReview = () => {
     }
     setIsGenerating(true);
     setStreamingText("");
+    setReportOpen(true);
     abortRef.current = new AbortController();
     try {
       const prompt = STANDALONE_COMPLIANCE_PROMPT(scriptText);
-      const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
       const finalText = await callGeminiStream(
         model,
         [{ role: "user", parts: [{ text: prompt }] }],
@@ -186,7 +247,33 @@ const ComplianceReview = () => {
               <FileText className="h-5 w-5" />
               剧本内容
             </CardTitle>
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
+              {/* Model Selector */}
+              <div className="relative" ref={modelDropdownRef}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
+                  className="gap-1.5 min-w-[140px] justify-between"
+                >
+                  <span className="truncate">{MODEL_OPTIONS.find(o => o.value === model)?.label}</span>
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                </Button>
+                {modelDropdownOpen && (
+                  <div className="absolute right-0 top-full mt-1 z-50 bg-popover border border-border rounded-md shadow-md py-1 min-w-[160px]">
+                    {MODEL_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => handleModelChange(opt.value)}
+                        className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors ${model === opt.value ? "bg-accent/50 font-medium" : ""}`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <input
                 ref={fileInputRef}
                 type="file"
@@ -220,81 +307,116 @@ const ComplianceReview = () => {
           </CardContent>
         </Card>
 
-        {/* Compliance Report Card */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5" />
-              合规审核报告
-              {complianceReport && !isGenerating && (
-                <span className="text-sm font-normal text-muted-foreground">
-                  ⛔{redLineCount} · ⚠️{highRiskCount} · ℹ️{infoCount}
-                </span>
-              )}
-            </CardTitle>
-            <div className="flex gap-2">
-              {complianceReport && !isGenerating && (
-                <>
-                  <TranslateToggle
-                    isNonChinese={nonChinese}
-                    isTranslating={isTranslating}
-                    showTranslation={showTranslation}
-                    onTranslate={() => translate(complianceReport)}
-                    onClear={clearTranslation}
-                    onStop={stopTranslation}
-                    disabled={editing}
+        {/* Compliance Report Card — Collapsible */}
+        <Collapsible open={reportOpen} onOpenChange={setReportOpen}>
+          <Card>
+            <CollapsibleTrigger asChild>
+              <CardHeader className="flex flex-row items-center justify-between cursor-pointer select-none hover:bg-accent/30 transition-colors rounded-t-lg">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <ShieldCheck className="h-5 w-5" />
+                  合规审核报告
+                  {complianceReport && !isGenerating && (
+                    <span className="text-sm font-normal text-muted-foreground">
+                      ⛔{redLineCount} · ⚠️{highRiskCount} · ℹ️{infoCount}
+                    </span>
+                  )}
+                  {reportOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                </CardTitle>
+                <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                  {complianceReport && !isGenerating && (
+                    <>
+                      <TranslateToggle
+                        isNonChinese={nonChinese}
+                        isTranslating={isTranslating}
+                        showTranslation={showTranslation}
+                        onTranslate={() => translate(complianceReport)}
+                        onClear={clearTranslation}
+                        onStop={stopTranslation}
+                        disabled={editing}
+                      />
+                      <Button variant="outline" size="sm" onClick={() => setEditing(!editing)} className="gap-1.5">
+                        {editing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+                        {editing ? "预览" : "编辑"}
+                      </Button>
+                    </>
+                  )}
+                  {isGenerating ? (
+                    <Button variant="destructive" size="sm" onClick={handleStop} className="gap-1.5">
+                      <Square className="h-3.5 w-3.5" />
+                      停止
+                    </Button>
+                  ) : (
+                    <Button
+                      variant={complianceReport ? "outline" : "default"}
+                      size="sm"
+                      onClick={handleGenerate}
+                      disabled={!scriptText.trim()}
+                      className="gap-1.5"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      {complianceReport ? "重新审核" : "开始审核"}
+                    </Button>
+                  )}
+                </div>
+              </CardHeader>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent>
+                {(isTranslating || transCanResume) && <TranslationProgress progress={transProgress} canResume={transCanResume} onResume={resumeTranslation} />}
+                {!displayText ? (
+                  <div className="text-center py-16 text-muted-foreground">
+                    <p>输入或上传剧本内容后，点击"开始审核"进行合规检查</p>
+                    <p className="text-xs mt-2">检查维度：红线检测、高风险内容、正能量校验、广告植入合规</p>
+                  </div>
+                ) : editing && !isGenerating ? (
+                  <Textarea
+                    value={complianceReport}
+                    onChange={(e) => setComplianceReport(e.target.value)}
+                    rows={20}
+                    className="font-mono text-sm"
                   />
-                  <Button variant="outline" size="sm" onClick={() => setEditing(!editing)} className="gap-1.5">
-                    {editing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
-                    {editing ? "预览" : "编辑"}
-                  </Button>
-                </>
-              )}
-              {isGenerating ? (
-                <Button variant="destructive" size="sm" onClick={handleStop} className="gap-1.5">
-                  <Square className="h-3.5 w-3.5" />
-                  停止
-                </Button>
-              ) : (
-                <Button
-                  variant={complianceReport ? "outline" : "default"}
-                  size="sm"
-                  onClick={handleGenerate}
-                  disabled={!scriptText.trim()}
-                  className="gap-1.5"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  {complianceReport ? "重新审核" : "开始审核"}
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent>
-            {(isTranslating || transCanResume) && <TranslationProgress progress={transProgress} canResume={transCanResume} onResume={resumeTranslation} />}
-            {!displayText ? (
-              <div className="text-center py-16 text-muted-foreground">
-                <p>输入或上传剧本内容后，点击"开始审核"进行合规检查</p>
-                <p className="text-xs mt-2">检查维度：红线检测、高风险内容、正能量校验、广告植入合规</p>
+                ) : showTranslation && !isGenerating && hasTranslation(complianceReport) ? (
+                  <div className="max-h-[600px] overflow-auto">
+                    <InterleavedText text={complianceReport} translatedLines={getTranslation(complianceReport)!} />
+                  </div>
+                ) : (
+                  <pre ref={scrollRef} className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
+                    {displayText}
+                    {isGenerating && <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />}
+                  </pre>
+                )}
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
+
+        {/* Risk Highlight Comparison */}
+        {complianceReport && !isGenerating && scriptText && riskPhrases.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Palette className="h-5 w-5" />
+                调色盘文本对比
+                <span className="text-sm font-normal text-muted-foreground">
+                  共标记 {riskPhrases.length} 处风险片段
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2 mb-4">
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <span className="inline-block w-3 h-3 rounded bg-yellow-200 dark:bg-yellow-700/60 border border-yellow-400/50" />
+                  合规风险标记
+                </span>
               </div>
-            ) : editing && !isGenerating ? (
-              <Textarea
-                value={complianceReport}
-                onChange={(e) => setComplianceReport(e.target.value)}
-                rows={20}
-                className="font-mono text-sm"
-              />
-            ) : showTranslation && !isGenerating && hasTranslation(complianceReport) ? (
-              <div className="max-h-[600px] overflow-auto">
-                <InterleavedText text={complianceReport} translatedLines={getTranslation(complianceReport)!} />
+              <div className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
+                <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
+                  {highlightedScript}
+                </pre>
               </div>
-            ) : (
-              <pre ref={scrollRef} className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
-                {displayText}
-                {isGenerating && <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />}
-              </pre>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
       </main>
     </div>
   );
