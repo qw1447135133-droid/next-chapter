@@ -131,6 +131,19 @@ const Modules = () => {
                   <div className="text-sm font-normal text-violet-600/70 dark:text-violet-400/60 mt-1">基于参考剧本</div>
                 </div>
               </button>
+              <button
+                onClick={() => navigate("/compliance-review")}
+                className="relative overflow-hidden flex items-center gap-4 px-5 py-4 rounded-2xl border border-rose-300/40 dark:border-rose-500/20 bg-gradient-to-br from-rose-50 to-pink-50/80 dark:from-rose-900/20 dark:to-pink-900/15 backdrop-blur-xl shadow-[0_6px_24px_-4px_rgba(244,63,94,0.25),0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_6px_24px_-4px_rgba(244,63,94,0.15)] font-semibold text-base text-rose-700 dark:text-rose-300 hover:shadow-[0_10px_36px_-4px_rgba(244,63,94,0.35),0_4px_12px_-2px_rgba(0,0,0,0.1)] hover:-translate-y-1 active:translate-y-0.5 active:shadow-[0_2px_8px_-2px_rgba(244,63,94,0.2)] transition-all duration-200"
+              >
+                <div className="absolute inset-0 bg-gradient-to-br from-white/60 via-transparent to-transparent dark:from-white/5 pointer-events-none" />
+                <div className="h-11 w-11 rounded-xl bg-rose-500/15 dark:bg-rose-500/20 flex items-center justify-center shrink-0 shadow-inner">
+                  <ShieldCheck className="h-6 w-6 shrink-0" />
+                </div>
+                <div className="text-left leading-tight relative">
+                  <div>合规审核</div>
+                  <div className="text-sm font-normal text-rose-600/70 dark:text-rose-400/60 mt-1">上传剧本审查</div>
+                </div>
+              </button>
             </div>
           </motion.div>
 

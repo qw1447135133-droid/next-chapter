@@ -27,6 +27,7 @@ const App = () => (
             <Route path="/modules" element={<Modules />} />
             <Route path="/workspace" element={<Workspace />} />
             <Route path="/script-creator" element={<ScriptCreator />} />
+            <Route path="/compliance-review" element={<ComplianceReview />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/history" element={<History />} />
             <Route path="*" element={<NotFound />} />
