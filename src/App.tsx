@@ -8,6 +8,7 @@ import Home from "./pages/Home";
 import Modules from "./pages/Modules";
 import Workspace from "./pages/Workspace";
 import ScriptCreator from "./pages/ScriptCreator";
+import ComplianceReview from "./pages/ComplianceReview";
 import Settings from "./pages/Settings";
 import History from "./pages/History";
 import NotFound from "./pages/NotFound";
@@ -26,6 +27,7 @@ const App = () => (
             <Route path="/modules" element={<Modules />} />
             <Route path="/workspace" element={<Workspace />} />
             <Route path="/script-creator" element={<ScriptCreator />} />
+            <Route path="/compliance-review" element={<ComplianceReview />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/history" element={<History />} />
             <Route path="*" element={<NotFound />} />

@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Film, PenTool, ArrowLeft, Settings, Sparkles, Play, Layers, FileText, BookOpen, Repeat2 } from "lucide-react";
+import { Film, PenTool, ArrowLeft, Settings, Sparkles, Play, Layers, FileText, BookOpen, Repeat2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const modules = [
@@ -104,10 +104,10 @@ const Modules = () => {
             </div>
 
             {/* 右侧按钮区 */}
-            <div className="flex flex-col gap-5 p-6 justify-center min-w-[240px]">
+            <div className="flex flex-col gap-4 p-6 justify-center min-w-[240px]">
               <button
                 onClick={() => navigate("/script-creator?mode=traditional")}
-                className="relative overflow-hidden flex items-center gap-4 px-6 py-5 rounded-2xl border border-emerald-300/40 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-50 to-teal-50/80 dark:from-emerald-900/20 dark:to-teal-900/15 backdrop-blur-xl shadow-[0_6px_24px_-4px_rgba(16,185,129,0.25),0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_6px_24px_-4px_rgba(16,185,129,0.15)] font-semibold text-lg text-emerald-700 dark:text-emerald-300 hover:shadow-[0_10px_36px_-4px_rgba(16,185,129,0.35),0_4px_12px_-2px_rgba(0,0,0,0.1)] hover:-translate-y-1 active:translate-y-0.5 active:shadow-[0_2px_8px_-2px_rgba(16,185,129,0.2)] transition-all duration-200"
+                className="relative overflow-hidden flex items-center gap-4 px-5 py-4 rounded-2xl border border-emerald-300/40 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-50 to-teal-50/80 dark:from-emerald-900/20 dark:to-teal-900/15 backdrop-blur-xl shadow-[0_6px_24px_-4px_rgba(16,185,129,0.25),0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_6px_24px_-4px_rgba(16,185,129,0.15)] font-semibold text-base text-emerald-700 dark:text-emerald-300 hover:shadow-[0_10px_36px_-4px_rgba(16,185,129,0.35),0_4px_12px_-2px_rgba(0,0,0,0.1)] hover:-translate-y-1 active:translate-y-0.5 active:shadow-[0_2px_8px_-2px_rgba(16,185,129,0.2)] transition-all duration-200"
               >
                 <div className="absolute inset-0 bg-gradient-to-br from-white/60 via-transparent to-transparent dark:from-white/5 pointer-events-none" />
                 <div className="h-11 w-11 rounded-xl bg-emerald-500/15 dark:bg-emerald-500/20 flex items-center justify-center shrink-0 shadow-inner">
@@ -120,7 +120,7 @@ const Modules = () => {
               </button>
               <button
                 onClick={() => navigate("/script-creator?mode=adaptation")}
-                className="relative overflow-hidden flex items-center gap-4 px-6 py-5 rounded-2xl border border-violet-300/40 dark:border-violet-500/20 bg-gradient-to-br from-violet-50 to-purple-50/80 dark:from-violet-900/20 dark:to-purple-900/15 backdrop-blur-xl shadow-[0_6px_24px_-4px_rgba(139,92,246,0.25),0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_6px_24px_-4px_rgba(139,92,246,0.15)] font-semibold text-lg text-violet-700 dark:text-violet-300 hover:shadow-[0_10px_36px_-4px_rgba(139,92,246,0.35),0_4px_12px_-2px_rgba(0,0,0,0.1)] hover:-translate-y-1 active:translate-y-0.5 active:shadow-[0_2px_8px_-2px_rgba(139,92,246,0.2)] transition-all duration-200"
+                className="relative overflow-hidden flex items-center gap-4 px-5 py-4 rounded-2xl border border-violet-300/40 dark:border-violet-500/20 bg-gradient-to-br from-violet-50 to-purple-50/80 dark:from-violet-900/20 dark:to-purple-900/15 backdrop-blur-xl shadow-[0_6px_24px_-4px_rgba(139,92,246,0.25),0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_6px_24px_-4px_rgba(139,92,246,0.15)] font-semibold text-base text-violet-700 dark:text-violet-300 hover:shadow-[0_10px_36px_-4px_rgba(139,92,246,0.35),0_4px_12px_-2px_rgba(0,0,0,0.1)] hover:-translate-y-1 active:translate-y-0.5 active:shadow-[0_2px_8px_-2px_rgba(139,92,246,0.2)] transition-all duration-200"
               >
                 <div className="absolute inset-0 bg-gradient-to-br from-white/60 via-transparent to-transparent dark:from-white/5 pointer-events-none" />
                 <div className="h-11 w-11 rounded-xl bg-violet-500/15 dark:bg-violet-500/20 flex items-center justify-center shrink-0 shadow-inner">
@@ -129,6 +129,19 @@ const Modules = () => {
                 <div className="text-left leading-tight relative">
                   <div>同款创作</div>
                   <div className="text-sm font-normal text-violet-600/70 dark:text-violet-400/60 mt-1">基于参考剧本</div>
+                </div>
+              </button>
+              <button
+                onClick={() => navigate("/compliance-review")}
+                className="relative overflow-hidden flex items-center gap-4 px-5 py-4 rounded-2xl border border-rose-300/40 dark:border-rose-500/20 bg-gradient-to-br from-rose-50 to-pink-50/80 dark:from-rose-900/20 dark:to-pink-900/15 backdrop-blur-xl shadow-[0_6px_24px_-4px_rgba(244,63,94,0.25),0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_6px_24px_-4px_rgba(244,63,94,0.15)] font-semibold text-base text-rose-700 dark:text-rose-300 hover:shadow-[0_10px_36px_-4px_rgba(244,63,94,0.35),0_4px_12px_-2px_rgba(0,0,0,0.1)] hover:-translate-y-1 active:translate-y-0.5 active:shadow-[0_2px_8px_-2px_rgba(244,63,94,0.2)] transition-all duration-200"
+              >
+                <div className="absolute inset-0 bg-gradient-to-br from-white/60 via-transparent to-transparent dark:from-white/5 pointer-events-none" />
+                <div className="h-11 w-11 rounded-xl bg-rose-500/15 dark:bg-rose-500/20 flex items-center justify-center shrink-0 shadow-inner">
+                  <ShieldCheck className="h-6 w-6 shrink-0" />
+                </div>
+                <div className="text-left leading-tight relative">
+                  <div>合规审核</div>
+                  <div className="text-sm font-normal text-rose-600/70 dark:text-rose-400/60 mt-1">上传剧本审查</div>
                 </div>
               </button>
             </div>
