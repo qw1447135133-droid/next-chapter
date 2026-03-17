@@ -437,10 +437,18 @@ const ComplianceReview = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-wrap gap-2 mb-4">
-                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                  <span className="inline-block w-3 h-3 rounded bg-yellow-200 dark:bg-yellow-700/60 border border-yellow-400/50" />
-                  合规风险标记
+              <div className="flex flex-wrap gap-4 mb-4">
+                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="inline-block w-3 h-3 rounded bg-red-200 dark:bg-red-800/60 border border-red-500" />
+                  ⛔ 红线问题
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="inline-block w-3 h-3 rounded bg-orange-200 dark:bg-orange-700/60 border border-orange-500" />
+                  ⚠️ 高风险内容
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="inline-block w-3 h-3 rounded bg-yellow-200 dark:bg-yellow-700/60 border border-yellow-500" />
+                  ℹ️ 优化建议
                 </span>
               </div>
               <div className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
