@@ -602,12 +602,12 @@ ${paletteText}`;
                     停止
                   </Button>
                 ) : (
-                  <Button variant="outline" size="sm" onClick={handleAutoAdjust} className="gap-1.5" disabled={paletteEditing}>
+                  <Button variant="outline" size="sm" onClick={handleAutoAdjust} className="gap-1.5" disabled={paletteEditing || isAutoAdjusting}>
                     <Wand2 className="h-3.5 w-3.5" />
                     自动调整
                   </Button>
                 )}
-                <Button variant="outline" size="sm" onClick={handlePaletteEditToggle} className="gap-1.5">
+                <Button variant="outline" size="sm" onClick={handlePaletteEditToggle} className="gap-1.5" disabled={isAutoAdjusting}>
                   {paletteEditing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
                   {paletteEditing ? "完成" : "编辑"}
                 </Button>
