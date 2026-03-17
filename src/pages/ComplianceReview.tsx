@@ -444,7 +444,7 @@ const ComplianceReview = () => {
                 <Palette className="h-5 w-5" />
                 调色盘文本对比
                 <span className="text-sm font-normal text-muted-foreground">
-                  共标记 {riskPhrases.length} 处风险片段
+                  共识别 {riskPhrases.length} 处风险片段，{riskPhrases.filter(p => scriptText.includes(p)).length} 处已在原文中标记
                 </span>
               </CardTitle>
             </CardHeader>
@@ -463,11 +463,18 @@ const ComplianceReview = () => {
                   ℹ️ 优化建议
                 </span>
               </div>
-              <div className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
-                <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
-                  {highlightedScript}
-                </pre>
-              </div>
+              {highlightedScript ? (
+                <div className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
+                  <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
+                    {highlightedScript}
+                  </pre>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground text-sm">
+                  <p>AI 报告中标记的风险片段未能在原文中精确匹配。</p>
+                  <p className="mt-1">请尝试重新生成报告，AI 将更精确地引用原文。</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
