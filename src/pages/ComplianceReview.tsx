@@ -171,7 +171,12 @@ const ComplianceReview = () => {
   // Build highlighted script with risk phrases marked by severity color
   const highlightedScript = useMemo(() => {
     if (!scriptText || riskPhrases.length === 0) return null;
-    const escaped = riskPhrases.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    // Sort by length descending so longer phrases match first
+    const sorted = [...riskPhrases].sort((a, b) => b.length - a.length);
+    // Filter to only phrases that actually appear in the script
+    const matching = sorted.filter(p => scriptText.includes(p));
+    if (matching.length === 0) return null;
+    const escaped = matching.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     const regex = new RegExp(`(${escaped.join("|")})`, "g");
     const parts = scriptText.split(regex);
     return parts.map((part, i) => {
