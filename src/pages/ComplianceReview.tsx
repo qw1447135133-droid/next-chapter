@@ -31,10 +31,11 @@ ${scriptText}
 请**仅**对以下三个维度进行合规审查，不检查其它任何项目：
 
 ### 一、血腥暴力内容
-检查是否存在：
-- 过度血腥暴力描写（详细的伤害描述、血腥场景、肢体损伤等）
-- 美化暴力行为（将暴力作为解决问题的正面手段等）
-- 酷刑虐待描写
+**仅检查字面上明确的血腥暴力描写**，不考虑引申含义、社会影响或教育问题：
+- 明确描写血液、伤口、肢体损伤的文字（如"喷出大量鲜血"、"割破喉咙"、"内脏外露"等）
+- 明确描写酷刑虐待过程的文字
+- 明确描写致人死亡的暴力行为细节
+- **不标记**：推搡、扇耳光、拽头发等轻度肢体冲突；没有血腥细节的打斗；抽象或隐晦的暴力暗示
 
 ### 二、版权侵犯
 检查是否存在：
@@ -43,10 +44,10 @@ ${scriptText}
 - 未授权使用品牌名称或商标
 
 ### 三、色情内容
-检查是否存在：
-- 裸露描写或性行为描写
-- 明确的性暗示或低俗对话
-- 其他色情低俗内容
+**仅检查字面上明确的色情描写**，不考虑引申含义：
+- 明确的裸露描写或性行为描写
+- 明确的性器官描写
+- **不标记**：调情对话、亲吻拥抱、暧昧氛围等非明确色情内容
 
 ## 输出格式
 
@@ -150,7 +151,7 @@ const ComplianceReview = () => {
   const RISK_STYLES: Record<RiskLevel, string> = {
     red: "bg-red-200 dark:bg-red-800/60 border-b-2 border-red-500",
     high: "bg-orange-200 dark:bg-orange-700/60 border-b-2 border-orange-500",
-    info: "bg-yellow-200 dark:bg-yellow-700/60 border-b-2 border-yellow-500",
+    info: "bg-blue-200 dark:bg-blue-700/60 border-b-2 border-blue-500",
   };
 
   // Build highlighted script with risk phrases marked by severity color
@@ -444,7 +445,7 @@ const ComplianceReview = () => {
                   ⚠️ 高风险内容
                 </span>
                 <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="inline-block w-3 h-3 rounded bg-yellow-200 dark:bg-yellow-700/60 border border-yellow-500" />
+                  <span className="inline-block w-3 h-3 rounded bg-blue-200 dark:bg-blue-700/60 border border-blue-500" />
                   ℹ️ 优化建议
                 </span>
               </div>
