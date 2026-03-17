@@ -632,17 +632,19 @@ ${paletteText}`;
                   ℹ️ 优化建议
                 </span>
               </div>
-              {paletteEditing ? (
-                <Textarea
-                  value={paletteText}
-                  onChange={(e) => setPaletteText(e.target.value)}
-                  rows={20}
-                  className="font-mono text-sm"
-                  placeholder="编辑剧本内容..."
-                />
-              ) : highlightedScript ? (
+              {highlightedScript ? (
                 <div ref={paletteScrollRef} className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
-                  <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
+                  <pre
+                    ref={paletteEditRef}
+                    className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 outline-none"
+                    contentEditable={paletteEditing}
+                    suppressContentEditableWarning
+                    onBlur={() => {
+                      if (paletteEditing && paletteEditRef.current) {
+                        setPaletteText(paletteEditRef.current.innerText);
+                      }
+                    }}
+                  >
                     {highlightedScript}
                   </pre>
                 </div>
