@@ -78,11 +78,18 @@ ${scriptText}
 6. **问题清单汇总**：按严重程度排序的完整问题列表
 7. **修改建议**：针对每个问题的具体修改方案
 
-**重要：在修改建议中，请明确引用原文中存在合规风险的具体语句或段落，按严重程度使用不同标记：
-- 红线问题用 ⛔【风险原文片段】 标记
-- 高风险内容用 ⚠️【风险原文片段】 标记  
-- 优化建议用 ℹ️【风险原文片段】 标记
-这些标记将用于后续自动分级标注。**
+**⚠️ 极其重要的标记规则 — 必须严格遵守：**
+
+在整个报告中，每当你提到原文中存在合规风险的具体语句时，**必须**从原文中逐字逐句复制该片段（不得改写、缩写、省略或重新措辞），并用以下格式包裹：
+- 红线问题：⛔【原文中逐字复制的风险片段】
+- 高风险内容：⚠️【原文中逐字复制的风险片段】
+- 优化建议：ℹ️【原文中逐字复制的风险片段】
+
+**要求：**
+- 【】内的文字必须与原文完全一致，一个字都不能改动
+- 尽量引用完整的句子或段落，不要只引用个别词语
+- 每个风险点都必须有对应的原文标记
+- 在报告的所有章节中都使用此标记格式，不仅限于修改建议部分
 
 用 Markdown 格式输出，清晰分区。`;
 
@@ -164,7 +171,12 @@ const ComplianceReview = () => {
   // Build highlighted script with risk phrases marked by severity color
   const highlightedScript = useMemo(() => {
     if (!scriptText || riskPhrases.length === 0) return null;
-    const escaped = riskPhrases.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    // Sort by length descending so longer phrases match first
+    const sorted = [...riskPhrases].sort((a, b) => b.length - a.length);
+    // Filter to only phrases that actually appear in the script
+    const matching = sorted.filter(p => scriptText.includes(p));
+    if (matching.length === 0) return null;
+    const escaped = matching.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     const regex = new RegExp(`(${escaped.join("|")})`, "g");
     const parts = scriptText.split(regex);
     return parts.map((part, i) => {
@@ -432,7 +444,7 @@ const ComplianceReview = () => {
                 <Palette className="h-5 w-5" />
                 调色盘文本对比
                 <span className="text-sm font-normal text-muted-foreground">
-                  共标记 {riskPhrases.length} 处风险片段
+                  共识别 {riskPhrases.length} 处风险片段，{riskPhrases.filter(p => scriptText.includes(p)).length} 处已在原文中标记
                 </span>
               </CardTitle>
             </CardHeader>
@@ -451,11 +463,18 @@ const ComplianceReview = () => {
                   ℹ️ 优化建议
                 </span>
               </div>
-              <div className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
-                <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
-                  {highlightedScript}
-                </pre>
-              </div>
+              {highlightedScript ? (
+                <div className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
+                  <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
+                    {highlightedScript}
+                  </pre>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground text-sm">
+                  <p>AI 报告中标记的风险片段未能在原文中精确匹配。</p>
+                  <p className="mt-1">请尝试重新生成报告，AI 将更精确地引用原文。</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
