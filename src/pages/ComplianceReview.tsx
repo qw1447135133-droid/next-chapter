@@ -329,7 +329,7 @@ const ComplianceReview = () => {
       setIsAutoAdjusting(false);
       autoAdjustAbortRef.current = null;
     }
-  }, [paletteText, riskMap, model, phraseReplacements]);
+  };
 
   // Export palette text as Word document
   const handlePaletteExport = useCallback(async () => {
