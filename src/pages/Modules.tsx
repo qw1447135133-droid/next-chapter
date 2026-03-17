@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Film, PenTool, ArrowLeft, Settings, Sparkles, Play, Layers, FileText, BookOpen, Repeat2 } from "lucide-react";
+import { Film, PenTool, ArrowLeft, Settings, Sparkles, Play, Layers, FileText, BookOpen, Repeat2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const modules = [
