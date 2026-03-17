@@ -359,7 +359,7 @@ ${paletteText}`;
     } catch (e: any) {
       toast({ title: "导出失败", description: e?.message, variant: "destructive" });
     }
-  }, [paletteEditing, paletteText, scriptText, riskMap]);
+  }, [paletteEditing, paletteText, scriptText, activeRiskMap]);
 
   const handlePaletteEditToggle = () => {
     if (paletteEditing) {
