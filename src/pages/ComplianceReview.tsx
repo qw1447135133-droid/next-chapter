@@ -207,99 +207,129 @@ const ComplianceReview = () => {
     const text = paletteEditing ? paletteText : scriptText;
     return buildHighlightedParts(text, isAutoAdjusting ? adjustingPhrases : undefined);
   }, [paletteEditing, paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases]);
-  // Auto-adjust: only red-line and high-risk, show blanks during adjustment
+  const normalizeForCompare = (value: string) => value.replace(/\s+/g, "").trim();
+
+  const parseRewriteJson = (raw: string) => {
+    const fallback = new Map<number, string>();
+    const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim() ?? raw.trim();
+    const start = fenced.indexOf("[");
+    const end = fenced.lastIndexOf("]");
+    if (start === -1 || end === -1 || end <= start) return fallback;
+
+    try {
+      const parsed = JSON.parse(fenced.slice(start, end + 1));
+      if (!Array.isArray(parsed)) return fallback;
+      for (const item of parsed) {
+        const id = Number(item?.id);
+        const replacement = typeof item?.replacement === "string" ? item.replacement.trim() : "";
+        if (Number.isFinite(id) && replacement) fallback.set(id, replacement);
+      }
+    } catch {
+      return fallback;
+    }
+
+    return fallback;
+  };
+
+  // Auto-adjust: only red-line/high-risk, and only send target fragments to AI
   const handleAutoAdjust = useCallback(async () => {
-    // Build current text → original phrase mapping for re-adjustment
-    // Find phrases that exist in paletteText (either original or previously replaced)
     const targetEntries: { original: string; current: string; level: RiskLevel }[] = [];
     for (const [phrase, level] of riskMap.entries()) {
       if (level !== "red" && level !== "high") continue;
-      // Check if original phrase still exists
       if (paletteText.includes(phrase)) {
         targetEntries.push({ original: phrase, current: phrase, level });
-      } else {
-        // Check if a previous replacement exists in text
-        const replaced = phraseReplacements.get(phrase);
-        if (replaced && paletteText.includes(replaced)) {
-          targetEntries.push({ original: phrase, current: replaced, level });
-        }
+        continue;
+      }
+      const replaced = phraseReplacements.get(phrase);
+      if (replaced && paletteText.includes(replaced)) {
+        targetEntries.push({ original: phrase, current: replaced, level });
       }
     }
+
     if (targetEntries.length === 0) {
       toast({ title: "没有需要调整的红线或高风险内容" });
       return;
     }
+
     setIsAutoAdjusting(true);
-    setAdjustingPhrases(new Set(targetEntries.map(e => e.current)));
+    setAdjustingPhrases(new Set(targetEntries.map((e) => e.current)));
     autoAdjustAbortRef.current = new AbortController();
-    try {
-      const issueList = targetEntries.map((entry, i) => {
-        const label = entry.level === "red" ? "红线问题" : "高风险内容";
-        return `${i + 1}. [${label}] "${entry.current}"`;
-      }).join("\n");
-      const prompt = `你是一位专业的剧本合规改写专家。
 
-## 任务
-请为以下不合规片段提供改写替代文本。
+    const requestRewrite = async (
+      entries: { original: string; current: string; level: RiskLevel }[],
+      strict = false,
+    ) => {
+      const payload = entries.map((entry, idx) => ({
+        id: idx + 1,
+        level: entry.level === "red" ? "red_line" : "high_risk",
+        text: entry.current,
+      }));
 
-## 规则
-1. 仅对列出的片段提供替代文本
-2. 改写后的内容要保持叙事连贯，语言风格与上下文一致
-3. 血腥暴力描写改为隐晦、间接的表述
-4. 色情描写改为含蓄暗示
-5. 版权内容改为原创替代
-6. 替代文本长度尽量与原文相近
-7. 替代文本必须与原文有明显区别，不能相同或仅做微小调整
+      const prompt = `你是短剧合规改写助手。\n\n你只会收到“需要修改的片段”，不要处理全文。\n目标：对片段做和谐化处理，保留原有表达意思、剧情信息、人物关系和语气，不新增事实。\n\n硬性要求：\n1) 只改写给定片段，不输出解释\n2) replacement 必须与原文不同，不能原样返回\n3) 保持语义等价，长度尽量接近原文\n4) 不要使用空字符串\n${strict ? "5) 如果第一次改写仍接近原文，请使用更明确但同义的合规表达" : ""}\n\n请只输出 JSON 数组（不要 markdown）：\n[{\"id\":1,\"replacement\":\"...\"}]\n\n待改写片段：\n${JSON.stringify(payload, null, 2)}`;
 
-## 输出格式
-严格按以下格式输出，每行一个替换对，不要任何多余文字：
-REPLACE: "原文片段" -> "替代文本"
-
-## 需要改写的片段
-${issueList}
-
-## 上下文（完整剧本）
-${paletteText}`;
-
-      const result = await callGeminiStream(
+      const raw = await callGeminiStream(
         model,
         [{ role: "user", parts: [{ text: prompt }] }],
         () => {},
-        { maxOutputTokens: 8192 },
-        autoAdjustAbortRef.current.signal,
+        { maxOutputTokens: 8192, temperature: strict ? 0.8 : 0.5 },
+        autoAdjustAbortRef.current?.signal,
       );
 
-      // Parse REPLACE: "original" -> "replacement" lines
-      let newText = paletteText;
-      const newReplacements = new Map(phraseReplacements);
-      const replaceRegex = /REPLACE:\s*"([^"]+)"\s*->\s*"([^"]+)"/g;
-      let match;
-      while ((match = replaceRegex.exec(result)) !== null) {
-        const original = match[1];
-        const replacement = match[2];
-        if (original !== replacement && newText.includes(original)) {
-          newText = newText.split(original).join(replacement);
-          // Track: find which riskMap key this corresponds to
-          const entry = targetEntries.find(e => e.current === original);
-          if (entry) {
-            newReplacements.set(entry.original, replacement);
+      return parseRewriteJson(raw);
+    };
+
+    try {
+      let workingText = paletteText;
+      let workingReplacements = new Map(phraseReplacements);
+      let pending = [...targetEntries];
+      let appliedCount = 0;
+
+      for (const strict of [false, true]) {
+        if (pending.length === 0) break;
+
+        const rewrites = await requestRewrite(pending, strict);
+        const nextPending: typeof pending = [];
+
+        pending.forEach((entry, idx) => {
+          const replacement = rewrites.get(idx + 1)?.trim();
+          if (!replacement || normalizeForCompare(replacement) === normalizeForCompare(entry.current)) {
+            nextPending.push(entry);
+            return;
           }
-        }
+          if (!workingText.includes(entry.current)) {
+            nextPending.push(entry);
+            return;
+          }
+
+          workingText = workingText.split(entry.current).join(replacement);
+          workingReplacements.set(entry.original, replacement);
+          appliedCount += 1;
+        });
+
+        pending = nextPending.filter((entry) => workingText.includes(entry.current));
       }
-      setPhraseReplacements(newReplacements);
-      setPaletteText(newText);
-      setAdjustingPhrases(new Set());
-      toast({ title: "自动调整完成", description: "请检查修改结果，可再次点击调整" });
+
+      if (appliedCount === 0) {
+        toast({ title: "自动调整未生效", description: "AI 返回与原文一致，请重试或手动编辑", variant: "destructive" });
+        return;
+      }
+
+      setPhraseReplacements(workingReplacements);
+      setPaletteText(workingText);
+      toast({
+        title: "自动调整完成",
+        description: pending.length > 0 ? `已调整 ${appliedCount} 处，仍有 ${pending.length} 处建议手动调整` : `已调整 ${appliedCount} 处`,
+      });
     } catch (e: any) {
-      setAdjustingPhrases(new Set());
       if (!e?.message?.includes("取消")) {
         toast({ title: "自动调整失败", description: e?.message, variant: "destructive" });
       }
     } finally {
+      setAdjustingPhrases(new Set());
       setIsAutoAdjusting(false);
       autoAdjustAbortRef.current = null;
     }
-  }, [paletteText, riskPhrases, riskMap, model, phraseReplacements]);
+  }, [paletteText, riskMap, model, phraseReplacements]);
 
   // Export palette text as Word document
   const handlePaletteExport = useCallback(async () => {
