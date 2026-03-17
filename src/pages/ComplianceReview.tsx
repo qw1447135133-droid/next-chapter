@@ -123,32 +123,62 @@ const ComplianceReview = () => {
     setModelDropdownOpen(false);
   };
 
-  // Extract risk phrases from report (marked with 【】)
-  const riskPhrases = useMemo(() => {
-    if (!complianceReport) return [];
-    const matches = complianceReport.match(/【([^】]+)】/g);
-    if (!matches) return [];
-    return [...new Set(matches.map(m => m.slice(1, -1)))];
+  // Extract risk phrases with severity levels from report
+  type RiskLevel = "red" | "high" | "info";
+  const riskMap = useMemo(() => {
+    if (!complianceReport) return new Map<string, RiskLevel>();
+    const map = new Map<string, RiskLevel>();
+    // Match ⛔【...】, ⚠️【...】, ℹ️【...】 patterns
+    const patterns: [RegExp, RiskLevel][] = [
+      [/⛔\s*【([^】]+)】/g, "red"],
+      [/⚠️\s*【([^】]+)】/g, "high"],
+      [/ℹ️\s*【([^】]+)】/g, "info"],
+    ];
+    for (const [regex, level] of patterns) {
+      let m: RegExpExecArray | null;
+      while ((m = regex.exec(complianceReport)) !== null) {
+        const phrase = m[1];
+        // Keep highest severity if duplicate
+        if (!map.has(phrase) || (level === "red") || (level === "high" && map.get(phrase) === "info")) {
+          map.set(phrase, level);
+        }
+      }
+    }
+    // Also fallback: plain 【...】 without prefix → info
+    const plain = /(?<!⛔\s*)(?<!⚠️\s*)(?<!ℹ️\s*)【([^】]+)】/g;
+    let pm: RegExpExecArray | null;
+    while ((pm = plain.exec(complianceReport)) !== null) {
+      if (!map.has(pm[1])) map.set(pm[1], "info");
+    }
+    return map;
   }, [complianceReport]);
 
-  // Build highlighted script with risk phrases marked
+  const riskPhrases = useMemo(() => [...riskMap.keys()], [riskMap]);
+
+  const RISK_STYLES: Record<RiskLevel, string> = {
+    red: "bg-red-200 dark:bg-red-800/60 border-b-2 border-red-500",
+    high: "bg-orange-200 dark:bg-orange-700/60 border-b-2 border-orange-500",
+    info: "bg-yellow-200 dark:bg-yellow-700/60 border-b-2 border-yellow-500",
+  };
+
+  // Build highlighted script with risk phrases marked by severity color
   const highlightedScript = useMemo(() => {
     if (!scriptText || riskPhrases.length === 0) return null;
-    // Build a regex matching any risk phrase
     const escaped = riskPhrases.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     const regex = new RegExp(`(${escaped.join("|")})`, "g");
     const parts = scriptText.split(regex);
     return parts.map((part, i) => {
-      if (riskPhrases.includes(part)) {
+      const level = riskMap.get(part);
+      if (level) {
         return (
-          <mark key={i} className="bg-yellow-200 dark:bg-yellow-700/60 text-foreground rounded px-0.5">
+          <mark key={i} className={`${RISK_STYLES[level]} text-foreground rounded px-0.5`}>
             {part}
           </mark>
         );
       }
       return <span key={i}>{part}</span>;
     });
-  }, [scriptText, riskPhrases]);
+  }, [scriptText, riskPhrases, riskMap]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
