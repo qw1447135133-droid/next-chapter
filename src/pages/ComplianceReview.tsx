@@ -98,8 +98,18 @@ const ComplianceReview = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const scrollRef = useAutoScroll<HTMLPreElement>(isGenerating, streamingText);
+  const paletteScrollRef = useRef<HTMLDivElement>(null);
   const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress, canResume: transCanResume, resumeTranslation } = useTranslation();
   const nonChinese = isNonChineseText(complianceReport);
+  const [paletteEditing, setPaletteEditing] = useState(false);
+  const [paletteText, setPaletteText] = useState("");
+  const [isAutoAdjusting, setIsAutoAdjusting] = useState(false);
+  const autoAdjustAbortRef = useRef<AbortController | null>(null);
+
+  // Sync palette text with script text when not editing
+  useEffect(() => {
+    if (!paletteEditing) setPaletteText(scriptText);
+  }, [scriptText, paletteEditing]);
 
   // Close model dropdown on outside click
   useEffect(() => {
