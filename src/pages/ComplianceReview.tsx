@@ -232,7 +232,7 @@ const ComplianceReview = () => {
   };
 
   // Auto-adjust: only red-line/high-risk, and only send target fragments to AI
-  const handleAutoAdjust = useCallback(async () => {
+  const handleAutoAdjust = async () => {
     const targetEntries: { original: string; current: string; level: RiskLevel }[] = [];
     for (const [phrase, level] of riskMap.entries()) {
       if (level !== "red" && level !== "high") continue;
