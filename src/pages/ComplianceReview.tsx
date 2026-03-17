@@ -445,7 +445,7 @@ const ComplianceReview = () => {
                   ⚠️ 高风险内容
                 </span>
                 <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="inline-block w-3 h-3 rounded bg-yellow-200 dark:bg-yellow-700/60 border border-yellow-500" />
+                  <span className="inline-block w-3 h-3 rounded bg-blue-200 dark:bg-blue-700/60 border border-blue-500" />
                   ℹ️ 优化建议
                 </span>
               </div>
