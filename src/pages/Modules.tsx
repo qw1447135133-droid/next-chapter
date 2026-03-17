@@ -104,7 +104,7 @@ const Modules = () => {
             </div>
 
             {/* 右侧按钮区 */}
-            <div className="flex flex-col gap-5 p-6 justify-center min-w-[240px]">
+            <div className="flex flex-col gap-4 p-6 justify-center min-w-[240px]">
               <button
                 onClick={() => navigate("/script-creator?mode=traditional")}
                 className="relative overflow-hidden flex items-center gap-4 px-6 py-5 rounded-2xl border border-emerald-300/40 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-50 to-teal-50/80 dark:from-emerald-900/20 dark:to-teal-900/15 backdrop-blur-xl shadow-[0_6px_24px_-4px_rgba(16,185,129,0.25),0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_6px_24px_-4px_rgba(16,185,129,0.15)] font-semibold text-lg text-emerald-700 dark:text-emerald-300 hover:shadow-[0_10px_36px_-4px_rgba(16,185,129,0.35),0_4px_12px_-2px_rgba(0,0,0,0.1)] hover:-translate-y-1 active:translate-y-0.5 active:shadow-[0_2px_8px_-2px_rgba(16,185,129,0.2)] transition-all duration-200"
