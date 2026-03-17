@@ -166,16 +166,31 @@ const ComplianceReview = () => {
 
   // Build highlighted script with risk phrases marked by severity color
   // Supports: normal view, editing (contentEditable), and auto-adjusting (blanks for adjusting phrases)
+  // Build a combined map that includes both original phrases and their replacements
+  const activeRiskMap = useMemo(() => {
+    const map = new Map<string, RiskLevel>(riskMap);
+    // Add replaced phrases with their original risk level
+    for (const [original, replacement] of phraseReplacements.entries()) {
+      const level = riskMap.get(original);
+      if (level && !map.has(replacement)) {
+        map.set(replacement, level);
+      }
+    }
+    return map;
+  }, [riskMap, phraseReplacements]);
+
+  const activeRiskPhrases = useMemo(() => [...activeRiskMap.keys()], [activeRiskMap]);
+
   const buildHighlightedParts = useCallback((text: string, blankPhrases?: Set<string>) => {
-    if (!text || riskPhrases.length === 0) return null;
-    const sorted = [...riskPhrases].sort((a, b) => b.length - a.length);
+    if (!text || activeRiskPhrases.length === 0) return null;
+    const sorted = [...activeRiskPhrases].sort((a, b) => b.length - a.length);
     const matching = sorted.filter(p => text.includes(p));
     if (matching.length === 0) return null;
     const escaped = matching.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     const regex = new RegExp(`(${escaped.join("|")})`, "g");
     const parts = text.split(regex);
     return parts.map((part, i) => {
-      const level = riskMap.get(part);
+      const level = activeRiskMap.get(part);
       if (level) {
         const isBlank = blankPhrases?.has(part);
         return (
@@ -186,7 +201,7 @@ const ComplianceReview = () => {
       }
       return <span key={i}>{part}</span>;
     });
-  }, [riskPhrases, riskMap]);
+  }, [activeRiskPhrases, activeRiskMap]);
 
   const highlightedScript = useMemo(() => {
     const text = paletteEditing ? paletteText : scriptText;
