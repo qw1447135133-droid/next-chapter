@@ -83,13 +83,13 @@ const Modules = () => {
             className="relative flex items-stretch gap-0 rounded-2xl border border-border/60 bg-gradient-to-br from-amber-500/15 to-orange-500/15 dark:from-amber-500/10 dark:to-orange-600/10 backdrop-blur-sm text-left overflow-hidden">
             
             {/* 左侧信息区 */}
-            <div className="flex flex-col items-start gap-4 p-8 flex-1">
+            <div className="flex flex-col items-start gap-5 p-8 flex-1 min-w-0">
               <div className="h-14 w-14 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 flex items-center justify-center">
                 <PenTool className="h-7 w-7 text-amber-600 dark:text-amber-400" />
               </div>
               <div>
                 <h2 className="text-xl font-bold font-[Space_Grotesk] mb-1.5">剧本创作</h2>
-                <p className="text-sm text-muted-foreground leading-relaxed">AI 辅助创作完整剧本，从主题大纲到成稿</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">从剧本拆解分镜、生成画面到合成视频</p>
               </div>
               <div className="flex items-center gap-4 mt-auto">
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
