@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Trash2, Plus, ArrowRight, ChevronDown, ChevronRight, Link2 } from "lucide-react";
+import { Trash2, Plus, ArrowRight, ChevronDown, ChevronRight, Link2, FileSpreadsheet } from "lucide-react";
 import { useState } from "react";
+import { exportScenesToXlsx } from "@/lib/export-xlsx";
 
 /** Find the best matching costume label for a character in a given scene */
 function matchCostumeLabel(character: CharacterSetting, scene: Scene): { label: string; source: 'ai' | 'manual' | 'auto' } | null {
@@ -189,6 +190,15 @@ const SceneList = ({ scenes, onScenesChange, onNext, characters = [] }: SceneLis
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1"
+            onClick={() => exportScenesToXlsx(scenes)}
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" />
+            导出分镜
+          </Button>
           <Button size="sm" onClick={onNext} className="gap-1">
             下一步
             <ArrowRight className="h-3.5 w-3.5" />

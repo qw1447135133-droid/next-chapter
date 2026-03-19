@@ -327,7 +327,23 @@ const Workspace = () => {
     analyzeAbortRef.current = null;
     isAnalyzingRef.current = false;
     setIsAnalyzing(false);
-    setAnalyzePhase("idle");
+    // Keep phase info visible so user can see chunk status and retry
+    setDecomposeChunks(prev => {
+      if (prev.length === 0) return prev;
+      return prev.map(c =>
+        c.status === "processing" || c.status === "pending"
+          ? { ...c, status: "cancelled" as const }
+          : c
+      );
+    });
+    // Only reset to idle if no chunks were produced; otherwise show phase2-failed for retry
+    const hasAnyDone = scenes.length > 0;
+    if (hasAnyDone) {
+      setAnalyzePhase("phase2-failed");
+      setPhase2Info("已手动中止，可重试未完成的集");
+    } else {
+      setAnalyzePhase("idle");
+    }
     toast({ title: "已中止", description: "剧本分析已取消" });
   };
 
@@ -582,7 +598,7 @@ const Workspace = () => {
         
     } catch (e: any) {
       if (e?.name === "AbortError" || e?.message?.includes("aborted")) {
-        setAnalyzePhase("idle");
+        // Don't reset to idle — handleCancelAnalyze already set the right state
         resetAnalyzing();
         return;
       }
