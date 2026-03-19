@@ -24,11 +24,7 @@ function createWindow() {
     const appPath = app.getAppPath();
     const indexPath = path.join(appPath, 'dist', 'index.html');
     const fileUrl = 'file:///' + indexPath.replace(/\\/g, '/');
-    console.log('App path:', appPath);
-    console.log('Index path:', indexPath);
-    console.log('File URL:', fileUrl);
     win.loadURL(fileUrl);
-    win.webContents.openDevTools();
   }
 }
 

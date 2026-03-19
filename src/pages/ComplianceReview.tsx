@@ -5,13 +5,30 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ArrowLeft, RefreshCw, Pencil, Eye, Square, ShieldCheck, Upload, Film, FileText, ChevronDown, ChevronUp, Palette, Wand2, Download } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ArrowLeft, RefreshCw, Pencil, Eye, Square, ShieldCheck, Upload, Film, FileText, ChevronDown, ChevronUp, Palette, Wand2, Download, Table as TableIcon, FileSpreadsheet } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "@/components/script-creator/TranslateButton";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
 import { saveAs } from "file-saver";
+import * as XLSX from "xlsx";
+// xlsx 类型声明
+declare module "xlsx" {
+  interface WorkBook {
+    SheetNames: string[];
+    Sheets: { [sheet: string]: WorkSheet };
+  }
+  interface WorkSheet {
+    [key: string]: any;
+  }
+  function read(data: ArrayBuffer, opts: { type: string }): WorkBook;
+  namespace utils {
+    function sheet_to_json<T = any>(worksheet: WorkSheet, opts?: { header?: number; defval?: any }): T[];
+  }
+}
 
 type ComplianceModel = "gemini-3.1-pro-preview" | "gemini-3-pro-preview" | "gemini-3-flash-preview";
 
@@ -81,6 +98,16 @@ ${scriptText}
 
 用 Markdown 格式输出，清晰分区。`;
 
+// 表格数据类型
+type TableData = {
+  headers: string[];
+  rows: (string | number | null)[][];
+  fileName: string;
+  sheetName?: string;
+  // 保存原始数据用于导出
+  originalData: (string | number | null)[][];
+};
+
 const ComplianceReview = () => {
   const navigate = useNavigate();
   const [scriptText, setScriptText] = useState("");
@@ -90,6 +117,9 @@ const ComplianceReview = () => {
   const [editing, setEditing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [reportOpen, setReportOpen] = useState(true);
+  // 表格数据状态
+  const [tableData, setTableData] = useState<TableData | null>(null);
+  const [inputMode, setInputMode] = useState<"text" | "table">("text");
   const [model, setModel] = useState<ComplianceModel>(
     () => (localStorage.getItem("compliance-model") as ComplianceModel) || "gemini-3.1-pro-preview"
   );
@@ -211,6 +241,150 @@ const ComplianceReview = () => {
     const text = paletteText || scriptText;
     return buildHighlightedParts(text, isAutoAdjusting ? adjustingPhrases : undefined);
   }, [paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases]);
+
+  // 表格编辑相关状态 - 必须在 renderHighlightedTable 之前定义
+  const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
+  const [editingValue, setEditingValue] = useState<string>("");
+  const tableCellInputRef = useRef<HTMLInputElement>(null);
+
+  // 开始编辑表格单元格
+  const handleTableCellEdit = useCallback((rowIndex: number, colIndex: number) => {
+    const cellValue = tableData?.rows[rowIndex]?.[colIndex];
+    setEditingCell({ row: rowIndex, col: colIndex });
+    setEditingValue(String(cellValue ?? ""));
+    // 延迟聚焦，确保 input 已渲染
+    setTimeout(() => tableCellInputRef.current?.focus(), 0);
+  }, [tableData]);
+
+  // 保存表格单元格编辑
+  const handleTableCellSave = useCallback(() => {
+    if (editingCell && tableData) {
+      const newRows = [...tableData.rows];
+      newRows[editingCell.row] = [...newRows[editingCell.row]];
+      newRows[editingCell.row][editingCell.col] = editingValue;
+      setTableData({ ...tableData, rows: newRows });
+      
+      // 同时更新 scriptText 用于合规审核
+      const textContent = [tableData.headers, ...newRows].map(row => row.join("\t")).join("\n");
+      setScriptText(textContent);
+    }
+    setEditingCell(null);
+    setEditingValue("");
+  }, [editingCell, tableData]);
+
+  // 取消表格单元格编辑
+  const handleTableCellCancel = useCallback(() => {
+    setEditingCell(null);
+    setEditingValue("");
+  }, []);
+
+  // 渲染带风险高亮的表格
+  const renderHighlightedTable = useCallback(() => {
+    if (!tableData) return null;
+    
+    const renderCell = (cell: string | number | null, rowIndex: number, cellIndex: number) => {
+      const cellStr = String(cell ?? "");
+      const isEditing = editingCell?.row === rowIndex && editingCell?.col === cellIndex;
+      
+      // 编辑模式
+      if (isEditing) {
+        return (
+          <input
+            ref={tableCellInputRef}
+            type="text"
+            value={editingValue}
+            onChange={(e) => setEditingValue(e.target.value)}
+            onBlur={handleTableCellSave}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleTableCellSave();
+              if (e.key === "Escape") handleTableCellCancel();
+            }}
+            className="w-full px-1 py-0.5 text-sm bg-background border border-primary rounded outline-none min-w-[60px]"
+          />
+        );
+      }
+      
+      // 显示模式 - 点击可编辑
+      if (!cellStr || activeRiskPhrases.length === 0) {
+        return (
+          <span 
+            className="cursor-pointer hover:bg-accent/50 rounded px-0.5" 
+            onClick={() => handleTableCellEdit(rowIndex, cellIndex)}
+            title="点击编辑"
+          >
+            {cellStr}
+          </span>
+        );
+      }
+      
+      // 检查单元格是否包含风险短语
+      const sorted = [...activeRiskPhrases].sort((a, b) => b.length - a.length);
+      const matching = sorted.filter(p => cellStr.includes(p));
+      if (matching.length === 0) {
+        return (
+          <span 
+            className="cursor-pointer hover:bg-accent/50 rounded px-0.5" 
+            onClick={() => handleTableCellEdit(rowIndex, cellIndex)}
+            title="点击编辑"
+          >
+            {cellStr}
+          </span>
+        );
+      }
+      
+      const escaped = matching.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      const regex = new RegExp(`(${escaped.join("|")})`, "g");
+      const parts = cellStr.split(regex);
+      
+      return (
+        <span 
+          className="cursor-pointer hover:bg-accent/50 rounded px-0.5" 
+          onClick={() => handleTableCellEdit(rowIndex, cellIndex)}
+          title="点击编辑"
+        >
+          {parts.map((part, i) => {
+            const level = activeRiskMap.get(part);
+            if (level) {
+              return (
+                <mark key={i} className={`${RISK_STYLES[level]} text-foreground rounded px-0.5`}>
+                  {part}
+                </mark>
+              );
+            }
+            return <span key={i}>{part}</span>;
+          })}
+        </span>
+      );
+    };
+
+    return (
+      <div className="rounded-md border max-h-[500px] overflow-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {tableData.headers.map((header, i) => (
+                <TableHead key={i} className="font-medium whitespace-nowrap">
+                  {header}
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {tableData.rows.map((row, rowIndex) => (
+              <TableRow key={rowIndex}>
+                {row.map((cell, cellIndex) => (
+                  <TableCell key={cellIndex} className="whitespace-nowrap">
+                    {renderCell(cell, rowIndex, cellIndex)}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    );
+  }, [tableData, activeRiskPhrases, activeRiskMap, editingCell, editingValue]);
+
   const normalizeForCompare = (value: string) => value.replace(/\s+/g, "").trim();
 
   // Check if replacement is genuinely different (not just punctuation/whitespace changes)
@@ -275,14 +449,20 @@ const ComplianceReview = () => {
   // Auto-adjust: only red-line/high-risk, and only send target fragments to AI
   const handleAutoAdjust = async () => {
     const targetEntries: { original: string; current: string; level: RiskLevel }[] = [];
+    
+    // 根据模式获取待检查的文本
+    const textToCheck = inputMode === "table" && tableData
+      ? tableData.rows.map(row => row.join("\t")).join("\n")
+      : paletteText || scriptText;
+    
     for (const [phrase, level] of riskMap.entries()) {
       if (level !== "red" && level !== "high") continue;
-      if (paletteText.includes(phrase)) {
+      if (textToCheck.includes(phrase)) {
         targetEntries.push({ original: phrase, current: phrase, level });
         continue;
       }
       const replaced = phraseReplacements.get(phrase);
-      if (replaced && paletteText.includes(replaced)) {
+      if (replaced && textToCheck.includes(replaced)) {
         targetEntries.push({ original: phrase, current: replaced, level });
       }
     }
@@ -349,7 +529,10 @@ ${JSON.stringify(payload, null, 2)}`;
     };
 
     try {
-      let workingText = paletteText;
+      // 根据模式初始化工作文本
+      let workingText = inputMode === "table" && tableData
+        ? tableData.rows.map(row => row.join("\t")).join("\n")
+        : paletteText || scriptText;
       let workingReplacements = new Map(phraseReplacements);
       let pending = [...targetEntries];
       let appliedCount = 0;
@@ -387,6 +570,27 @@ ${JSON.stringify(payload, null, 2)}`;
 
       setPhraseReplacements(workingReplacements);
       setPaletteText(workingText);
+      
+      // 如果是表格模式，同步更新表格数据
+      if (inputMode === "table" && tableData) {
+        const newRows = tableData.rows.map(row => 
+          row.map(cell => {
+            const cellStr = String(cell ?? "");
+            // 应用所有替换
+            let result = cellStr;
+            for (const [original, replacement] of workingReplacements.entries()) {
+              result = result.split(original).join(replacement);
+            }
+            return result;
+          })
+        );
+        setTableData({ ...tableData, rows: newRows });
+        
+        // 同步更新 scriptText
+        const textContent = [tableData.headers, ...newRows].map(row => row.join("\t")).join("\n");
+        setScriptText(textContent);
+      }
+      
       toast({
         title: "自动调整完成",
         description: pending.length > 0 ? `已调整 ${appliedCount} 处，仍有 ${pending.length} 处建议手动调整` : `已调整 ${appliedCount} 处`,
@@ -402,9 +606,32 @@ ${JSON.stringify(payload, null, 2)}`;
     }
   };
 
-  // Export palette text as Word document
+  // Export palette text - xlsx if table mode, otherwise docx
   const handlePaletteExport = useCallback(async () => {
     try {
+      // 如果是表格模式，导出 xlsx
+      if (inputMode === "table" && tableData) {
+        // 准备导出数据：合并表头和数据行
+        const exportData = [tableData.headers, ...tableData.rows];
+        
+        // 创建工作表
+        const ws = XLSX.utils.aoa_to_sheet(exportData);
+        
+        // 创建工作簿
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, tableData.sheetName || "Sheet1");
+        
+        // 生成文件名
+        const baseName = tableData.fileName.replace(/\.[^.]+$/, "");
+        const exportFileName = `${baseName}_合规审核_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        
+        // 导出
+        XLSX.writeFile(wb, exportFileName);
+        toast({ title: "导出成功", description: `已导出为 ${exportFileName}` });
+        return;
+      }
+
+      // 文本模式导出 docx
       const textToExport = paletteEditing ? paletteText : scriptText;
       const lines = textToExport.split("\n");
       const paragraphs = lines.map(line => {
@@ -460,7 +687,7 @@ ${JSON.stringify(payload, null, 2)}`;
     } catch (e: any) {
       toast({ title: "导出失败", description: e?.message, variant: "destructive" });
     }
-  }, [paletteEditing, paletteText, scriptText, activeRiskMap]);
+  }, [paletteEditing, paletteText, scriptText, activeRiskMap, inputMode, tableData]);
 
   const handlePaletteEditToggle = () => {
     if (paletteEditing) {
@@ -473,7 +700,10 @@ ${JSON.stringify(payload, null, 2)}`;
         setScriptText(paletteText);
       }
     } else {
-      setPaletteText(scriptText);
+      // 进入编辑模式时，不要覆盖已有的 paletteText（自动调整后的内容）
+      if (!paletteText) {
+        setPaletteText(scriptText);
+      }
     }
     setPaletteEditing(!paletteEditing);
   };
@@ -493,7 +723,44 @@ ${JSON.stringify(payload, null, 2)}`;
       if (ext === "txt") {
         const text = await file.text();
         setScriptText((prev) => (prev ? prev + "\n\n" : "") + text);
+        setTableData(null);
+        setInputMode("text");
         toast({ title: "文件已加载" });
+      } else if (["xlsx", "xls", "csv"].includes(ext)) {
+        // 解析 Excel 文件
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        
+        // 转换为 JSON 格式
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" }) as (string | number | null)[][];
+        
+        if (jsonData.length === 0) {
+          toast({ title: "表格为空", description: "未找到有效数据", variant: "destructive" });
+          return;
+        }
+
+        // 第一行作为表头
+        const headers = (jsonData[0] as string[]).map((h, i) => String(h || `列${i + 1}`));
+        const rows = jsonData.slice(1).map(row => 
+          (row as (string | number | null)[]).map(cell => cell ?? "")
+        );
+
+        setTableData({
+          headers,
+          rows,
+          fileName: file.name,
+          sheetName,
+          originalData: jsonData
+        });
+        setInputMode("table");
+        
+        // 同时生成文本版本用于合规审核
+        const textContent = jsonData.map(row => row.join("\t")).join("\n");
+        setScriptText(textContent);
+        
+        toast({ title: "表格已加载", description: `${file.name} - ${sheetName} (${rows.length} 行数据)` });
       } else if (["pdf", "docx", "doc"].includes(ext)) {
         const formData = new FormData();
         formData.append("file", file);
@@ -501,10 +768,12 @@ ${JSON.stringify(payload, null, 2)}`;
         if (error) throw error;
         if (data?.text) {
           setScriptText((prev) => (prev ? prev + "\n\n" : "") + data.text);
+          setTableData(null);
+          setInputMode("text");
           toast({ title: "文档解析完成" });
         }
       } else {
-        toast({ title: "不支持的格式", description: "支持 TXT、PDF、DOCX 文件", variant: "destructive" });
+        toast({ title: "不支持的格式", description: "支持 TXT、PDF、DOCX、XLSX、XLS、CSV 文件", variant: "destructive" });
       }
     } catch (err: any) {
       toast({ title: "文件解析失败", description: err?.message, variant: "destructive" });
@@ -610,7 +879,7 @@ ${JSON.stringify(payload, null, 2)}`;
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".txt,.pdf,.docx,.doc"
+                accept=".txt,.pdf,.docx,.doc,.xlsx,.xls,.csv"
                 className="hidden"
                 onChange={handleFileUpload}
               />
@@ -627,13 +896,69 @@ ${JSON.stringify(payload, null, 2)}`;
             </div>
           </CardHeader>
           <CardContent>
-            <Textarea
-              value={scriptText}
-              onChange={(e) => setScriptText(e.target.value)}
-              placeholder="粘贴剧本内容，或点击上方按钮上传 TXT / PDF / DOCX 文档..."
-              rows={12}
-              className="font-mono text-sm"
-            />
+            {/* 输入模式切换 */}
+            {tableData && (
+              <Tabs value={inputMode} onValueChange={(v) => setInputMode(v as "text" | "table")} className="mb-4">
+                <TabsList className="grid w-full max-w-[300px] grid-cols-2">
+                  <TabsTrigger value="table" className="gap-1.5">
+                    <TableIcon className="h-3.5 w-3.5" />
+                    表格模式
+                  </TabsTrigger>
+                  <TabsTrigger value="text" className="gap-1.5">
+                    <FileText className="h-3.5 w-3.5" />
+                    文本模式
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            )}
+
+            {/* 表格显示模式 */}
+            {inputMode === "table" && tableData ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <FileSpreadsheet className="h-4 w-4" />
+                  <span>{tableData.fileName}</span>
+                  {tableData.sheetName && <span className="text-xs">· {tableData.sheetName}</span>}
+                  <span className="text-xs">({tableData.rows.length} 行)</span>
+                </div>
+                <div className="rounded-md border max-h-[400px] overflow-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        {tableData.headers.map((header, i) => (
+                          <TableHead key={i} className="font-medium whitespace-nowrap">
+                            {header}
+                          </TableHead>
+                        ))}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {tableData.rows.map((row, rowIndex) => (
+                        <TableRow key={rowIndex}>
+                          {row.map((cell, cellIndex) => (
+                            <TableCell key={cellIndex} className="whitespace-nowrap">
+                              {String(cell ?? "")}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            ) : (
+              /* 文本显示模式 */
+              <Textarea
+                value={scriptText}
+                onChange={(e) => {
+                  setScriptText(e.target.value);
+                  if (tableData) setTableData(null);
+                }}
+                placeholder="粘贴剧本内容，或点击上方按钮上传 TXT / PDF / DOCX / XLSX / XLS / CSV 文档..."
+                rows={12}
+                className="font-mono text-sm"
+              />
+            )}
             <div className="text-xs text-muted-foreground mt-2 text-right">
               {scriptText.length} 字
             </div>
@@ -729,9 +1054,9 @@ ${JSON.stringify(payload, null, 2)}`;
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg flex items-center gap-2">
                 <Palette className="h-5 w-5" />
-                调色盘文本对比
+                调色盘{inputMode === "table" ? "表格" : "文本"}对比
                 <span className="text-sm font-normal text-muted-foreground">
-                  共识别 {riskPhrases.length} 处风险片段，{riskPhrases.filter(p => (paletteEditing ? paletteText : scriptText).includes(p)).length} 处已标记
+                  共识别 {riskPhrases.length} 处风险片段
                 </span>
               </CardTitle>
               <div className="flex gap-2">
@@ -746,13 +1071,21 @@ ${JSON.stringify(payload, null, 2)}`;
                     自动调整
                   </Button>
                 )}
-                <Button variant="outline" size="sm" onClick={handlePaletteEditToggle} className="gap-1.5" disabled={isAutoAdjusting}>
-                  {paletteEditing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
-                  {paletteEditing ? "完成" : "编辑"}
-                </Button>
+                {inputMode === "text" && (
+                  <Button variant="outline" size="sm" onClick={handlePaletteEditToggle} className="gap-1.5" disabled={isAutoAdjusting}>
+                    {paletteEditing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+                    {paletteEditing ? "完成" : "编辑"}
+                  </Button>
+                )}
+                {inputMode === "table" && tableData && (
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Pencil className="h-3 w-3" />
+                    点击单元格可编辑
+                  </span>
+                )}
                 <Button variant="outline" size="sm" onClick={handlePaletteExport} className="gap-1.5">
                   <Download className="h-3.5 w-3.5" />
-                  导出
+                  导出{inputMode === "table" ? " XLSX" : ""}
                 </Button>
               </div>
             </CardHeader>
@@ -771,27 +1104,33 @@ ${JSON.stringify(payload, null, 2)}`;
                   ℹ️ 优化建议
                 </span>
               </div>
-              {highlightedScript ? (
-                <div ref={paletteScrollRef} className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
-                  <pre
-                    ref={paletteEditRef}
-                    className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 outline-none"
-                    contentEditable={paletteEditing}
-                    suppressContentEditableWarning
-                    onBlur={() => {
-                      if (paletteEditing && paletteEditRef.current) {
-                        setPaletteText(paletteEditRef.current.innerText);
-                      }
-                    }}
-                  >
-                    {highlightedScript}
-                  </pre>
-                </div>
+              {/* 表格模式 */}
+              {inputMode === "table" && tableData ? (
+                renderHighlightedTable()
               ) : (
-                <div className="text-center py-8 text-muted-foreground text-sm">
-                  <p>AI 报告中标记的风险片段未能在原文中精确匹配。</p>
-                  <p className="mt-1">请尝试重新生成报告，AI 将更精确地引用原文。</p>
-                </div>
+                /* 文本模式 */
+                highlightedScript ? (
+                  <div ref={paletteScrollRef} className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
+                    <pre
+                      ref={paletteEditRef}
+                      className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 outline-none"
+                      contentEditable={paletteEditing}
+                      suppressContentEditableWarning
+                      onBlur={() => {
+                        if (paletteEditing && paletteEditRef.current) {
+                          setPaletteText(paletteEditRef.current.innerText);
+                        }
+                      }}
+                    >
+                      {highlightedScript}
+                    </pre>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground text-sm">
+                    <p>AI 报告中标记的风险片段未能在原文中精确匹配。</p>
+                    <p className="mt-1">请尝试重新生成报告，AI 将更精确地引用原文。</p>
+                  </div>
+                )
               )}
             </CardContent>
           </Card>
