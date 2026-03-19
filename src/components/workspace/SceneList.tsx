@@ -190,6 +190,15 @@ const SceneList = ({ scenes, onScenesChange, onNext, characters = [] }: SceneLis
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1"
+            onClick={() => exportScenesToXlsx(scenes)}
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" />
+            导出分镜
+          </Button>
           <Button size="sm" onClick={onNext} className="gap-1">
             下一步
             <ArrowRight className="h-3.5 w-3.5" />
