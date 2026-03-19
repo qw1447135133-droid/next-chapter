@@ -5,30 +5,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, RefreshCw, Pencil, Eye, Square, ShieldCheck, Upload, Film, FileText, ChevronDown, ChevronUp, Palette, Wand2, Download, Table as TableIcon, FileSpreadsheet } from "lucide-react";
+import { ArrowLeft, RefreshCw, Pencil, Eye, Square, ShieldCheck, Upload, Film, FileText, ChevronDown, ChevronUp, Palette, Wand2, Download } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "@/components/script-creator/TranslateButton";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
 import { saveAs } from "file-saver";
-import * as XLSX from "xlsx";
-// xlsx 类型声明
-declare module "xlsx" {
-  interface WorkBook {
-    SheetNames: string[];
-    Sheets: { [sheet: string]: WorkSheet };
-  }
-  interface WorkSheet {
-    [key: string]: any;
-  }
-  function read(data: ArrayBuffer, opts: { type: string }): WorkBook;
-  namespace utils {
-    function sheet_to_json<T = any>(worksheet: WorkSheet, opts?: { header?: number; defval?: any }): T[];
-  }
-}
 
 type ComplianceModel = "gemini-3.1-pro-preview" | "gemini-3-pro-preview" | "gemini-3-flash-preview";
 
@@ -83,7 +66,7 @@ ${scriptText}
 5. **问题清单汇总**：按严重程度排序的完整问题列表
 6. **修改建议**：针对每个问题的具体修改方案
 
-**⚠️ 极其重要的标记规则 - 必须严格遵守：**
+**⚠️ 极其重要的标记规则 — 必须严格遵守：**
 
 在整个报告中，每当你提到原文中存在合规风险的具体语句时，**必须**从原文中逐字逐句复制该片段（不得改写、缩写、省略或重新措辞），并用以下格式包裹：
 - 红线问题：⛔【原文中逐字复制的风险片段】
@@ -98,16 +81,6 @@ ${scriptText}
 
 用 Markdown 格式输出，清晰分区。`;
 
-// 表格数据类型
-type TableData = {
-  headers: string[];
-  rows: (string | number | null)[][];
-  fileName: string;
-  sheetName?: string;
-  // 保存原始数据用于导出
-  originalData: (string | number | null)[][];
-};
-
 const ComplianceReview = () => {
   const navigate = useNavigate();
   const [scriptText, setScriptText] = useState("");
@@ -117,9 +90,6 @@ const ComplianceReview = () => {
   const [editing, setEditing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [reportOpen, setReportOpen] = useState(true);
-  // 表格数据状态
-  const [tableData, setTableData] = useState<TableData | null>(null);
-  const [inputMode, setInputMode] = useState<"text" | "table">("text");
   const [model, setModel] = useState<ComplianceModel>(
     () => (localStorage.getItem("compliance-model") as ComplianceModel) || "gemini-3.1-pro-preview"
   );
@@ -140,13 +110,10 @@ const ComplianceReview = () => {
   // Track phrase replacements so re-adjust works: original -> current
   const [phraseReplacements, setPhraseReplacements] = useState<Map<string, string>>(new Map());
 
-  // Sync palette text with script text initially or when script changes and no adjustments made
+  // Sync palette text with script text when not editing
   useEffect(() => {
-    // Only sync if no adjustments have been made yet
-    if (phraseReplacements.size === 0 && scriptText) {
-      setPaletteText(scriptText);
-    }
-  }, [scriptText, phraseReplacements.size]);
+    if (!paletteEditing) setPaletteText(scriptText);
+  }, [scriptText, paletteEditing]);
 
   // Close model dropdown on outside click
   useEffect(() => {
@@ -237,192 +204,10 @@ const ComplianceReview = () => {
   }, [activeRiskPhrases, activeRiskMap]);
 
   const highlightedScript = useMemo(() => {
-    // Always use paletteText in the palette view (it syncs with scriptText when no changes)
-    const text = paletteText || scriptText;
+    const text = paletteEditing ? paletteText : scriptText;
     return buildHighlightedParts(text, isAutoAdjusting ? adjustingPhrases : undefined);
-  }, [paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases]);
-
-  // 表格编辑相关状态 - 必须在 renderHighlightedTable 之前定义
-  const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
-  const [editingValue, setEditingValue] = useState<string>("");
-  const tableCellInputRef = useRef<HTMLInputElement>(null);
-
-  // 开始编辑表格单元格
-  const handleTableCellEdit = useCallback((rowIndex: number, colIndex: number) => {
-    const cellValue = tableData?.rows[rowIndex]?.[colIndex];
-    setEditingCell({ row: rowIndex, col: colIndex });
-    setEditingValue(String(cellValue ?? ""));
-    // 延迟聚焦，确保 input 已渲染
-    setTimeout(() => tableCellInputRef.current?.focus(), 0);
-  }, [tableData]);
-
-  // 保存表格单元格编辑
-  const handleTableCellSave = useCallback(() => {
-    if (editingCell && tableData) {
-      const newRows = [...tableData.rows];
-      newRows[editingCell.row] = [...newRows[editingCell.row]];
-      newRows[editingCell.row][editingCell.col] = editingValue;
-      setTableData({ ...tableData, rows: newRows });
-      
-      // 同时更新 scriptText 用于合规审核
-      const textContent = [tableData.headers, ...newRows].map(row => row.join("\t")).join("\n");
-      setScriptText(textContent);
-    }
-    setEditingCell(null);
-    setEditingValue("");
-  }, [editingCell, tableData]);
-
-  // 取消表格单元格编辑
-  const handleTableCellCancel = useCallback(() => {
-    setEditingCell(null);
-    setEditingValue("");
-  }, []);
-
-  // 渲染带风险高亮的表格
-  const renderHighlightedTable = useCallback(() => {
-    if (!tableData) return null;
-    
-    const renderCell = (cell: string | number | null, rowIndex: number, cellIndex: number) => {
-      const cellStr = String(cell ?? "");
-      const isEditing = editingCell?.row === rowIndex && editingCell?.col === cellIndex;
-      
-      // 编辑模式
-      if (isEditing) {
-        return (
-          <input
-            ref={tableCellInputRef}
-            type="text"
-            value={editingValue}
-            onChange={(e) => setEditingValue(e.target.value)}
-            onBlur={handleTableCellSave}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleTableCellSave();
-              if (e.key === "Escape") handleTableCellCancel();
-            }}
-            className="w-full px-1 py-0.5 text-sm bg-background border border-primary rounded outline-none min-w-[60px]"
-          />
-        );
-      }
-      
-      // 显示模式 - 点击可编辑
-      if (!cellStr || activeRiskPhrases.length === 0) {
-        return (
-          <span 
-            className="cursor-pointer hover:bg-accent/50 rounded px-0.5" 
-            onClick={() => handleTableCellEdit(rowIndex, cellIndex)}
-            title="点击编辑"
-          >
-            {cellStr}
-          </span>
-        );
-      }
-      
-      // 检查单元格是否包含风险短语
-      const sorted = [...activeRiskPhrases].sort((a, b) => b.length - a.length);
-      const matching = sorted.filter(p => cellStr.includes(p));
-      if (matching.length === 0) {
-        return (
-          <span 
-            className="cursor-pointer hover:bg-accent/50 rounded px-0.5" 
-            onClick={() => handleTableCellEdit(rowIndex, cellIndex)}
-            title="点击编辑"
-          >
-            {cellStr}
-          </span>
-        );
-      }
-      
-      const escaped = matching.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-      const regex = new RegExp(`(${escaped.join("|")})`, "g");
-      const parts = cellStr.split(regex);
-      
-      return (
-        <span 
-          className="cursor-pointer hover:bg-accent/50 rounded px-0.5" 
-          onClick={() => handleTableCellEdit(rowIndex, cellIndex)}
-          title="点击编辑"
-        >
-          {parts.map((part, i) => {
-            const level = activeRiskMap.get(part);
-            if (level) {
-              return (
-                <mark key={i} className={`${RISK_STYLES[level]} text-foreground rounded px-0.5`}>
-                  {part}
-                </mark>
-              );
-            }
-            return <span key={i}>{part}</span>;
-          })}
-        </span>
-      );
-    };
-
-    return (
-      <div className="rounded-md border max-h-[500px] overflow-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              {tableData.headers.map((header, i) => (
-                <TableHead key={i} className="font-medium whitespace-nowrap">
-                  {header}
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {tableData.rows.map((row, rowIndex) => (
-              <TableRow key={rowIndex}>
-                {row.map((cell, cellIndex) => (
-                  <TableCell key={cellIndex} className="whitespace-nowrap">
-                    {renderCell(cell, rowIndex, cellIndex)}
-                  </TableCell>
-                ))}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    );
-  }, [tableData, activeRiskPhrases, activeRiskMap, editingCell, editingValue]);
-
+  }, [paletteEditing, paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases]);
   const normalizeForCompare = (value: string) => value.replace(/\s+/g, "").trim();
-
-  // Check if replacement is genuinely different (not just punctuation/whitespace changes)
-  const isGenuinelyDifferent = (original: string, replacement: string) => {
-    const normOrig = normalizeForCompare(original);
-    const normRep = normalizeForCompare(replacement);
-    
-    // Must not be identical after normalization
-    if (normOrig === normRep) return false;
-    
-    // Remove all punctuation and compare again
-    const noPunctOrig = normOrig.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "");
-    const noPunctRep = normRep.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "");
-    
-    // If only punctuation differs, it's not genuinely different
-    if (noPunctOrig === noPunctRep) return false;
-    
-    // Check character-level similarity (must have at least 30% different characters)
-    const minLen = Math.min(noPunctOrig.length, noPunctRep.length);
-    const maxLen = Math.max(noPunctOrig.length, noPunctRep.length);
-    
-    // If lengths are very different, it's definitely different
-    if (maxLen > minLen * 1.5 || minLen < maxLen * 0.7) return true;
-    
-    // Count character differences
-    let diffCount = 0;
-    const shorter = noPunctOrig.length <= noPunctRep.length ? noPunctOrig : noPunctRep;
-    const longer = noPunctOrig.length > noPunctRep.length ? noPunctOrig : noPunctRep;
-    
-    for (let i = 0; i < shorter.length; i++) {
-      if (shorter[i] !== longer[i]) diffCount++;
-    }
-    diffCount += longer.length - shorter.length;
-    
-    // At least 30% of characters should be different
-    const diffRatio = diffCount / maxLen;
-    return diffRatio >= 0.3;
-  };
 
   const parseRewriteJson = (raw: string) => {
     const fallback = new Map<number, string>();
@@ -449,20 +234,14 @@ const ComplianceReview = () => {
   // Auto-adjust: only red-line/high-risk, and only send target fragments to AI
   const handleAutoAdjust = async () => {
     const targetEntries: { original: string; current: string; level: RiskLevel }[] = [];
-    
-    // 根据模式获取待检查的文本
-    const textToCheck = inputMode === "table" && tableData
-      ? tableData.rows.map(row => row.join("\t")).join("\n")
-      : paletteText || scriptText;
-    
     for (const [phrase, level] of riskMap.entries()) {
       if (level !== "red" && level !== "high") continue;
-      if (textToCheck.includes(phrase)) {
+      if (paletteText.includes(phrase)) {
         targetEntries.push({ original: phrase, current: phrase, level });
         continue;
       }
       const replaced = phraseReplacements.get(phrase);
-      if (replaced && textToCheck.includes(replaced)) {
+      if (replaced && paletteText.includes(replaced)) {
         targetEntries.push({ original: phrase, current: replaced, level });
       }
     }
@@ -486,36 +265,7 @@ const ComplianceReview = () => {
         text: entry.current,
       }));
 
-      const prompt = `你是短剧内容合规改写专家。
-
-## 你的任务
-你将收到"需要修改的风险片段"，请对每个片段进行**和谐化改写**，使其能够通过内容审核。
-
-## 和谐化改写原则
-1. **替换敏感表达**：用委婉、含蓄的说法替代直接、露骨的描写
-   - 血腥暴力：弱化细节描写，用"受伤"、"倒下"等模糊表达
-   - 色情内容：用"亲密"、"温存"等含蓄表达替代露骨描写
-   - 版权问题：改写为原创表达，保留剧情但换种说法
-
-2. **保持语义等价**：改写后的内容要与原文表达相同的意思
-   - 剧情发展不变
-   - 人物关系不变
-   - 情感基调不变
-   - 对话意图不变
-
-3. **必须实际改写**：
-   - ❌ 禁止原样返回原文
-   - ❌ 禁止只改动标点符号
-   - ❌ 禁止返回空字符串
-   - ✅ 必须用不同的文字表达相同的意思
-${strict ? "\n4. **二次改写提醒**：上一次改写仍与原文过于相似，请使用更明显的不同表达方式，确保文字有明显变化。" : ""}
-
-## 输出格式
-只输出 JSON 数组，不要 markdown 代码块，不要任何解释：
-[{"id":1,"replacement":"改写后的文本"}]
-
-## 待改写片段
-${JSON.stringify(payload, null, 2)}`;
+      const prompt = `你是短剧合规改写助手。\n\n你只会收到“需要修改的片段”，不要处理全文。\n目标：对片段做和谐化处理，保留原有表达意思、剧情信息、人物关系和语气，不新增事实。\n\n硬性要求：\n1) 只改写给定片段，不输出解释\n2) replacement 必须与原文不同，不能原样返回\n3) 保持语义等价，长度尽量接近原文\n4) 不要使用空字符串\n${strict ? "5) 如果第一次改写仍接近原文，请使用更明确但同义的合规表达" : ""}\n\n请只输出 JSON 数组（不要 markdown）：\n[{\"id\":1,\"replacement\":\"...\"}]\n\n待改写片段：\n${JSON.stringify(payload, null, 2)}`;
 
       const raw = await callGeminiStream(
         model,
@@ -529,10 +279,7 @@ ${JSON.stringify(payload, null, 2)}`;
     };
 
     try {
-      // 根据模式初始化工作文本
-      let workingText = inputMode === "table" && tableData
-        ? tableData.rows.map(row => row.join("\t")).join("\n")
-        : paletteText || scriptText;
+      let workingText = paletteText;
       let workingReplacements = new Map(phraseReplacements);
       let pending = [...targetEntries];
       let appliedCount = 0;
@@ -545,8 +292,7 @@ ${JSON.stringify(payload, null, 2)}`;
 
         pending.forEach((entry, idx) => {
           const replacement = rewrites.get(idx + 1)?.trim();
-          // Check if replacement is genuinely different, not just punctuation changes
-          if (!replacement || !isGenuinelyDifferent(entry.current, replacement)) {
+          if (!replacement || normalizeForCompare(replacement) === normalizeForCompare(entry.current)) {
             nextPending.push(entry);
             return;
           }
@@ -564,33 +310,12 @@ ${JSON.stringify(payload, null, 2)}`;
       }
 
       if (appliedCount === 0) {
-        toast({ title: "自动调整未生效", description: "AI 改写结果与原文过于相似，请点击「自动调整」重试，或手动编辑文本", variant: "destructive" });
+        toast({ title: "自动调整未生效", description: "AI 返回与原文一致，请重试或手动编辑", variant: "destructive" });
         return;
       }
 
       setPhraseReplacements(workingReplacements);
       setPaletteText(workingText);
-      
-      // 如果是表格模式，同步更新表格数据
-      if (inputMode === "table" && tableData) {
-        const newRows = tableData.rows.map(row => 
-          row.map(cell => {
-            const cellStr = String(cell ?? "");
-            // 应用所有替换
-            let result = cellStr;
-            for (const [original, replacement] of workingReplacements.entries()) {
-              result = result.split(original).join(replacement);
-            }
-            return result;
-          })
-        );
-        setTableData({ ...tableData, rows: newRows });
-        
-        // 同步更新 scriptText
-        const textContent = [tableData.headers, ...newRows].map(row => row.join("\t")).join("\n");
-        setScriptText(textContent);
-      }
-      
       toast({
         title: "自动调整完成",
         description: pending.length > 0 ? `已调整 ${appliedCount} 处，仍有 ${pending.length} 处建议手动调整` : `已调整 ${appliedCount} 处`,
@@ -606,32 +331,9 @@ ${JSON.stringify(payload, null, 2)}`;
     }
   };
 
-  // Export palette text - xlsx if table mode, otherwise docx
+  // Export palette text as Word document
   const handlePaletteExport = useCallback(async () => {
     try {
-      // 如果是表格模式，导出 xlsx
-      if (inputMode === "table" && tableData) {
-        // 准备导出数据：合并表头和数据行
-        const exportData = [tableData.headers, ...tableData.rows];
-        
-        // 创建工作表
-        const ws = XLSX.utils.aoa_to_sheet(exportData);
-        
-        // 创建工作簿
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, tableData.sheetName || "Sheet1");
-        
-        // 生成文件名
-        const baseName = tableData.fileName.replace(/\.[^.]+$/, "");
-        const exportFileName = `${baseName}_合规审核_${new Date().toISOString().slice(0, 10)}.xlsx`;
-        
-        // 导出
-        XLSX.writeFile(wb, exportFileName);
-        toast({ title: "导出成功", description: `已导出为 ${exportFileName}` });
-        return;
-      }
-
-      // 文本模式导出 docx
       const textToExport = paletteEditing ? paletteText : scriptText;
       const lines = textToExport.split("\n");
       const paragraphs = lines.map(line => {
@@ -670,7 +372,7 @@ ${JSON.stringify(payload, null, 2)}`;
           properties: {},
           children: [
             new Paragraph({
-              children: [new TextRun({ text: "合规审核 - 调色盘文本对比", bold: true, size: 32 })],
+              children: [new TextRun({ text: "合规审核 — 调色盘文本对比", bold: true, size: 32 })],
               heading: HeadingLevel.HEADING_1,
             }),
             new Paragraph({
@@ -687,11 +389,11 @@ ${JSON.stringify(payload, null, 2)}`;
     } catch (e: any) {
       toast({ title: "导出失败", description: e?.message, variant: "destructive" });
     }
-  }, [paletteEditing, paletteText, scriptText, activeRiskMap, inputMode, tableData]);
+  }, [paletteEditing, paletteText, scriptText, activeRiskMap]);
 
   const handlePaletteEditToggle = () => {
     if (paletteEditing) {
-      // Exiting edit mode - sync text from contentEditable
+      // Exiting edit mode — sync text from contentEditable
       if (paletteEditRef.current) {
         const newText = paletteEditRef.current.innerText;
         setPaletteText(newText);
@@ -700,10 +402,7 @@ ${JSON.stringify(payload, null, 2)}`;
         setScriptText(paletteText);
       }
     } else {
-      // 进入编辑模式时，不要覆盖已有的 paletteText（自动调整后的内容）
-      if (!paletteText) {
-        setPaletteText(scriptText);
-      }
+      setPaletteText(scriptText);
     }
     setPaletteEditing(!paletteEditing);
   };
@@ -723,44 +422,7 @@ ${JSON.stringify(payload, null, 2)}`;
       if (ext === "txt") {
         const text = await file.text();
         setScriptText((prev) => (prev ? prev + "\n\n" : "") + text);
-        setTableData(null);
-        setInputMode("text");
         toast({ title: "文件已加载" });
-      } else if (["xlsx", "xls", "csv"].includes(ext)) {
-        // 解析 Excel 文件
-        const data = await file.arrayBuffer();
-        const workbook = XLSX.read(data, { type: "array" });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        
-        // 转换为 JSON 格式
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" }) as (string | number | null)[][];
-        
-        if (jsonData.length === 0) {
-          toast({ title: "表格为空", description: "未找到有效数据", variant: "destructive" });
-          return;
-        }
-
-        // 第一行作为表头
-        const headers = (jsonData[0] as string[]).map((h, i) => String(h || `列${i + 1}`));
-        const rows = jsonData.slice(1).map(row => 
-          (row as (string | number | null)[]).map(cell => cell ?? "")
-        );
-
-        setTableData({
-          headers,
-          rows,
-          fileName: file.name,
-          sheetName,
-          originalData: jsonData
-        });
-        setInputMode("table");
-        
-        // 同时生成文本版本用于合规审核
-        const textContent = jsonData.map(row => row.join("\t")).join("\n");
-        setScriptText(textContent);
-        
-        toast({ title: "表格已加载", description: `${file.name} - ${sheetName} (${rows.length} 行数据)` });
       } else if (["pdf", "docx", "doc"].includes(ext)) {
         const formData = new FormData();
         formData.append("file", file);
@@ -768,12 +430,10 @@ ${JSON.stringify(payload, null, 2)}`;
         if (error) throw error;
         if (data?.text) {
           setScriptText((prev) => (prev ? prev + "\n\n" : "") + data.text);
-          setTableData(null);
-          setInputMode("text");
           toast({ title: "文档解析完成" });
         }
       } else {
-        toast({ title: "不支持的格式", description: "支持 TXT、PDF、DOCX、XLSX、XLS、CSV 文件", variant: "destructive" });
+        toast({ title: "不支持的格式", description: "支持 TXT、PDF、DOCX 文件", variant: "destructive" });
       }
     } catch (err: any) {
       toast({ title: "文件解析失败", description: err?.message, variant: "destructive" });
@@ -879,7 +539,7 @@ ${JSON.stringify(payload, null, 2)}`;
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".txt,.pdf,.docx,.doc,.xlsx,.xls,.csv"
+                accept=".txt,.pdf,.docx,.doc"
                 className="hidden"
                 onChange={handleFileUpload}
               />
@@ -896,76 +556,20 @@ ${JSON.stringify(payload, null, 2)}`;
             </div>
           </CardHeader>
           <CardContent>
-            {/* 输入模式切换 */}
-            {tableData && (
-              <Tabs value={inputMode} onValueChange={(v) => setInputMode(v as "text" | "table")} className="mb-4">
-                <TabsList className="grid w-full max-w-[300px] grid-cols-2">
-                  <TabsTrigger value="table" className="gap-1.5">
-                    <TableIcon className="h-3.5 w-3.5" />
-                    表格模式
-                  </TabsTrigger>
-                  <TabsTrigger value="text" className="gap-1.5">
-                    <FileText className="h-3.5 w-3.5" />
-                    文本模式
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
-            )}
-
-            {/* 表格显示模式 */}
-            {inputMode === "table" && tableData ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <FileSpreadsheet className="h-4 w-4" />
-                  <span>{tableData.fileName}</span>
-                  {tableData.sheetName && <span className="text-xs">· {tableData.sheetName}</span>}
-                  <span className="text-xs">({tableData.rows.length} 行)</span>
-                </div>
-                <div className="rounded-md border max-h-[400px] overflow-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        {tableData.headers.map((header, i) => (
-                          <TableHead key={i} className="font-medium whitespace-nowrap">
-                            {header}
-                          </TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {tableData.rows.map((row, rowIndex) => (
-                        <TableRow key={rowIndex}>
-                          {row.map((cell, cellIndex) => (
-                            <TableCell key={cellIndex} className="whitespace-nowrap">
-                              {String(cell ?? "")}
-                            </TableCell>
-                          ))}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            ) : (
-              /* 文本显示模式 */
-              <Textarea
-                value={scriptText}
-                onChange={(e) => {
-                  setScriptText(e.target.value);
-                  if (tableData) setTableData(null);
-                }}
-                placeholder="粘贴剧本内容，或点击上方按钮上传 TXT / PDF / DOCX / XLSX / XLS / CSV 文档..."
-                rows={12}
-                className="font-mono text-sm"
-              />
-            )}
+            <Textarea
+              value={scriptText}
+              onChange={(e) => setScriptText(e.target.value)}
+              placeholder="粘贴剧本内容，或点击上方按钮上传 TXT / PDF / DOCX 文档..."
+              rows={12}
+              className="font-mono text-sm"
+            />
             <div className="text-xs text-muted-foreground mt-2 text-right">
               {scriptText.length} 字
             </div>
           </CardContent>
         </Card>
 
-        {/* Compliance Report Card - Collapsible */}
+        {/* Compliance Report Card — Collapsible */}
         <Collapsible open={reportOpen} onOpenChange={setReportOpen}>
           <Card>
             <CollapsibleTrigger asChild>
@@ -1054,9 +658,9 @@ ${JSON.stringify(payload, null, 2)}`;
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg flex items-center gap-2">
                 <Palette className="h-5 w-5" />
-                调色盘{inputMode === "table" ? "表格" : "文本"}对比
+                调色盘文本对比
                 <span className="text-sm font-normal text-muted-foreground">
-                  共识别 {riskPhrases.length} 处风险片段
+                  共识别 {riskPhrases.length} 处风险片段，{riskPhrases.filter(p => (paletteEditing ? paletteText : scriptText).includes(p)).length} 处已标记
                 </span>
               </CardTitle>
               <div className="flex gap-2">
@@ -1071,21 +675,13 @@ ${JSON.stringify(payload, null, 2)}`;
                     自动调整
                   </Button>
                 )}
-                {inputMode === "text" && (
-                  <Button variant="outline" size="sm" onClick={handlePaletteEditToggle} className="gap-1.5" disabled={isAutoAdjusting}>
-                    {paletteEditing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
-                    {paletteEditing ? "完成" : "编辑"}
-                  </Button>
-                )}
-                {inputMode === "table" && tableData && (
-                  <span className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Pencil className="h-3 w-3" />
-                    点击单元格可编辑
-                  </span>
-                )}
+                <Button variant="outline" size="sm" onClick={handlePaletteEditToggle} className="gap-1.5" disabled={isAutoAdjusting}>
+                  {paletteEditing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+                  {paletteEditing ? "完成" : "编辑"}
+                </Button>
                 <Button variant="outline" size="sm" onClick={handlePaletteExport} className="gap-1.5">
                   <Download className="h-3.5 w-3.5" />
-                  导出{inputMode === "table" ? " XLSX" : ""}
+                  导出
                 </Button>
               </div>
             </CardHeader>
@@ -1104,33 +700,27 @@ ${JSON.stringify(payload, null, 2)}`;
                   ℹ️ 优化建议
                 </span>
               </div>
-              {/* 表格模式 */}
-              {inputMode === "table" && tableData ? (
-                renderHighlightedTable()
+              {highlightedScript ? (
+                <div ref={paletteScrollRef} className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
+                  <pre
+                    ref={paletteEditRef}
+                    className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 outline-none"
+                    contentEditable={paletteEditing}
+                    suppressContentEditableWarning
+                    onBlur={() => {
+                      if (paletteEditing && paletteEditRef.current) {
+                        setPaletteText(paletteEditRef.current.innerText);
+                      }
+                    }}
+                  >
+                    {highlightedScript}
+                  </pre>
+                </div>
               ) : (
-                /* 文本模式 */
-                highlightedScript ? (
-                  <div ref={paletteScrollRef} className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
-                    <pre
-                      ref={paletteEditRef}
-                      className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 outline-none"
-                      contentEditable={paletteEditing}
-                      suppressContentEditableWarning
-                      onBlur={() => {
-                        if (paletteEditing && paletteEditRef.current) {
-                          setPaletteText(paletteEditRef.current.innerText);
-                        }
-                      }}
-                    >
-                      {highlightedScript}
-                    </pre>
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground text-sm">
-                    <p>AI 报告中标记的风险片段未能在原文中精确匹配。</p>
-                    <p className="mt-1">请尝试重新生成报告，AI 将更精确地引用原文。</p>
-                  </div>
-                )
+                <div className="text-center py-8 text-muted-foreground text-sm">
+                  <p>AI 报告中标记的风险片段未能在原文中精确匹配。</p>
+                  <p className="mt-1">请尝试重新生成报告，AI 将更精确地引用原文。</p>
+                </div>
               )}
             </CardContent>
           </Card>

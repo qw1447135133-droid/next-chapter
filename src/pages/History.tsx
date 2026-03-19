@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Clock, Trash2, Play, PenTool } from "lucide-react";
+import { ArrowLeft, Film, Clock, Trash2, Play, PenTool } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useSmartPersistence } from "@/hooks/use-smart-persistence";
+import { STEP_LABELS, type WorkspaceStep } from "@/types/project";
 import { DRAMA_STEP_LABELS, type DramaStep } from "@/types/drama";
 import { listDramaProjects, deleteDramaProject } from "@/pages/ScriptCreator";
 import {
@@ -21,16 +23,25 @@ interface ProjectSummary {
   current_step: number | string;
   created_at: string;
   updated_at: string;
+  type?: "video" | "drama";
 }
 
 const History = () => {
   const navigate = useNavigate();
+  const { listProjects, deleteProject } = useSmartPersistence();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
 
   const fetchProjects = async () => {
     setLoading(true);
+
+    // Fetch video projects
+    const videoData = await listProjects();
+    const videoProjects: ProjectSummary[] = videoData.map((p: any) => ({
+      ...p,
+      type: "video" as const,
+    }));
 
     // Fetch drama projects
     const dramaData = listDramaProjects();
@@ -40,10 +51,11 @@ const History = () => {
       current_step: p.currentStep,
       created_at: p.created_at,
       updated_at: p.updated_at,
+      type: "drama" as const,
     }));
 
-    // Sort by updated_at
-    const all = dramaProjects.sort(
+    // Merge and sort by updated_at
+    const all = [...videoProjects, ...dramaProjects].sort(
       (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
     );
 
@@ -62,17 +74,29 @@ const History = () => {
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
-    deleteDramaProject(deleteTarget.id);
-    setProjects((prev) => prev.filter((p) => p.id !== deleteTarget.id));
+    if (deleteTarget.type === "drama") {
+      deleteDramaProject(deleteTarget.id);
+      setProjects((prev) => prev.filter((p) => p.id !== deleteTarget.id));
+    } else {
+      const ok = await deleteProject(deleteTarget.id);
+      if (ok) setProjects((prev) => prev.filter((p) => p.id !== deleteTarget.id));
+    }
     setDeleteTarget(null);
   };
 
   const handleClick = (project: ProjectSummary) => {
-    navigate(`/script-creator?id=${project.id}`);
+    if (project.type === "drama") {
+      navigate(`/script-creator?id=${project.id}`);
+    } else {
+      navigate(`/workspace?id=${project.id}`);
+    }
   };
 
   const getStepLabel = (project: ProjectSummary) => {
-    return DRAMA_STEP_LABELS[project.current_step as DramaStep] || "选题立项";
+    if (project.type === "drama") {
+      return DRAMA_STEP_LABELS[project.current_step as DramaStep] || "选题立项";
+    }
+    return STEP_LABELS[(project.current_step || 1) as WorkspaceStep];
   };
 
   const formatDate = (dateStr: string) => {
@@ -100,47 +124,64 @@ const History = () => {
               <Clock className="h-7 w-7 text-muted-foreground" />
             </div>
             <h2 className="text-xl font-semibold font-[Space_Grotesk] mb-2">暂无项目</h2>
-            <p className="text-sm text-muted-foreground mb-6">创建你的第一个剧本项目</p>
-            <Button onClick={() => navigate("/modules")} className="gap-2">
-              <PenTool className="h-4 w-4" />
-              开始创作
-            </Button>
+            <p className="text-sm text-muted-foreground mb-6">创建你的第一个项目</p>
+            <div className="flex gap-3">
+              <Button onClick={() => navigate("/workspace")} className="gap-2">
+                <Film className="h-4 w-4" />
+                视频创作
+              </Button>
+              <Button onClick={() => navigate("/script-creator")} variant="outline" className="gap-2">
+                <PenTool className="h-4 w-4" />
+                剧本创作
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="space-y-3">
-            {projects.map((project) => (
-              <div
-                key={project.id}
-                onClick={() => handleClick(project)}
-                className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card hover:bg-accent/50 cursor-pointer transition-colors group"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="h-10 w-10 rounded-lg bg-orange-500/10 flex items-center justify-center shrink-0">
-                    <PenTool className="h-5 w-5 text-orange-500" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-medium truncate">{project.title}</p>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                      <span className="px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-600">
-                        剧本 · {getStepLabel(project)}
-                      </span>
-                      <span>{formatDate(project.updated_at)}</span>
+            {projects.map((project) => {
+              const isDrama = project.type === "drama";
+              return (
+                <div
+                  key={`${project.type}-${project.id}`}
+                  onClick={() => handleClick(project)}
+                  className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card hover:bg-accent/50 cursor-pointer transition-colors group"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${
+                      isDrama ? "bg-orange-500/10" : "bg-primary/10"
+                    }`}>
+                      {isDrama ? (
+                        <PenTool className="h-5 w-5 text-orange-500" />
+                      ) : (
+                        <Film className="h-5 w-5 text-primary" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{project.title}</p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                        <span className={`px-1.5 py-0.5 rounded ${
+                          isDrama ? "bg-orange-500/10 text-orange-600" : "bg-muted text-muted-foreground"
+                        }`}>
+                          {isDrama ? "剧本" : "视频"} · {getStepLabel(project)}
+                        </span>
+                        <span>{formatDate(project.updated_at)}</span>
+                      </div>
                     </div>
                   </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
+                      onClick={(e) => handleDelete(project, e)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                    <Play className="h-4 w-4 text-muted-foreground" />
+                  </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
-                    onClick={(e) => handleDelete(project, e)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                  <Play className="h-4 w-4 text-muted-foreground" />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>

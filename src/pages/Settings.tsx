@@ -23,8 +23,17 @@ export interface ApiConfig {
   supabaseKey: string;
   // AI API Keys
   zhanhuKey: string;
+  seedance: string;
+  viduKey: string;
+  klingKey: string;
   // API 端点
   zhanhuEndpoint: string;
+  seedanceEndpoint: string;
+  viduEndpoint: string;
+  klingEndpoint: string;
+  // 视频首帧图片压缩参数
+  firstFrameMaxDim: number;
+  firstFrameMaxKB: number;
   // 网络重试参数
   retryCount: number;
   retryDelayMs: number;
@@ -33,22 +42,24 @@ export interface ApiConfig {
 const STORAGE_KEY = "storyforge_api_config";
 
 // Simple obfuscation for localStorage (not true encryption, but prevents casual reading)
+// Use a prefix to detect if a value is obfuscated, preventing snowball re-encoding
 const OBF_PREFIX = "obf:";
 
 function obfuscate(value: string): string {
   if (!value) return "";
+  // Already obfuscated — don't double-encode
   if (value.startsWith(OBF_PREFIX)) return value;
-  try { return OBF_PREFIX + btoa(unescape(encodeURIComponent(value))); } catch { return value; }
+  try {return OBF_PREFIX + btoa(unescape(encodeURIComponent(value)));} catch {return value;}
 }
-
 function deobfuscate(value: string): string {
   if (!value) return "";
+  // Not obfuscated — return as-is (prevents snowball)
   if (!value.startsWith(OBF_PREFIX)) return value;
-  try { return decodeURIComponent(escape(atob(value.slice(OBF_PREFIX.length)))); } catch { return value; }
+  try {return decodeURIComponent(escape(atob(value.slice(OBF_PREFIX.length))));} catch {return value;}
 }
 
 // Keys that should be obfuscated in storage
-const SENSITIVE_KEYS: (keyof ApiConfig)[] = ["zhanhuKey", "supabaseKey"];
+const SENSITIVE_KEYS: (keyof ApiConfig)[] = ["zhanhuKey", "seedance", "viduKey", "klingKey", "supabaseKey"];
 
 const DEFAULT_CONFIG: ApiConfig = {
   storageMode: "local",
@@ -56,7 +67,15 @@ const DEFAULT_CONFIG: ApiConfig = {
   supabaseUrl: "",
   supabaseKey: "",
   zhanhuKey: "",
+  seedance: "",
+  viduKey: "",
+  klingKey: "",
   zhanhuEndpoint: "http://202.90.21.53:13003/v1beta",
+  seedanceEndpoint: "http://202.90.21.53:13003/v1",
+  viduEndpoint: "https://api.vidu.cn/ent/v2",
+  klingEndpoint: "",
+  firstFrameMaxDim: 720,
+  firstFrameMaxKB: 800,
   retryCount: 2,
   retryDelayMs: 3000
 };
@@ -72,7 +91,7 @@ export function getApiConfig(): ApiConfig {
       }
       return parsed;
     }
-  } catch { /* ignore */ }
+  } catch {/* ignore */}
   return DEFAULT_CONFIG;
 }
 
@@ -100,11 +119,11 @@ const Settings = () => {
   const { theme, setTheme } = useTheme();
   const [config, setConfig] = useState<ApiConfig>(getApiConfig);
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<{success: boolean;message: string;} | null>(null);
 
   // API connectivity test state
   const [endpointTesting, setEndpointTesting] = useState<Record<string, boolean>>({});
-  const [endpointResults, setEndpointResults] = useState<Record<string, { success: boolean; message: string }>>({});
+  const [endpointResults, setEndpointResults] = useState<Record<string, {success: boolean;message: string;}>>({});
 
   // For sensitive fields, we track whether user is actively editing (show real value) or not (show mask)
   const [editingField, setEditingField] = useState<string | null>(null);
@@ -114,7 +133,7 @@ const Settings = () => {
     if (saved) {
       try {
         setConfig({ ...DEFAULT_CONFIG, ...JSON.parse(saved) });
-      } catch { /* ignore */ }
+      } catch {/* ignore */}
     }
   }, []);
 
@@ -159,7 +178,7 @@ const Settings = () => {
     }
   };
 
-  const handleTestEndpoint = async (name: string, endpoint: string) => {
+  const handleTestEndpoint = async (name: string, endpoint: string, apiKey: string) => {
     setEndpointTesting((p) => ({ ...p, [name]: true }));
     setEndpointResults((p) => {
       const next = { ...p };
@@ -171,10 +190,22 @@ const Settings = () => {
     const timeout = setTimeout(() => controller.abort(), 15000);
 
     try {
-      const testUrl = endpoint || DEFAULT_CONFIG.zhanhuEndpoint;
-      const resp = await proxiedFetch(testUrl, {}, undefined, controller.signal);
+      let testUrl: string;
+      let headers: Record<string, string> = {};
+
+      // Only test connectivity — hit the base URL. Any response (even 4xx) means the server is reachable.
+      if (name === "gemini") {
+        testUrl = endpoint || DEFAULT_CONFIG.zhanhuEndpoint;
+      } else if (name === "seedance") {
+        testUrl = endpoint || DEFAULT_CONFIG.seedanceEndpoint;
+      } else {
+        testUrl = endpoint || DEFAULT_CONFIG.viduEndpoint;
+      }
+
+      const resp = await proxiedFetch(testUrl, headers, undefined, controller.signal);
       clearTimeout(timeout);
 
+      // Any HTTP response means the server is reachable
       const status = resp.status;
       if (status >= 200 && status < 500) {
         setEndpointResults((p) => ({ ...p, [name]: { success: true, message: `连接成功 ✓（${status}）` } }));
@@ -191,13 +222,16 @@ const Settings = () => {
   };
 
   const keyFields = [
-    { key: "zhanhuKey", label: "Google API Key", desc: "用于剧本创作与合规审查 AI 功能" },
-  ];
+  { key: "zhanhuKey", label: "Google API Key", desc: "用于剧本拆解与分镜图 AI 生成" },
+  { key: "seedance", label: "即梦 API Key", desc: "用于视频片段生成" },
+  { key: "viduKey", label: "Vidu API Key", desc: "用于 Vidu 视频生成" },
+  { key: "klingKey", label: "可灵 API Key", desc: "用于可灵视频生成" }];
+
 
   const supabaseFields = [
-    { key: "supabaseUrl", label: "Supabase URL", placeholder: "https://xxxxx.supabase.co", desc: "你的 Supabase 项目地址" },
-    { key: "supabaseKey", label: "Supabase Anon Key", placeholder: "eyJ...", desc: "Supabase Anon Key (公开)" },
-  ];
+  { key: "supabaseUrl", label: "Supabase URL", placeholder: "https://xxxxx.supabase.co", desc: "你的 Supabase 项目地址" },
+  { key: "supabaseKey", label: "Supabase Anon Key", placeholder: "eyJ...", desc: "Supabase Anon Key (公开)" }];
+
 
   const storageMode = config.storageMode || "local";
 
@@ -228,8 +262,7 @@ const Settings = () => {
                 </div>
                 <Switch
                   checked={theme === "dark"}
-                  onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
-                />
+                  onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")} />
               </div>
             </CardContent>
           </Card>
@@ -250,11 +283,11 @@ const Settings = () => {
               type="button"
               onClick={() => setConfig((p) => ({ ...p, storageMode: "local" as StorageMode }))}
               className={`flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-all ${
-                storageMode === "local"
-                  ? "border-primary bg-primary/5 shadow-sm"
-                  : "border-border hover:border-muted-foreground/30"
-              }`}
-            >
+              storageMode === "local" ?
+              "border-primary bg-primary/5 shadow-sm" :
+              "border-border hover:border-muted-foreground/30"}`
+              }>
+              
               <HardDrive className={`h-6 w-6 ${storageMode === "local" ? "text-primary" : "text-muted-foreground"}`} />
               <span className={`text-sm font-medium ${storageMode === "local" ? "text-primary" : "text-foreground"}`}>
                 本地存储
@@ -267,11 +300,11 @@ const Settings = () => {
               type="button"
               onClick={() => setConfig((p) => ({ ...p, storageMode: "cloud" as StorageMode }))}
               className={`flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-all ${
-                storageMode === "cloud"
-                  ? "border-primary bg-primary/5 shadow-sm"
-                  : "border-border hover:border-muted-foreground/30"
-              }`}
-            >
+              storageMode === "cloud" ?
+              "border-primary bg-primary/5 shadow-sm" :
+              "border-border hover:border-muted-foreground/30"}`
+              }>
+              
               <Cloud className={`h-6 w-6 ${storageMode === "cloud" ? "text-primary" : "text-muted-foreground"}`} />
               <span className={`text-sm font-medium ${storageMode === "cloud" ? "text-primary" : "text-foreground"}`}>
                 云端存储
@@ -284,8 +317,8 @@ const Settings = () => {
         </div>
 
         {/* Supabase 配置 - 仅在云端模式下显示 */}
-        {storageMode === "cloud" && (
-          <div className="space-y-4">
+        {storageMode === "cloud" &&
+        <div className="space-y-4">
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">数据库配置</CardTitle>
@@ -293,55 +326,50 @@ const Settings = () => {
               </CardHeader>
               <CardContent className="space-y-4">
                 {supabaseFields.map((f) => {
-                  const isSensitive = SENSITIVE_KEYS.includes(f.key as keyof ApiConfig);
-                  const hasValue = !!config[f.key as keyof ApiConfig];
-                  const isEditing = editingField === f.key;
-                  return (
-                    <div key={f.key}>
+                const isSensitive = SENSITIVE_KEYS.includes(f.key as keyof ApiConfig);
+                const hasValue = !!config[f.key as keyof ApiConfig];
+                const isEditing = editingField === f.key;
+                return (
+                  <div key={f.key}>
                       <Label className="text-sm">{f.label}</Label>
                       <div className="relative mt-1">
                         <Input
-                          type="password"
-                          value={isEditing || !isSensitive ? String(config[f.key as keyof ApiConfig] || "") : hasValue ? "••••••••" : ""}
-                          onChange={(e) => setConfig((p) => ({ ...p, [f.key]: e.target.value }))}
-                          onFocus={() => {
-                            if (isSensitive) {
-                              setEditingField(f.key);
-                              setConfig((p) => ({ ...p, [f.key]: "" }));
-                            }
-                          }}
-                          onBlur={() => setEditingField(null)}
-                          placeholder={hasValue && isSensitive ? "已配置，点击可重新输入" : f.placeholder}
-                          className="font-mono text-sm"
-                          autoComplete="off"
-                          onCopy={(e) => e.preventDefault()}
-                          onCut={(e) => e.preventDefault()}
-                          onDrag={(e) => e.preventDefault()}
-                        />
+                        type="password"
+                        value={isEditing || !isSensitive ? String(config[f.key as keyof ApiConfig] || "") : hasValue ? "••••••••" : ""}
+                        onChange={(e) => setConfig((p) => ({ ...p, [f.key]: e.target.value }))}
+                        onFocus={() => {if (isSensitive) {setEditingField(f.key);setConfig((p) => ({ ...p, [f.key]: "" }));}}}
+                        onBlur={() => setEditingField(null)}
+                        placeholder={hasValue && isSensitive ? "已配置，点击可重新输入" : f.placeholder}
+                        className="font-mono text-sm"
+                        autoComplete="off"
+                        onCopy={(e) => e.preventDefault()}
+                        onCut={(e) => e.preventDefault()}
+                        onDrag={(e) => e.preventDefault()} />
+                      
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">{f.desc}</p>
-                    </div>
-                  );
-                })}
+                    </div>);
 
+              })}
+                
                 <div className="flex gap-2 items-center">
                   <Button
-                    variant="outline"
-                    onClick={handleTestSupabase}
-                    disabled={testing || !config.supabaseUrl || !config.supabaseKey}
-                  >
+                  variant="outline"
+                  onClick={handleTestSupabase}
+                  disabled={testing || !config.supabaseUrl || !config.supabaseKey}>
+                  
                     {testing ? "测试中..." : "测试连接"}
                   </Button>
-                  {testResult && (
-                    <span className={`text-sm ${testResult.success ? 'text-green-500' : 'text-red-500'}`}>
+                  {testResult &&
+                <span className={`text-sm ${testResult.success ? 'text-green-500' : 'text-red-500'}`}>
                       {testResult.message}
                     </span>
-                  )}
+                }
                 </div>
               </CardContent>
             </Card>
           </div>
-        )}
+        }
 
         {/* 直连模式 */}
         <div className="space-y-4">
@@ -360,16 +388,16 @@ const Settings = () => {
                 </div>
                 <Switch
                   checked={config.directMode ?? false}
-                  onCheckedChange={(checked) => setConfig((p) => ({ ...p, directMode: checked }))}
-                />
+                  onCheckedChange={(checked) => setConfig((p) => ({ ...p, directMode: checked }))} />
+                
               </div>
-              {config.directMode && (
-                <div className="mt-3 p-3 rounded-md bg-yellow-500/10 border border-yellow-500/30">
+              {config.directMode &&
+              <div className="mt-3 p-3 rounded-md bg-yellow-500/10 border border-yellow-500/30">
                   <p className="text-xs text-yellow-600 dark:text-yellow-400">
                     ⚠️ 直连模式下，浏览器直接调用 API 端点。请确保端点支持 CORS 且网络可达。HTTP 端点仅在本地开发时可用（HTTPS 页面会阻止混合内容）。
                   </p>
                 </div>
-              )}
+              }
             </CardContent>
           </Card>
         </div>
@@ -390,8 +418,10 @@ const Settings = () => {
                   onClick={() => setConfig((p) => ({
                     ...p,
                     zhanhuEndpoint: DEFAULT_CONFIG.zhanhuEndpoint,
-                  }))}
-                >
+                    seedanceEndpoint: DEFAULT_CONFIG.seedanceEndpoint,
+                    viduEndpoint: DEFAULT_CONFIG.viduEndpoint
+                  }))}>
+                  
                   <RotateCcw className="h-3.5 w-3.5 mr-1" />
                   恢复默认值
                 </Button>
@@ -399,41 +429,52 @@ const Settings = () => {
               <CardDescription>可自定义 API 端点地址（高级选项）</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div>
-                <Label className="text-sm">Google API 端点</Label>
-                <div className="flex gap-2 mt-1">
-                  <Input
-                    value={config.zhanhuEndpoint || ""}
-                    onChange={(e) => setConfig((p) => ({ ...p, zhanhuEndpoint: e.target.value }))}
-                    placeholder="http://202.90.21.53:13003/v1beta"
-                    className="font-mono text-sm flex-1"
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0 gap-1.5 h-9"
-                    disabled={endpointTesting["gemini"]}
-                    onClick={() => handleTestEndpoint("gemini", config.zhanhuEndpoint)}
-                  >
-                    {endpointTesting["gemini"] ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : endpointResults["gemini"]?.success ? (
-                      <Wifi className="h-3.5 w-3.5 text-emerald-500" />
-                    ) : endpointResults["gemini"] ? (
-                      <WifiOff className="h-3.5 w-3.5 text-destructive" />
-                    ) : (
-                      <Wifi className="h-3.5 w-3.5" />
-                    )}
-                    {endpointTesting["gemini"] ? "测试中" : "测试"}
-                  </Button>
-                </div>
-                {endpointResults["gemini"] && (
-                  <p className={`text-xs mt-1 ${endpointResults["gemini"].success ? "text-emerald-500" : "text-destructive"}`}>
-                    {endpointResults["gemini"].message}
-                  </p>
-                )}
-                <p className="text-xs text-muted-foreground mt-1">只需填写 Base URL，路径会自动拼接</p>
-              </div>
+              {[
+              { name: "gemini", label: "Google API 端点", configKey: "zhanhuEndpoint" as const, apiKeyField: "zhanhuKey" as const, placeholder: "http://202.90.21.53:13003/v1beta", hint: "只需填写 Base URL，路径会自动拼接" },
+              { name: "seedance", label: "即梦 API 端点", configKey: "seedanceEndpoint" as const, apiKeyField: "seedance" as const, placeholder: "http://202.90.21.53:13003/v1", hint: "只需填写 Base URL，如 {base}/videos 会自动拼接" },
+              { name: "vidu", label: "Vidu API 端点", configKey: "viduEndpoint" as const, apiKeyField: "viduKey" as const, placeholder: "https://api.vidu.cn/ent/v2", hint: "只需填写 Base URL，路径会自动拼接" },
+              { name: "kling", label: "可灵 API 端点", configKey: "klingEndpoint" as const, apiKeyField: "klingKey" as const, placeholder: "https://api.klingai.com", hint: "只需填写 Base URL，路径会自动拼接" }].
+              map((ep) => {
+                const isTesting = endpointTesting[ep.name];
+                const result = endpointResults[ep.name];
+                return (
+                  <div key={ep.name}>
+                    <Label className="text-sm">{ep.label}</Label>
+                    <div className="flex gap-2 mt-1">
+                      <Input
+                        value={config[ep.configKey] || ""}
+                        onChange={(e) => setConfig((p) => ({ ...p, [ep.configKey]: e.target.value }))}
+                        placeholder={ep.placeholder}
+                        className="font-mono text-sm flex-1" />
+                      
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0 gap-1.5 h-9"
+                        disabled={isTesting}
+                        onClick={() => handleTestEndpoint(ep.name, config[ep.configKey], config[ep.apiKeyField])}>
+                        
+                        {isTesting ?
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> :
+                        result?.success ?
+                        <Wifi className="h-3.5 w-3.5 text-emerald-500" /> :
+                        result ?
+                        <WifiOff className="h-3.5 w-3.5 text-destructive" /> :
+
+                        <Wifi className="h-3.5 w-3.5" />
+                        }
+                        {isTesting ? "测试中" : "测试"}
+                      </Button>
+                    </div>
+                    {result &&
+                    <p className={`text-xs mt-1 ${result.success ? "text-emerald-500" : "text-destructive"}`}>
+                        {result.message}
+                      </p>
+                    }
+                    {!result && <p className="text-xs text-muted-foreground mt-1">{ep.hint}</p>}
+                  </div>);
+
+              })}
             </CardContent>
           </Card>
         </div>
@@ -447,7 +488,7 @@ const Settings = () => {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">API 密钥配置</CardTitle>
-              <CardDescription>配置 AI 服务的 API 密钥</CardDescription>
+              <CardDescription>配置各 AI 服务的 API 密钥</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {keyFields.map((f) => {
@@ -460,61 +501,100 @@ const Settings = () => {
                       type="password"
                       value={isEditing ? String(config[f.key as keyof ApiConfig] || "") : hasValue ? "••••••••" : ""}
                       onChange={(e) => setConfig((p) => ({ ...p, [f.key]: e.target.value }))}
-                      onFocus={() => {
-                        setEditingField(f.key);
-                        setConfig((p) => ({ ...p, [f.key]: "" }));
-                      }}
+                      onFocus={() => {setEditingField(f.key);setConfig((p) => ({ ...p, [f.key]: "" }));}}
                       onBlur={() => setEditingField(null)}
                       placeholder={hasValue ? "已配置，点击可重新输入" : `输入 ${f.label}`}
                       className="font-mono text-sm mt-1"
                       autoComplete="off"
                       onCopy={(e) => e.preventDefault()}
                       onCut={(e) => e.preventDefault()}
-                      onDrag={(e) => e.preventDefault()}
-                    />
+                      onDrag={(e) => e.preventDefault()} />
+                    
                     <p className="text-xs text-muted-foreground mt-1">{f.desc}</p>
-                  </div>
-                );
+                  </div>);
+
               })}
             </CardContent>
           </Card>
         </div>
 
-        {/* 网络重试 */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">网络重试</CardTitle>
-            <CardDescription>代理请求失败时的自动重试策略</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label className="text-sm">最大重试次数</Label>
-              <Input
-                type="number"
-                min={0}
-                max={5}
-                step={1}
-                value={config.retryCount ?? 2}
-                onChange={(e) => setConfig((p) => ({ ...p, retryCount: Number(e.target.value) || 0 }))}
-                className="mt-1 w-40 font-mono text-sm"
-              />
-              <p className="text-xs text-muted-foreground mt-1">0 表示不重试，最大 5 次</p>
-            </div>
-            <div>
-              <Label className="text-sm">重试间隔（毫秒）</Label>
-              <Input
-                type="number"
-                min={500}
-                max={30000}
-                step={500}
-                value={config.retryDelayMs ?? 3000}
-                onChange={(e) => setConfig((p) => ({ ...p, retryDelayMs: Number(e.target.value) || 3000 }))}
-                className="mt-1 w-40 font-mono text-sm"
-              />
-              <p className="text-xs text-muted-foreground mt-1">每次重试前等待的时间，范围 500–30000ms</p>
-            </div>
-          </CardContent>
-        </Card>
+        {/* 视频首帧压缩参数 */}
+        <div className="space-y-4">
+          <h2 className="text-sm font-medium flex items-center gap-2">
+            <Globe className="h-4 w-4" />
+            视频首帧图片压缩
+          </h2>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">压缩参数</CardTitle>
+              <CardDescription>控制发送给视频生成 API 的首帧图片质量与大小</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label className="text-sm">最大分辨率（像素）</Label>
+                <Input
+                  type="number"
+                  min={256}
+                  max={2048}
+                  step={64}
+                  value={config.firstFrameMaxDim ?? 720}
+                  onChange={(e) => setConfig((p) => ({ ...p, firstFrameMaxDim: Number(e.target.value) || 720 }))}
+                  className="mt-1 w-40 font-mono text-sm" />
+                
+                <p className="text-xs text-muted-foreground mt-1">图片最长边不超过此值，范围 256–2048</p>
+              </div>
+              <div>
+                <Label className="text-sm">最大文件大小（KB）</Label>
+                <Input
+                  type="number"
+                  min={100}
+                  max={5000}
+                  step={100}
+                  value={config.firstFrameMaxKB ?? 800}
+                  onChange={(e) => setConfig((p) => ({ ...p, firstFrameMaxKB: Number(e.target.value) || 800 }))}
+                  className="mt-1 w-40 font-mono text-sm" />
+                
+                <p className="text-xs text-muted-foreground mt-1">压缩后图片不超过此大小，范围 100–5000 KB</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* 网络重试 */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">网络重试</CardTitle>
+              <CardDescription>代理请求失败时的自动重试策略</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label className="text-sm">最大重试次数</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={5}
+                  step={1}
+                  value={config.retryCount ?? 2}
+                  onChange={(e) => setConfig((p) => ({ ...p, retryCount: Number(e.target.value) || 0 }))}
+                  className="mt-1 w-40 font-mono text-sm" />
+                
+                <p className="text-xs text-muted-foreground mt-1">0 表示不重试，最大 5 次</p>
+              </div>
+              <div>
+                <Label className="text-sm">重试间隔（毫秒）</Label>
+                <Input
+                  type="number"
+                  min={500}
+                  max={30000}
+                  step={500}
+                  value={config.retryDelayMs ?? 3000}
+                  onChange={(e) => setConfig((p) => ({ ...p, retryDelayMs: Number(e.target.value) || 3000 }))}
+                  className="mt-1 w-40 font-mono text-sm" />
+                
+                <p className="text-xs text-muted-foreground mt-1">每次重试前等待的时间，范围 500–30000ms</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
         {/* 说明 */}
         <Card className="bg-muted/50">
@@ -523,7 +603,9 @@ const Settings = () => {
             <ul className="text-sm text-muted-foreground space-y-1">
               <li>• <strong>本地存储</strong>: 数据保存在浏览器 localStorage 中，无需额外配置</li>
               <li>• <strong>云端存储</strong>: 通过 Supabase 将项目数据同步到云端，支持多设备访问</li>
-              <li>• <strong>Google API Key</strong>: 用于剧本创作与合规审查的 AI 功能</li>
+              
+              <li>• <strong>站狐 API (Seedance)</strong>: 用于视频生成</li>
+              
             </ul>
           </CardContent>
         </Card>
@@ -540,15 +622,15 @@ const Settings = () => {
               localStorage.removeItem(STORAGE_KEY);
               setConfig({ ...DEFAULT_CONFIG });
               toast({ title: "已清除", description: "所有 API 配置已清除，请重新输入" });
-            }}
-          >
+            }}>
+            
             <Trash2 className="h-4 w-4" />
             清除缓存
           </Button>
         </div>
       </main>
-    </div>
-  );
+    </div>);
+
 };
 
 export default Settings;
