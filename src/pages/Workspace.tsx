@@ -385,6 +385,18 @@ const Workspace = () => {
               status: "pending" as const,
               segmentCount: initSegCounts?.[i],
             })));
+            // Save meta early so retry is available even during parallel decomposition
+            if (partialData.episodes) {
+              lastDecomposeMetaRef.current = {
+                episodes: partialData.episodes,
+                costumeContext: partialData.costumeContext || "",
+                model: partialData.model || decomposeModel,
+                prompt: partialData.prompt || "",
+                chunkSegmentCounts: initSegCounts,
+                isRealEpisodes: initIsEpisodes,
+                videoPace: partialData.videoPace,
+              };
+            }
             return;
           }
           setDecomposeChunks(prev => prev.map(c =>

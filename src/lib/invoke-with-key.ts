@@ -491,9 +491,14 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
       console.log(`[localDecompose] 片段分配: 总${totalSegments}个片段，按长度比例分配为`, chunkSegmentCounts);
     }
 
-    // Notify frontend of chunk count immediately
+    // Notify frontend of chunk count immediately (include meta for early retry support)
     if (onProgress) {
-      onProgress({ scenes: allScenes, chunkIndex: -1, totalChunks: episodes.length, status: "init", failedChunks, chunkSegmentCounts, isRealEpisodes: true, originallyEpisodes: splitResult.originallyEpisodes });
+      onProgress({
+        scenes: allScenes, chunkIndex: -1, totalChunks: episodes.length, status: "init", failedChunks,
+        chunkSegmentCounts, isRealEpisodes: true, originallyEpisodes: splitResult.originallyEpisodes,
+        // Early meta so frontend can support retry before full completion
+        episodes, costumeContext, model, prompt: buildDecomposePrompt(videoPace, segmentsPerEpisode), videoPace,
+      });
     }
 
     // Results array indexed by episode
