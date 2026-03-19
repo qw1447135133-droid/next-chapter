@@ -5,15 +5,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ArrowLeft, RefreshCw, Pencil, Eye, Square, ShieldCheck, Upload, Film, FileText, ChevronDown, ChevronUp, Palette, Wand2, Download } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
+import { ArrowLeft, RefreshCw, Pencil, Eye, Square, ShieldCheck, Upload, Film, FileText, ChevronDown, ChevronUp, Palette, Wand2, Download, Table as TableIcon, FileSpreadsheet, Undo2, Redo2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "@/components/script-creator/TranslateButton";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
 import { saveAs } from "file-saver";
+import * as XLSX from "xlsx";
 
 type ComplianceModel = "gemini-3.1-pro-preview" | "gemini-3-pro-preview" | "gemini-3-flash-preview";
+type ReviewMode = "text" | "script";
 
 const MODEL_OPTIONS: { value: ComplianceModel; label: string }[] = [
   { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
@@ -21,6 +26,7 @@ const MODEL_OPTIONS: { value: ComplianceModel; label: string }[] = [
   { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
 ];
 
+// 文字审核提示词 - 检查字面违规
 const STANDALONE_COMPLIANCE_PROMPT = (scriptText: string) => `你是一位资深的短剧内容合规审核专家，精通各类内容监管法规与平台规范。
 
 ## 待审核内容
@@ -30,56 +36,133 @@ ${scriptText}
 
 ## 审核要求
 
-请**仅**对以下三个维度进行合规审查，不检查其它任何项目：
+请对以下三个维度进行合规审查：
 
-### 一、血腥暴力内容
-**仅检查字面上明确的血腥暴力描写**，不考虑引申含义、社会影响或教育问题：
-- 明确描写血液、伤口、肢体损伤的文字（如"喷出大量鲜血"、"割破喉咙"、"内脏外露"等）
-- 明确描写酷刑虐待过程的文字
-- 明确描写致人死亡的暴力行为细节
-- **不标记**：推搡、扇耳光、拽头发等轻度肢体冲突；没有血腥细节的打斗；抽象或隐晦的暴力暗示
+### 一、激烈冲突内容
+检查字面上的激烈冲突描写：
+- 描写身体损伤的文字
+- 描写冲突过程的文字
+- 描写激烈对抗行为的文字
+- 轻度肢体冲突可标记为优化建议
 
-### 二、版权侵犯
+### 二、版权问题
 检查是否存在：
-- 直接引用受版权保护的作品内容（歌词、台词、小说段落等）
-- 明显模仿或抄袭知名 IP 的角色、情节设定
-- 未授权使用品牌名称或商标
+- 直接引用受版权保护的作品内容
+- 明显模仿知名IP的角色、情节设定
+- 未授权使用品牌名称
 
-### 三、色情内容
-**仅检查字面上明确的色情描写**，不考虑引申含义：
-- 明确的裸露描写或性行为描写
-- 明确的性器官描写
-- **不标记**：调情对话、亲吻拥抱、暧昧氛围等非明确色情内容
+### 三、敏感亲密内容
+检查字面上的敏感亲密描写：
+- 过度暴露的描写
+- 不当行为描写
+- 一般亲吻拥抱可标记为优化建议
 
 ## 输出格式
 
 使用以下标记标注问题严重程度：
-- ⛔ 红线问题（必须修改，否则无法过审）
-- ⚠️ 高风险内容（建议修改，存在被退回风险）
-- ℹ️ 优化建议（可选修改，提升合规安全性）
+- ⛔ 红线问题（必须修改）
+- ⚠️ 高风险内容（建议修改）
+- ℹ️ 优化建议（可选修改）
 
 输出结构：
 1. **合规总评**：一段话总结合规状态
-2. **血腥暴力检测**：逐项检查结果
-3. **版权侵犯排查**：逐项检查结果
-4. **色情内容检测**：逐项检查结果
-5. **问题清单汇总**：按严重程度排序的完整问题列表
+2. **激烈冲突检测**：逐项检查结果
+3. **版权问题排查**：逐项检查结果
+4. **敏感内容检测**：逐项检查结果
+5. **问题清单汇总**：按严重程度排序
 6. **修改建议**：针对每个问题的具体修改方案
 
-**⚠️ 极其重要的标记规则 — 必须严格遵守：**
+**标记规则：**
 
-在整个报告中，每当你提到原文中存在合规风险的具体语句时，**必须**从原文中逐字逐句复制该片段（不得改写、缩写、省略或重新措辞），并用以下格式包裹：
-- 红线问题：⛔【原文中逐字复制的风险片段】
-- 高风险内容：⚠️【原文中逐字复制的风险片段】
-- 优化建议：ℹ️【原文中逐字复制的风险片段】
-
-**要求：**
-- 【】内的文字必须与原文完全一致，一个字都不能改动
-- 尽量引用完整的句子或段落，不要只引用个别词语
-- 每个风险点都必须有对应的原文标记
-- 在报告的所有章节中都使用此标记格式，不仅限于修改建议部分
+标记**整句话或整个分镜片段**：
+- 红线问题：⛔【包含风险内容的完整句子】
+- 高风险内容：⚠️【包含风险内容的完整句子】
+- 优化建议：ℹ️【包含风险内容的完整句子】
 
 用 Markdown 格式输出，清晰分区。`;
+
+// 情节审核提示词 - 审核整个段落的画面表现 + 文字违规
+const SCRIPT_REVIEW_PROMPT = (scriptText: string) => `你是一位资深的短剧内容合规审核专家，执行**最彻底的合规审查**。
+
+## 待审核剧本
+${scriptText}
+
+---
+
+## 审核要求
+
+你需要进行**双重审查**：检查文字层面和画面表现层面的合规风险。
+
+### 第一重：文字违规检查
+
+检查字面上的违规内容：
+
+1. **激烈冲突文字**
+   - 描写身体损伤的文字
+   - 描写冲突过程的文字
+   - 描写激烈对抗的文字
+
+2. **版权问题**
+   - 直接引用受版权保护的歌词、台词、小说
+   - 明显抄袭知名IP的角色、情节
+
+3. **敏感亲密文字**
+   - 过度暴露的描写
+   - 不当行为描写
+
+### 第二重：画面违规检查
+
+从画面呈现角度审查整个情节段落：
+
+1. **激烈冲突情节风险**
+   - 肢体冲突情节：打斗、摔打等
+   - 伤害呈现情节：受伤场景
+   - 强对抗情节：威胁等
+
+2. **亲密情节风险**
+   - 亲密接触情节：吻戏、拥抱等
+   - 身体呈现情节：更衣、沐浴等
+   - 暧昧氛围情节：调情等
+
+3. **其他情节风险**
+   - 未成年人参与的敏感场景
+   - 不良行为展示
+   - 其他违规内容
+
+## 输出格式
+
+使用以下标记标注风险：
+
+- ⛔ 红线问题（必须修改）
+- ⚠️ 高风险内容（建议修改）
+- ℹ️ 优化建议（可选修改）
+
+**标记规则：**
+
+**文字违规**：标记完整句子
+- 示例：⛔【他的胸口被刺穿，染红了整件衬衫。】
+
+**画面违规**：标记整个风险段落
+- 示例：⛔【他猛地将她推倒，双手掐住她的脖子...（整段完整文字）】
+
+## 输出结构
+
+1. **合规总评**
+2. **文字违规检测**
+3. **画面违规检测**
+4. **风险汇总**
+5. **修改建议**
+
+用 Markdown 格式输出。`;
+
+// 表格数据类型
+type TableData = {
+  headers: string[];
+  rows: (string | number | null)[][];
+  fileName: string;
+  sheetName?: string;
+  originalData: (string | number | null)[][];
+};
 
 const ComplianceReview = () => {
   const navigate = useNavigate();
@@ -90,6 +173,13 @@ const ComplianceReview = () => {
   const [editing, setEditing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [reportOpen, setReportOpen] = useState(true);
+  // 表格数据状态
+  const [tableData, setTableData] = useState<TableData | null>(null);
+  const [inputMode, setInputMode] = useState<"text" | "table">("text");
+  // 审核模式：文字审核 | 情节审核
+  const [reviewMode, setReviewMode] = useState<ReviewMode>("text");
+  // 分段审核进度
+  const [segmentProgress, setSegmentProgress] = useState<{ current: number; total: number } | null>(null);
   const [model, setModel] = useState<ComplianceModel>(
     () => (localStorage.getItem("compliance-model") as ComplianceModel) || "gemini-3.1-pro-preview"
   );
@@ -110,10 +200,12 @@ const ComplianceReview = () => {
   // Track phrase replacements so re-adjust works: original -> current
   const [phraseReplacements, setPhraseReplacements] = useState<Map<string, string>>(new Map());
 
-  // Sync palette text with script text when not editing
+  // Sync palette text with script text initially or when script changes and no adjustments made
   useEffect(() => {
-    if (!paletteEditing) setPaletteText(scriptText);
-  }, [scriptText, paletteEditing]);
+    if (phraseReplacements.size === 0 && scriptText) {
+      setPaletteText(scriptText);
+    }
+  }, [scriptText, phraseReplacements.size]);
 
   // Close model dropdown on outside click
   useEffect(() => {
@@ -181,11 +273,66 @@ const ComplianceReview = () => {
 
   const activeRiskPhrases = useMemo(() => [...activeRiskMap.keys()], [activeRiskMap]);
 
+  // 反向映射：replacement -> original，用于悬浮显示原文
+  const replacementToOriginal = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [original, replacement] of phraseReplacements.entries()) {
+      map.set(replacement, original);
+    }
+    return map;
+  }, [phraseReplacements]);
+
+  // 单独调整某个片段的状态
+  const [adjustingSinglePhrase, setAdjustingSinglePhrase] = useState<string | null>(null);
+
+  // 单独调整某个片段
+  const handleSingleAdjust = useCallback(async (phrase: string, level: RiskLevel) => {
+    if (adjustingSinglePhrase) return;
+    setAdjustingSinglePhrase(phrase);
+
+    const prompt = reviewMode === "script"
+      ? `你是短剧情节优化专家。\n\n## 你的任务\n请对以下存在画面合规风险的**整个段落**进行优化改写，在保持剧情完整的前提下，使其画面呈现符合审核标准。\n\n## 原始段落\n${phrase}\n\n## 风险等级\n${level === "red" ? "红线问题（画面必然违规）" : level === "high" ? "高风险内容（画面存在较大违规风险）" : "优化建议（可通过镜头优化降低风险）"}\n\n## 改写原则\n1. 保持剧情完整\n2. 画面合规改写\n3. 整体改写段落\n\n## 输出格式\n只输出改写后的完整段落，不要任何解释或标记。`
+      : `你是短剧内容合规审核专家。\n\n## 你的任务\n请对以下存在违规词汇的片段进行**最小化修改**，只替换关键违规词汇。\n\n## 原始片段\n${phrase}\n\n## 风险等级\n${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优化建议"}\n\n## 改写原则\n1. 最小改动：只替换违规词汇\n2. 词汇替换：用委婉词汇替代敏感词\n3. 保持原意\n\n## 输出格式\n只输出修改后的文本，不要任何解释。`;
+
+    try {
+      const raw = await callGeminiStream(
+        model,
+        [{ role: "user", parts: [{ text: prompt }] }],
+        () => {},
+        { maxOutputTokens: 1024, temperature: 0.7 },
+      );
+
+      const replacement = raw.trim();
+      if (!replacement || normalizeForCompare(phrase) === normalizeForCompare(replacement)) {
+        toast({ title: "改写失败", description: "AI 未生成有效改写", variant: "destructive" });
+        return;
+      }
+
+      const currentText = paletteText || scriptText;
+      const newText = currentText.split(phrase).join(replacement);
+
+      const originalPhrase = replacementToOriginal.get(phrase) || phrase;
+      setPhraseReplacements(prev => {
+        const newMap = new Map(prev);
+        newMap.set(originalPhrase, replacement);
+        return newMap;
+      });
+
+      setPaletteText(newText);
+      setScriptText(newText);
+      toast({ title: "改写成功", description: `已将「${phrase.slice(0, 20)}...」改写为「${replacement.slice(0, 20)}...」` });
+    } catch (e: any) {
+      toast({ title: "改写失败", description: e?.message, variant: "destructive" });
+    } finally {
+      setAdjustingSinglePhrase(null);
+    }
+  }, [adjustingSinglePhrase, model, paletteText, scriptText, replacementToOriginal, reviewMode]);
+
   const buildHighlightedParts = useCallback((text: string, blankPhrases?: Set<string>) => {
-    if (!text || activeRiskPhrases.length === 0) return null;
+    if (!text || activeRiskPhrases.length === 0) return <>{text}</>;
     const sorted = [...activeRiskPhrases].sort((a, b) => b.length - a.length);
     const matching = sorted.filter(p => text.includes(p));
-    if (matching.length === 0) return null;
+    if (matching.length === 0) return <>{text}</>;
     const escaped = matching.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     const regex = new RegExp(`(${escaped.join("|")})`, "g");
     const parts = text.split(regex);
@@ -193,20 +340,32 @@ const ComplianceReview = () => {
       const level = activeRiskMap.get(part);
       if (level) {
         const isBlank = blankPhrases?.has(part);
+        const isAdjusting = adjustingSinglePhrase === part;
         return (
           <mark key={i} className={`${RISK_STYLES[level]} text-foreground rounded px-0.5 ${isBlank ? "inline-block min-w-[2em]" : ""}`}>
             {isBlank ? "\u00A0".repeat(Math.max(part.length, 2)) : part}
+            <button
+              className="inline-flex items-center justify-center w-4 h-4 ml-0.5 text-[10px] rounded hover:bg-foreground/10 align-middle cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSingleAdjust(part, level);
+              }}
+              disabled={isAdjusting || isAutoAdjusting}
+              title="重新生成"
+            >
+              {isAdjusting ? "..." : "↻"}
+            </button>
           </mark>
         );
       }
       return <span key={i}>{part}</span>;
     });
-  }, [activeRiskPhrases, activeRiskMap]);
+  }, [activeRiskPhrases, activeRiskMap, adjustingSinglePhrase, handleSingleAdjust, isAutoAdjusting]);
 
   const highlightedScript = useMemo(() => {
-    const text = paletteEditing ? paletteText : scriptText;
+    const text = paletteText || scriptText;
     return buildHighlightedParts(text, isAutoAdjusting ? adjustingPhrases : undefined);
-  }, [paletteEditing, paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases]);
+  }, [paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases]);
   const normalizeForCompare = (value: string) => value.replace(/\s+/g, "").trim();
 
   const parseRewriteJson = (raw: string) => {
@@ -231,17 +390,41 @@ const ComplianceReview = () => {
     return fallback;
   };
 
+  // Check if replacement is genuinely different
+  const isGenuinelyDifferent = (original: string, replacement: string, isScriptMode: boolean = false) => {
+    const normOrig = normalizeForCompare(original);
+    const normRep = normalizeForCompare(replacement);
+    if (normOrig === normRep) return false;
+    const noPunctOrig = normOrig.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "");
+    const noPunctRep = normRep.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "");
+    if (noPunctOrig === noPunctRep) return false;
+    if (!isScriptMode) return noPunctOrig !== noPunctRep;
+    const minLen = Math.min(noPunctOrig.length, noPunctRep.length);
+    const maxLen = Math.max(noPunctOrig.length, noPunctRep.length);
+    if (maxLen > minLen * 1.5 || minLen < maxLen * 0.7) return true;
+    let diffCount = 0;
+    const shorter = noPunctOrig.length <= noPunctRep.length ? noPunctOrig : noPunctRep;
+    const longer = noPunctOrig.length > noPunctRep.length ? noPunctOrig : noPunctRep;
+    for (let i = 0; i < shorter.length; i++) {
+      if (shorter[i] !== longer[i]) diffCount++;
+    }
+    diffCount += longer.length - shorter.length;
+    return (diffCount / maxLen) >= 0.3;
+  };
+
   // Auto-adjust: only red-line/high-risk, and only send target fragments to AI
   const handleAutoAdjust = async () => {
     const targetEntries: { original: string; current: string; level: RiskLevel }[] = [];
+    const textToCheck = paletteText || scriptText;
+
     for (const [phrase, level] of riskMap.entries()) {
       if (level !== "red" && level !== "high") continue;
-      if (paletteText.includes(phrase)) {
+      if (textToCheck.includes(phrase)) {
         targetEntries.push({ original: phrase, current: phrase, level });
         continue;
       }
       const replaced = phraseReplacements.get(phrase);
-      if (replaced && paletteText.includes(replaced)) {
+      if (replaced && textToCheck.includes(replaced)) {
         targetEntries.push({ original: phrase, current: replaced, level });
       }
     }
@@ -265,7 +448,11 @@ const ComplianceReview = () => {
         text: entry.current,
       }));
 
-      const prompt = `你是短剧合规改写助手。\n\n你只会收到“需要修改的片段”，不要处理全文。\n目标：对片段做和谐化处理，保留原有表达意思、剧情信息、人物关系和语气，不新增事实。\n\n硬性要求：\n1) 只改写给定片段，不输出解释\n2) replacement 必须与原文不同，不能原样返回\n3) 保持语义等价，长度尽量接近原文\n4) 不要使用空字符串\n${strict ? "5) 如果第一次改写仍接近原文，请使用更明确但同义的合规表达" : ""}\n\n请只输出 JSON 数组（不要 markdown）：\n[{\"id\":1,\"replacement\":\"...\"}]\n\n待改写片段：\n${JSON.stringify(payload, null, 2)}`;
+      const basePrompt = reviewMode === "script"
+        ? `你是短剧情节优化专家。\n\n你将收到"存在画面合规风险的完整段落"，请对每个段落进行整体改写，在保持剧情完整的前提下，使其画面呈现符合审核标准。\n\n改写原则：\n1. 保持剧情完整\n2. 画面合规改写\n3. 整体改写段落\n4. 必须实际改写`
+        : `你是短剧内容合规审核专家。\n\n你将收到"存在违规词汇的片段"，请仅替换关键违规词汇，保持原文整体结构不变。\n\n改写原则：\n1. 最小改动原则\n2. 词汇替换\n3. 保持原意`;
+
+      const prompt = `${basePrompt}\n${strict ? "\n二次改写提醒：上一次改写仍与原文过于相似，请使用更明显的不同表达方式。" : ""}\n\n输出格式：\n只输出 JSON 数组，不要 markdown 代码块：\n[{"id":1,"replacement":"改写后的文本"}]\n\n待改写片段：\n${JSON.stringify(payload, null, 2)}`;
 
       const raw = await callGeminiStream(
         model,
@@ -279,7 +466,7 @@ const ComplianceReview = () => {
     };
 
     try {
-      let workingText = paletteText;
+      let workingText = paletteText || scriptText;
       let workingReplacements = new Map(phraseReplacements);
       let pending = [...targetEntries];
       let appliedCount = 0;
@@ -292,7 +479,7 @@ const ComplianceReview = () => {
 
         pending.forEach((entry, idx) => {
           const replacement = rewrites.get(idx + 1)?.trim();
-          if (!replacement || normalizeForCompare(replacement) === normalizeForCompare(entry.current)) {
+          if (!replacement || !isGenuinelyDifferent(entry.current, replacement, reviewMode === "script")) {
             nextPending.push(entry);
             return;
           }
@@ -310,7 +497,7 @@ const ComplianceReview = () => {
       }
 
       if (appliedCount === 0) {
-        toast({ title: "自动调整未生效", description: "AI 返回与原文一致，请重试或手动编辑", variant: "destructive" });
+        toast({ title: "自动调整未生效", description: "AI 改写结果与原文过于相似，请点击「自动调整」重试，或手动编辑文本", variant: "destructive" });
         return;
       }
 
@@ -331,13 +518,26 @@ const ComplianceReview = () => {
     }
   };
 
-  // Export palette text as Word document
+  // Export palette text - xlsx if table mode, otherwise docx
   const handlePaletteExport = useCallback(async () => {
     try {
+      // 如果是表格模式，导出 xlsx
+      if (inputMode === "table" && tableData) {
+        const exportData = [tableData.headers, ...tableData.rows];
+        const ws = XLSX.utils.aoa_to_sheet(exportData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, tableData.sheetName || "Sheet1");
+        const baseName = tableData.fileName.replace(/\.[^.]+$/, "");
+        const exportFileName = `${baseName}_合规审核_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        XLSX.writeFile(wb, exportFileName);
+        toast({ title: "导出成功", description: `已导出为 ${exportFileName}` });
+        return;
+      }
+
+      // 文本模式导出 docx
       const textToExport = paletteEditing ? paletteText : scriptText;
       const lines = textToExport.split("\n");
       const paragraphs = lines.map(line => {
-        // Check if this line contains a risk phrase for coloring
         const matchingPhrases: { phrase: string; level: RiskLevel; start: number }[] = [];
         for (const [phrase, level] of activeRiskMap.entries()) {
           let idx = line.indexOf(phrase);
@@ -349,7 +549,6 @@ const ComplianceReview = () => {
         if (matchingPhrases.length === 0) {
           return new Paragraph({ children: [new TextRun({ text: line, size: 24 })] });
         }
-        // Build runs with highlights
         matchingPhrases.sort((a, b) => a.start - b.start);
         const runs: TextRun[] = [];
         let cursor = 0;
@@ -389,11 +588,10 @@ const ComplianceReview = () => {
     } catch (e: any) {
       toast({ title: "导出失败", description: e?.message, variant: "destructive" });
     }
-  }, [paletteEditing, paletteText, scriptText, activeRiskMap]);
+  }, [paletteEditing, paletteText, scriptText, activeRiskMap, inputMode, tableData]);
 
   const handlePaletteEditToggle = () => {
     if (paletteEditing) {
-      // Exiting edit mode — sync text from contentEditable
       if (paletteEditRef.current) {
         const newText = paletteEditRef.current.innerText;
         setPaletteText(newText);
@@ -402,7 +600,9 @@ const ComplianceReview = () => {
         setScriptText(paletteText);
       }
     } else {
-      setPaletteText(scriptText);
+      if (!paletteText) {
+        setPaletteText(scriptText);
+      }
     }
     setPaletteEditing(!paletteEditing);
   };
@@ -422,7 +622,31 @@ const ComplianceReview = () => {
       if (ext === "txt") {
         const text = await file.text();
         setScriptText((prev) => (prev ? prev + "\n\n" : "") + text);
+        setTableData(null);
+        setInputMode("text");
         toast({ title: "文件已加载" });
+      } else if (["xlsx", "xls", "csv"].includes(ext)) {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json<(string | number | null)[]>(worksheet, { header: 1, defval: "" });
+
+        if (jsonData.length === 0) {
+          toast({ title: "表格为空", description: "未找到有效数据", variant: "destructive" });
+          return;
+        }
+
+        const headers = (jsonData[0] as string[]).map((h, i) => String(h || `列${i + 1}`));
+        const rows = jsonData.slice(1).map(row =>
+          (row as (string | number | null)[]).map(cell => cell ?? "")
+        );
+
+        setTableData({ headers, rows, fileName: file.name, sheetName, originalData: jsonData });
+        setInputMode("table");
+        const textContent = jsonData.map(row => (row as any[]).join("\t")).join("\n");
+        setScriptText(textContent);
+        toast({ title: "表格已加载", description: `${file.name} - ${sheetName} (${rows.length} 行数据)` });
       } else if (["pdf", "docx", "doc"].includes(ext)) {
         const formData = new FormData();
         formData.append("file", file);
@@ -430,10 +654,12 @@ const ComplianceReview = () => {
         if (error) throw error;
         if (data?.text) {
           setScriptText((prev) => (prev ? prev + "\n\n" : "") + data.text);
+          setTableData(null);
+          setInputMode("text");
           toast({ title: "文档解析完成" });
         }
       } else {
-        toast({ title: "不支持的格式", description: "支持 TXT、PDF、DOCX 文件", variant: "destructive" });
+        toast({ title: "不支持的格式", description: "支持 TXT、PDF、DOCX、XLSX、XLS、CSV 文件", variant: "destructive" });
       }
     } catch (err: any) {
       toast({ title: "文件解析失败", description: err?.message, variant: "destructive" });
@@ -448,32 +674,96 @@ const ComplianceReview = () => {
       toast({ title: "请先输入或上传剧本内容", variant: "destructive" });
       return;
     }
+
+    // 判断是否需要分段
+    const totalChars = scriptText.length;
+    const chineseCount = (scriptText.match(/[\u4e00-\u9fa5]/g) || []).length;
+    const MAX_TOTAL = 20000;
+    const needsSegment = totalChars > MAX_TOTAL;
+
     setIsGenerating(true);
     setStreamingText("");
     setReportOpen(true);
+    setComplianceReport("");
+    setPhraseReplacements(new Map());
     abortRef.current = new AbortController();
+
     try {
-      const prompt = STANDALONE_COMPLIANCE_PROMPT(scriptText);
-      const finalText = await callGeminiStream(
-        model,
-        [{ role: "user", parts: [{ text: prompt }] }],
-        (chunk) => setStreamingText(chunk),
-        { maxOutputTokens: 8192 },
-        abortRef.current.signal,
-      );
-      setComplianceReport(finalText);
-      setStreamingText("");
-      toast({ title: "合规审核完成" });
+      const promptGenerator = reviewMode === "script" ? SCRIPT_REVIEW_PROMPT : STANDALONE_COMPLIANCE_PROMPT;
+
+      if (!needsSegment) {
+        setSegmentProgress(null);
+        const prompt = promptGenerator(scriptText);
+        const finalText = await callGeminiStream(
+          model,
+          [{ role: "user", parts: [{ text: prompt }] }],
+          (chunk) => setStreamingText(chunk),
+          { maxOutputTokens: 8192 },
+          abortRef.current.signal,
+        );
+        setComplianceReport(finalText);
+        setStreamingText("");
+        toast({ title: reviewMode === "script" ? "情节审核完成" : "文字审核完成" });
+      } else {
+        // 长文本分段处理
+        const segments: string[] = [];
+        const chineseRatio = chineseCount / totalChars;
+        const segmentSize = chineseRatio > 0.3 ? 20000 : 60000;
+        const isTableMode = inputMode === "table" && tableData;
+        const paragraphs = isTableMode ? scriptText.split(/\n/) : scriptText.split(/\n\n+/);
+
+        let currentSegment = "";
+        for (const para of paragraphs) {
+          if ((currentSegment + para).length > segmentSize && currentSegment.length > 0) {
+            segments.push(currentSegment.trim());
+            currentSegment = para;
+          } else {
+            currentSegment += (currentSegment ? (isTableMode ? "\n" : "\n\n") : "") + para;
+          }
+        }
+        if (currentSegment.trim()) segments.push(currentSegment.trim());
+
+        const totalSegments = segments.length;
+        const segmentReports: string[] = [];
+
+        for (let i = 0; i < segments.length; i++) {
+          if (abortRef.current?.signal.aborted) break;
+          setSegmentProgress({ current: i + 1, total: totalSegments });
+          setStreamingText(`正在审核第 ${i + 1}/${totalSegments} 段（${segments[i].length} 字）…`);
+
+          const prompt = promptGenerator(segments[i]);
+          const report = await callGeminiStream(
+            model,
+            [{ role: "user", parts: [{ text: prompt }] }],
+            () => {},
+            { maxOutputTokens: 8192 },
+            abortRef.current.signal,
+          );
+          segmentReports.push(`## 第 ${i + 1} 段审核报告\n\n${report}`);
+        }
+
+        if (segmentReports.length > 0) {
+          const nonChineseCount = totalChars - chineseCount;
+          const combinedReport = `# 合规审核报告（分 ${totalSegments} 段审核）\n\n` +
+            `> 原文共 ${chineseCount} 中文字 + ${nonChineseCount} 非中文字，已拆分为 ${totalSegments} 段分别审核。\n\n` +
+            segmentReports.join("\n\n---\n\n");
+          setComplianceReport(combinedReport);
+          setStreamingText("");
+          toast({ title: "合规审核完成", description: `已完成 ${totalSegments} 段分段审核` });
+        }
+      }
     } catch (e: any) {
-      if (e?.message?.includes("取消")) {
+      if (e?.message?.includes("取消") || e?.name === "AbortError") {
         const partial = streamingText;
         if (partial) setComplianceReport(partial);
         toast({ title: "已停止生成" });
       } else {
         toast({ title: "审核失败", description: e?.message, variant: "destructive" });
+        if (streamingText) setComplianceReport(streamingText);
       }
     } finally {
       setIsGenerating(false);
+      setSegmentProgress(null);
       abortRef.current = null;
     }
   };
@@ -539,7 +829,7 @@ const ComplianceReview = () => {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".txt,.pdf,.docx,.doc"
+                accept=".txt,.pdf,.docx,.doc,.xlsx,.xls,.csv"
                 className="hidden"
                 onChange={handleFileUpload}
               />
@@ -556,16 +846,57 @@ const ComplianceReview = () => {
             </div>
           </CardHeader>
           <CardContent>
-            <Textarea
-              value={scriptText}
-              onChange={(e) => setScriptText(e.target.value)}
-              placeholder="粘贴剧本内容，或点击上方按钮上传 TXT / PDF / DOCX 文档..."
-              rows={12}
-              className="font-mono text-sm"
-            />
-            <div className="text-xs text-muted-foreground mt-2 text-right">
-              {scriptText.length} 字
-            </div>
+            {/* 输入模式切换 */}
+            {tableData && (
+              <Tabs value={inputMode} onValueChange={(v) => setInputMode(v as "text" | "table")} className="mb-4">
+                <TabsList>
+                  <TabsTrigger value="table"><TableIcon className="h-3.5 w-3.5 mr-1" />表格模式</TabsTrigger>
+                  <TabsTrigger value="text"><FileText className="h-3.5 w-3.5 mr-1" />文本模式</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            )}
+
+            {inputMode === "table" && tableData ? (
+              <div className="max-h-[400px] overflow-auto rounded-md border border-border">
+                <div className="text-xs text-muted-foreground px-3 py-1.5 bg-muted/50 border-b border-border flex items-center gap-2">
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  {tableData.fileName}
+                  {tableData.sheetName && <span>· {tableData.sheetName}</span>}
+                  <span>({tableData.rows.length} 行)</span>
+                </div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      {tableData.headers.map((header, i) => (
+                        <TableHead key={i} className="text-xs whitespace-nowrap">{header}</TableHead>
+                      ))}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {tableData.rows.map((row, rowIndex) => (
+                      <TableRow key={rowIndex}>
+                        {row.map((cell, cellIndex) => (
+                          <TableCell key={cellIndex} className="text-xs py-1.5">{String(cell ?? "")}</TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <>
+                <Textarea
+                  value={scriptText}
+                  onChange={(e) => setScriptText(e.target.value)}
+                  placeholder="粘贴剧本内容，或点击上方按钮上传 TXT / PDF / DOCX / XLSX 文档..."
+                  rows={12}
+                  className="font-mono text-sm"
+                />
+                <div className="text-xs text-muted-foreground mt-2 text-right">
+                  {scriptText.length} 字
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -584,7 +915,23 @@ const ComplianceReview = () => {
                   )}
                   {reportOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                 </CardTitle>
-                <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                <div className="flex gap-2 items-center" onClick={(e) => e.stopPropagation()}>
+                  {/* 审核模式切换 */}
+                  <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5">
+                    <button
+                      onClick={() => setReviewMode("text")}
+                      className={`px-2 py-1 text-xs rounded transition-colors ${reviewMode === "text" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                      文字审核
+                    </button>
+                    <button
+                      onClick={() => setReviewMode("script")}
+                      className={`px-2 py-1 text-xs rounded transition-colors ${reviewMode === "script" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                      情节审核
+                    </button>
+                  </div>
+
                   {complianceReport && !isGenerating && (
                     <>
                       <TranslateToggle
@@ -616,7 +963,7 @@ const ComplianceReview = () => {
                       className="gap-1.5"
                     >
                       <RefreshCw className="h-3.5 w-3.5" />
-                      {complianceReport ? "重新审核" : "开始审核"}
+                      {complianceReport ? (reviewMode === "script" ? "重新情节审核" : "重新文字审核") : (reviewMode === "script" ? "情节审核" : "文字审核")}
                     </Button>
                   )}
                 </div>
@@ -624,11 +971,23 @@ const ComplianceReview = () => {
             </CollapsibleTrigger>
             <CollapsibleContent>
               <CardContent>
+                {segmentProgress && (
+                  <div className="mb-4 space-y-1">
+                    <div className="text-xs text-muted-foreground">
+                      正在审核第 {segmentProgress.current}/{segmentProgress.total} 段
+                    </div>
+                    <Progress value={(segmentProgress.current / segmentProgress.total) * 100} className="h-1.5" />
+                  </div>
+                )}
                 {(isTranslating || transCanResume) && <TranslationProgress progress={transProgress} canResume={transCanResume} onResume={resumeTranslation} />}
                 {!displayText ? (
                   <div className="text-center py-16 text-muted-foreground">
-                    <p>输入或上传剧本内容后，点击"开始审核"进行合规检查</p>
-                    <p className="text-xs mt-2">检查维度：血腥暴力、版权侵犯、色情内容</p>
+                    <p>输入或上传剧本内容后，点击审核按钮进行合规检查</p>
+                    <p className="text-xs mt-2">
+                      {reviewMode === "script"
+                        ? "情节审核：文字违规+画面违规双重审查"
+                        : "文字审核：检测字面上的激烈冲突、版权问题、敏感亲密内容"}
+                    </p>
                   </div>
                 ) : editing && !isGenerating ? (
                   <Textarea
@@ -660,7 +1019,7 @@ const ComplianceReview = () => {
                 <Palette className="h-5 w-5" />
                 调色盘文本对比
                 <span className="text-sm font-normal text-muted-foreground">
-                  共识别 {riskPhrases.length} 处风险片段，{riskPhrases.filter(p => (paletteEditing ? paletteText : scriptText).includes(p)).length} 处已标记
+                  共识别 {riskPhrases.length} 处风险片段，{riskPhrases.filter(p => (paletteText || scriptText).includes(p)).length} 处已标记
                 </span>
               </CardTitle>
               <div className="flex gap-2">

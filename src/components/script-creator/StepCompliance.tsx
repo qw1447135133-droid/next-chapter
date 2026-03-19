@@ -10,6 +10,8 @@ import { buildCompliancePrompt } from "@/lib/drama-prompts";
 import type { DramaSetup, EpisodeScript } from "@/types/drama";
 import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "./TranslateButton";
 
+type ReviewMode = "text" | "script";
+
 interface StepComplianceProps {
   setup: DramaSetup;
   creativePlan: string;
@@ -24,6 +26,7 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [editing, setEditing] = useState(false);
+  const [reviewMode, setReviewMode] = useState<ReviewMode>("text");
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useAutoScroll<HTMLPreElement>(isGenerating, streamingText);
   const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress, canResume: transCanResume, resumeTranslation } = useTranslation();
@@ -34,7 +37,7 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
     setStreamingText("");
     abortRef.current = new AbortController();
     try {
-      const prompt = buildCompliancePrompt(setup, creativePlan, characters, episodes);
+      const prompt = buildCompliancePrompt(setup, creativePlan, characters, episodes, reviewMode);
       const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
       const finalText = await callGeminiStream(
         model,
@@ -45,7 +48,7 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
       );
       onUpdate(finalText);
       setStreamingText("");
-      toast({ title: "合规审核完成" });
+      toast({ title: reviewMode === "script" ? "情节审核完成" : "文字审核完成" });
     } catch (e: any) {
       if (e?.message?.includes("取消")) {
         const partial = streamingText;
@@ -81,7 +84,23 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
               </span>
             )}
           </CardTitle>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            {/* 审核模式切换 */}
+            <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5">
+              <button
+                onClick={() => setReviewMode("text")}
+                className={`px-2 py-1 text-xs rounded transition-colors ${reviewMode === "text" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                文字审核
+              </button>
+              <button
+                onClick={() => setReviewMode("script")}
+                className={`px-2 py-1 text-xs rounded transition-colors ${reviewMode === "script" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                情节审核
+              </button>
+            </div>
+
             {complianceReport && !isGenerating && (
               <>
                 <TranslateToggle
@@ -112,7 +131,7 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
                 className="gap-1.5"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
-                {complianceReport ? "重新审核" : "开始审核"}
+                {complianceReport ? (reviewMode === "script" ? "重新情节审核" : "重新文字审核") : (reviewMode === "script" ? "情节审核" : "文字审核")}
               </Button>
             )}
           </div>
@@ -121,8 +140,12 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
           {(isTranslating || transCanResume) && <TranslationProgress progress={transProgress} canResume={transCanResume} onResume={resumeTranslation} />}
           {!displayText ? (
             <div className="text-center py-16 text-muted-foreground">
-              <p>点击"开始审核"按钮，AI 将对全部已完成的剧本内容进行合规检查</p>
-              <p className="text-xs mt-2">检查维度：红线检测、高风险内容、正能量校验、广告植入合规</p>
+              <p>点击审核按钮，AI 将对全部已完成的剧本内容进行合规检查</p>
+              <p className="text-xs mt-2">
+                {reviewMode === "script"
+                  ? "情节审核：文字违规+画面违规双重审查"
+                  : "文字审核：检测字面上的激烈冲突、版权问题、敏感亲密内容"}
+              </p>
             </div>
           ) : editing && !isGenerating ? (
             <Textarea
