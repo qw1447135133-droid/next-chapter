@@ -273,11 +273,66 @@ const ComplianceReview = () => {
 
   const activeRiskPhrases = useMemo(() => [...activeRiskMap.keys()], [activeRiskMap]);
 
+  // 反向映射：replacement -> original，用于悬浮显示原文
+  const replacementToOriginal = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [original, replacement] of phraseReplacements.entries()) {
+      map.set(replacement, original);
+    }
+    return map;
+  }, [phraseReplacements]);
+
+  // 单独调整某个片段的状态
+  const [adjustingSinglePhrase, setAdjustingSinglePhrase] = useState<string | null>(null);
+
+  // 单独调整某个片段
+  const handleSingleAdjust = useCallback(async (phrase: string, level: RiskLevel) => {
+    if (adjustingSinglePhrase) return;
+    setAdjustingSinglePhrase(phrase);
+
+    const prompt = reviewMode === "script"
+      ? `你是短剧情节优化专家。\n\n## 你的任务\n请对以下存在画面合规风险的**整个段落**进行优化改写，在保持剧情完整的前提下，使其画面呈现符合审核标准。\n\n## 原始段落\n${phrase}\n\n## 风险等级\n${level === "red" ? "红线问题（画面必然违规）" : level === "high" ? "高风险内容（画面存在较大违规风险）" : "优化建议（可通过镜头优化降低风险）"}\n\n## 改写原则\n1. 保持剧情完整\n2. 画面合规改写\n3. 整体改写段落\n\n## 输出格式\n只输出改写后的完整段落，不要任何解释或标记。`
+      : `你是短剧内容合规审核专家。\n\n## 你的任务\n请对以下存在违规词汇的片段进行**最小化修改**，只替换关键违规词汇。\n\n## 原始片段\n${phrase}\n\n## 风险等级\n${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优化建议"}\n\n## 改写原则\n1. 最小改动：只替换违规词汇\n2. 词汇替换：用委婉词汇替代敏感词\n3. 保持原意\n\n## 输出格式\n只输出修改后的文本，不要任何解释。`;
+
+    try {
+      const raw = await callGeminiStream(
+        model,
+        [{ role: "user", parts: [{ text: prompt }] }],
+        () => {},
+        { maxOutputTokens: 1024, temperature: 0.7 },
+      );
+
+      const replacement = raw.trim();
+      if (!replacement || normalizeForCompare(phrase) === normalizeForCompare(replacement)) {
+        toast({ title: "改写失败", description: "AI 未生成有效改写", variant: "destructive" });
+        return;
+      }
+
+      const currentText = paletteText || scriptText;
+      const newText = currentText.split(phrase).join(replacement);
+
+      const originalPhrase = replacementToOriginal.get(phrase) || phrase;
+      setPhraseReplacements(prev => {
+        const newMap = new Map(prev);
+        newMap.set(originalPhrase, replacement);
+        return newMap;
+      });
+
+      setPaletteText(newText);
+      setScriptText(newText);
+      toast({ title: "改写成功", description: `已将「${phrase.slice(0, 20)}...」改写为「${replacement.slice(0, 20)}...」` });
+    } catch (e: any) {
+      toast({ title: "改写失败", description: e?.message, variant: "destructive" });
+    } finally {
+      setAdjustingSinglePhrase(null);
+    }
+  }, [adjustingSinglePhrase, model, paletteText, scriptText, replacementToOriginal, reviewMode]);
+
   const buildHighlightedParts = useCallback((text: string, blankPhrases?: Set<string>) => {
-    if (!text || activeRiskPhrases.length === 0) return null;
+    if (!text || activeRiskPhrases.length === 0) return <>{text}</>;
     const sorted = [...activeRiskPhrases].sort((a, b) => b.length - a.length);
     const matching = sorted.filter(p => text.includes(p));
-    if (matching.length === 0) return null;
+    if (matching.length === 0) return <>{text}</>;
     const escaped = matching.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     const regex = new RegExp(`(${escaped.join("|")})`, "g");
     const parts = text.split(regex);
@@ -285,20 +340,32 @@ const ComplianceReview = () => {
       const level = activeRiskMap.get(part);
       if (level) {
         const isBlank = blankPhrases?.has(part);
+        const isAdjusting = adjustingSinglePhrase === part;
         return (
           <mark key={i} className={`${RISK_STYLES[level]} text-foreground rounded px-0.5 ${isBlank ? "inline-block min-w-[2em]" : ""}`}>
             {isBlank ? "\u00A0".repeat(Math.max(part.length, 2)) : part}
+            <button
+              className="inline-flex items-center justify-center w-4 h-4 ml-0.5 text-[10px] rounded hover:bg-foreground/10 align-middle cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSingleAdjust(part, level);
+              }}
+              disabled={isAdjusting || isAutoAdjusting}
+              title="重新生成"
+            >
+              {isAdjusting ? "..." : "↻"}
+            </button>
           </mark>
         );
       }
       return <span key={i}>{part}</span>;
     });
-  }, [activeRiskPhrases, activeRiskMap]);
+  }, [activeRiskPhrases, activeRiskMap, adjustingSinglePhrase, handleSingleAdjust, isAutoAdjusting]);
 
   const highlightedScript = useMemo(() => {
-    const text = paletteEditing ? paletteText : scriptText;
+    const text = paletteText || scriptText;
     return buildHighlightedParts(text, isAutoAdjusting ? adjustingPhrases : undefined);
-  }, [paletteEditing, paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases]);
+  }, [paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases]);
   const normalizeForCompare = (value: string) => value.replace(/\s+/g, "").trim();
 
   const parseRewriteJson = (raw: string) => {
