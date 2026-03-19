@@ -1,33 +1,16 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import type { Scene, CharacterSetting } from "@/types/project";
 
-const COL = {
-  A: 0, // 分镜序号
-  B: 1, // 画面描述
-  C: 2, // 对白
-  D: 3, // 角色
-  E: 4, // 时长
-};
-const TOTAL_COLS = 5; // A–E
-
-function cell(r: number, c: number): string {
-  return XLSX.utils.encode_cell({ r, c });
-}
+const COLS = ["分镜序号", "画面描述", "对白", "角色", "时长(秒)"] as const;
 
 /**
- * Export scenes to a well-structured XLSX that mirrors the page layout:
- *   ┌─ 集数标题行 (merged, bold)
- *   ├─ 片段标题行 (merged, with scene/character tags)
- *   │  ├─ 分镜1:  画面描述  |  对白  |  角色  |  时长
- *   │  ├─ 分镜2:  ...
- *   │  └─ 通用后缀行
- *   ├─ 片段标题行 ...
- *   └─ ...
+ * Export scenes to a richly-styled XLSX using ExcelJS.
+ * Layout mirrors the web page: Episode → Segment → Shots → Suffix.
  */
-export function exportScenesToXlsx(
+export async function exportScenesToXlsx(
   scenes: Scene[],
   title?: string,
-  characters?: CharacterSetting[],
+  _characters?: CharacterSetting[],
 ) {
   if (scenes.length === 0) return;
 
@@ -45,14 +28,60 @@ export function exportScenesToXlsx(
 
   const hasEpisodes = segmentOrder.some(l => /^\d+-\d+$/.test(l));
 
-  // ── Build worksheet data row-by-row ──
-  const wsData: (string | number | null)[][] = [];
-  const merges: XLSX.Range[] = [];
-  const rowStyles: Map<number, "header-ep" | "header-seg" | "suffix" | "shot"> = new Map();
+  // ── Create workbook & worksheet ──
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("分镜脚本", {
+    views: [{ state: "frozen", ySplit: 1 }],
+  });
 
-  // Header row
-  wsData.push(["分镜序号", "画面描述", "对白", "角色", "时长(秒)"]);
-  rowStyles.set(0, "header-ep");
+  // Column definitions
+  ws.columns = [
+    { key: "shot",     width: 12 },
+    { key: "desc",     width: 58 },
+    { key: "dialogue", width: 38 },
+    { key: "chars",    width: 20 },
+    { key: "duration", width: 10 },
+  ];
+
+  // ── Styles ──
+  const BORDER_THIN: Partial<ExcelJS.Borders> = {
+    top:    { style: "thin", color: { argb: "FFDDDDDD" } },
+    bottom: { style: "thin", color: { argb: "FFDDDDDD" } },
+    left:   { style: "thin", color: { argb: "FFDDDDDD" } },
+    right:  { style: "thin", color: { argb: "FFDDDDDD" } },
+  };
+
+  const styleColHeader: Partial<ExcelJS.Style> = {
+    font: { bold: true, color: { argb: "FFFFFFFF" }, size: 11 },
+    fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF1A1A2E" } },
+    alignment: { vertical: "middle", horizontal: "center" },
+    border: BORDER_THIN,
+  };
+
+  const styleEpHeader: Partial<ExcelJS.Style> = {
+    font: { bold: true, size: 13, color: { argb: "FF1A1A2E" } },
+    fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFC5CAE9" } },
+    alignment: { vertical: "middle", horizontal: "left" },
+    border: BORDER_THIN,
+  };
+
+  const styleSegHeader: Partial<ExcelJS.Style> = {
+    font: { bold: true, size: 10, color: { argb: "FF303F9F" } },
+    fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8EAF6" } },
+    alignment: { vertical: "middle", horizontal: "left", wrapText: true },
+    border: BORDER_THIN,
+  };
+
+  const styleSuffix: Partial<ExcelJS.Style> = {
+    font: { italic: true, size: 9, color: { argb: "FF999999" } },
+    fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF5F5F5" } },
+    alignment: { vertical: "middle" },
+  };
+
+  // ── Column Header Row ──
+  const headerRow = ws.addRow(COLS as unknown as string[]);
+  headerRow.height = 28;
+  headerRow.eachCell(cell => { Object.assign(cell, { style: styleColHeader }); });
 
   let lastEpNum = "";
 
@@ -68,10 +97,10 @@ export function exportScenesToXlsx(
         .reduce((sum, l) => sum + (segmentMap.get(l)?.length || 0), 0);
       const epSegCount = segmentOrder.filter(l => l.startsWith(epNum + "-")).length;
 
-      const r = wsData.length;
-      wsData.push([`第 ${epNum} 集    （${epSegCount} 个片段 · ${epTotalScenes} 个分镜）`, null, null, null, null]);
-      merges.push({ s: { r, c: 0 }, e: { r, c: TOTAL_COLS - 1 } });
-      rowStyles.set(r, "header-ep");
+      const epRow = ws.addRow([`第 ${epNum} 集    （${epSegCount} 个片段 · ${epTotalScenes} 个分镜）`]);
+      ws.mergeCells(epRow.number, 1, epRow.number, 5);
+      epRow.height = 30;
+      epRow.eachCell(cell => { Object.assign(cell, { style: styleEpHeader }); });
     }
 
     // ── Segment header ──
@@ -90,128 +119,73 @@ export function exportScenesToXlsx(
     const segTitle = `片段 ${segLabel}  (时长: ${segDuration}s)`;
     const tagStr = tags.length > 0 ? `    场景/人物标签：${tags.join(" ")}` : "";
 
-    const segR = wsData.length;
-    wsData.push([segTitle + tagStr, null, null, null, null]);
-    merges.push({ s: { r: segR, c: 0 }, e: { r: segR, c: TOTAL_COLS - 1 } });
-    rowStyles.set(segR, "header-seg");
+    const segRow = ws.addRow([segTitle + tagStr]);
+    ws.mergeCells(segRow.number, 1, segRow.number, 5);
+    segRow.height = 26;
+    segRow.eachCell(cell => { Object.assign(cell, { style: styleSegHeader }); });
 
-    // ── Scene rows ──
+    // ── Scene / Shot rows ──
     for (let i = 0; i < segScenes.length; i++) {
       const s = segScenes[i];
-      const shotR = wsData.length;
-      wsData.push([
+      const row = ws.addRow([
         `分镜${i + 1}`,
         s.description || "",
         s.dialogue || "",
         (s.characters || []).join("、"),
         s.duration ?? 5,
       ]);
-      rowStyles.set(shotR, "shot");
+      row.height = 22;
+
+      // Shot number
+      row.getCell(1).style = {
+        font: { bold: true, size: 10 },
+        alignment: { vertical: "top", horizontal: "center" },
+        border: BORDER_THIN,
+      };
+      // Description
+      row.getCell(2).style = {
+        font: { size: 10 },
+        alignment: { vertical: "top", wrapText: true },
+        border: BORDER_THIN,
+      };
+      // Dialogue
+      row.getCell(3).style = {
+        font: { italic: true, size: 10, color: { argb: "FF666666" } },
+        alignment: { vertical: "top", wrapText: true },
+        border: BORDER_THIN,
+      };
+      // Characters
+      row.getCell(4).style = {
+        font: { size: 10 },
+        alignment: { vertical: "top" },
+        border: BORDER_THIN,
+      };
+      // Duration
+      row.getCell(5).style = {
+        font: { size: 10 },
+        alignment: { vertical: "top", horizontal: "center" },
+        border: BORDER_THIN,
+      };
     }
 
     // ── Suffix row ──
-    const suffixR = wsData.length;
-    wsData.push(["通用后缀：无字幕、无水印、无背景音", null, null, null, null]);
-    merges.push({ s: { r: suffixR, c: 0 }, e: { r: suffixR, c: TOTAL_COLS - 1 } });
-    rowStyles.set(suffixR, "suffix");
+    const suffixRow = ws.addRow(["通用后缀：无字幕、无水印、无背景音"]);
+    ws.mergeCells(suffixRow.number, 1, suffixRow.number, 5);
+    suffixRow.height = 20;
+    suffixRow.eachCell(cell => { Object.assign(cell, { style: styleSuffix }); });
 
     // Empty separator row
-    wsData.push([null, null, null, null, null]);
+    ws.addRow([]);
   }
 
-  // ── Create worksheet ──
-  const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-  // Column widths
-  ws["!cols"] = [
-    { wch: 10 },  // 分镜序号
-    { wch: 55 },  // 画面描述
-    { wch: 35 },  // 对白
-    { wch: 18 },  // 角色
-    { wch: 10 },  // 时长
-  ];
-
-  // Row heights: taller for headers
-  ws["!rows"] = wsData.map((_, i) => {
-    const style = rowStyles.get(i);
-    if (style === "header-ep") return { hpt: 28 };
-    if (style === "header-seg") return { hpt: 24 };
-    if (style === "suffix") return { hpt: 18 };
-    return { hpt: 20 };
-  });
-
-  // Merges
-  if (merges.length > 0) ws["!merges"] = merges;
-
-  // ── Apply styles (xlsx community edition supports s property) ──
-  const headerFill = { fgColor: { rgb: "1a1a2e" } };
-  const segFill = { fgColor: { rgb: "E8EAF6" } };
-  const suffixFill = { fgColor: { rgb: "F5F5F5" } };
-
-  for (let r = 0; r < wsData.length; r++) {
-    const style = rowStyles.get(r);
-    for (let c = 0; c < TOTAL_COLS; c++) {
-      const ref = cell(r, c);
-      if (!ws[ref]) ws[ref] = { v: "", t: "s" };
-      const cellObj = ws[ref];
-
-      if (style === "header-ep" && r === 0) {
-        // Column header row
-        cellObj.s = {
-          font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
-          fill: headerFill,
-          alignment: { vertical: "center", horizontal: "center" },
-          border: thinBorder(),
-        };
-      } else if (style === "header-ep") {
-        // Episode header
-        cellObj.s = {
-          font: { bold: true, sz: 13, color: { rgb: "1a1a2e" } },
-          fill: { fgColor: { rgb: "C5CAE9" } },
-          alignment: { vertical: "center", horizontal: "left" },
-          border: thinBorder(),
-        };
-      } else if (style === "header-seg") {
-        cellObj.s = {
-          font: { bold: true, sz: 10, color: { rgb: "303F9F" } },
-          fill: segFill,
-          alignment: { vertical: "center", horizontal: "left", wrapText: true },
-          border: thinBorder(),
-        };
-      } else if (style === "suffix") {
-        cellObj.s = {
-          font: { italic: true, sz: 9, color: { rgb: "999999" } },
-          fill: suffixFill,
-          alignment: { vertical: "center" },
-        };
-      } else if (style === "shot") {
-        const isDialogue = c === COL.C;
-        const isDesc = c === COL.B;
-        cellObj.s = {
-          font: {
-            sz: 10,
-            ...(c === COL.A ? { bold: true } : {}),
-            ...(isDialogue ? { italic: true, color: { rgb: "666666" } } : {}),
-          },
-          alignment: {
-            vertical: "top",
-            wrapText: isDesc || isDialogue,
-            horizontal: c === COL.A || c === COL.E ? "center" : "left",
-          },
-          border: thinBorder(),
-        };
-      }
-    }
-  }
-
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "分镜脚本");
-
+  // ── Download ──
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const fileName = title ? `${title.slice(0, 30)}_分镜.xlsx` : "分镜脚本.xlsx";
-  XLSX.writeFile(wb, fileName);
-}
 
-function thinBorder() {
-  const side = { style: "thin", color: { rgb: "DDDDDD" } };
-  return { top: side, bottom: side, left: side, right: side };
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
