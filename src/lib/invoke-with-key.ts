@@ -496,20 +496,29 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
       onProgress({ scenes: allScenes, chunkIndex: -1, totalChunks: episodes.length, status: "init", failedChunks, chunkSegmentCounts, isRealEpisodes: true, originallyEpisodes: splitResult.originallyEpisodes });
     }
 
-    // Track previous chunk context for cross-chunk consistency
-    let prevChunkContext = "";
-    // Track the last segment label number for continuity in length-based splits
-    let lastSegmentNum = 0;
+    // Results array indexed by episode
+    const episodeResults: (any[] | null)[] = new Array(episodes.length).fill(null);
 
-    for (let epIdx = 0; epIdx < episodes.length; epIdx++) {
-      // Check abort before starting each chunk
+    // Parallel decomposition with max 3 concurrent episodes
+    const MAX_PARALLEL = 3;
+    const sem = { current: 0, queue: [] as (() => void)[] };
+    const acquire = () => new Promise<void>(resolve => {
+      if (sem.current < MAX_PARALLEL) { sem.current++; resolve(); }
+      else sem.queue.push(() => { sem.current++; resolve(); });
+    });
+    const release = () => { sem.current--; if (sem.queue.length > 0) sem.queue.shift()!(); };
+
+    const processEpisode = async (epIdx: number) => {
       if (abortSignal?.aborted) {
-        for (let i = epIdx; i < episodes.length; i++) {
-          if (onProgress) {
-            onProgress({ scenes: allScenes, chunkIndex: i, totalChunks: episodes.length, status: "cancelled", failedChunks });
-          }
-        }
-        break;
+        if (onProgress) onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length, status: "cancelled", failedChunks });
+        return;
+      }
+
+      await acquire();
+      if (abortSignal?.aborted) {
+        release();
+        if (onProgress) onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length, status: "cancelled", failedChunks });
+        return;
       }
 
       const ep = episodes[epIdx];
@@ -517,43 +526,17 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
       console.log(`[localDecompose] 正在拆解第 ${epIdx + 1}/${episodes.length} ${splitResult.isRealEpisodes ? '集' : '段'}（需要${chunkSegments}个片段）...`);
       const epPrefix = episodes.length > 1 ? `${epIdx + 1}-` : "";
 
-      // Build prompt with correct segment count for this chunk
       const chunkPrompt = buildDecomposePrompt(videoPace, chunkSegments);
 
-      // Notify: chunk started
       if (onProgress) {
         onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length, status: "processing", failedChunks });
-      }
-
-      // Build cross-chunk context from previous results
-      let chunkContextBlock = "";
-      if (epIdx > 0 && allScenes.length > 0) {
-        const prevCharacters = [...new Set(allScenes.flatMap((s: any) => s.characters || []))];
-        const prevSceneNames = [...new Set(allScenes.map((s: any) => s.sceneName).filter(Boolean))];
-        const lastScenes = allScenes.slice(-3);
-        const lastScenesDesc = lastScenes.map((s: any) =>
-          `[分镜${s.sceneNumber}] 片段${s.segmentLabel} | 场景：${s.sceneName} | 角色：${(s.characters || []).join('、')} | ${s.description}`
-        ).join('\n');
-
-        chunkContextBlock = `\n\n---\n\n【跨段落上下文（必须保持一致性）】
-前面段落已出现的角色：${prevCharacters.join('、')}
-前面段落已出现的场景：${prevSceneNames.join('、')}
-
-前一段落最后几个分镜（请保持叙事连贯，角色名和场景名必须与之前完全一致）：
-${lastScenesDesc}
-
-重要：
-- 角色名必须与前面段落保持完全一致，不要改变拼写或格式
-- 场景名如果是同一地点，必须使用相同名称
-- segmentLabel 编号请从 "${epIdx + 1}-1" 开始（本集使用"${epIdx + 1}-N"格式）
-- 前面段落最后的全局分镜序号为 ${allScenes[allScenes.length - 1].sceneNumber}，请从 ${allScenes[allScenes.length - 1].sceneNumber + 1} 开始编号`;
       }
 
       try {
         const chunkLabel = splitResult.isRealEpisodes
           ? `以下是第${epIdx + 1}集剧本（共${episodes.length}集）`
           : `以下是剧本的第${epIdx + 1}集（共${episodes.length}集，本集需要恰好${chunkSegments}个片段）。segmentLabel请使用"${epIdx + 1}-N"格式（如"${epIdx + 1}-1","${epIdx + 1}-2"等）`;
-        const userText = `${chunkPrompt}\n\n---\n\n${chunkLabel}：\n\n${ep}${costumeContext}${chunkContextBlock}`;
+        const userText = `${chunkPrompt}\n\n---\n\n${chunkLabel}：\n\n${ep}${costumeContext}`;
 
         const chunkTimeout = AbortSignal.timeout(5 * 60_000);
         const combinedSignal = abortSignal
@@ -580,42 +563,58 @@ ${lastScenesDesc}
 
         const epScenes = parseDecomposeResult(resultText);
         for (const scene of epScenes) {
-          scene.sceneNumber = globalSceneNumber++;
           if (epPrefix) {
             scene.segmentLabel = `${epPrefix}${scene.segmentLabel || ''}`;
           }
         }
-        
-        // Track last segment number for continuity
-        if (!splitResult.isRealEpisodes && epScenes.length > 0) {
-          const labels = epScenes.map((s: any) => s.segmentLabel).filter(Boolean);
-          const nums = labels.map((l: string) => {
-            const parts = l.split('-');
-            return parseInt(parts[parts.length - 1]) || 0;
-          });
-          if (nums.length > 0) lastSegmentNum = Math.max(...nums);
+
+        episodeResults[epIdx] = epScenes;
+
+        // Merge all completed results in order for progress update
+        const mergedScenes: any[] = [];
+        let num = 1;
+        for (let i = 0; i < episodeResults.length; i++) {
+          if (episodeResults[i]) {
+            for (const s of episodeResults[i]!) {
+              s.sceneNumber = num++;
+              mergedScenes.push(s);
+            }
+          }
         }
-        
-        allScenes.push(...epScenes);
+        allScenes.length = 0;
+        allScenes.push(...mergedScenes);
 
         if (onProgress) {
-          onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length, status: "done", failedChunks });
+          onProgress({ scenes: [...allScenes], chunkIndex: epIdx, totalChunks: episodes.length, status: "done", failedChunks });
         }
       } catch (err: any) {
         console.error(`[localDecompose] 第${epIdx + 1}${splitResult.isRealEpisodes ? '集' : '段'}拆解失败:`, err);
         failedChunks.push(epIdx);
         if (onProgress) {
-          onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length, status: "failed", failedChunks, error: err?.message });
+          onProgress({ scenes: [...allScenes], chunkIndex: epIdx, totalChunks: episodes.length, status: "failed", failedChunks, error: err?.message });
         }
-        // Mark remaining chunks as cancelled and stop
-        for (let i = epIdx + 1; i < episodes.length; i++) {
-          if (onProgress) {
-            onProgress({ scenes: allScenes, chunkIndex: i, totalChunks: episodes.length, status: "cancelled", failedChunks });
-          }
+        // Only this episode fails — other episodes continue independently
+      } finally {
+        release();
+      }
+    };
+
+    // Launch all episodes concurrently (semaphore limits to MAX_PARALLEL)
+    await Promise.all(episodes.map((_, epIdx) => processEpisode(epIdx)));
+
+    // Final renumber after all complete
+    let finalNum = 1;
+    const finalScenes: any[] = [];
+    for (let i = 0; i < episodeResults.length; i++) {
+      if (episodeResults[i]) {
+        for (const s of episodeResults[i]!) {
+          s.sceneNumber = finalNum++;
+          finalScenes.push(s);
         }
-        break;
       }
     }
+    allScenes.length = 0;
+    allScenes.push(...finalScenes);
 
     return { scenes: allScenes, failedChunks, episodes, costumeContext, model, prompt: buildDecomposePrompt(videoPace, segmentsPerEpisode), chunkSegmentCounts, isRealEpisodes: splitResult.isRealEpisodes, originallyEpisodes: splitResult.originallyEpisodes, videoPace };
   }
