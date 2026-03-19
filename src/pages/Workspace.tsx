@@ -151,7 +151,14 @@ const Workspace = () => {
   const isRestoringRef = useRef(false);
   const [decomposeChunks, setDecomposeChunks] = useState<ChunkStatus[]>([]);
   const [retryingChunk, setRetryingChunk] = useState<number | null>(null);
-  const lastDecomposeMetaRef = useRef<{ episodes: string[]; costumeContext: string; model: string; prompt: string; chunkSegmentCounts?: number[]; isRealEpisodes?: boolean; videoPace?: string } | null>(null);
+  const DECOMPOSE_META_SS_KEY = "decompose-meta";
+  const lastDecomposeMetaRef = useRef<{ episodes: string[]; costumeContext: string; model: string; prompt: string; chunkSegmentCounts?: number[]; isRealEpisodes?: boolean; videoPace?: string } | null>(
+    (() => { try { const raw = sessionStorage.getItem(DECOMPOSE_META_SS_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; } })()
+  );
+  const saveDecomposeMeta = (data: typeof lastDecomposeMetaRef.current) => {
+    lastDecomposeMetaRef.current = data;
+    try { if (data) sessionStorage.setItem(DECOMPOSE_META_SS_KEY, JSON.stringify(data)); else sessionStorage.removeItem(DECOMPOSE_META_SS_KEY); } catch { /* ignore */ }
+  };
   const [analyzePhase, setAnalyzePhase] = useState<AnalyzePhase>("idle");
   const [phase1Info, setPhase1Info] = useState("");
   const [phase2Info, setPhase2Info] = useState("");
@@ -387,7 +394,7 @@ const Workspace = () => {
             })));
             // Save meta early so retry is available even during parallel decomposition
             if (partialData.episodes) {
-              lastDecomposeMetaRef.current = {
+              saveDecomposeMeta({
                 episodes: partialData.episodes,
                 costumeContext: partialData.costumeContext || "",
                 model: partialData.model || decomposeModel,
@@ -395,7 +402,7 @@ const Workspace = () => {
                 chunkSegmentCounts: initSegCounts,
                 isRealEpisodes: initIsEpisodes,
                 videoPace: partialData.videoPace,
-              };
+              });
             }
             return;
           }
@@ -442,7 +449,7 @@ const Workspace = () => {
         if (decomposeError) throw decomposeError;
 
         if (decomposeData?.episodes) {
-          lastDecomposeMetaRef.current = {
+          saveDecomposeMeta({
             episodes: decomposeData.episodes,
             costumeContext: decomposeData.costumeContext || "",
             model: decomposeData.model || decomposeModel,
@@ -450,7 +457,7 @@ const Workspace = () => {
             chunkSegmentCounts: decomposeData.chunkSegmentCounts,
             isRealEpisodes: decomposeData.isRealEpisodes,
             videoPace: decomposeData.videoPace,
-          };
+          });
         }
 
         const parsed = decomposeData;
