@@ -390,17 +390,41 @@ const ComplianceReview = () => {
     return fallback;
   };
 
+  // Check if replacement is genuinely different
+  const isGenuinelyDifferent = (original: string, replacement: string, isScriptMode: boolean = false) => {
+    const normOrig = normalizeForCompare(original);
+    const normRep = normalizeForCompare(replacement);
+    if (normOrig === normRep) return false;
+    const noPunctOrig = normOrig.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "");
+    const noPunctRep = normRep.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "");
+    if (noPunctOrig === noPunctRep) return false;
+    if (!isScriptMode) return noPunctOrig !== noPunctRep;
+    const minLen = Math.min(noPunctOrig.length, noPunctRep.length);
+    const maxLen = Math.max(noPunctOrig.length, noPunctRep.length);
+    if (maxLen > minLen * 1.5 || minLen < maxLen * 0.7) return true;
+    let diffCount = 0;
+    const shorter = noPunctOrig.length <= noPunctRep.length ? noPunctOrig : noPunctRep;
+    const longer = noPunctOrig.length > noPunctRep.length ? noPunctOrig : noPunctRep;
+    for (let i = 0; i < shorter.length; i++) {
+      if (shorter[i] !== longer[i]) diffCount++;
+    }
+    diffCount += longer.length - shorter.length;
+    return (diffCount / maxLen) >= 0.3;
+  };
+
   // Auto-adjust: only red-line/high-risk, and only send target fragments to AI
   const handleAutoAdjust = async () => {
     const targetEntries: { original: string; current: string; level: RiskLevel }[] = [];
+    const textToCheck = paletteText || scriptText;
+
     for (const [phrase, level] of riskMap.entries()) {
       if (level !== "red" && level !== "high") continue;
-      if (paletteText.includes(phrase)) {
+      if (textToCheck.includes(phrase)) {
         targetEntries.push({ original: phrase, current: phrase, level });
         continue;
       }
       const replaced = phraseReplacements.get(phrase);
-      if (replaced && paletteText.includes(replaced)) {
+      if (replaced && textToCheck.includes(replaced)) {
         targetEntries.push({ original: phrase, current: replaced, level });
       }
     }
@@ -424,7 +448,11 @@ const ComplianceReview = () => {
         text: entry.current,
       }));
 
-      const prompt = `你是短剧合规改写助手。\n\n你只会收到“需要修改的片段”，不要处理全文。\n目标：对片段做和谐化处理，保留原有表达意思、剧情信息、人物关系和语气，不新增事实。\n\n硬性要求：\n1) 只改写给定片段，不输出解释\n2) replacement 必须与原文不同，不能原样返回\n3) 保持语义等价，长度尽量接近原文\n4) 不要使用空字符串\n${strict ? "5) 如果第一次改写仍接近原文，请使用更明确但同义的合规表达" : ""}\n\n请只输出 JSON 数组（不要 markdown）：\n[{\"id\":1,\"replacement\":\"...\"}]\n\n待改写片段：\n${JSON.stringify(payload, null, 2)}`;
+      const basePrompt = reviewMode === "script"
+        ? `你是短剧情节优化专家。\n\n你将收到"存在画面合规风险的完整段落"，请对每个段落进行整体改写，在保持剧情完整的前提下，使其画面呈现符合审核标准。\n\n改写原则：\n1. 保持剧情完整\n2. 画面合规改写\n3. 整体改写段落\n4. 必须实际改写`
+        : `你是短剧内容合规审核专家。\n\n你将收到"存在违规词汇的片段"，请仅替换关键违规词汇，保持原文整体结构不变。\n\n改写原则：\n1. 最小改动原则\n2. 词汇替换\n3. 保持原意`;
+
+      const prompt = `${basePrompt}\n${strict ? "\n二次改写提醒：上一次改写仍与原文过于相似，请使用更明显的不同表达方式。" : ""}\n\n输出格式：\n只输出 JSON 数组，不要 markdown 代码块：\n[{"id":1,"replacement":"改写后的文本"}]\n\n待改写片段：\n${JSON.stringify(payload, null, 2)}`;
 
       const raw = await callGeminiStream(
         model,
@@ -438,7 +466,7 @@ const ComplianceReview = () => {
     };
 
     try {
-      let workingText = paletteText;
+      let workingText = paletteText || scriptText;
       let workingReplacements = new Map(phraseReplacements);
       let pending = [...targetEntries];
       let appliedCount = 0;
@@ -451,7 +479,7 @@ const ComplianceReview = () => {
 
         pending.forEach((entry, idx) => {
           const replacement = rewrites.get(idx + 1)?.trim();
-          if (!replacement || normalizeForCompare(replacement) === normalizeForCompare(entry.current)) {
+          if (!replacement || !isGenuinelyDifferent(entry.current, replacement, reviewMode === "script")) {
             nextPending.push(entry);
             return;
           }
@@ -469,7 +497,7 @@ const ComplianceReview = () => {
       }
 
       if (appliedCount === 0) {
-        toast({ title: "自动调整未生效", description: "AI 返回与原文一致，请重试或手动编辑", variant: "destructive" });
+        toast({ title: "自动调整未生效", description: "AI 改写结果与原文过于相似，请点击「自动调整」重试，或手动编辑文本", variant: "destructive" });
         return;
       }
 
