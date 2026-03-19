@@ -200,10 +200,12 @@ const ComplianceReview = () => {
   // Track phrase replacements so re-adjust works: original -> current
   const [phraseReplacements, setPhraseReplacements] = useState<Map<string, string>>(new Map());
 
-  // Sync palette text with script text when not editing
+  // Sync palette text with script text initially or when script changes and no adjustments made
   useEffect(() => {
-    if (!paletteEditing) setPaletteText(scriptText);
-  }, [scriptText, paletteEditing]);
+    if (phraseReplacements.size === 0 && scriptText) {
+      setPaletteText(scriptText);
+    }
+  }, [scriptText, phraseReplacements.size]);
 
   // Close model dropdown on outside click
   useEffect(() => {
