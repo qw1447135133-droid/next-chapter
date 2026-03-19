@@ -173,6 +173,13 @@ const ComplianceReview = () => {
   const [editing, setEditing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [reportOpen, setReportOpen] = useState(true);
+  // 表格数据状态
+  const [tableData, setTableData] = useState<TableData | null>(null);
+  const [inputMode, setInputMode] = useState<"text" | "table">("text");
+  // 审核模式：文字审核 | 情节审核
+  const [reviewMode, setReviewMode] = useState<ReviewMode>("text");
+  // 分段审核进度
+  const [segmentProgress, setSegmentProgress] = useState<{ current: number; total: number } | null>(null);
   const [model, setModel] = useState<ComplianceModel>(
     () => (localStorage.getItem("compliance-model") as ComplianceModel) || "gemini-3.1-pro-preview"
   );
