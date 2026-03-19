@@ -394,7 +394,7 @@ const Workspace = () => {
             })));
             // Save meta early so retry is available even during parallel decomposition
             if (partialData.episodes) {
-              lastDecomposeMetaRef.current = {
+              saveDecomposeMeta({
                 episodes: partialData.episodes,
                 costumeContext: partialData.costumeContext || "",
                 model: partialData.model || decomposeModel,
@@ -402,7 +402,7 @@ const Workspace = () => {
                 chunkSegmentCounts: initSegCounts,
                 isRealEpisodes: initIsEpisodes,
                 videoPace: partialData.videoPace,
-              };
+              });
             }
             return;
           }
