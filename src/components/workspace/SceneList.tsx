@@ -194,7 +194,7 @@ const SceneList = ({ scenes, onScenesChange, onNext, characters = [] }: SceneLis
             variant="outline"
             size="sm"
             className="gap-1"
-            onClick={() => exportScenesToXlsx(scenes)}
+            onClick={() => exportScenesToXlsx(scenes, undefined, characters)}
           >
             <FileSpreadsheet className="h-3.5 w-3.5" />
             导出分镜
