@@ -533,10 +533,39 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
       }
 
       try {
+        // ── Build cross-episode context from already-completed earlier episodes ──
+        let crossEpContext = "";
+        const completedPrev: any[][] = [];
+        for (let i = 0; i < epIdx; i++) {
+          if (episodeResults[i]) completedPrev.push(episodeResults[i]!);
+        }
+        if (completedPrev.length > 0) {
+          const allPrevScenes = completedPrev.flat();
+          const prevCharacters = [...new Set(allPrevScenes.flatMap((s: any) => s.characters || []))];
+          const prevSceneNames = [...new Set(allPrevScenes.map((s: any) => s.sceneName).filter(Boolean))];
+          const lastScenes = allPrevScenes.slice(-3);
+          const lastScenesDesc = lastScenes.map((s: any) =>
+            `[分镜${s.sceneNumber}] 片段${s.segmentLabel} | 场景：${s.sceneName} | 角色：${(s.characters || []).join('、')} | ${s.description}`
+          ).join('\n');
+
+          crossEpContext = `\n\n---\n\n【跨集上下文（必须保持一致性）】
+前面已完成的集数中出现的角色：${prevCharacters.join('、') || '无'}
+前面已完成的集数中出现的场景：${prevSceneNames.join('、') || '无'}
+
+前面集数最后几个分镜（请保持叙事连贯，角色名和场景名必须与之前完全一致）：
+${lastScenesDesc}
+
+重要：
+- 角色名必须与前面集数保持完全一致，不要改变拼写或格式
+- 场景名如果是同一地点，必须使用相同名称
+- segmentLabel 编号请使用"${epIdx + 1}-N"格式`;
+          console.log(`[localDecompose] 第${epIdx + 1}集获得了${completedPrev.length}集的跨集上下文（${prevCharacters.length}个角色, ${prevSceneNames.length}个场景）`);
+        }
+
         const chunkLabel = splitResult.isRealEpisodes
           ? `以下是第${epIdx + 1}集剧本（共${episodes.length}集）`
           : `以下是剧本的第${epIdx + 1}集（共${episodes.length}集，本集需要恰好${chunkSegments}个片段）。segmentLabel请使用"${epIdx + 1}-N"格式（如"${epIdx + 1}-1","${epIdx + 1}-2"等）`;
-        const userText = `${chunkPrompt}\n\n---\n\n${chunkLabel}：\n\n${ep}${costumeContext}`;
+        const userText = `${chunkPrompt}\n\n---\n\n${chunkLabel}：\n\n${ep}${costumeContext}${crossEpContext}`;
 
         const chunkTimeout = AbortSignal.timeout(5 * 60_000);
         const combinedSignal = abortSignal
@@ -593,7 +622,6 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
         if (onProgress) {
           onProgress({ scenes: [...allScenes], chunkIndex: epIdx, totalChunks: episodes.length, status: "failed", failedChunks, error: err?.message });
         }
-        // Only this episode fails — other episodes continue independently
       } finally {
         release();
       }
