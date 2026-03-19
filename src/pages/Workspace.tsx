@@ -598,7 +598,7 @@ const Workspace = () => {
         
     } catch (e: any) {
       if (e?.name === "AbortError" || e?.message?.includes("aborted")) {
-        setAnalyzePhase("idle");
+        // Don't reset to idle — handleCancelAnalyze already set the right state
         resetAnalyzing();
         return;
       }
