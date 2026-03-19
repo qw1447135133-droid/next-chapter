@@ -449,7 +449,7 @@ const Workspace = () => {
         if (decomposeError) throw decomposeError;
 
         if (decomposeData?.episodes) {
-          lastDecomposeMetaRef.current = {
+          saveDecomposeMeta({
             episodes: decomposeData.episodes,
             costumeContext: decomposeData.costumeContext || "",
             model: decomposeData.model || decomposeModel,
@@ -457,7 +457,7 @@ const Workspace = () => {
             chunkSegmentCounts: decomposeData.chunkSegmentCounts,
             isRealEpisodes: decomposeData.isRealEpisodes,
             videoPace: decomposeData.videoPace,
-          };
+          });
         }
 
         const parsed = decomposeData;
