@@ -537,99 +537,132 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
         onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length, status: "processing", failedChunks });
       }
 
-      try {
-        // ── Build cross-episode context from already-completed earlier episodes ──
-        let crossEpContext = "";
-        const completedPrev: any[][] = [];
-        for (let i = 0; i < epIdx; i++) {
-          if (episodeResults[i]) completedPrev.push(episodeResults[i]!);
-        }
-        if (completedPrev.length > 0) {
-          const allPrevScenes = completedPrev.flat();
-          const prevCharacters = [...new Set(allPrevScenes.flatMap((s: any) => s.characters || []))];
-          const prevSceneNames = [...new Set(allPrevScenes.map((s: any) => s.sceneName).filter(Boolean))];
-          const lastScenes = allPrevScenes.slice(-3);
-          const lastScenesDesc = lastScenes.map((s: any) =>
-            `[分镜${s.sceneNumber}] 片段${s.segmentLabel} | 场景：${s.sceneName} | 角色：${(s.characters || []).join('、')} | ${s.description}`
-          ).join('\n');
+      const MAX_CHUNK_RETRIES = 1;
+      let chunkAttempt = 0;
+      let lastChunkError: any = null;
 
-          crossEpContext = `\n\n---\n\n【跨集上下文（必须保持一致性）】
-前面已完成的集数中出现的角色：${prevCharacters.join('、') || '无'}
-前面已完成的集数中出现的场景：${prevSceneNames.join('、') || '无'}
-
-前面集数最后几个分镜（请保持叙事连贯，角色名和场景名必须与之前完全一致）：
-${lastScenesDesc}
-
-重要：
-- 角色名必须与前面集数保持完全一致，不要改变拼写或格式
-- 场景名如果是同一地点，必须使用相同名称
-- segmentLabel 编号请使用"${epIdx + 1}-N"格式`;
-          console.log(`[localDecompose] 第${epIdx + 1}集获得了${completedPrev.length}集的跨集上下文（${prevCharacters.length}个角色, ${prevSceneNames.length}个场景）`);
-        }
-
-        const chunkLabel = splitResult.isRealEpisodes
-          ? `以下是第${epIdx + 1}集剧本（共${episodes.length}集）`
-          : `以下是剧本的第${epIdx + 1}集（共${episodes.length}集，本集需要恰好${chunkSegments}个片段）。segmentLabel请使用"${epIdx + 1}-N"格式（如"${epIdx + 1}-1","${epIdx + 1}-2"等）`;
-        const userText = `${chunkPrompt}\n\n---\n\n${chunkLabel}：\n\n${ep}${costumeContext}${crossEpContext}`;
-
-        const chunkTimeout = AbortSignal.timeout(5 * 60_000);
-        const combinedSignal = abortSignal
-          ? AbortSignal.any([abortSignal, chunkTimeout])
-          : chunkTimeout;
-
-        let resultText: string;
-        if (onStreamText) {
-          resultText = await callGeminiStream(model,
-            [{ role: "user", parts: [{ text: userText }] }],
-            (accumulated) => onStreamText(accumulated),
-            { temperature: 0.3, maxOutputTokens: 65536 },
-            combinedSignal,
-          );
-        } else {
-          const data = await callGemini(model,
-            [{ role: "user", parts: [{ text: userText }] }],
-            { temperature: 0.3, maxOutputTokens: 65536 },
-            combinedSignal,
-          );
-          resultText = extractText(data);
-        }
-        if (!resultText) throw new Error(`第${epIdx + 1}${splitResult.isRealEpisodes ? '集' : '段'}拆解失败：AI 未返回内容`);
-
-        const epScenes = parseDecomposeResult(resultText);
-        for (const scene of epScenes) {
-          if (epPrefix) {
-            scene.segmentLabel = `${epPrefix}${scene.segmentLabel || ''}`;
+      while (chunkAttempt <= MAX_CHUNK_RETRIES) {
+        if (chunkAttempt > 0) {
+          console.log(`[localDecompose] 第${epIdx + 1}集自动重试（第${chunkAttempt}次），1秒后开始...`);
+          await new Promise(r => setTimeout(r, 1000));
+          if (abortSignal?.aborted) break;
+          if (onProgress) {
+            onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length, status: "processing", failedChunks, retryAttempt: chunkAttempt });
           }
         }
 
-        episodeResults[epIdx] = epScenes;
+        try {
+          // ── Build cross-episode context from ANY already-completed episodes (bidirectional) ──
+          let crossEpContext = "";
+          const completedOther: { idx: number; scenes: any[] }[] = [];
+          for (let i = 0; i < episodes.length; i++) {
+            if (i !== epIdx && episodeResults[i]) completedOther.push({ idx: i, scenes: episodeResults[i]! });
+          }
+          if (completedOther.length > 0) {
+            const allOtherScenes = completedOther.flatMap(e => e.scenes);
+            const otherCharacters = [...new Set(allOtherScenes.flatMap((s: any) => s.characters || []))];
+            const otherSceneNames = [...new Set(allOtherScenes.map((s: any) => s.sceneName).filter(Boolean))];
 
-        // Merge all completed results in order for progress update
-        const mergedScenes: any[] = [];
-        let num = 1;
-        for (let i = 0; i < episodeResults.length; i++) {
-          if (episodeResults[i]) {
-            for (const s of episodeResults[i]!) {
-              s.sceneNumber = num++;
-              mergedScenes.push(s);
+            // Get nearby scenes for narrative continuity
+            const prevEp = completedOther.filter(e => e.idx < epIdx).sort((a, b) => b.idx - a.idx)[0];
+            const nextEp = completedOther.filter(e => e.idx > epIdx).sort((a, b) => a.idx - b.idx)[0];
+            let contextScenesDesc = "";
+            if (prevEp) {
+              const lastScenes = prevEp.scenes.slice(-3);
+              contextScenesDesc += `前一集（第${prevEp.idx + 1}集）最后几个分镜：\n` +
+                lastScenes.map((s: any) =>
+                  `[分镜${s.sceneNumber}] 片段${s.segmentLabel} | 场景：${s.sceneName} | 角色：${(s.characters || []).join('、')} | ${s.description}`
+                ).join('\n') + '\n';
+            }
+            if (nextEp) {
+              const firstScenes = nextEp.scenes.slice(0, 3);
+              contextScenesDesc += `后一集（第${nextEp.idx + 1}集）开头几个分镜：\n` +
+                firstScenes.map((s: any) =>
+                  `[分镜${s.sceneNumber}] 片段${s.segmentLabel} | 场景：${s.sceneName} | 角色：${(s.characters || []).join('、')} | ${s.description}`
+                ).join('\n') + '\n';
+            }
+
+            crossEpContext = `\n\n---\n\n【跨集上下文（必须保持一致性）】
+已完成的其他集数中出现的角色：${otherCharacters.join('、') || '无'}
+已完成的其他集数中出现的场景：${otherSceneNames.join('、') || '无'}
+
+${contextScenesDesc}
+重要：
+- 角色名必须与其他集数保持完全一致，不要改变拼写或格式
+- 场景名如果是同一地点，必须使用相同名称
+- segmentLabel 编号请使用"${epIdx + 1}-N"格式`;
+            console.log(`[localDecompose] 第${epIdx + 1}集获得了${completedOther.length}集的跨集上下文（${otherCharacters.length}个角色, ${otherSceneNames.length}个场景）`);
+          }
+
+          const chunkLabel = splitResult.isRealEpisodes
+            ? `以下是第${epIdx + 1}集剧本（共${episodes.length}集）`
+            : `以下是剧本的第${epIdx + 1}集（共${episodes.length}集，本集需要恰好${chunkSegments}个片段）。segmentLabel请使用"${epIdx + 1}-N"格式（如"${epIdx + 1}-1","${epIdx + 1}-2"等）`;
+          const userText = `${chunkPrompt}\n\n---\n\n${chunkLabel}：\n\n${ep}${costumeContext}${crossEpContext}`;
+
+          const chunkTimeout = AbortSignal.timeout(5 * 60_000);
+          const combinedSignal = abortSignal
+            ? AbortSignal.any([abortSignal, chunkTimeout])
+            : chunkTimeout;
+
+          let resultText: string;
+          if (onStreamText) {
+            resultText = await callGeminiStream(model,
+              [{ role: "user", parts: [{ text: userText }] }],
+              (accumulated) => onStreamText(accumulated),
+              { temperature: 0.3, maxOutputTokens: 65536 },
+              combinedSignal,
+            );
+          } else {
+            const data = await callGemini(model,
+              [{ role: "user", parts: [{ text: userText }] }],
+              { temperature: 0.3, maxOutputTokens: 65536 },
+              combinedSignal,
+            );
+            resultText = extractText(data);
+          }
+          if (!resultText) throw new Error(`第${epIdx + 1}${splitResult.isRealEpisodes ? '集' : '段'}拆解失败：AI 未返回内容`);
+
+          const epScenes = parseDecomposeResult(resultText);
+          for (const scene of epScenes) {
+            if (epPrefix) {
+              scene.segmentLabel = `${epPrefix}${scene.segmentLabel || ''}`;
+            }
+          }
+
+          episodeResults[epIdx] = epScenes;
+
+          // Merge all completed results in order for progress update
+          const mergedScenes: any[] = [];
+          let num = 1;
+          for (let i = 0; i < episodeResults.length; i++) {
+            if (episodeResults[i]) {
+              for (const s of episodeResults[i]!) {
+                s.sceneNumber = num++;
+                mergedScenes.push(s);
+              }
+            }
+          }
+          allScenes.length = 0;
+          allScenes.push(...mergedScenes);
+
+          if (onProgress) {
+            onProgress({ scenes: [...allScenes], chunkIndex: epIdx, totalChunks: episodes.length, status: "done", failedChunks });
+          }
+          lastChunkError = null;
+          break; // success, exit retry loop
+        } catch (err: any) {
+          lastChunkError = err;
+          chunkAttempt++;
+          if (chunkAttempt > MAX_CHUNK_RETRIES) {
+            console.error(`[localDecompose] 第${epIdx + 1}${splitResult.isRealEpisodes ? '集' : '段'}拆解失败（已重试${MAX_CHUNK_RETRIES}次）:`, err);
+            failedChunks.push(epIdx);
+            if (onProgress) {
+              onProgress({ scenes: [...allScenes], chunkIndex: epIdx, totalChunks: episodes.length, status: "failed", failedChunks, error: err?.message });
             }
           }
         }
-        allScenes.length = 0;
-        allScenes.push(...mergedScenes);
-
-        if (onProgress) {
-          onProgress({ scenes: [...allScenes], chunkIndex: epIdx, totalChunks: episodes.length, status: "done", failedChunks });
-        }
-      } catch (err: any) {
-        console.error(`[localDecompose] 第${epIdx + 1}${splitResult.isRealEpisodes ? '集' : '段'}拆解失败:`, err);
-        failedChunks.push(epIdx);
-        if (onProgress) {
-          onProgress({ scenes: [...allScenes], chunkIndex: epIdx, totalChunks: episodes.length, status: "failed", failedChunks, error: err?.message });
-        }
-      } finally {
-        release();
-      }
+      } // end retry loop
+      release();
     };
 
     // Launch all episodes concurrently (semaphore limits to MAX_PARALLEL)
