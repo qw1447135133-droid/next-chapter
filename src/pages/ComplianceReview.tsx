@@ -470,8 +470,50 @@ const ComplianceReview = () => {
     setAdjustingSinglePhrase(phrase);
 
     const prompt = reviewMode === "script"
-      ? `你是短剧情节优化专家。\n\n## 你的任务\n请对以下存在画面合规风险的**整个段落**进行优化改写，在保持剧情完整的前提下，使其画面呈现符合审核标准。\n\n## 原始段落\n${phrase}\n\n## 风险等级\n${level === "red" ? "红线问题（画面必然违规）" : level === "high" ? "高风险内容（画面存在较大违规风险）" : "优化建议（可通过镜头优化降低风险）"}\n\n## 改写原则\n1. 保持剧情完整\n2. 画面合规改写\n3. 整体改写段落\n\n## 输出格式\n只输出改写后的完整段落，不要任何解释或标记。`
-      : `你是短剧内容合规审核专家。\n\n## 你的任务\n请对以下存在违规词汇的片段进行**最小化修改**，只替换关键违规词汇。\n\n## 原始片段\n${phrase}\n\n## 风险等级\n${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优化建议"}\n\n## 改写原则\n1. 最小改动：只替换违规词汇\n2. 词汇替换：用委婉词汇替代敏感词\n3. 保持原意\n\n## 输出格式\n只输出修改后的文本，不要任何解释。`;
+      ? `你是短剧情节优化专家。
+
+## 你的任务
+请对以下存在画面合规风险的**动作描写和场景描述**进行优化改写。
+
+## 原始段落
+${phrase}
+
+## 风险等级
+${level === "red" ? "红线问题（画面必然违规）" : level === "high" ? "高风险内容（画面存在较大违规风险）" : "优化建议（可通过镜头优化降低风险）"}
+
+## ⛔ 重要规则（必须遵守）
+
+1. **不要修改台词内容**：角色说的话（引号内内容）保持原样
+2. **不要修改音效**：如【音效：XXX】保持原样
+3. **只修改动作描写和场景描述**：用更委婉的方式呈现
+4. **保持剧情完整**
+
+## 改写示例
+原文：他狠狠地打了她一巴掌，她的脸肿了起来。
+改写：他愤怒地挥出手，她捂着脸，眼中含泪。
+
+## 输出格式
+只输出改写后的文本，不要任何解释。`
+      : `你是短剧内容合规审核专家。
+
+## 你的任务
+请对以下存在违规词汇的**动作描写**进行最小化修改。
+
+## 原始片段
+${phrase}
+
+## 风险等级
+${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优化建议"}
+
+## ⛔ 重要规则（必须遵守）
+
+1. **不要修改台词内容**：角色说的话（引号内内容）保持原样
+2. **不要修改音效**：如【音效：XXX】保持原样
+3. **只修改动作描写**：用委婉词汇替代敏感词
+4. **保持原意**
+
+## 输出格式
+只输出修改后的文本，不要任何解释。`;
 
     try {
       const raw = await callGeminiStream(
@@ -708,13 +750,13 @@ const ComplianceReview = () => {
     const text = paletteText || scriptText;
     // 如果正在生成，只显示文本（手动标记仍然生效）
     if (isGenerating) {
-      if (manualRiskMap.size > 0) {
+      if (manualRiskMap.size > 0 || positionBasedRisks.length > 0) {
         return buildHighlightedParts(text, undefined);
       }
       return <>{text}</>;
     }
     return buildHighlightedParts(text, isAutoAdjusting ? adjustingPhrases : undefined);
-  }, [paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases, isGenerating, manualRiskMap]);
+  }, [paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases, isGenerating, manualRiskMap, positionBasedRisks, riskMap]);
   const normalizeForCompare = (value: string) => value.replace(/\s+/g, "").trim();
 
   const parseRewriteJson = (raw: string) => {
@@ -798,8 +840,23 @@ const ComplianceReview = () => {
       }));
 
       const basePrompt = reviewMode === "script"
-        ? `你是短剧情节优化专家。\n\n你将收到"存在画面合规风险的完整段落"，请对每个段落进行整体改写，在保持剧情完整的前提下，使其画面呈现符合审核标准。\n\n改写原则：\n1. 保持剧情完整\n2. 画面合规改写\n3. 整体改写段落\n4. 必须实际改写`
-        : `你是短剧内容合规审核专家。\n\n你将收到"存在违规词汇的片段"，请仅替换关键违规词汇，保持原文整体结构不变。\n\n改写原则：\n1. 最小改动原则\n2. 词汇替换\n3. 保持原意`;
+        ? `你是短剧情节优化专家。
+
+你将收到"存在画面合规风险的完整段落"，请对每个段落进行整体改写，在保持剧情完整的前提下，使其画面呈现符合审核标准。
+
+## ⛔ 重要规则（必须遵守）
+1. **不要修改台词内容**：角色说的话（引号内内容）保持原样
+2. **不要修改音效**：如【音效：XXX】保持原样
+3. **只修改动作描写和场景描述**：用更委婉的方式呈现
+4. 必须实际改写`
+        : `你是短剧内容合规审核专家。
+
+你将收到"存在违规词汇的片段"，请仅替换关键违规词汇，保持原文整体结构不变。
+
+## ⛔ 重要规则（必须遵守）
+1. **不要修改台词内容**：角色说的话（引号内内容）保持原样
+2. **不要修改音效**：如【音效：XXX】保持原样
+3. **只修改动作描写**：用委婉词汇替代敏感词`;
 
       const prompt = `${basePrompt}\n${strict ? "\n二次改写提醒：上一次改写仍与原文过于相似，请使用更明显的不同表达方式。" : ""}\n\n输出格式：\n只输出 JSON 数组，不要 markdown 代码块：\n[{"id":1,"replacement":"改写后的文本"}]\n\n待改写片段：\n${JSON.stringify(payload, null, 2)}`;
 
@@ -1700,9 +1757,13 @@ const ComplianceReview = () => {
                           <li>ℹ️ 标记：{(complianceReport.match(/ℹ️/g) || []).length} 个</li>
                           <li>【】括号：{(complianceReport.match(/【[^】]+】/g) || []).length} 个</li>
                         </ul>
-                        {(complianceReport.match(/⛔/g) || []).length > 0 && (
+                        {positionBasedRisks.length > 0 ? (
+                          <div className="mt-2 p-2 bg-green-50 text-green-700 rounded">
+                            ✅ 已成功匹配 {positionBasedRisks.length} 个标记到原文
+                          </div>
+                        ) : (complianceReport.match(/⛔|⚠️|ℹ️/g) || []).length > 0 && (
                           <div className="mt-2 p-2 bg-amber-50 text-amber-700 rounded">
-                            <p className="font-medium">发现 emoji 标记，但未能匹配到原文：</p>
+                            <p className="font-medium">⚠️ 发现 emoji 标记，但未能匹配到原文</p>
                             <p className="mt-1">可能原因：AI 修改了原文文本</p>
                             <p className="mt-1">解决方案：使用"手动标记"功能</p>
                           </div>
