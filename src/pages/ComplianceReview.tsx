@@ -1015,13 +1015,8 @@ ${JSON.stringify(payload, null, 2)}`;
 
   const handlePaletteEditToggle = () => {
     if (paletteEditing) {
-      if (paletteEditRef.current) {
-        const newText = paletteEditRef.current.innerText;
-        setPaletteText(newText);
-        setScriptText(newText);
-      } else {
-        setScriptText(paletteText);
-      }
+      // Save: paletteText is already updated via onChange
+      setScriptText(paletteText || scriptText);
     } else {
       if (!paletteText) {
         setPaletteText(scriptText);
