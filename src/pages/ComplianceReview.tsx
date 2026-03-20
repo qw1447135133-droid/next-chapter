@@ -1233,7 +1233,7 @@ ${JSON.stringify(payload, null, 2)}`;
         </div>
       </header>
 
-      <main className="flex-1 px-6 py-6 max-w-4xl mx-auto w-full space-y-6">
+      <main className="flex-1 px-6 py-8 max-w-7xl mx-auto w-full space-y-8">
         {/* Script Input Card */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
