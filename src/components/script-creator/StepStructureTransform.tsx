@@ -135,10 +135,6 @@ const StepStructureTransform = ({
   };
 
   const handleGenerate = async () => {
-    if (selectedStyles.length === 0) {
-      toast({ title: "请先选择框架风格方向", variant: "destructive" });
-      return;
-    }
     if (!referenceStructure) {
       toast({ title: '请先在「参考剧本」步骤完成识别，提取原文结构', variant: "destructive" });
       return;
@@ -161,7 +157,7 @@ const StepStructureTransform = ({
       );
       onUpdate(finalText);
       setStreamingText("");
-      toast({ title: "结构转换完成" });
+      toast({ title: selectedStyles.length === 0 ? "结构转换完成（保持原文风格）" : "结构转换完成" });
     } catch (e: any) {
       if (e?.message?.includes("取消")) {
         if (streamingText) onUpdate(streamingText);
@@ -187,13 +183,13 @@ const StepStructureTransform = ({
           <CardTitle className="text-lg flex items-center gap-2">
             框架风格方向
             <span className="text-xs font-normal text-muted-foreground">
-              （最多选择2个，将融合两种风格特点）
+              （可选，最多2个；不选则保持原文风格但更换所有名称）
             </span>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* 已选风格显示 */}
-          {selectedStyles.length > 0 && (
+          {selectedStyles.length > 0 ? (
             <div className="flex flex-wrap gap-2 p-3 bg-primary/5 rounded-lg border border-primary/20">
               <span className="text-xs text-muted-foreground mr-1">已选择：</span>
               {selectedStyles.map((style) => (
@@ -211,6 +207,12 @@ const StepStructureTransform = ({
                   </button>
                 </Badge>
               ))}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg border border-muted">
+              <span className="text-xs text-muted-foreground">
+                未选择风格 → 将保持原文风格，但<strong className="text-foreground">所有人物、地点、道具名称必须更换</strong>（降低查重率）
+              </span>
             </div>
           )}
           
@@ -294,9 +296,13 @@ const StepStructureTransform = ({
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-lg">
             结构转换
-            {selectedStyles.length > 0 && (
+            {selectedStyles.length > 0 ? (
               <span className="text-sm font-normal text-muted-foreground ml-2">
                 → {selectedStyles.join(" + ")}
+              </span>
+            ) : (
+              <span className="text-sm font-normal text-muted-foreground ml-2">
+                → 保持原文风格（更换名称）
               </span>
             )}
           </CardTitle>
@@ -338,7 +344,6 @@ const StepStructureTransform = ({
                 size="sm"
                 onClick={handleGenerate}
                 className="gap-1.5"
-                disabled={selectedStyles.length === 0}
               >
                 <RefreshCw className="h-3.5 w-3.5" />
                 {structureTransform ? "重新生成" : "AI 转换"}
@@ -388,10 +393,19 @@ const StepStructureTransform = ({
             </div>
           ) : !displayText ? (
             <div className="text-center py-16 text-muted-foreground">
-              <p>选择框架风格方向后（最多2个），点击"AI 转换"按钮</p>
-              <p className="text-xs mt-2">AI 将保留原文的核心情节，转换为所选风格的创作方案</p>
-              {selectedStyles.length === 2 && (
-                <p className="text-xs mt-2 text-primary">将融合「{selectedStyles[0]}」与「{selectedStyles[1]}」两种风格特点</p>
+              {selectedStyles.length === 0 ? (
+                <>
+                  <p>未选择风格，将<strong>保持原文风格</strong>进行改编</p>
+                  <p className="text-xs mt-2">所有人物名、地名、道具名将更换为全新名称，确保查重率低</p>
+                </>
+              ) : (
+                <>
+                  <p>选择框架风格方向后（最多2个），点击"AI 转换"按钮</p>
+                  <p className="text-xs mt-2">AI 将保留原文的核心情节，转换为所选风格的创作方案</p>
+                  {selectedStyles.length === 2 && (
+                    <p className="text-xs mt-2 text-primary">将融合「{selectedStyles[0]}」与「{selectedStyles[1]}」两种风格特点</p>
+                  )}
+                </>
               )}
             </div>
           ) : editing && !isGenerating ? (
