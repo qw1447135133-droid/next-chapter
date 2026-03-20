@@ -91,12 +91,18 @@ ${scriptText}
 7. **问题清单汇总**：按严重程度排序
 8. **修改建议**：针对每个问题的具体修改方案
 
-**标记规则：**
+## ⚠️ 重要：标记规则
 
-标记**整句话或整个分镜片段**：
-- 红线问题：⛔【包含风险内容的完整句子】
-- 高风险内容：⚠️【包含风险内容的完整句子】
-- 优化建议：ℹ️【包含风险内容的完整句子】
+标记时必须**严格引用原文**，一字不改：
+- 红线问题：⛔【原文中的完整句子，不可修改任何字】
+- 高风险内容：⚠️【原文中的完整句子，不可修改任何字】
+- 优化建议：ℹ️【原文中的完整句子，不可修改任何字】
+
+**错误示例**（不要这样）：
+- ⛔【他狠狠地打了她一巴掌】（如果原文是"他狠狠地打了她一巴掌"）
+
+**正确示例**：
+- ⛔【他狠狠地打了她一巴掌】（完全引用原文）
 
 用 Markdown 格式输出，清晰分区。`;
 
@@ -168,15 +174,13 @@ ${scriptText}
 - ⚠️ 高风险内容（建议修改）
 - ℹ️ 优化建议（可选修改）
 
-**标记规则：**
+## ⚠️ 重要：标记规则
 
-**文字违规**：标记完整句子
-- 示例：⛔【他的胸口被刺穿，染红了整件衬衫。】
+标记时必须**严格引用原文**，一字不改：
+- 文字违规：⛔【原文中的完整句子，不可修改任何字】
+- 画面违规：⛔【原文中的完整段落，不可修改任何字】
 
-**画面违规**：标记整个风险段落
-- 示例：⛔【他猛地将她推倒，双手掐住她的脖子...（整段完整文字）】
-
-**对话超标**：用表格形式列出，并附调优建议
+**必须完全复制原文**，不能有任何修改或省略。
 
 ## 输出结构
 
@@ -376,15 +380,95 @@ const ComplianceReview = () => {
   }, [adjustingSinglePhrase, model, paletteText, scriptText, replacementToOriginal, reviewMode]);
 
   const buildHighlightedParts = useCallback((text: string, blankPhrases?: Set<string>) => {
-    if (!text || activeRiskPhrases.length === 0) return <>{text}</>;
-    const sorted = [...activeRiskPhrases].sort((a, b) => b.length - a.length);
-    const matching = sorted.filter(p => text.includes(p));
+    if (!text) return <>{text}</>;
+    if (activeRiskPhrases.length === 0) return <>{text}</>;
+    
+    // 标准化函数：去除空格、常见标点差异
+    const normalize = (s: string) => 
+      s.replace(/\s+/g, "")
+       .replace(/[，。！？、；：""''（）【】「」,.!?;:'"()]/g, "");
+    
+    // 创建原文的标准化映射
+    const normalizedText = normalize(text);
+    
+    // 扩展的风险映射（包含模糊匹配）
+    const extendedRiskMap = new Map<string, RiskLevel>(activeRiskMap);
+    
+    // 对每个风险片段进行匹配
+    for (const phrase of activeRiskPhrases) {
+      // 如果已经精确匹配，跳过
+      if (text.includes(phrase)) continue;
+      
+      const level = activeRiskMap.get(phrase);
+      if (!level) continue;
+      
+      const normalizedPhrase = normalize(phrase);
+      if (normalizedPhrase.length < 5) continue; // 太短跳过
+      
+      // 在标准化后的原文中查找
+      const normIdx = normalizedText.indexOf(normalizedPhrase);
+      if (normIdx === -1) {
+        // 尝试查找部分匹配（前70%）
+        const partialLen = Math.floor(normalizedPhrase.length * 0.7);
+        const partialPhrase = normalizedPhrase.slice(0, partialLen);
+        const partialIdx = normalizedText.indexOf(partialPhrase);
+        
+        if (partialIdx !== -1) {
+          // 找到部分匹配，尝试确定原文中的边界
+          // 在原文中找到对应位置
+          let charCount = 0;
+          for (let i = 0; i < text.length; i++) {
+            const ch = text[i];
+            if (!/\s/.test(ch) && !/[，。！？、；：""''（）【】「」,.!?;:'"()]/.test(ch)) {
+              if (charCount === partialIdx) {
+                // 找到起始位置，尝试提取对应的原文
+                const estimatedLen = Math.ceil(phrase.length * 1.2);
+                const candidate = text.slice(i, i + estimatedLen);
+                extendedRiskMap.set(candidate, level);
+                break;
+              }
+              charCount++;
+            }
+          }
+        }
+        continue;
+      }
+      
+      // 找到完全匹配，确定原文边界
+      let charCount = 0;
+      let startPos = -1;
+      
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (!/\s/.test(ch) && !/[，。！？、；：""''（）【】「」,.!?;:'"()]/.test(ch)) {
+          if (charCount === normIdx) {
+            startPos = i;
+          }
+          charCount++;
+        }
+      }
+      
+      if (startPos !== -1) {
+        // 估算原文长度
+        const estimatedLen = phrase.length + Math.floor(phrase.length * 0.3);
+        const candidate = text.slice(startPos, startPos + estimatedLen);
+        extendedRiskMap.set(candidate, level);
+      }
+    }
+    
+    // 收集所有匹配文本
+    const allPhrases = [...extendedRiskMap.keys()].sort((a, b) => b.length - a.length);
+    
+    // 只保留在原文中存在的
+    const matching = allPhrases.filter(p => text.includes(p));
     if (matching.length === 0) return <>{text}</>;
+    
     const escaped = matching.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     const regex = new RegExp(`(${escaped.join("|")})`, "g");
     const parts = text.split(regex);
+    
     return parts.map((part, i) => {
-      const level = activeRiskMap.get(part);
+      const level = extendedRiskMap.get(part);
       if (level) {
         const isBlank = blankPhrases?.has(part);
         const isAdjusting = adjustingSinglePhrase === part;
@@ -1117,6 +1201,17 @@ const ComplianceReview = () => {
                   <p className="mt-1 text-xs">请检查 AI 是否使用了正确的格式标记（⛔【内容】、⚠️【内容】、ℹ️【内容】）</p>
                 </div>
               )}
+              {riskPhrases.length > 0 && (() => {
+                const matchedCount = riskPhrases.filter(p => (paletteText || scriptText).includes(p)).length;
+                const unmatchedCount = riskPhrases.length - matchedCount;
+                return unmatchedCount > 0 ? (
+                  <div className="text-center py-3 text-muted-foreground text-sm bg-blue-50 dark:bg-blue-900/20 rounded-md mb-4">
+                    <p>📊 已识别 {riskPhrases.length} 处风险，成功匹配 {matchedCount} 处</p>
+                    <p className="mt-1 text-xs">有 {unmatchedCount} 处因文字差异未精确匹配（AI 可能修改了原文引用）</p>
+                    <p className="mt-1 text-xs text-amber-600">建议：检查报告中标记的文本是否与原文完全一致</p>
+                  </div>
+                ) : null;
+              })()}
               {highlightedScript || (paletteText || scriptText) ? (
                 <div ref={paletteScrollRef} className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
                   {paletteEditing ? (
