@@ -610,7 +610,7 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
     } finally {
       setAdjustingSinglePhrase(null);
     }
-  }, [adjustingSinglePhrase, model, inputMode, tableData, paletteText, scriptText, replacementToOriginal, reviewMode]);
+  }, [adjustingSinglePhrase, model, reviewMode]);
 
   const buildHighlightedParts = useCallback((text: string, blankPhrases?: Set<string>) => {
     if (!text || activeRiskPhrases.length === 0) return <>{text}</>;
@@ -959,7 +959,7 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
         </table>
       </div>
     );
-  }, [tableData, activeRiskPhrases, activeRiskMap, editingCell, editingValue, replacementToOriginal, handleTableCellEdit, handleTableCellSave, handleTableCellCancel, adjustingSinglePhrase, handleSingleAdjust, reviewMode]);
+  }, [tableData, activeRiskPhrases, activeRiskMap, editingCell, editingValue, replacementToOriginal, handleTableCellEdit, handleTableCellSave, handleTableCellCancel, adjustingSinglePhrase, handleSingleAdjust]);
 
   const normalizeForCompare = (value: string) => value.replace(/\s+/g, "").trim();
 
@@ -1601,7 +1601,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                           <button
                             key={opt.value}
                             onClick={() => handleModelChange(opt.value)}
-                            className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors ${model === opt.value ? "bg-primary/10 text-primary font-medium" : "text-popover-foreground"}`}
+                            className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors ${opt.value === model ? "bg-primary/10 text-primary font-semibold" : "text-popover-foreground hover:text-foreground"}`}
                           >
                             {opt.label}
                           </button>
@@ -1630,22 +1630,6 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                 </div>
               </CardHeader>
               <CardContent>
-                {/* 对话审查开关 */}
-                <div className="flex items-center justify-between p-3 mb-4 rounded-lg bg-muted/50 border border-border/50">
-                  <div className="flex items-center gap-2">
-                    <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">对话审查</span>
-                  </div>
-                  <Button
-                    variant={enableDialogueReview ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setEnableDialogueReview(!enableDialogueReview)}
-                    className="h-8 w-12 px-0"
-                  >
-                    {enableDialogueReview ? "开" : "关"}
-                  </Button>
-                </div>
-
                 {/* 输入模式切换 */}
                 {tableData && (
                   <Tabs value={inputMode} onValueChange={(v) => setInputMode(v as "text" | "table")} className="mb-4">
@@ -1718,6 +1702,16 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                       {reportOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                     </CardTitle>
                     <div className="flex gap-2 items-center" onClick={(e) => e.stopPropagation()}>
+                      {/* 对话审查开关 */}
+                      <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5">
+                        <span className="text-xs font-medium text-muted-foreground">对话审查</span>
+                        <Switch
+                          checked={enableDialogueReview}
+                          onCheckedChange={setEnableDialogueReview}
+                          className="mx-1"
+                        />
+                      </div>
+
                       {/* 审核模式切换 */}
                       <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5">
                         <button
