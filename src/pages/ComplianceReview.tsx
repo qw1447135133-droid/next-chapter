@@ -593,16 +593,17 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
 
       if (isEditing) {
         return (
-          <input
-            ref={tableCellInputRef}
+          <textarea
+            ref={tableCellInputRef as any}
             value={editingValue}
             onChange={(e) => setEditingValue(e.target.value)}
             onBlur={handleTableCellSave}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleTableCellSave();
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleTableCellSave(); }
               if (e.key === "Escape") handleTableCellCancel();
             }}
-            className="w-full px-1 py-0.5 text-sm bg-background border border-primary rounded outline-none min-w-[60px]"
+            className="w-full px-1 py-0.5 text-xs bg-background border-2 border-primary rounded outline-none resize-none min-w-[80px] min-h-[2rem]"
+            rows={Math.max(2, Math.ceil(editingValue.length / 20))}
           />
         );
       }
@@ -686,27 +687,27 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
     };
 
     return (
-      <div className="max-h-[500px] overflow-auto rounded-md border border-border">
-        <Table>
-          <TableHeader>
-            <TableRow>
+      <div className="max-h-[600px] overflow-auto rounded-md border border-border">
+        <table className="w-full text-sm border-collapse">
+          <thead className="sticky top-0 z-10 bg-muted">
+            <tr>
               {tableData.headers.map((header, i) => (
-                <TableHead key={i} className="text-xs whitespace-nowrap">{header}</TableHead>
+                <th key={i} className="text-xs font-medium text-muted-foreground whitespace-nowrap px-3 py-2 border-b border-border text-left">{header}</th>
               ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+            </tr>
+          </thead>
+          <tbody>
             {tableData.rows.map((row, rowIndex) => (
-              <TableRow key={rowIndex}>
+              <tr key={rowIndex} className="border-b border-border/50 hover:bg-accent/20 transition-colors">
                 {row.map((cell, cellIndex) => (
-                  <TableCell key={cellIndex} className="text-xs py-1.5">
+                  <td key={cellIndex} className="text-xs px-3 py-2 align-top max-w-[300px]">
                     {renderCell(cell, rowIndex, cellIndex)}
-                  </TableCell>
+                  </td>
                 ))}
-              </TableRow>
+              </tr>
             ))}
-          </TableBody>
-        </Table>
+          </tbody>
+        </table>
       </div>
     );
   }, [tableData, activeRiskPhrases, activeRiskMap, editingCell, editingValue, replacementToOriginal, handleTableCellEdit, handleTableCellSave, handleTableCellCancel, adjustingSinglePhrase, handleSingleAdjust, isAutoAdjusting, reviewMode]);
@@ -1014,13 +1015,8 @@ ${JSON.stringify(payload, null, 2)}`;
 
   const handlePaletteEditToggle = () => {
     if (paletteEditing) {
-      if (paletteEditRef.current) {
-        const newText = paletteEditRef.current.innerText;
-        setPaletteText(newText);
-        setScriptText(newText);
-      } else {
-        setScriptText(paletteText);
-      }
+      // Save: paletteText is already updated via onChange
+      setScriptText(paletteText || scriptText);
     } else {
       if (!paletteText) {
         setPaletteText(scriptText);
@@ -1232,7 +1228,7 @@ ${JSON.stringify(payload, null, 2)}`;
         </div>
       </header>
 
-      <main className="flex-1 px-6 py-6 max-w-4xl mx-auto w-full space-y-6">
+      <main className="flex-1 px-6 py-8 max-w-7xl mx-auto w-full space-y-8">
         {/* Script Input Card */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
@@ -1518,18 +1514,20 @@ ${JSON.stringify(payload, null, 2)}`;
               {/* 表格模式使用高亮表格，文本模式使用高亮文本 */}
               {inputMode === "table" && tableData ? (
                 renderHighlightedTable()
+              ) : paletteEditing ? (
+                <div ref={paletteScrollRef} className="max-h-[600px] overflow-auto rounded-md border border-border bg-muted/30">
+                  <Textarea
+                    value={paletteText || scriptText}
+                    onChange={(e) => setPaletteText(e.target.value)}
+                    rows={20}
+                    className="font-mono text-sm border-0 focus-visible:ring-0 bg-transparent min-h-[300px]"
+                  />
+                </div>
               ) : highlightedScript ? (
-                <div ref={paletteScrollRef} className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
+                <div ref={paletteScrollRef} className="max-h-[600px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
                   <pre
                     ref={paletteEditRef}
-                    className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 outline-none"
-                    contentEditable={paletteEditing}
-                    suppressContentEditableWarning
-                    onBlur={() => {
-                      if (paletteEditing && paletteEditRef.current) {
-                        setPaletteText(paletteEditRef.current.innerText);
-                      }
-                    }}
+                    className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90"
                   >
                     {highlightedScript}
                   </pre>
