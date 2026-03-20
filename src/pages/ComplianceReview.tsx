@@ -8,7 +8,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { ArrowLeft, RefreshCw, Pencil, Eye, Square, ShieldCheck, Upload, Film, FileText, ChevronDown, ChevronUp, Palette, Wand2, Download, Table as TableIcon, FileSpreadsheet, Undo2, Redo2 } from "lucide-react";
+import { ArrowLeft, RefreshCw, Pencil, Eye, Square, ShieldCheck, Upload, Film, FileText, ChevronDown, ChevronUp, Palette, Wand2, Download, Table as TableIcon, FileSpreadsheet, Undo2, Redo2, MessageSquare } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { supabase } from "@/integrations/supabase/client";
@@ -57,6 +57,12 @@ ${scriptText}
 - 不当行为描写
 - 一般亲吻拥抱可标记为优化建议
 
+## ⚠️ 排除规则（极其重要）
+以下内容**不得标记为任何风险等级**，必须完全跳过：
+- **台词/对白**：所有角色对话行（格式为"角色名：台词"或"角色名:台词"），包括旁白
+- **音效标记**：所有音效/SFX描述（如"音效：xxx"、"SFX: xxx"、"（音效）"等）
+- 仅审核动作描写（△开头的行）和环境/镜头描述
+
 ## 输出格式
 
 使用以下标记标注问题严重程度：
@@ -74,7 +80,7 @@ ${scriptText}
 
 **标记规则：**
 
-标记**整句话或整个分镜片段**：
+标记**整句话或整个分镜片段**（不得标记台词和音效）：
 - 红线问题：⛔【包含风险内容的完整句子】
 - 高风险内容：⚠️【包含风险内容的完整句子】
 - 优化建议：ℹ️【包含风险内容的完整句子】
@@ -129,6 +135,12 @@ ${scriptText}
    - 不良行为展示
    - 其他违规内容
 
+## ⚠️ 排除规则（极其重要）
+以下内容**不得标记为任何风险等级**，必须完全跳过：
+- **台词/对白**：所有角色对话行（格式为"角色名：台词"或"角色名:台词"），包括旁白
+- **音效标记**：所有音效/SFX描述（如"音效：xxx"、"SFX: xxx"、"（音效）"等）
+- 仅审核动作描写（△开头的行）、环境/镜头描述和整体画面表现
+
 ## 输出格式
 
 使用以下标记标注风险：
@@ -139,10 +151,10 @@ ${scriptText}
 
 **标记规则：**
 
-**文字违规**：标记完整句子
+**文字违规**：标记完整句子（不得标记台词和音效）
 - 示例：⛔【他的胸口被刺穿，染红了整件衬衫。】
 
-**画面违规**：标记整个风险段落
+**画面违规**：标记整个风险段落（不得标记台词和音效）
 - 示例：⛔【他猛地将她推倒，双手掐住她的脖子...（整段完整文字）】
 
 ## 输出结构
@@ -266,6 +278,151 @@ const ComplianceReview = () => {
   }, [riskMap, phraseReplacements]);
 
   const activeRiskPhrases = useMemo(() => [...activeRiskMap.keys()], [activeRiskMap]);
+
+  // --- Dialogue word count detection ---
+  // Detect if text is primarily Chinese
+  const isChinese = useMemo(() => {
+    const text = paletteText || scriptText;
+    const cjk = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+    return cjk > text.length * 0.15;
+  }, [paletteText, scriptText]);
+
+  // Dialogue line patterns
+  const isDialogueLine = useCallback((line: string) => {
+    const trimmed = line.trim();
+    // Chinese: 角色名：台词 or 旁白：
+    if (/^[^\s△#]{1,10}[：:]/.test(trimmed) && !/^(音效|SFX|sfx)[：:]/.test(trimmed) && !trimmed.startsWith("△")) return true;
+    return false;
+  }, []);
+
+  const isSfxLine = useCallback((line: string) => {
+    const trimmed = line.trim();
+    return /^(音效|SFX|sfx)[：:]/i.test(trimmed) || /^\(音效\)/i.test(trimmed) || /^\(SFX\)/i.test(trimmed);
+  }, []);
+
+  // Analyze dialogue word counts: group by shots and episodes
+  type DialogueWarning = {
+    type: "shot_group" | "episode";
+    lines: string[];       // the dialogue lines
+    lineIndices: number[];  // indices in the full text lines array
+    wordCount: number;
+    limit: number;
+    episode?: string;
+  };
+
+  const dialogueWarnings = useMemo(() => {
+    const text = paletteText || scriptText;
+    if (!text.trim()) return [] as DialogueWarning[];
+
+    const lines = text.split("\n");
+    const warnings: DialogueWarning[] = [];
+
+    // Limits
+    const shotGroupLimit = isChinese ? 35 : 20;
+    const episodeMinLimit = isChinese ? 280 : 150;
+    const episodeMaxLimit = isChinese ? 330 : 180;
+
+    // Parse into episodes and shots
+    let currentEpisode = "";
+    let episodeDialogueWords = 0;
+    let episodeDialogueLines: string[] = [];
+    let episodeDialogueIndices: number[] = [];
+    let shotBuffer: { lines: string[]; indices: number[]; words: number } = { lines: [], indices: [], words: 0 };
+    let shotCount = 0;
+
+    const countWords = (line: string) => {
+      // Extract dialogue content after "角色名：" or "Character:"
+      const match = line.match(/^[^\s△#]{1,10}[：:]\s*(?:[\(（][^）\)]*[）\)])?(.*)$/);
+      const content = match ? match[1].trim() : line.trim();
+      if (isChinese) {
+        return (content.match(/[\u4e00-\u9fa5]/g) || []).length;
+      }
+      return content.split(/\s+/).filter(w => w.length > 0).length;
+    };
+
+    const flushShotGroup = () => {
+      if (shotBuffer.lines.length > 0 && shotBuffer.words > shotGroupLimit) {
+        warnings.push({
+          type: "shot_group",
+          lines: [...shotBuffer.lines],
+          lineIndices: [...shotBuffer.indices],
+          wordCount: shotBuffer.words,
+          limit: shotGroupLimit,
+          episode: currentEpisode,
+        });
+      }
+      shotBuffer = { lines: [], indices: [], words: 0 };
+      shotCount = 0;
+    };
+
+    const flushEpisode = () => {
+      if (currentEpisode && episodeDialogueWords > episodeMaxLimit) {
+        warnings.push({
+          type: "episode",
+          lines: [...episodeDialogueLines],
+          lineIndices: [...episodeDialogueIndices],
+          wordCount: episodeDialogueWords,
+          limit: episodeMaxLimit,
+          episode: currentEpisode,
+        });
+      }
+      episodeDialogueWords = 0;
+      episodeDialogueLines = [];
+      episodeDialogueIndices = [];
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+
+      // Detect episode header: # 1-1 or # Episode 1 Scene 1
+      const episodeMatch = trimmed.match(/^#\s*(\d+)/);
+      if (episodeMatch) {
+        // New scene/shot
+        shotCount++;
+        if (shotCount > 5) {
+          flushShotGroup();
+        }
+
+        // Detect episode change
+        const epNum = episodeMatch[1];
+        const sceneMatch = trimmed.match(/^#\s*(\d+)-/);
+        const newEp = sceneMatch ? `第${sceneMatch[1]}集` : `第${epNum}集`;
+        if (newEp !== currentEpisode) {
+          flushShotGroup();
+          flushEpisode();
+          currentEpisode = newEp;
+        }
+        continue;
+      }
+
+      if (isDialogueLine(trimmed) && !isSfxLine(trimmed)) {
+        const words = countWords(trimmed);
+        shotBuffer.lines.push(trimmed);
+        shotBuffer.indices.push(i);
+        shotBuffer.words += words;
+        episodeDialogueWords += words;
+        episodeDialogueLines.push(trimmed);
+        episodeDialogueIndices.push(i);
+      }
+    }
+
+    flushShotGroup();
+    flushEpisode();
+
+    return warnings;
+  }, [paletteText, scriptText, isChinese, isDialogueLine, isSfxLine]);
+
+  // Build a set of line indices that have dialogue over-limit warnings
+  const dialogueOverLimitLines = useMemo(() => {
+    const set = new Set<number>();
+    for (const w of dialogueWarnings) {
+      for (const idx of w.lineIndices) {
+        set.add(idx);
+      }
+    }
+    return set;
+  }, [dialogueWarnings]);
 
   const replacementToOriginal = useMemo(() => {
     const map = new Map<string, string>();
@@ -440,8 +597,33 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
 
   const highlightedScript = useMemo(() => {
     const text = paletteText || scriptText;
-    return buildHighlightedParts(text, isAutoAdjusting ? adjustingPhrases : undefined);
-  }, [paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases]);
+    if (!text) return null;
+
+    const lines = text.split("\n");
+    const blankSet = isAutoAdjusting ? adjustingPhrases : undefined;
+
+    return (
+      <>
+        {lines.map((line, lineIndex) => {
+          const isOverLimit = dialogueOverLimitLines.has(lineIndex);
+          const highlighted = buildHighlightedParts(line, blankSet);
+
+          return (
+            <span key={lineIndex}>
+              {isOverLimit ? (
+                <mark className="bg-muted-foreground/15 text-foreground/70 rounded px-0.5" title="台词字数超限">
+                  {highlighted}
+                </mark>
+              ) : (
+                highlighted
+              )}
+              {lineIndex < lines.length - 1 && "\n"}
+            </span>
+          );
+        })}
+      </>
+    );
+  }, [paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases, dialogueOverLimitLines]);
 
   // 表格编辑相关状态
   const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
@@ -903,7 +1085,99 @@ ${JSON.stringify(payload, null, 2)}`;
         pending = nextPending.filter((entry) => workingText.includes(entry.current));
       }
 
-      if (appliedCount === 0) {
+      // --- Phase 2: Dialogue trimming ---
+      // Re-analyze dialogue warnings on the working text
+      const dialogueLines = workingText.split("\n");
+      const overLimitDialogues: string[] = [];
+      const shotGroupLim = isChinese ? 35 : 20;
+      const episodeMaxLim = isChinese ? 330 : 180;
+      let tempShotWords = 0;
+      let tempShotDialogues: string[] = [];
+      let tempEpWords = 0;
+      let tempEpDialogues: string[] = [];
+      let tempEp = "";
+      let tempShotCount = 0;
+
+      for (const dl of dialogueLines) {
+        const trimmed = dl.trim();
+        const epMatch = trimmed.match(/^#\s*(\d+)/);
+        if (epMatch) {
+          if (tempShotDialogues.length > 0 && tempShotWords > shotGroupLim) {
+            overLimitDialogues.push(...tempShotDialogues);
+          }
+          tempShotCount++;
+          if (tempShotCount > 5) {
+            tempShotWords = 0; tempShotDialogues = []; tempShotCount = 1;
+          }
+          const sceneMatch = trimmed.match(/^#\s*(\d+)-/);
+          const newEp = sceneMatch ? sceneMatch[1] : epMatch[1];
+          if (newEp !== tempEp) {
+            if (tempEp && tempEpWords > episodeMaxLim) overLimitDialogues.push(...tempEpDialogues);
+            tempEp = newEp; tempEpWords = 0; tempEpDialogues = [];
+            tempShotWords = 0; tempShotDialogues = []; tempShotCount = 1;
+          }
+          continue;
+        }
+        if (isDialogueLine(trimmed) && !isSfxLine(trimmed)) {
+          const match = trimmed.match(/^[^\s△#]{1,10}[：:]\s*(?:[\(（][^）\)]*[）\)])?(.*)$/);
+          const content = match ? match[1].trim() : trimmed;
+          const wc = isChinese ? (content.match(/[\u4e00-\u9fa5]/g) || []).length : content.split(/\s+/).filter(w => w.length > 0).length;
+          tempShotWords += wc; tempShotDialogues.push(trimmed);
+          tempEpWords += wc; tempEpDialogues.push(trimmed);
+        }
+      }
+      if (tempShotDialogues.length > 0 && tempShotWords > shotGroupLim) overLimitDialogues.push(...tempShotDialogues);
+      if (tempEp && tempEpWords > episodeMaxLim) overLimitDialogues.push(...tempEpDialogues);
+
+      const uniqueOverLimit = [...new Set(overLimitDialogues)];
+      let dialogueTrimCount = 0;
+
+      if (uniqueOverLimit.length > 0) {
+        try {
+          const trimPrompt = `你是短剧台词精简专家。
+
+## 任务
+以下台词行字数超出限制，请精简对话内容，删减不重要的台词或简略对话（不改变意思）。
+${isChinese ? "中文标准：4-5个镜头一起的对白≤35字，一集台词≤330字" : "English standard: 4-5 shots together ≤20 words, episode ≤180 words"}
+
+## 待精简台词
+${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), null, 2)}
+
+## 输出格式
+只输出 JSON 数组：[{"id":1,"replacement":"精简后的台词"}]
+- 如果某行可以完全删除，replacement 设为空字符串 ""
+- 保持角色名和格式不变（如"角色名：台词"）`;
+
+          const trimRaw = await callGeminiStream(
+            model,
+            [{ role: "user", parts: [{ text: trimPrompt }] }],
+            () => {},
+            { maxOutputTokens: 4096, temperature: 0.5 },
+            autoAdjustAbortRef.current?.signal,
+          );
+
+          const trimResults = parseRewriteJson(trimRaw);
+          for (const [id, replacement] of trimResults.entries()) {
+            const original = uniqueOverLimit[id - 1];
+            if (!original) continue;
+            if (replacement === "") {
+              // Remove the line entirely
+              workingText = workingText.split(original).map(s => s).join("");
+              // Clean up double newlines
+              workingText = workingText.replace(/\n{3,}/g, "\n\n");
+            } else if (replacement !== original) {
+              workingText = workingText.split(original).join(replacement);
+            }
+            dialogueTrimCount++;
+          }
+        } catch (trimErr: any) {
+          if (!trimErr?.message?.includes("取消")) {
+            console.warn("Dialogue trim failed:", trimErr);
+          }
+        }
+      }
+
+      if (appliedCount === 0 && dialogueTrimCount === 0) {
         toast({ title: "自动调整未生效", description: "AI 改写结果与原文过于相似，请点击「自动调整」重试，或手动编辑文本", variant: "destructive" });
         return;
       }
@@ -928,9 +1202,12 @@ ${JSON.stringify(payload, null, 2)}`;
         setScriptText(textContent);
       }
 
+      const parts: string[] = [];
+      if (appliedCount > 0) parts.push(`${appliedCount} 处风险`);
+      if (dialogueTrimCount > 0) parts.push(`${dialogueTrimCount} 处台词精简`);
       toast({
         title: "自动调整完成",
-        description: pending.length > 0 ? `已调整 ${appliedCount} 处，仍有 ${pending.length} 处建议手动调整` : `已调整 ${appliedCount} 处`,
+        description: `已调整 ${parts.join("、")}${pending.length > 0 ? `，仍有 ${pending.length} 处建议手动调整` : ""}`,
       });
     } catch (e: any) {
       if (!e?.message?.includes("取消")) {
@@ -1451,7 +1728,7 @@ ${JSON.stringify(payload, null, 2)}`;
         </Collapsible>
 
         {/* Risk Highlight Comparison */}
-        {complianceReport && !isGenerating && scriptText && riskPhrases.length > 0 && (
+        {complianceReport && !isGenerating && scriptText && (riskPhrases.length > 0 || dialogueWarnings.length > 0) && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg flex items-center gap-2">
@@ -1510,7 +1787,32 @@ ${JSON.stringify(payload, null, 2)}`;
                   <span className="inline-block w-3 h-3 rounded bg-blue-200 dark:bg-blue-700/60 border border-blue-500" />
                   ℹ️ 优化建议
                 </span>
+                {dialogueWarnings.length > 0 && (
+                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className="inline-block w-3 h-3 rounded bg-muted-foreground/15 border border-muted-foreground/30" />
+                    💬 台词超限 ({dialogueWarnings.length} 处)
+                  </span>
+                )}
               </div>
+              {/* Dialogue warnings summary */}
+              {dialogueWarnings.length > 0 && (
+                <div className="mb-4 p-3 rounded-md border border-muted-foreground/20 bg-muted/50 space-y-1.5">
+                  <div className="flex items-center gap-1.5 text-sm font-medium text-foreground/80">
+                    <MessageSquare className="h-4 w-4" />
+                    台词字数检测
+                    <span className="text-xs font-normal text-muted-foreground">
+                      ({isChinese ? "中文：镜头组≤35字 / 单集280-330字" : "English: shot group≤20 words / episode 150-180 words"})
+                    </span>
+                  </div>
+                  {dialogueWarnings.map((w, i) => (
+                    <div key={i} className="text-xs text-muted-foreground">
+                      {w.type === "shot_group"
+                        ? `⚠ ${w.episode || ""} 镜头组台词 ${w.wordCount}${isChinese ? "字" : " words"}（限制 ${w.limit}）`
+                        : `⚠ ${w.episode} 全集台词 ${w.wordCount}${isChinese ? "字" : " words"}（限制 ${w.limit}）`}
+                    </div>
+                  ))}
+                </div>
+              )}
               {/* 表格模式使用高亮表格，文本模式使用高亮文本 */}
               {inputMode === "table" && tableData ? (
                 renderHighlightedTable()
