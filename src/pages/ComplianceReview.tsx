@@ -593,16 +593,17 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
 
       if (isEditing) {
         return (
-          <input
-            ref={tableCellInputRef}
+          <textarea
+            ref={tableCellInputRef as any}
             value={editingValue}
             onChange={(e) => setEditingValue(e.target.value)}
             onBlur={handleTableCellSave}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleTableCellSave();
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleTableCellSave(); }
               if (e.key === "Escape") handleTableCellCancel();
             }}
-            className="w-full px-1 py-0.5 text-sm bg-background border border-primary rounded outline-none min-w-[60px]"
+            className="w-full px-1 py-0.5 text-xs bg-background border-2 border-primary rounded outline-none resize-none min-w-[80px] min-h-[2rem]"
+            rows={Math.max(2, Math.ceil(editingValue.length / 20))}
           />
         );
       }
