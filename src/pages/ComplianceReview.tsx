@@ -687,27 +687,27 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
     };
 
     return (
-      <div className="max-h-[500px] overflow-auto rounded-md border border-border">
-        <Table>
-          <TableHeader>
-            <TableRow>
+      <div className="max-h-[600px] overflow-auto rounded-md border border-border">
+        <table className="w-full text-sm border-collapse">
+          <thead className="sticky top-0 z-10 bg-muted">
+            <tr>
               {tableData.headers.map((header, i) => (
-                <TableHead key={i} className="text-xs whitespace-nowrap">{header}</TableHead>
+                <th key={i} className="text-xs font-medium text-muted-foreground whitespace-nowrap px-3 py-2 border-b border-border text-left">{header}</th>
               ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+            </tr>
+          </thead>
+          <tbody>
             {tableData.rows.map((row, rowIndex) => (
-              <TableRow key={rowIndex}>
+              <tr key={rowIndex} className="border-b border-border/50 hover:bg-accent/20 transition-colors">
                 {row.map((cell, cellIndex) => (
-                  <TableCell key={cellIndex} className="text-xs py-1.5">
+                  <td key={cellIndex} className="text-xs px-3 py-2 align-top max-w-[300px]">
                     {renderCell(cell, rowIndex, cellIndex)}
-                  </TableCell>
+                  </td>
                 ))}
-              </TableRow>
+              </tr>
             ))}
-          </TableBody>
-        </Table>
+          </tbody>
+        </table>
       </div>
     );
   }, [tableData, activeRiskPhrases, activeRiskMap, editingCell, editingValue, replacementToOriginal, handleTableCellEdit, handleTableCellSave, handleTableCellCancel, adjustingSinglePhrase, handleSingleAdjust, isAutoAdjusting, reviewMode]);
