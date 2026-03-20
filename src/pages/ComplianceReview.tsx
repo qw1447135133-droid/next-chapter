@@ -8,7 +8,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { ArrowLeft, RefreshCw, Pencil, Eye, Square, ShieldCheck, Upload, Film, FileText, ChevronDown, ChevronUp, Palette, Wand2, Download, Table as TableIcon, FileSpreadsheet, Undo2, Redo2, MessageSquare } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { ArrowLeft, RefreshCw, Pencil, Eye, Square, ShieldCheck, Upload, Film, FileText, ChevronDown, ChevronUp, Palette, Wand2, Download, Table as TableIcon, FileSpreadsheet, Undo2, Redo2, MessageSquare, AlertTriangle, Info, CheckCircle2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { supabase } from "@/integrations/supabase/client";
@@ -19,6 +20,7 @@ import * as XLSX from "xlsx";
 
 type ComplianceModel = "gemini-3.1-pro-preview" | "gemini-3-pro-preview" | "gemini-3-flash-preview";
 type ReviewMode = "text" | "script";
+type StrictnessLevel = "standard" | "strict" | "extreme";
 
 const MODEL_OPTIONS: { value: ComplianceModel; label: string }[] = [
   { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
@@ -26,13 +28,32 @@ const MODEL_OPTIONS: { value: ComplianceModel; label: string }[] = [
   { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
 ];
 
+// 严格程度配置
+const STRICTNESS_CONFIG: Record<StrictnessLevel, { label: string; desc: string; promptSuffix: string }> = {
+  standard: {
+    label: "标准",
+    desc: "常规合规检查",
+    promptSuffix: "",
+  },
+  strict: {
+    label: "严格",
+    desc: "提高敏感度，标记更多潜在风险",
+    promptSuffix: "\n\n## 严格模式要求\n- 对任何可能引发争议的内容保持高度敏感\n- 即使是暗示性的违规内容也要标记\n- 对边缘案例采取保守态度，宁可错标也不漏标",
+  },
+  extreme: {
+    label: "极严格",
+    desc: "最严格的审查标准，最大化风险识别",
+    promptSuffix: "\n\n## 极严格模式要求\n- 零容忍政策：任何可能违规的内容必须标记\n- 对隐喻、暗示、双关等间接表达保持最高警惕\n- 即使只有轻微违规可能性的内容也要标记\n- 优先保护平台安全，宁可过度标记也不遗漏",
+  },
+};
+
 // 文字审核提示词 - 检查字面违规
-const STANDALONE_COMPLIANCE_PROMPT = (scriptText: string) => `你是一位资深的短剧内容合规审核专家，精通各类内容监管法规与平台规范。
+const STANDALONE_COMPLIANCE_PROMPT = (scriptText: string, strictness: StrictnessLevel) => `你是一位资深的短剧内容合规审核专家，精通各类内容监管法规与平台规范。
 
 ## 待审核内容
 ${scriptText}
 
----
+---${STRICTNESS_CONFIG[strictness].promptSuffix}
 
 ## 审核要求
 
@@ -88,12 +109,12 @@ ${scriptText}
 用 Markdown 格式输出，清晰分区。`;
 
 // 情节审核提示词 - 审核整个段落的画面表现 + 文字违规
-const SCRIPT_REVIEW_PROMPT = (scriptText: string) => `你是一位资深的短剧内容合规审核专家，执行**最彻底的合规审查**。
+const SCRIPT_REVIEW_PROMPT = (scriptText: string, strictness: StrictnessLevel) => `你是一位资深的短剧内容合规审核专家，执行**最彻底的合规审查**。
 
 ## 待审核剧本
 ${scriptText}
 
----
+---${STRICTNESS_CONFIG[strictness].promptSuffix}
 
 ## 审核要求
 
@@ -176,6 +197,22 @@ type TableData = {
   originalData: (string | number | null)[][];
 };
 
+// 台词统计类型
+type EpisodeDialogueStats = {
+  episodeNum: number;
+  totalDialogues: number;
+  totalWords: number;
+  avgWordsPerDialogue: number;
+  maxSingleDialogue: number;
+  overLimitCount: number;
+  scenes: {
+    sceneNum: string;
+    dialogues: number;
+    words: number;
+    overLimit: boolean;
+  }[];
+};
+
 const ComplianceReview = () => {
   const navigate = useNavigate();
   const [scriptText, setScriptText] = useState("");
@@ -190,6 +227,8 @@ const ComplianceReview = () => {
   const [inputMode, setInputMode] = useState<"text" | "table">("text");
   // 审核模式：文字审核 | 剧本审核
   const [reviewMode, setReviewMode] = useState<ReviewMode>("text");
+  // 严格程度
+  const [strictness, setStrictness] = useState<StrictnessLevel>("standard");
   const [model, setModel] = useState<ComplianceModel>(
     () => (localStorage.getItem("compliance-model") as ComplianceModel) || "gemini-3.1-pro-preview"
   );
@@ -300,38 +339,20 @@ const ComplianceReview = () => {
     return /^(音效|SFX|sfx)[：:]/i.test(trimmed) || /^\(音效\)/i.test(trimmed) || /^\(SFX\)/i.test(trimmed);
   }, []);
 
-  // Analyze dialogue word counts: group by shots and episodes
-  type DialogueWarning = {
-    type: "shot_group" | "episode";
-    lines: string[];       // the dialogue lines
-    lineIndices: number[];  // indices in the full text lines array
-    wordCount: number;
-    limit: number;
-    episode?: string;
-  };
-
-  const dialogueWarnings = useMemo(() => {
+  // 解析各集台词统计
+  const episodeStats = useMemo((): EpisodeDialogueStats[] => {
     const text = paletteText || scriptText;
-    if (!text.trim()) return [] as DialogueWarning[];
+    if (!text.trim()) return [];
 
     const lines = text.split("\n");
-    const warnings: DialogueWarning[] = [];
+    const stats: Map<number, EpisodeDialogueStats> = new Map();
 
-    // Limits
-    const shotGroupLimit = isChinese ? 35 : 20;
-    const episodeMinLimit = isChinese ? 280 : 150;
-    const episodeMaxLimit = isChinese ? 330 : 180;
-
-    // Parse into episodes and shots
-    let currentEpisode = "";
-    let episodeDialogueWords = 0;
-    let episodeDialogueLines: string[] = [];
-    let episodeDialogueIndices: number[] = [];
-    let shotBuffer: { lines: string[]; indices: number[]; words: number } = { lines: [], indices: [], words: 0 };
-    let shotCount = 0;
+    let currentEpisode = 0;
+    let currentScene = "";
+    let sceneDialogues = 0;
+    let sceneWords = 0;
 
     const countWords = (line: string) => {
-      // Extract dialogue content after "角色名：" or "Character:"
       const match = line.match(/^[^\s△#]{1,10}[：:]\s*(?:[\(（][^）\)]*[）\)])?(.*)$/);
       const content = match ? match[1].trim() : line.trim();
       if (isChinese) {
@@ -340,89 +361,129 @@ const ComplianceReview = () => {
       return content.split(/\s+/).filter(w => w.length > 0).length;
     };
 
-    const flushShotGroup = () => {
-      if (shotBuffer.lines.length > 0 && shotBuffer.words > shotGroupLimit) {
-        warnings.push({
-          type: "shot_group",
-          lines: [...shotBuffer.lines],
-          lineIndices: [...shotBuffer.indices],
-          wordCount: shotBuffer.words,
-          limit: shotGroupLimit,
-          episode: currentEpisode,
-        });
+    const flushScene = () => {
+      if (currentEpisode > 0 && currentScene) {
+        const ep = stats.get(currentEpisode);
+        if (ep) {
+          ep.scenes.push({
+            sceneNum: currentScene,
+            dialogues: sceneDialogues,
+            words: sceneWords,
+            overLimit: sceneWords > (isChinese ? 35 : 20),
+          });
+        }
       }
-      shotBuffer = { lines: [], indices: [], words: 0 };
-      shotCount = 0;
+      sceneDialogues = 0;
+      sceneWords = 0;
     };
 
-    const flushEpisode = () => {
-      if (currentEpisode && episodeDialogueWords > episodeMaxLimit) {
-        warnings.push({
-          type: "episode",
-          lines: [...episodeDialogueLines],
-          lineIndices: [...episodeDialogueIndices],
-          wordCount: episodeDialogueWords,
-          limit: episodeMaxLimit,
-          episode: currentEpisode,
-        });
-      }
-      episodeDialogueWords = 0;
-      episodeDialogueLines = [];
-      episodeDialogueIndices = [];
-    };
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+    for (const line of lines) {
       const trimmed = line.trim();
 
       // Detect episode header: # 1-1 or # Episode 1 Scene 1
       const episodeMatch = trimmed.match(/^#\s*(\d+)/);
       if (episodeMatch) {
-        // New scene/shot
-        shotCount++;
-        if (shotCount > 5) {
-          flushShotGroup();
+        flushScene();
+        const epNum = parseInt(episodeMatch[1]);
+        if (epNum !== currentEpisode) {
+          currentEpisode = epNum;
+          if (!stats.has(epNum)) {
+            stats.set(epNum, {
+              episodeNum: epNum,
+              totalDialogues: 0,
+              totalWords: 0,
+              avgWordsPerDialogue: 0,
+              maxSingleDialogue: 0,
+              overLimitCount: 0,
+              scenes: [],
+            });
+          }
         }
-
-        // Detect episode change
-        const epNum = episodeMatch[1];
-        const sceneMatch = trimmed.match(/^#\s*(\d+)-/);
-        const newEp = sceneMatch ? `第${sceneMatch[1]}集` : `第${epNum}集`;
-        if (newEp !== currentEpisode) {
-          flushShotGroup();
-          flushEpisode();
-          currentEpisode = newEp;
-        }
+        // Extract scene number
+        const sceneMatch = trimmed.match(/^#\s*(\d+-\d+)/);
+        currentScene = sceneMatch ? sceneMatch[1] : "";
         continue;
       }
 
       if (isDialogueLine(trimmed) && !isSfxLine(trimmed)) {
         const words = countWords(trimmed);
-        shotBuffer.lines.push(trimmed);
-        shotBuffer.indices.push(i);
-        shotBuffer.words += words;
-        episodeDialogueWords += words;
-        episodeDialogueLines.push(trimmed);
-        episodeDialogueIndices.push(i);
+        const ep = stats.get(currentEpisode);
+        if (ep) {
+          ep.totalDialogues++;
+          ep.totalWords += words;
+          ep.maxSingleDialogue = Math.max(ep.maxSingleDialogue, words);
+          if (words > (isChinese ? 35 : 20)) {
+            ep.overLimitCount++;
+          }
+        }
+        sceneDialogues++;
+        sceneWords += words;
       }
     }
 
-    flushShotGroup();
-    flushEpisode();
+    flushScene();
 
-    return warnings;
+    // Calculate averages
+    for (const ep of stats.values()) {
+      ep.avgWordsPerDialogue = ep.totalDialogues > 0 ? Math.round(ep.totalWords / ep.totalDialogues) : 0;
+    }
+
+    return Array.from(stats.values()).sort((a, b) => a.episodeNum - b.episodeNum);
   }, [paletteText, scriptText, isChinese, isDialogueLine, isSfxLine]);
+
+  // 总统计
+  const totalStats = useMemo(() => {
+    const totalDialogues = episodeStats.reduce((sum, ep) => sum + ep.totalDialogues, 0);
+    const totalWords = episodeStats.reduce((sum, ep) => sum + ep.totalWords, 0);
+    const overLimitDialogues = episodeStats.reduce((sum, ep) => sum + ep.overLimitCount, 0);
+    return {
+      totalDialogues,
+      totalWords,
+      overLimitDialogues,
+      avgWordsPerDialogue: totalDialogues > 0 ? Math.round(totalWords / totalDialogues) : 0,
+    };
+  }, [episodeStats]);
 
   // Build a set of line indices that have dialogue over-limit warnings
   const dialogueOverLimitLines = useMemo(() => {
     const set = new Set<number>();
-    for (const w of dialogueWarnings) {
-      for (const idx of w.lineIndices) {
-        set.add(idx);
+    const text = paletteText || scriptText;
+    const lines = text.split("\n");
+    let lineIndex = 0;
+    let currentSceneWords = 0;
+    let sceneStartLine = 0;
+
+    const countWords = (line: string) => {
+      const match = line.match(/^[^\s△#]{1,10}[：:]\s*(?:[\(（][^）\)]*[）\)])?(.*)$/);
+      const content = match ? match[1].trim() : line.trim();
+      if (isChinese) {
+        return (content.match(/[\u4e00-\u9fa5]/g) || []).length;
       }
+      return content.split(/\s+/).filter(w => w.length > 0).length;
+    };
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      const episodeMatch = trimmed.match(/^#\s*(\d+)/);
+      if (episodeMatch) {
+        // Reset scene tracking
+        currentSceneWords = 0;
+        sceneStartLine = lineIndex;
+      }
+
+      if (isDialogueLine(trimmed) && !isSfxLine(trimmed)) {
+        const words = countWords(trimmed);
+        currentSceneWords += words;
+        if (currentSceneWords > (isChinese ? 35 : 20)) {
+          set.add(lineIndex);
+        }
+      }
+
+      lineIndex++;
     }
+
     return set;
-  }, [dialogueWarnings]);
+  }, [paletteText, scriptText, isChinese, isDialogueLine, isSfxLine]);
 
   const replacementToOriginal = useMemo(() => {
     const map = new Map<string, string>();
@@ -1388,7 +1449,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
 
     try {
       const promptGenerator = reviewMode === "script" ? SCRIPT_REVIEW_PROMPT : STANDALONE_COMPLIANCE_PROMPT;
-      const prompt = promptGenerator(scriptText);
+      const prompt = promptGenerator(scriptText, strictness);
 
       if (!needsSegment) {
         setSegmentProgress(null);
@@ -1438,7 +1499,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
           setSegmentProgress({ current: i + 1, total: totalSegments });
           setStreamingText(`正在审核第 ${i + 1}/${totalSegments} 段（${segments[i].length} 字）…`);
 
-          const segPrompt = promptGenerator(segments[i]);
+          const segPrompt = promptGenerator(segments[i], strictness);
           const report = await callGeminiStream(
             model,
             [{ role: "user", parts: [{ text: segPrompt }] }],
@@ -1506,230 +1567,405 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
       </header>
 
       <main className="flex-1 px-6 py-8 max-w-7xl mx-auto w-full space-y-8">
-        {/* Script Input Card */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              剧本内容
-            </CardTitle>
-            <div className="flex gap-2 items-center">
-              {/* Model Selector */}
-              <div className="relative" ref={modelDropdownRef}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
-                  className="gap-1.5 min-w-[140px] justify-between"
-                >
-                  <span className="truncate">{MODEL_OPTIONS.find(o => o.value === model)?.label}</span>
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-                </Button>
-                {modelDropdownOpen && (
-                  <div className="absolute right-0 top-full mt-1 z-50 bg-popover border border-border rounded-md shadow-md py-1 min-w-[160px]">
-                    {MODEL_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        onClick={() => handleModelChange(opt.value)}
-                        className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors ${model === opt.value ? "bg-accent/50 font-medium" : ""}`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".txt,.pdf,.docx,.doc,.xlsx,.xls,.csv"
-                className="hidden"
-                onChange={handleFileUpload}
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploading}
-                className="gap-1.5"
-              >
-                <Upload className="h-3.5 w-3.5" />
-                {isUploading ? "解析中..." : "上传文档"}
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {/* 输入模式切换 */}
-            {tableData && (
-              <Tabs value={inputMode} onValueChange={(v) => setInputMode(v as "text" | "table")} className="mb-4">
-                <TabsList>
-                  <TabsTrigger value="table"><TableIcon className="h-3.5 w-3.5 mr-1" />表格模式</TabsTrigger>
-                  <TabsTrigger value="text"><FileText className="h-3.5 w-3.5 mr-1" />文本模式</TabsTrigger>
-                </TabsList>
-              </Tabs>
-            )}
-
-            {/* 表格显示模式 */}
-            {inputMode === "table" && tableData ? (
-              <div className="max-h-[400px] overflow-auto rounded-md border border-border">
-                <div className="text-xs text-muted-foreground px-3 py-1.5 bg-muted/50 border-b border-border flex items-center gap-2">
-                  <FileSpreadsheet className="h-3.5 w-3.5" />
-                  {tableData.fileName}
-                  {tableData.sheetName && <span>· {tableData.sheetName}</span>}
-                  <span>({tableData.rows.length} 行)</span>
-                </div>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      {tableData.headers.map((header, i) => (
-                        <TableHead key={i} className="text-xs whitespace-nowrap">{header}</TableHead>
-                      ))}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {tableData.rows.map((row, rowIndex) => (
-                      <TableRow key={rowIndex}>
-                        {row.map((cell, cellIndex) => (
-                          <TableCell key={cellIndex} className="text-xs py-1.5">{String(cell ?? "")}</TableCell>
-                        ))}
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            ) : (
-              /* 文本显示模式 */
-              <>
-                <Textarea
-                  value={scriptText}
-                  onChange={(e) => setScriptText(e.target.value)}
-                  placeholder="粘贴剧本内容，或点击上方按钮上传 TXT / PDF / DOCX / XLSX 文档..."
-                  rows={12}
-                  className="font-mono text-sm"
-                />
-                <div className="text-xs text-muted-foreground mt-2 text-right">
-                  {scriptText.length} 字
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Compliance Report Card — Collapsible */}
-        <Collapsible open={reportOpen} onOpenChange={setReportOpen}>
-          <Card>
-            <CollapsibleTrigger asChild>
-              <CardHeader className="flex flex-row items-center justify-between cursor-pointer select-none hover:bg-accent/30 transition-colors rounded-t-lg">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left: Script Input */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Script Input Card */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <ShieldCheck className="h-5 w-5" />
-                  合规审核报告
-                  {complianceReport && !isGenerating && (
-                    <span className="text-sm font-normal text-muted-foreground">
-                      ⛔{redLineCount} · ⚠️{highRiskCount} · ℹ️{infoCount}
-                    </span>
-                  )}
-                  {reportOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                  <FileText className="h-5 w-5" />
+                  剧本内容
                 </CardTitle>
-                <div className="flex gap-2 items-center" onClick={(e) => e.stopPropagation()}>
-                  {/* 审核模式切换 */}
-                  <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5">
-                    <button
-                      onClick={() => setReviewMode("text")}
-                      className={`px-2 py-1 text-xs rounded transition-colors ${reviewMode === "text" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}
+                <div className="flex gap-2 items-center">
+                  {/* Model Selector */}
+                  <div className="relative" ref={modelDropdownRef}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
+                      className="gap-1.5 min-w-[140px] justify-between"
                     >
-                      文字审核
-                    </button>
-                    <button
-                      onClick={() => setReviewMode("script")}
-                      className={`px-2 py-1 text-xs rounded transition-colors ${reviewMode === "script" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}
-                    >
-                      情节审核
-                    </button>
+                      <span className="truncate">{MODEL_OPTIONS.find(o => o.value === model)?.label}</span>
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                    </Button>
+                    {modelDropdownOpen && (
+                      <div className="absolute right-0 top-full mt-1 z-50 bg-popover border border-border rounded-md shadow-md py-1 min-w-[160px]">
+                        {MODEL_OPTIONS.map((opt) => (
+                          <button
+                            key={opt.value}
+                            onClick={() => handleModelChange(opt.value)}
+                            className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors ${model === opt.value ? "bg-accent/50 font-medium" : ""}`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
-                  {complianceReport && !isGenerating && (
-                    <>
-                      <TranslateToggle
-                        isNonChinese={nonChinese}
-                        isTranslating={isTranslating}
-                        showTranslation={showTranslation}
-                        onTranslate={() => translate(complianceReport)}
-                        onClear={clearTranslation}
-                        onStop={stopTranslation}
-                        disabled={editing}
-                      />
-                      <Button variant="outline" size="sm" onClick={() => setEditing(!editing)} className="gap-1.5">
-                        {editing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
-                        {editing ? "预览" : "编辑"}
-                      </Button>
-                    </>
-                  )}
-                  {isGenerating ? (
-                    <Button variant="destructive" size="sm" onClick={handleStop} className="gap-1.5">
-                      <Square className="h-3.5 w-3.5" />
-                      停止
-                    </Button>
-                  ) : (
-                    <Button
-                      variant={complianceReport ? "outline" : "default"}
-                      size="sm"
-                      onClick={handleGenerate}
-                      disabled={!scriptText.trim()}
-                      className="gap-1.5"
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                      {complianceReport ? (reviewMode === "script" ? "重新情节审核" : "重新文字审核") : (reviewMode === "script" ? "情节审核" : "文字审核")}
-                    </Button>
-                  )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".txt,.pdf,.docx,.doc,.xlsx,.xls,.csv"
+                    className="hidden"
+                    onChange={handleFileUpload}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                    className="gap-1.5"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    {isUploading ? "解析中..." : "上传文档"}
+                  </Button>
                 </div>
               </CardHeader>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
               <CardContent>
-                {segmentProgress && (
-                  <div className="mb-4 space-y-1">
-                    <div className="text-xs text-muted-foreground">
-                      正在审核第 {segmentProgress.current}/{segmentProgress.total} 段
-                    </div>
-                    <Progress value={(segmentProgress.current / segmentProgress.total) * 100} className="h-1.5" />
-                  </div>
+                {/* 输入模式切换 */}
+                {tableData && (
+                  <Tabs value={inputMode} onValueChange={(v) => setInputMode(v as "text" | "table")} className="mb-4">
+                    <TabsList>
+                      <TabsTrigger value="table"><TableIcon className="h-3.5 w-3.5 mr-1" />表格模式</TabsTrigger>
+                      <TabsTrigger value="text"><FileText className="h-3.5 w-3.5 mr-1" />文本模式</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
                 )}
-                {(isTranslating || transCanResume) && <TranslationProgress progress={transProgress} canResume={transCanResume} onResume={resumeTranslation} />}
-                {!displayText ? (
-                  <div className="text-center py-16 text-muted-foreground">
-                    <p>输入或上传剧本内容后，点击审核按钮进行合规检查</p>
-                    <p className="text-xs mt-2">
-                      {reviewMode === "script"
-                        ? "情节审核：文字违规+画面违规双重审查"
-                        : "文字审核：检测字面上的激烈冲突、版权问题、敏感亲密内容"}
-                    </p>
-                  </div>
-                ) : editing && !isGenerating ? (
-                  <Textarea
-                    value={complianceReport}
-                    onChange={(e) => setComplianceReport(e.target.value)}
-                    rows={20}
-                    className="font-mono text-sm"
-                  />
-                ) : showTranslation && !isGenerating && hasTranslation(complianceReport) ? (
-                  <div className="max-h-[600px] overflow-auto">
-                    <InterleavedText text={complianceReport} translatedLines={getTranslation(complianceReport)!} />
+
+                {/* 表格显示模式 */}
+                {inputMode === "table" && tableData ? (
+                  <div className="max-h-[400px] overflow-auto rounded-md border border-border">
+                    <div className="text-xs text-muted-foreground px-3 py-1.5 bg-muted/50 border-b border-border flex items-center gap-2">
+                      <FileSpreadsheet className="h-3.5 w-3.5" />
+                      {tableData.fileName}
+                      {tableData.sheetName && <span>· {tableData.sheetName}</span>}
+                      <span>({tableData.rows.length} 行)</span>
+                    </div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          {tableData.headers.map((header, i) => (
+                            <TableHead key={i} className="text-xs whitespace-nowrap">{header}</TableHead>
+                          ))}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {tableData.rows.map((row, rowIndex) => (
+                          <TableRow key={rowIndex}>
+                            {row.map((cell, cellIndex) => (
+                              <TableCell key={cellIndex} className="text-xs py-1.5">{String(cell ?? "")}</TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   </div>
                 ) : (
-                  <pre ref={scrollRef} className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
-                    {displayText}
-                    {isGenerating && <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />}
-                  </pre>
+                  /* 文本显示模式 */
+                  <>
+                    <Textarea
+                      value={scriptText}
+                      onChange={(e) => setScriptText(e.target.value)}
+                      placeholder="粘贴剧本内容，或点击上方按钮上传 TXT / PDF / DOCX / XLSX 文档..."
+                      rows={12}
+                      className="font-mono text-sm"
+                    />
+                    <div className="text-xs text-muted-foreground mt-2 text-right">
+                      {scriptText.length} 字
+                    </div>
+                  </>
                 )}
               </CardContent>
-            </CollapsibleContent>
-          </Card>
-        </Collapsible>
+            </Card>
+
+            {/* Compliance Report Card — Collapsible */}
+            <Collapsible open={reportOpen} onOpenChange={setReportOpen}>
+              <Card>
+                <CollapsibleTrigger asChild>
+                  <CardHeader className="flex flex-row items-center justify-between cursor-pointer select-none hover:bg-accent/30 transition-colors rounded-t-lg">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <ShieldCheck className="h-5 w-5" />
+                      合规审核报告
+                      {complianceReport && !isGenerating && (
+                        <span className="text-sm font-normal text-muted-foreground">
+                          ⛔{redLineCount} · ⚠️{highRiskCount} · ℹ️{infoCount}
+                        </span>
+                      )}
+                      {reportOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                    </CardTitle>
+                    <div className="flex gap-2 items-center" onClick={(e) => e.stopPropagation()}>
+                      {/* 审核模式切换 */}
+                      <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5">
+                        <button
+                          onClick={() => setReviewMode("text")}
+                          className={`px-2 py-1 text-xs rounded transition-colors ${reviewMode === "text" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}
+                        >
+                          文字审核
+                        </button>
+                        <button
+                          onClick={() => setReviewMode("script")}
+                          className={`px-2 py-1 text-xs rounded transition-colors ${reviewMode === "script" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}
+                        >
+                          情节审核
+                        </button>
+                      </div>
+
+                      {/* 严格程度切换 */}
+                      <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5">
+                        {(Object.keys(STRICTNESS_CONFIG) as StrictnessLevel[]).map((level) => (
+                          <button
+                            key={level}
+                            onClick={() => setStrictness(level)}
+                            className={`px-2 py-1 text-xs rounded transition-colors ${strictness === level ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}
+                            title={STRICTNESS_CONFIG[level].desc}
+                          >
+                            {STRICTNESS_CONFIG[level].label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {complianceReport && !isGenerating && (
+                        <>
+                          <TranslateToggle
+                            isNonChinese={nonChinese}
+                            isTranslating={isTranslating}
+                            showTranslation={showTranslation}
+                            onTranslate={() => translate(complianceReport)}
+                            onClear={clearTranslation}
+                            onStop={stopTranslation}
+                            disabled={editing}
+                          />
+                          <Button variant="outline" size="sm" onClick={() => setEditing(!editing)} className="gap-1.5">
+                            {editing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+                            {editing ? "预览" : "编辑"}
+                          </Button>
+                        </>
+                      )}
+                      {isGenerating ? (
+                        <Button variant="destructive" size="sm" onClick={handleStop} className="gap-1.5">
+                          <Square className="h-3.5 w-3.5" />
+                          停止
+                        </Button>
+                      ) : (
+                        <Button
+                          variant={complianceReport ? "outline" : "default"}
+                          size="sm"
+                          onClick={handleGenerate}
+                          disabled={!scriptText.trim()}
+                          className="gap-1.5"
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          {complianceReport ? (reviewMode === "script" ? "重新情节审核" : "重新文字审核") : (reviewMode === "script" ? "情节审核" : "文字审核")}
+                        </Button>
+                      )}
+                    </div>
+                  </CardHeader>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <CardContent>
+                    {segmentProgress && (
+                      <div className="mb-4 space-y-1">
+                        <div className="text-xs text-muted-foreground">
+                          正在审核第 {segmentProgress.current}/{segmentProgress.total} 段
+                        </div>
+                        <Progress value={(segmentProgress.current / segmentProgress.total) * 100} className="h-1.5" />
+                      </div>
+                    )}
+                    {(isTranslating || transCanResume) && <TranslationProgress progress={transProgress} canResume={transCanResume} onResume={resumeTranslation} />}
+                    {!displayText ? (
+                      <div className="text-center py-16 text-muted-foreground">
+                        <p>输入或上传剧本内容后，点击审核按钮进行合规检查</p>
+                        <p className="text-xs mt-2">
+                          {reviewMode === "script"
+                            ? "情节审核：文字违规+画面违规双重审查"
+                            : "文字审核：检测字面上的激烈冲突、版权问题、敏感亲密内容"}
+                        </p>
+                        <p className="text-xs mt-1 text-primary">
+                          当前严格程度：{STRICTNESS_CONFIG[strictness].label} - {STRICTNESS_CONFIG[strictness].desc}
+                        </p>
+                      </div>
+                    ) : editing && !isGenerating ? (
+                      <Textarea
+                        value={complianceReport}
+                        onChange={(e) => setComplianceReport(e.target.value)}
+                        rows={20}
+                        className="font-mono text-sm"
+                      />
+                    ) : showTranslation && !isGenerating && hasTranslation(complianceReport) ? (
+                      <div className="max-h-[600px] overflow-auto">
+                        <InterleavedText text={complianceReport} translatedLines={getTranslation(complianceReport)!} />
+                      </div>
+                    ) : (
+                      <pre ref={scrollRef} className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
+                        {displayText}
+                        {isGenerating && <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 align-text-bottom" />}
+                      </pre>
+                    )}
+                  </CardContent>
+                </CollapsibleContent>
+              </Card>
+            </Collapsible>
+          </div>
+
+          {/* Right: Dialogue Stats Panel */}
+          <div className="space-y-6">
+            {/* 台词字数统计面板 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <MessageSquare className="h-5 w-5" />
+                  台词字数统计
+                  {totalStats.totalDialogues > 0 && (
+                    <Badge variant="secondary" className="text-xs">
+                      {episodeStats.length} 集
+                    </Badge>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* 总统计 */}
+                {totalStats.totalDialogues > 0 && (
+                  <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-muted/50">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-primary">{totalStats.totalDialogues}</div>
+                      <div className="text-xs text-muted-foreground">总台词数</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-primary">{totalStats.totalWords}</div>
+                      <div className="text-xs text-muted-foreground">总字数</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-muted-foreground">{totalStats.avgWordsPerDialogue}</div>
+                      <div className="text-xs text-muted-foreground">平均字数/句</div>
+                    </div>
+                    <div className="text-center">
+                      <div className={`text-2xl font-bold ${totalStats.overLimitDialogues > 0 ? "text-destructive" : "text-emerald-500"}`}>
+                        {totalStats.overLimitDialogues}
+                      </div>
+                      <div className="text-xs text-muted-foreground">超限台词</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 各集详情 */}
+                {episodeStats.length > 0 ? (
+                  <div className="space-y-3 max-h-[400px] overflow-auto">
+                    {episodeStats.map((ep) => (
+                      <div key={ep.episodeNum} className="p-3 rounded-lg border border-border/50 hover:bg-accent/20 transition-colors">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-sm">第 {ep.episodeNum} 集</span>
+                            {ep.overLimitCount > 0 && (
+                              <Badge variant="destructive" className="text-[10px] h-5">
+                                <AlertTriangle className="h-3 w-3 mr-1" />
+                                {ep.overLimitCount} 句超限
+                              </Badge>
+                            )}
+                          </div>
+                          <span className="text-xs text-muted-foreground">{ep.totalWords} 字</span>
+                        </div>
+                        
+                        {/* 进度条 */}
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-muted-foreground">台词分布</span>
+                            <span className={ep.totalWords > (isChinese ? 330 : 180) ? "text-destructive font-medium" : "text-muted-foreground"}>
+                              {ep.totalWords}/{(isChinese ? 330 : 180)}
+                            </span>
+                          </div>
+                          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full transition-all ${
+                                ep.totalWords > (isChinese ? 330 : 180) ? "bg-destructive" : "bg-primary"
+                              }`}
+                              style={{ width: `${Math.min(100, (ep.totalWords / (isChinese ? 330 : 180)) * 100)}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* 场景详情 */}
+                        {ep.scenes.length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            {ep.scenes.slice(0, 3).map((scene) => (
+                              <div key={scene.sceneNum} className="flex items-center justify-between text-xs">
+                                <span className="text-muted-foreground">{scene.sceneNum}</span>
+                                <div className="flex items-center gap-2">
+                                  <span>{scene.words} 字</span>
+                                  {scene.overLimit && (
+                                    <AlertTriangle className="h-3 w-3 text-destructive" />
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                            {ep.scenes.length > 3 && (
+                              <div className="text-xs text-muted-foreground text-center">
+                                +{ep.scenes.length - 3} 个场景
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Info className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">暂无台词数据</p>
+                    <p className="text-xs mt-1">输入剧本后将自动统计各集台词字数</p>
+                  </div>
+                )}
+
+                {/* 提示信息 */}
+                <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-start gap-2">
+                    <Info className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+                    <div className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
+                      <p><strong>字数限制参考：</strong></p>
+                      <p>• 单句台词：{isChinese ? "≤35 字" : "≤20 words"}</p>
+                      <p>• 单集总计：{isChinese ? "280-330 字" : "150-180 words"}</p>
+                      <p>• 4-5 个镜头组：{isChinese ? "≤35 字" : "≤20 words"}</p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* 快速操作 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">快速操作</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start gap-2"
+                  onClick={() => {
+                    const element = document.getElementById('palette-section');
+                    element?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                >
+                  <Palette className="h-4 w-4" />
+                  查看调色盘对比
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start gap-2"
+                  onClick={handlePaletteExport}
+                  disabled={!scriptText}
+                >
+                  <Download className="h-4 w-4" />
+                  导出审核报告
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
 
         {/* Risk Highlight Comparison */}
-        {complianceReport && !isGenerating && scriptText && (riskPhrases.length > 0 || dialogueWarnings.length > 0) && (
-          <Card>
+        {complianceReport && !isGenerating && scriptText && (riskPhrases.length > 0 || dialogueOverLimitLines.size > 0) && (
+          <Card id="palette-section">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg flex items-center gap-2">
                 <Palette className="h-5 w-5" />
@@ -1787,32 +2023,13 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                   <span className="inline-block w-3 h-3 rounded bg-blue-200 dark:bg-blue-700/60 border border-blue-500" />
                   ℹ️ 优化建议
                 </span>
-                {dialogueWarnings.length > 0 && (
+                {dialogueOverLimitLines.size > 0 && (
                   <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                     <span className="inline-block w-3 h-3 rounded bg-muted-foreground/15 border border-muted-foreground/30" />
-                    💬 台词超限 ({dialogueWarnings.length} 处)
+                    💬 台词超限 ({dialogueOverLimitLines.size} 处)
                   </span>
                 )}
               </div>
-              {/* Dialogue warnings summary */}
-              {dialogueWarnings.length > 0 && (
-                <div className="mb-4 p-3 rounded-md border border-muted-foreground/20 bg-muted/50 space-y-1.5">
-                  <div className="flex items-center gap-1.5 text-sm font-medium text-foreground/80">
-                    <MessageSquare className="h-4 w-4" />
-                    台词字数检测
-                    <span className="text-xs font-normal text-muted-foreground">
-                      ({isChinese ? "中文：镜头组≤35字 / 单集280-330字" : "English: shot group≤20 words / episode 150-180 words"})
-                    </span>
-                  </div>
-                  {dialogueWarnings.map((w, i) => (
-                    <div key={i} className="text-xs text-muted-foreground">
-                      {w.type === "shot_group"
-                        ? `⚠ ${w.episode || ""} 镜头组台词 ${w.wordCount}${isChinese ? "字" : " words"}（限制 ${w.limit}）`
-                        : `⚠ ${w.episode} 全集台词 ${w.wordCount}${isChinese ? "字" : " words"}（限制 ${w.limit}）`}
-                    </div>
-                  ))}
-                </div>
-              )}
               {/* 表格模式使用高亮表格，文本模式使用高亮文本 */}
               {inputMode === "table" && tableData ? (
                 renderHighlightedTable()
