@@ -27,78 +27,110 @@ const MODEL_OPTIONS: { value: ComplianceModel; label: string }[] = [
 ];
 
 // 文字审核提示词 - 检查字面违规
-const STANDALONE_COMPLIANCE_PROMPT = (scriptText: string) => `你是一位资深的短剧内容合规审核专家。
+const STANDALONE_COMPLIANCE_PROMPT = (scriptText: string) => `你是一位**极其严格**的短剧内容合规审核专家，必须对所有潜在风险进行标记。
 
 ## 待审核内容
 ${scriptText}
 
 ---
 
-## 审核任务
+## 审核标准（严格）
 
-检查以下问题：
-1. 激烈冲突内容（打斗、伤害等描写）
-2. 版权问题
-3. 敏感亲密内容
-4. 对话长度密度（每集150-180词，连续对白≤20词）
+### 一、激烈冲突内容（必须标记）
+- 打斗、殴打、摔打、推搡等肢体冲突
+- 身体损伤描写（流血、受伤、疼痛）
+- 威胁、恐吓、强迫
+- 任何形式的暴力行为
+
+### 二、敏感亲密内容（必须标记）
+- 亲吻、拥抱、抚摸等亲密接触
+- 身体暴露描写
+- 暧昧、调情场景
+- 卧室、更衣、沐浴等私密场景
+
+### 三、版权问题（必须标记）
+- 引用歌词、诗句、台词
+- 模仿知名IP
+- 品牌名称
+
+### 四、对话密度问题
+- 每集超过180词
+- 连续对白超过20词
 
 ---
 
-## ⚠️ 重要：必须在报告最后输出风险标记
+## ⛔ 必须输出风险标记
 
-你必须在报告末尾用以下格式标记有问题的文本：
+你**必须**在报告末尾列出所有有问题的文本。格式如下：
 
-⛔【有问题的原文文本】
-⚠️【有问题的原文文本】
-ℹ️【建议修改的原文文本】
+**风险标记：**
+⛔【原文中打斗或暴力的文本】
+⚠️【原文中亲密或敏感的文本】
+ℹ️【原文中建议修改的文本】
 
-例如，如果原文中有"他狠狠地打了她一巴掌"，你应该输出：
-⚠️【他狠狠地打了她一巴掌】
+**重要规则：**
+1. 必须从原文**精确复制**文本
+2. 不要修改、省略或重写
+3. 如果没问题，也要说明"未发现明显风险"
 
 ---
 
 ## 输出结构
 
-1. 合规总评
-2. 问题检测
-3. 修改建议
-4. 风险标记（必须包含！）
+1. **合规总评**
+2. **激烈冲突检测**（逐句分析）
+3. **敏感内容检测**（逐句分析）
+4. **版权问题检测**
+5. **对话密度检测**
+6. **风险标记**（必须包含！）
 
 用 Markdown 格式输出。`;
 
 // 情节审核提示词 - 审核整个段落的画面表现 + 文字违规
-const SCRIPT_REVIEW_PROMPT = (scriptText: string) => `你是一位资深的短剧内容合规审核专家。
+const SCRIPT_REVIEW_PROMPT = (scriptText: string) => `你是一位**极其严格**的短剧内容合规审核专家，必须对所有潜在风险进行标记。
 
 ## 待审核剧本
 ${scriptText}
 
 ---
 
-## 审核任务
+## 审核标准（严格）
 
-检查以下问题：
-1. 文字违规（激烈冲突、版权、敏感内容）
-2. 画面违规（肢体冲突、亲密场景等）
-3. 对话密度（每集150-180词，连续对白≤20词）
+### 一、文字违规（必须标记）
+- 打斗、殴打、流血、伤害描写
+- 威胁、强迫、恐吓
+- 亲密接触、身体暴露
+- 暧昧、调情场景
+
+### 二、画面违规（必须标记）
+- 能在画面中呈现的冲突场景
+- 能在画面中呈现的亲密场景
+- 未成年人参与的敏感场景
+
+### 三、对话密度
+- 每集超过180词
+- 连续对白超过20词
 
 ---
 
-## ⚠️ 重要：必须在报告最后输出风险标记
+## ⛔ 必须输出风险标记
 
-你必须在报告末尾用以下格式标记有问题的文本：
+你**必须**在报告末尾列出所有有问题的文本。格式如下：
 
-⛔【有问题的原文文本】
-⚠️【有问题的原文文本】
-ℹ️【建议修改的原文文本】
+**风险标记：**
+⛔【红线问题：原文文本】
+⚠️【高风险：原文文本】
+ℹ️【建议修改：原文文本】
 
 ---
 
 ## 输出结构
 
-1. 合规总评
-2. 问题检测
-3. 修改建议
-4. 风险标记（必须包含！）
+1. **合规总评**
+2. **文字违规检测**
+3. **画面违规检测**
+4. **对话密度检测**
+5. **风险标记**（必须包含！）
 
 用 Markdown 格式输出。`;
 
@@ -214,7 +246,7 @@ const ComplianceReview = () => {
       }
     }
     
-    // 方式2：解析 emoji 格式（作为补充）
+    // 方式2：解析 emoji 格式
     const emojiPatterns: [RegExp, RiskLevel][] = [
       [/⛔\s*【([^】]+)】/g, "red"],
       [/⚠️\s*【([^】]+)】/g, "high"],
@@ -222,22 +254,49 @@ const ComplianceReview = () => {
       [/⛔\s*\[([^\]]+)\]/g, "red"],
       [/⚠️\s*\[([^\]]+)\]/g, "high"],
       [/ℹ️\s*\[([^\]]+)\]/g, "info"],
+      // 支持更灵活的格式：emoji后直接跟文字
+      [/⛔\s*[:：]\s*([^\n]+)/g, "red"],
+      [/⚠️\s*[:：]\s*([^\n]+)/g, "high"],
+      [/ℹ️\s*[:：]\s*([^\n]+)/g, "info"],
     ];
     
     for (const [regex, level] of emojiPatterns) {
       regex.lastIndex = 0;
       let m: RegExpExecArray | null;
       while ((m = regex.exec(complianceReport)) !== null) {
-        const text = m[1].trim();
+        let text = m[1].trim();
+        // 移除可能的前缀文字
+        text = text.replace(/^(红线问题|高风险|建议修改)[：:]*\s*/i, "");
         if (text.length < 2) continue;
         
         // 在原文中查找位置
         const idx = scriptText.indexOf(text);
         if (idx !== -1) {
-          // 检查是否已存在
           const exists = result.some(r => r.start === idx && r.end === idx + text.length);
           if (!exists) {
             result.push({ level, start: idx, end: idx + text.length, text });
+          }
+        } else {
+          // 尝试模糊匹配（忽略标点和空格差异）
+          const normalize = (s: string) => s.replace(/[，。！？、；：""''（）【】「」\s]/g, "");
+          const normalizedText = normalize(text);
+          const normalizedScript = normalize(scriptText);
+          
+          if (normalizedScript.includes(normalizedText) && normalizedText.length >= 5) {
+            // 找到了，尝试定位原文位置
+            const normIdx = normalizedScript.indexOf(normalizedText);
+            let charCount = 0;
+            for (let i = 0; i < scriptText.length; i++) {
+              if (!/[，。！？、；：""''（）【】「」\s]/.test(scriptText[i])) {
+                if (charCount === normIdx) {
+                  const estimatedEnd = i + text.length + 10;
+                  const candidate = scriptText.slice(i, estimatedEnd);
+                  result.push({ level, start: i, end: i + candidate.length, text: candidate });
+                  break;
+                }
+                charCount++;
+              }
+            }
           }
         }
       }
@@ -246,7 +305,19 @@ const ComplianceReview = () => {
     // 按起始位置排序
     result.sort((a, b) => a.start - b.start);
     
-    return result;
+    // 去除重叠
+    const merged: typeof result = [];
+    for (const r of result) {
+      const last = merged[merged.length - 1];
+      if (last && r.start < last.end) {
+        // 重叠，扩展
+        last.end = Math.max(last.end, r.end);
+      } else {
+        merged.push(r);
+      }
+    }
+    
+    return merged;
   }, [complianceReport, scriptText]);
 
   // 提取风险片段（兼容旧格式）
@@ -1605,9 +1676,9 @@ const ComplianceReview = () => {
               
               {/* AI 标记匹配状态调试 */}
               <div className="mt-4 border-t pt-4">
-                <details className="text-sm">
+                <details className="text-sm" open={positionBasedRisks.length === 0 && riskMap.size === 0}>
                   <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                    🔍 调试信息
+                    🔍 调试信息（点击展开）
                   </summary>
                   <div className="mt-2 space-y-2 text-xs">
                     <div className="p-2 bg-muted/50 rounded">
@@ -1622,13 +1693,20 @@ const ComplianceReview = () => {
                     
                     {complianceReport && (
                       <div className="p-2 bg-muted/50 rounded">
-                        <p className="font-medium">报告中是否包含风险标记：</p>
+                        <p className="font-medium">报告中风险标记数量：</p>
                         <ul className="list-disc list-inside mt-1 space-y-1">
                           <li>⛔ 标记：{(complianceReport.match(/⛔/g) || []).length} 个</li>
                           <li>⚠️ 标记：{(complianceReport.match(/⚠️/g) || []).length} 个</li>
                           <li>ℹ️ 标记：{(complianceReport.match(/ℹ️/g) || []).length} 个</li>
-                          <li>【】括号：{(complianceReport.match(/【/g) || []).length} 个</li>
+                          <li>【】括号：{(complianceReport.match(/【[^】]+】/g) || []).length} 个</li>
                         </ul>
+                        {(complianceReport.match(/⛔/g) || []).length > 0 && (
+                          <div className="mt-2 p-2 bg-amber-50 text-amber-700 rounded">
+                            <p className="font-medium">发现 emoji 标记，但未能匹配到原文：</p>
+                            <p className="mt-1">可能原因：AI 修改了原文文本</p>
+                            <p className="mt-1">解决方案：使用"手动标记"功能</p>
+                          </div>
+                        )}
                       </div>
                     )}
                     
@@ -1636,34 +1714,42 @@ const ComplianceReview = () => {
                       <div className="p-2 bg-green-50 text-green-700 rounded">
                         <p className="font-medium">✅ 已识别的标记：</p>
                         {positionBasedRisks.slice(0, 10).map((item, idx) => (
-                          <div key={idx} className="mt-1">
-                            {item.level === "red" ? "⛔" : item.level === "high" ? "⚠️" : "ℹ️"} {item.text.slice(0, 40)}...
+                          <div key={idx} className="mt-1 font-mono text-[11px]">
+                            {item.level === "red" ? "⛔" : item.level === "high" ? "⚠️" : "ℹ️"} [{item.start}-{item.end}] {item.text.slice(0, 30)}...
                           </div>
                         ))}
-                      </div>
-                    )}
-                    
-                    {riskMap.size > 0 && (
-                      <div className="p-2 bg-blue-50 text-blue-700 rounded">
-                        <p className="font-medium">📝 文本标记：</p>
-                        {[...riskMap.entries()].slice(0, 10).map(([text, level], idx) => (
-                          <div key={idx} className="mt-1">
-                            {level === "red" ? "⛔" : level === "high" ? "⚠️" : "ℹ️"} {text.slice(0, 40)}...
-                          </div>
-                        ))}
+                        {positionBasedRisks.length > 10 && (
+                          <p className="mt-1">... 还有 {positionBasedRisks.length - 10} 个</p>
+                        )}
                       </div>
                     )}
                     
                     {positionBasedRisks.length === 0 && riskMap.size === 0 && complianceReport && (
                       <div className="p-2 bg-amber-50 text-amber-700 rounded">
                         <p className="font-medium">⚠️ 未识别到任何风险标记</p>
-                        <p className="mt-1">可能原因：</p>
-                        <ul className="list-disc list-inside mt-1">
-                          <li>AI 没有输出风险标记格式</li>
-                          <li>AI 输出的格式与预期不符</li>
-                          <li>内容确实没有风险</li>
-                        </ul>
-                        <p className="mt-2">解决方案：使用上方"手动标记"按钮添加标记</p>
+                        {(complianceReport.match(/⛔|⚠️|ℹ️/g) || []).length === 0 ? (
+                          <>
+                            <p className="mt-1">AI 没有输出任何 emoji 标记</p>
+                            <p className="mt-1">可能原因：内容确实合规，或 AI 未按格式输出</p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="mt-1">AI 输出了 emoji 标记，但文本无法在原文中匹配</p>
+                            <p className="mt-1">解决方案：使用"手动标记"按钮</p>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    
+                    {/* 显示报告中的【】内容 */}
+                    {complianceReport && (complianceReport.match(/【[^】]+】/g) || []).length > 0 && (
+                      <div className="p-2 bg-blue-50 text-blue-700 rounded">
+                        <p className="font-medium">📋 报告中【】内的文本：</p>
+                        <div className="mt-1 max-h-[100px] overflow-auto">
+                          {(complianceReport.match(/【[^】]+】/g) || []).slice(0, 10).map((match, idx) => (
+                            <div key={idx} className="text-[11px] font-mono">{match}</div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
