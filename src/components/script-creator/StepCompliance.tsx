@@ -70,6 +70,7 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
   const redLineCount = (complianceReport.match(/⛔/g) || []).length;
   const highRiskCount = (complianceReport.match(/⚠️/g) || []).length;
   const infoCount = (complianceReport.match(/ℹ️/g) || []).length;
+  const dialogueIssueCount = (complianceReport.match(/对话超标|对话调优/g) || []).length;
 
   return (
     <div className="space-y-4">
@@ -81,6 +82,9 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
             {complianceReport && !isGenerating && (
               <span className="text-sm font-normal text-muted-foreground">
                 ⛔{redLineCount} · ⚠️{highRiskCount} · ℹ️{infoCount}
+                {dialogueIssueCount > 0 && (
+                  <span className="ml-2 text-amber-600">· 💬对话{dialogueIssueCount}</span>
+                )}
               </span>
             )}
           </CardTitle>
@@ -143,8 +147,11 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
               <p>点击审核按钮，AI 将对全部已完成的剧本内容进行合规检查</p>
               <p className="text-xs mt-2">
                 {reviewMode === "script"
-                  ? "情节审核：文字违规+画面违规双重审查"
-                  : "文字审核：检测字面上的激烈冲突、版权问题、敏感亲密内容"}
+                  ? "情节审核：文字违规+画面违规+对话长度密度三重审查"
+                  : "文字审核：检测激烈冲突、版权问题、敏感内容、对话长度密度"}
+              </p>
+              <p className="text-xs mt-1 text-amber-600">
+                💬 对话标准：每集≤100字，单句≤35字
               </p>
             </div>
           ) : editing && !isGenerating ? (
