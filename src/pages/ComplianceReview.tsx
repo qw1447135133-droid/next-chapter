@@ -559,6 +559,36 @@ const ComplianceReview = () => {
     });
   }, [activeRiskPhrases, activeRiskMap, adjustingSinglePhrase, handleSingleAdjust, isAutoAdjusting, replacementToOriginal]);
 
+  // 表格模式下高亮单个单元格
+  const highlightTableCell = useCallback((cellText: string) => {
+    if (!cellText || activeRiskPhrases.length === 0) return <>{cellText}</>;
+    
+    const matching = activeRiskPhrases.filter(p => cellText.includes(p));
+    if (matching.length === 0) return <>{cellText}</>;
+    
+    const sorted = matching.sort((a, b) => b.length - a.length);
+    const escaped = sorted.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const regex = new RegExp(`(${escaped.join("|")})`, "g");
+    const parts = cellText.split(regex);
+    
+    return parts.map((part, i) => {
+      const level = activeRiskMap.get(part);
+      if (level) {
+        const originalText = replacementToOriginal.get(part);
+        return (
+          <mark 
+            key={i} 
+            className={`${RISK_STYLES[level]} rounded px-0.5 ${originalText ? "cursor-help" : ""}`}
+            title={originalText ? `原文：${originalText}` : undefined}
+          >
+            {part}
+          </mark>
+        );
+      }
+      return <span key={i}>{part}</span>;
+    });
+  }, [activeRiskPhrases, activeRiskMap, replacementToOriginal]);
+
   const highlightedScript = useMemo(() => {
     const text = paletteText || scriptText;
     // 如果正在生成，只显示文本（手动标记仍然生效）
@@ -1415,11 +1445,11 @@ const ComplianceReview = () => {
                 ) : null;
               })()}
               {highlightedScript || (paletteText || scriptText) ? (
-                <div ref={paletteScrollRef} className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
+                <div ref={paletteScrollRef} className="max-h-[500px] overflow-auto rounded-md border border-border bg-muted/30">
                   {paletteEditing ? (
                     <pre
                       ref={paletteEditRef}
-                      className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 outline-none"
+                      className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 outline-none p-4"
                       contentEditable={true}
                       suppressContentEditableWarning
                       onBlur={() => {
@@ -1430,10 +1460,32 @@ const ComplianceReview = () => {
                     >
                       {paletteText || scriptText}
                     </pre>
+                  ) : inputMode === "table" && tableData ? (
+                    // 表格模式：显示表格并高亮
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          {tableData.headers.map((header, i) => (
+                            <TableHead key={i} className="text-xs whitespace-nowrap">{header}</TableHead>
+                          ))}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {tableData.rows.map((row, rowIndex) => (
+                          <TableRow key={rowIndex}>
+                            {row.map((cell, cellIndex) => (
+                              <TableCell key={cellIndex} className="text-xs py-1.5">
+                                {highlightTableCell(String(cell ?? ""))}
+                              </TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   ) : (
                     <div 
                       ref={paletteContainerRef}
-                      className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 select-text"
+                      className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 select-text p-4"
                       onMouseUp={handleTextSelection}
                     >
                       {highlightedScript || (paletteText || scriptText)}
