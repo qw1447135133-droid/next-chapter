@@ -37,52 +37,61 @@ ${scriptText}
 ## 审核标准（严格）
 
 ### 一、激烈冲突内容（必须标记）
-- 打斗、殴打、摔打、推搡等肢体冲突
+- 打斗、殴打、摔打、推搡等肢体冲突描写
 - 身体损伤描写（流血、受伤、疼痛）
-- 威胁、恐吓、强迫
-- 任何形式的暴力行为
+- 威胁、恐吓、强迫的动作描写
+- **注意**：只标记动作描写，不标记角色台词
 
 ### 二、敏感亲密内容（必须标记）
-- 亲吻、拥抱、抚摸等亲密接触
+- 亲吻、拥抱、抚摸等亲密接触的动作描写
 - 身体暴露描写
-- 暧昧、调情场景
-- 卧室、更衣、沐浴等私密场景
+- 暧昧、调情场景的动作描写
+- **注意**：只标记动作描写，不标记角色台词
 
 ### 三、版权问题（必须标记）
 - 引用歌词、诗句、台词
 - 模仿知名IP
 - 品牌名称
 
-### 四、对话密度问题
-- 每集超过180词
-- 连续对白超过20词
+### 四、对话密度问题（标记超出限制的台词）
+- 每集超过180词时，标记超标的台词部分
+- 连续对白超过20词时，标记超标的台词部分
+- **只有触发字数限制时才标记台词**
 
 ---
 
-## ⛔ 必须输出风险标记
+## ⛔ 不标记的内容
+
+1. **角色台词**：引号内的对话内容（除非触发字数限制）
+2. **音效标记**：【音效：XXX】格式的内容
+3. **镜头标记**：【镜头：XXX】格式的内容
+
+---
+
+## 必须输出风险标记
 
 你**必须**在报告末尾列出所有有问题的文本。格式如下：
 
 **风险标记：**
-⛔【原文中打斗或暴力的文本】
-⚠️【原文中亲密或敏感的文本】
-ℹ️【原文中建议修改的文本】
+⛔【原文中的动作描写文本】
+⚠️【原文中的动作描写文本】
+ℹ️【建议修改的动作描写文本】
 
 **重要规则：**
-1. 必须从原文**精确复制**文本
+1. 必须从原文**精确复制**文本（一字不改）
 2. 不要修改、省略或重写
-3. 如果没问题，也要说明"未发现明显风险"
+3. 不要标记台词和音效（除非触发字数限制）
+4. 如果没问题，也要说明"未发现明显风险"
 
 ---
 
 ## 输出结构
 
 1. **合规总评**
-2. **激烈冲突检测**（逐句分析）
-3. **敏感内容检测**（逐句分析）
-4. **版权问题检测**
-5. **对话密度检测**
-6. **风险标记**（必须包含！）
+2. **激烈冲突检测**
+3. **敏感内容检测**
+4. **对话密度检测**（仅当超标时）
+5. **风险标记**（必须包含！）
 
 用 Markdown 格式输出。`;
 
@@ -97,30 +106,43 @@ ${scriptText}
 ## 审核标准（严格）
 
 ### 一、文字违规（必须标记）
-- 打斗、殴打、流血、伤害描写
-- 威胁、强迫、恐吓
-- 亲密接触、身体暴露
-- 暧昧、调情场景
+- 打斗、殴打、流血、伤害的动作描写
+- 威胁、强迫、恐吓的动作描写
+- 亲密接触、身体暴露的动作描写
+- **注意**：只标记动作描写，不标记角色台词
 
 ### 二、画面违规（必须标记）
 - 能在画面中呈现的冲突场景
 - 能在画面中呈现的亲密场景
 - 未成年人参与的敏感场景
 
-### 三、对话密度
-- 每集超过180词
-- 连续对白超过20词
+### 三、对话密度（仅当超标时标记）
+- 每集超过180词时，标记超标的台词部分
+- 连续对白超过20词时，标记超标的台词部分
+- **只有触发字数限制时才标记台词**
 
 ---
 
-## ⛔ 必须输出风险标记
+## ⛔ 不标记的内容
+
+1. **角色台词**：引号内的对话内容（除非触发字数限制）
+2. **音效标记**：【音效：XXX】格式的内容
+3. **镜头标记**：【镜头：XXX】格式的内容
+
+---
+
+## 必须输出风险标记
 
 你**必须**在报告末尾列出所有有问题的文本。格式如下：
 
 **风险标记：**
-⛔【红线问题：原文文本】
-⚠️【高风险：原文文本】
-ℹ️【建议修改：原文文本】
+⛔【红线问题：原文中的动作描写文本】
+⚠️【高风险：原文中的动作描写文本】
+ℹ️【建议修改：原文中的动作描写文本】
+
+**重要规则：**
+1. 必须从原文**精确复制**文本（一字不改）
+2. 不要标记台词和音效（除非触发字数限制）
 
 ---
 
@@ -129,7 +151,7 @@ ${scriptText}
 1. **合规总评**
 2. **文字违规检测**
 3. **画面违规检测**
-4. **对话密度检测**
+4. **对话密度检测**（仅当超标时）
 5. **风险标记**（必须包含！）
 
 用 Markdown 格式输出。`;
@@ -216,6 +238,7 @@ const ComplianceReview = () => {
     if (!complianceReport || !scriptText) return [];
     
     const result: { level: RiskLevel; start: number; end: number; text: string }[] = [];
+    const matchedTexts = new Set<string>(); // 记录已匹配的文本
     
     // 方式1：尝试解析 JSON 格式
     const jsonMatch = complianceReport.match(/###\s*风险标记列表[^\n]*\n([\s\S]*?)(?=\n###|\n##\s|$)/i);
@@ -232,12 +255,14 @@ const ComplianceReview = () => {
               if (typeof item.start !== "number" || typeof item.end !== "number") continue;
               if (item.start < 0 || item.end > scriptText.length || item.start >= item.end) continue;
               
+              const text = item.text || scriptText.slice(item.start, item.end);
               result.push({
                 level: item.level as RiskLevel,
                 start: item.start,
                 end: item.end,
-                text: item.text || scriptText.slice(item.start, item.end)
+                text
               });
+              matchedTexts.add(text);
             }
           }
         } catch (e) {
@@ -245,6 +270,55 @@ const ComplianceReview = () => {
         }
       }
     }
+    
+    // 辅助函数：尝试在原文中查找文本
+    const findInScript = (text: string): { start: number; end: number } | null => {
+      // 1. 精确匹配
+      const exactIdx = scriptText.indexOf(text);
+      if (exactIdx !== -1) {
+        return { start: exactIdx, end: exactIdx + text.length };
+      }
+      
+      // 2. 忽略空格和标点差异
+      const normalize = (s: string) => s.replace(/[，。！？、；：""''（）【】「」\s\n\r]/g, "");
+      const normalizedText = normalize(text);
+      const normalizedScript = normalize(scriptText);
+      
+      if (normalizedScript.includes(normalizedText) && normalizedText.length >= 5) {
+        // 找到了，尝试定位原文位置
+        const normIdx = normalizedScript.indexOf(normalizedText);
+        let charCount = 0;
+        for (let i = 0; i < scriptText.length; i++) {
+          if (!/[，。！？、；：""''（）【】「」\s\n\r]/.test(scriptText[i])) {
+            if (charCount === normIdx) {
+              // 找到起始位置，估算结束位置
+              let endPos = i;
+              let remaining = text.length;
+              while (endPos < scriptText.length && remaining > 0) {
+                if (!/[，。！？、；：""''（）【】「」\s\n\r]/.test(scriptText[endPos])) {
+                  remaining--;
+                }
+                endPos++;
+              }
+              return { start: i, end: endPos };
+            }
+            charCount++;
+          }
+        }
+      }
+      
+      // 3. 部分匹配（前80%）
+      const partialLen = Math.floor(text.length * 0.8);
+      if (partialLen >= 10) {
+        const partialText = text.slice(0, partialLen);
+        const partialIdx = scriptText.indexOf(partialText);
+        if (partialIdx !== -1) {
+          return { start: partialIdx, end: partialIdx + text.length };
+        }
+      }
+      
+      return null;
+    };
     
     // 方式2：解析 emoji 格式
     const emojiPatterns: [RegExp, RiskLevel][] = [
@@ -254,10 +328,6 @@ const ComplianceReview = () => {
       [/⛔\s*\[([^\]]+)\]/g, "red"],
       [/⚠️\s*\[([^\]]+)\]/g, "high"],
       [/ℹ️\s*\[([^\]]+)\]/g, "info"],
-      // 支持更灵活的格式：emoji后直接跟文字
-      [/⛔\s*[:：]\s*([^\n]+)/g, "red"],
-      [/⚠️\s*[:：]\s*([^\n]+)/g, "high"],
-      [/ℹ️\s*[:：]\s*([^\n]+)/g, "info"],
     ];
     
     for (const [regex, level] of emojiPatterns) {
@@ -268,49 +338,22 @@ const ComplianceReview = () => {
         // 移除可能的前缀文字
         text = text.replace(/^(红线问题|高风险|建议修改)[：:]*\s*/i, "");
         if (text.length < 2) continue;
+        if (matchedTexts.has(text)) continue; // 已匹配，跳过
         
-        // 在原文中查找位置
-        const idx = scriptText.indexOf(text);
-        if (idx !== -1) {
-          const exists = result.some(r => r.start === idx && r.end === idx + text.length);
-          if (!exists) {
-            result.push({ level, start: idx, end: idx + text.length, text });
-          }
-        } else {
-          // 尝试模糊匹配（忽略标点和空格差异）
-          const normalize = (s: string) => s.replace(/[，。！？、；：""''（）【】「」\s]/g, "");
-          const normalizedText = normalize(text);
-          const normalizedScript = normalize(scriptText);
-          
-          if (normalizedScript.includes(normalizedText) && normalizedText.length >= 5) {
-            // 找到了，尝试定位原文位置
-            const normIdx = normalizedScript.indexOf(normalizedText);
-            let charCount = 0;
-            for (let i = 0; i < scriptText.length; i++) {
-              if (!/[，。！？、；：""''（）【】「」\s]/.test(scriptText[i])) {
-                if (charCount === normIdx) {
-                  const estimatedEnd = i + text.length + 10;
-                  const candidate = scriptText.slice(i, estimatedEnd);
-                  result.push({ level, start: i, end: i + candidate.length, text: candidate });
-                  break;
-                }
-                charCount++;
-              }
-            }
-          }
+        const found = findInScript(text);
+        if (found) {
+          result.push({ level, ...found, text: scriptText.slice(found.start, found.end) });
+          matchedTexts.add(text);
         }
       }
     }
     
-    // 按起始位置排序
+    // 按起始位置排序并合并重叠
     result.sort((a, b) => a.start - b.start);
-    
-    // 去除重叠
     const merged: typeof result = [];
     for (const r of result) {
       const last = merged[merged.length - 1];
       if (last && r.start < last.end) {
-        // 重叠，扩展
         last.end = Math.max(last.end, r.end);
       } else {
         merged.push(r);
@@ -1802,17 +1845,38 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
                       </div>
                     )}
                     
-                    {/* 显示报告中的【】内容 */}
-                    {complianceReport && (complianceReport.match(/【[^】]+】/g) || []).length > 0 && (
-                      <div className="p-2 bg-blue-50 text-blue-700 rounded">
-                        <p className="font-medium">📋 报告中【】内的文本：</p>
-                        <div className="mt-1 max-h-[100px] overflow-auto">
-                          {(complianceReport.match(/【[^】]+】/g) || []).slice(0, 10).map((match, idx) => (
-                            <div key={idx} className="text-[11px] font-mono">{match}</div>
-                          ))}
+                    {/* 显示报告中的【】内容，方便手动添加 */}
+                    {complianceReport && (() => {
+                      const bracketMatches = complianceReport.match(/【[^】]+】/g) || [];
+                      const unmatchedBrackets = bracketMatches.filter(m => {
+                        const text = m.slice(1, -1);
+                        return !scriptText.includes(text);
+                      });
+                      return unmatchedBrackets.length > 0 ? (
+                        <div className="p-2 bg-red-50 text-red-700 rounded">
+                          <p className="font-medium">❌ 未匹配的【】内容（可手动标记）：</p>
+                          <div className="mt-1 max-h-[150px] overflow-auto space-y-1">
+                            {unmatchedBrackets.slice(0, 20).map((match, idx) => (
+                              <div key={idx} className="flex items-center gap-2">
+                                <span className="text-[11px] font-mono flex-1 truncate">{match}</span>
+                                <button
+                                  className="text-[10px] text-blue-600 hover:underline shrink-0"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(match.slice(1, -1));
+                                    toast({ title: "已复制", description: "可用手动标记功能添加" });
+                                  }}
+                                >
+                                  复制
+                                </button>
+                              </div>
+                            ))}
+                            {unmatchedBrackets.length > 20 && (
+                              <p className="text-[10px]">... 还有 {unmatchedBrackets.length - 20} 个</p>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      ) : null;
+                    })()}
                   </div>
                 </details>
               </div>
