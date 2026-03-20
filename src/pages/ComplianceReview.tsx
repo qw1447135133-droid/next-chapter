@@ -1692,7 +1692,32 @@ ${JSON.stringify(payload, null, 2)}`;
                   <span className="inline-block w-3 h-3 rounded bg-blue-200 dark:bg-blue-700/60 border border-blue-500" />
                   ℹ️ 优化建议
                 </span>
+                {dialogueWarnings.length > 0 && (
+                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className="inline-block w-3 h-3 rounded bg-muted-foreground/15 border border-muted-foreground/30" />
+                    💬 台词超限 ({dialogueWarnings.length} 处)
+                  </span>
+                )}
               </div>
+              {/* Dialogue warnings summary */}
+              {dialogueWarnings.length > 0 && (
+                <div className="mb-4 p-3 rounded-md border border-muted-foreground/20 bg-muted/50 space-y-1.5">
+                  <div className="flex items-center gap-1.5 text-sm font-medium text-foreground/80">
+                    <MessageSquare className="h-4 w-4" />
+                    台词字数检测
+                    <span className="text-xs font-normal text-muted-foreground">
+                      ({isChinese ? "中文：镜头组≤35字 / 单集280-330字" : "English: shot group≤20 words / episode 150-180 words"})
+                    </span>
+                  </div>
+                  {dialogueWarnings.map((w, i) => (
+                    <div key={i} className="text-xs text-muted-foreground">
+                      {w.type === "shot_group"
+                        ? `⚠ ${w.episode || ""} 镜头组台词 ${w.wordCount}${isChinese ? "字" : " words"}（限制 ${w.limit}）`
+                        : `⚠ ${w.episode} 全集台词 ${w.wordCount}${isChinese ? "字" : " words"}（限制 ${w.limit}）`}
+                    </div>
+                  ))}
+                </div>
+              )}
               {/* 表格模式使用高亮表格，文本模式使用高亮文本 */}
               {inputMode === "table" && tableData ? (
                 renderHighlightedTable()
