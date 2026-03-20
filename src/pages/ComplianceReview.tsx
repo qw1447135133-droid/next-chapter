@@ -36,7 +36,7 @@ ${scriptText}
 
 ## 审核要求
 
-请对以下三个维度进行合规审查：
+请对以下四个维度进行合规审查：
 
 ### 一、激烈冲突内容
 检查字面上的激烈冲突描写：
@@ -57,6 +57,23 @@ ${scriptText}
 - 不当行为描写
 - 一般亲吻拥抱可标记为优化建议
 
+### 四、对话长度与密度检测
+
+检查每集对话是否符合以下标准：
+- **每集台词总词数**：150-180个词（英文按单词计，中文按字计）
+- **连续对白长度**：4-5个镜头的连续对白在20个词以内
+
+检测方法：
+1. 识别对话：找出所有角色说话的内容
+2. 统计词数：计算每集所有对话的总词数
+3. 检查连续对白：找出4-5个连续镜头的对白，检查是否超过20个词
+4. 标记问题：超出限制用 ⚠️ 标记
+
+输出格式：
+| 集数 | 对话总词数 | 是否达标 | 超标连续对白 |
+|------|-----------|---------|-------------|
+| 第X集 | XX词 | 是/否 | 镜头范围（词数）|
+
 ## 输出格式
 
 使用以下标记标注问题严重程度：
@@ -69,8 +86,10 @@ ${scriptText}
 2. **激烈冲突检测**：逐项检查结果
 3. **版权问题排查**：逐项检查结果
 4. **敏感内容检测**：逐项检查结果
-5. **问题清单汇总**：按严重程度排序
-6. **修改建议**：针对每个问题的具体修改方案
+5. **对话长度密度检测**：表格形式列出每集对话统计
+6. **对话调优方案**：如有超标，提供调优后的对话
+7. **问题清单汇总**：按严重程度排序
+8. **修改建议**：针对每个问题的具体修改方案
 
 **标记规则：**
 
@@ -91,7 +110,7 @@ ${scriptText}
 
 ## 审核要求
 
-你需要进行**双重审查**：检查文字层面和画面表现层面的合规风险。
+你需要进行**双重审查+对话检测**：检查文字层面、画面表现层面、对话长度密度的合规风险。
 
 ### 第一重：文字违规检查
 
@@ -129,6 +148,18 @@ ${scriptText}
    - 不良行为展示
    - 其他违规内容
 
+### 第三重：对话长度与密度检测
+
+检查每集对话是否符合以下标准：
+- **每集台词总词数**：150-180个词（英文按单词计，中文按字计）
+- **连续对白长度**：4-5个镜头的连续对白在20个词以内
+
+检测方法：
+1. 识别对话：找出所有角色说话的内容
+2. 统计词数：计算每集所有对话的总词数
+3. 检查连续对白：找出4-5个连续镜头的对白，检查是否超过20个词
+4. 标记问题：超出限制用 ⚠️ 标记
+
 ## 输出格式
 
 使用以下标记标注风险：
@@ -145,13 +176,17 @@ ${scriptText}
 **画面违规**：标记整个风险段落
 - 示例：⛔【他猛地将她推倒，双手掐住她的脖子...（整段完整文字）】
 
+**对话超标**：用表格形式列出，并附调优建议
+
 ## 输出结构
 
 1. **合规总评**
 2. **文字违规检测**
 3. **画面违规检测**
-4. **风险汇总**
-5. **修改建议**
+4. **对话长度密度检测**
+5. **对话调优方案**（如有超标）
+6. **风险汇总**
+7. **修改建议**
 
 用 Markdown 格式输出。`;
 
@@ -985,8 +1020,11 @@ const ComplianceReview = () => {
                     <p>输入或上传剧本内容后，点击审核按钮进行合规检查</p>
                     <p className="text-xs mt-2">
                       {reviewMode === "script"
-                        ? "情节审核：文字违规+画面违规双重审查"
-                        : "文字审核：检测字面上的激烈冲突、版权问题、敏感亲密内容"}
+                        ? "情节审核：文字违规+画面违规+对话密度三重审查"
+                        : "文字审核：检测激烈冲突、版权问题、敏感内容、对话密度"}
+                    </p>
+                    <p className="text-xs mt-1 text-amber-600">
+                      💬 对话标准：每集150-180词，连续对白≤20词
                     </p>
                   </div>
                 ) : editing && !isGenerating ? (
@@ -1061,19 +1099,25 @@ const ComplianceReview = () => {
               </div>
               {highlightedScript ? (
                 <div ref={paletteScrollRef} className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
-                  <pre
-                    ref={paletteEditRef}
-                    className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 outline-none"
-                    contentEditable={paletteEditing}
-                    suppressContentEditableWarning
-                    onBlur={() => {
-                      if (paletteEditing && paletteEditRef.current) {
-                        setPaletteText(paletteEditRef.current.innerText);
-                      }
-                    }}
-                  >
-                    {highlightedScript}
-                  </pre>
+                  {paletteEditing ? (
+                    <pre
+                      ref={paletteEditRef}
+                      className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 outline-none"
+                      contentEditable={true}
+                      suppressContentEditableWarning
+                      onBlur={() => {
+                        if (paletteEditing && paletteEditRef.current) {
+                          setPaletteText(paletteEditRef.current.innerText);
+                        }
+                      }}
+                    >
+                      {paletteText || scriptText}
+                    </pre>
+                  ) : (
+                    <div className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
+                      {highlightedScript}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="text-center py-8 text-muted-foreground text-sm">

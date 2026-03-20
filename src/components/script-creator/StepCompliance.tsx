@@ -147,11 +147,11 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
               <p>点击审核按钮，AI 将对全部已完成的剧本内容进行合规检查</p>
               <p className="text-xs mt-2">
                 {reviewMode === "script"
-                  ? "情节审核：文字违规+画面违规+对话长度密度三重审查"
-                  : "文字审核：检测激烈冲突、版权问题、敏感内容、对话长度密度"}
+                  ? "情节审核：文字违规+画面违规+对话密度三重审查"
+                  : "文字审核：检测激烈冲突、版权问题、敏感内容、对话密度"}
               </p>
               <p className="text-xs mt-1 text-amber-600">
-                💬 对话标准：每集≤100字，单句≤35字
+                💬 对话标准：每集150-180词，连续对白≤20词
               </p>
             </div>
           ) : editing && !isGenerating ? (
