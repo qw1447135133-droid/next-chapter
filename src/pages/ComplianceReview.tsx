@@ -264,16 +264,28 @@ const ComplianceReview = () => {
   const riskMap = useMemo(() => {
     if (!complianceReport) return new Map<string, RiskLevel>();
     const map = new Map<string, RiskLevel>();
-    // Match ⛔【...】, ⚠️【...】, ℹ️【...】 patterns
+    // Match multiple formats: ⛔【...】, ⛔[...], ⛔「...」, and also just emoji followed by content
     const patterns: [RegExp, RiskLevel][] = [
+      // 中文方括号格式
       [/⛔\s*【([^】]+)】/g, "red"],
       [/⚠️\s*【([^】]+)】/g, "high"],
       [/ℹ️\s*【([^】]+)】/g, "info"],
+      // 英文方括号格式
+      [/⛔\s*\[([^\]]+)\]/g, "red"],
+      [/⚠️\s*\[([^\]]+)\]/g, "high"],
+      [/ℹ️\s*\[([^\]]+)\]/g, "info"],
+      // 日文引号格式
+      [/⛔\s*「([^」]+)」/g, "red"],
+      [/⚠️\s*「([^」]+)」/g, "high"],
+      [/ℹ️\s*「([^」]+)」/g, "info"],
     ];
     for (const [regex, level] of patterns) {
       let m: RegExpExecArray | null;
+      // Reset regex lastIndex
+      regex.lastIndex = 0;
       while ((m = regex.exec(complianceReport)) !== null) {
-        const phrase = m[1];
+        const phrase = m[1].trim();
+        if (phrase.length < 2) continue; // Skip very short matches
         // Keep highest severity if duplicate
         if (!map.has(phrase) || (level === "red") || (level === "high" && map.get(phrase) === "info")) {
           map.set(phrase, level);
@@ -1050,15 +1062,17 @@ const ComplianceReview = () => {
         </Collapsible>
 
         {/* Risk Highlight Comparison */}
-        {complianceReport && !isGenerating && scriptText && riskPhrases.length > 0 && (
+        {complianceReport && !isGenerating && scriptText && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg flex items-center gap-2">
                 <Palette className="h-5 w-5" />
                 调色盘文本对比
-                <span className="text-sm font-normal text-muted-foreground">
-                  共识别 {riskPhrases.length} 处风险片段，{riskPhrases.filter(p => (paletteText || scriptText).includes(p)).length} 处已标记
-                </span>
+                {riskPhrases.length > 0 && (
+                  <span className="text-sm font-normal text-muted-foreground">
+                    共识别 {riskPhrases.length} 处风险片段，{riskPhrases.filter(p => (paletteText || scriptText).includes(p)).length} 处已标记
+                  </span>
+                )}
               </CardTitle>
               <div className="flex gap-2">
                 {isAutoAdjusting ? (
@@ -1097,7 +1111,13 @@ const ComplianceReview = () => {
                   ℹ️ 优化建议
                 </span>
               </div>
-              {highlightedScript ? (
+              {riskPhrases.length === 0 && (
+                <div className="text-center py-4 text-muted-foreground text-sm bg-amber-50 dark:bg-amber-900/20 rounded-md mb-4">
+                  <p>⚠️ 未能从报告中识别出风险片段</p>
+                  <p className="mt-1 text-xs">请检查 AI 是否使用了正确的格式标记（⛔【内容】、⚠️【内容】、ℹ️【内容】）</p>
+                </div>
+              )}
+              {highlightedScript || (paletteText || scriptText) ? (
                 <div ref={paletteScrollRef} className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
                   {paletteEditing ? (
                     <pre
@@ -1115,14 +1135,13 @@ const ComplianceReview = () => {
                     </pre>
                   ) : (
                     <div className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
-                      {highlightedScript}
+                      {highlightedScript || (paletteText || scriptText)}
                     </div>
                   )}
                 </div>
               ) : (
                 <div className="text-center py-8 text-muted-foreground text-sm">
-                  <p>AI 报告中标记的风险片段未能在原文中精确匹配。</p>
-                  <p className="mt-1">请尝试重新生成报告，AI 将更精确地引用原文。</p>
+                  <p>请先输入或上传剧本内容</p>
                 </div>
               )}
             </CardContent>
