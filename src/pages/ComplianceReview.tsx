@@ -29,98 +29,76 @@ const MODEL_OPTIONS: { value: ComplianceModel; label: string }[] = [
 // 文字审核提示词 - 检查字面违规
 const STANDALONE_COMPLIANCE_PROMPT = (scriptText: string) => `你是一位资深的短剧内容合规审核专家。
 
-## 待审核内容（共 ${scriptText.length} 字符）
+## 待审核内容
 ${scriptText}
 
 ---
 
-## 审核维度
+## 审核任务
 
-1. 激烈冲突内容
+检查以下问题：
+1. 激烈冲突内容（打斗、伤害等描写）
 2. 版权问题
 3. 敏感亲密内容
 4. 对话长度密度（每集150-180词，连续对白≤20词）
 
 ---
 
-## 输出要求
+## ⚠️ 重要：必须在报告最后输出风险标记
 
-完成审核后，你必须在报告最后输出风险标记。使用以下两种格式之一：
+你必须在报告末尾用以下格式标记有问题的文本：
 
-### 格式一：JSON 格式（推荐）
-
-\`\`\`
-### 风险标记列表
-[{"level":"red","start":0,"end":10},{"level":"high","start":20,"end":30}]
-\`\`\`
-
-### 格式二：括号格式
-
-\`\`\`
 ⛔【有问题的原文文本】
 ⚠️【有问题的原文文本】
-ℹ️【有问题的原文文本】
-\`\`\`
+ℹ️【建议修改的原文文本】
+
+例如，如果原文中有"他狠狠地打了她一巴掌"，你应该输出：
+⚠️【他狠狠地打了她一巴掌】
 
 ---
 
 ## 输出结构
 
 1. 合规总评
-2. 激烈冲突检测
-3. 版权问题排查
-4. 敏感内容检测
-5. 对话长度密度检测
-6. 修改建议
-7. 风险标记列表（必须包含！）
+2. 问题检测
+3. 修改建议
+4. 风险标记（必须包含！）
 
 用 Markdown 格式输出。`;
 
 // 情节审核提示词 - 审核整个段落的画面表现 + 文字违规
 const SCRIPT_REVIEW_PROMPT = (scriptText: string) => `你是一位资深的短剧内容合规审核专家。
 
-## 待审核剧本（共 ${scriptText.length} 字符）
+## 待审核剧本
 ${scriptText}
 
 ---
 
-## 审核维度
+## 审核任务
 
+检查以下问题：
 1. 文字违规（激烈冲突、版权、敏感内容）
 2. 画面违规（肢体冲突、亲密场景等）
 3. 对话密度（每集150-180词，连续对白≤20词）
 
 ---
 
-## 输出要求
+## ⚠️ 重要：必须在报告最后输出风险标记
 
-完成审核后，你必须在报告最后输出风险标记。使用以下两种格式之一：
+你必须在报告末尾用以下格式标记有问题的文本：
 
-### 格式一：JSON 格式（推荐）
-
-\`\`\`
-### 风险标记列表
-[{"level":"red","start":0,"end":10},{"level":"high","start":20,"end":30}]
-\`\`\`
-
-### 格式二：括号格式
-
-\`\`\`
 ⛔【有问题的原文文本】
 ⚠️【有问题的原文文本】
-ℹ️【有问题的原文文本】
-\`\`\`
+ℹ️【建议修改的原文文本】
 
 ---
 
 ## 输出结构
 
 1. 合规总评
-2. 文字违规检测
-3. 画面违规检测
-4. 对话长度密度检测
-5. 修改建议
-6. 风险标记列表（必须包含！）
+2. 问题检测
+3. 修改建议
+4. 风险标记（必须包含！）
 
 用 Markdown 格式输出。`;
 
@@ -1501,10 +1479,15 @@ const ComplianceReview = () => {
                   💡 提示：选中文本后可点击上方按钮手动标记
                 </span>
               </div>
-              {riskPhrases.length === 0 && manualRiskMap.size === 0 && (
+              {riskPhrases.length === 0 && manualRiskMap.size === 0 && positionBasedRisks.length === 0 && (
                 <div className="text-center py-4 text-muted-foreground text-sm bg-amber-50 dark:bg-amber-900/20 rounded-md mb-4">
-                  <p>暂无标记</p>
+                  <p>暂无风险标记</p>
                   <p className="mt-1 text-xs">AI 审核后自动标记，或使用上方按钮手动添加标记</p>
+                  {complianceReport && (
+                    <p className="mt-2 text-xs">
+                      提示：展开下方"调试信息"查看 AI 输出状态
+                    </p>
+                  )}
                 </div>
               )}
               {riskPhrases.length > 0 && (() => {
@@ -1621,47 +1604,71 @@ const ComplianceReview = () => {
               )}
               
               {/* AI 标记匹配状态调试 */}
-              {(positionBasedRisks.length > 0 || riskMap.size > 0) && (
-                <div className="mt-4 border-t pt-4">
-                  <details className="text-sm">
-                    <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                      🔍 标记状态：{positionBasedRisks.length} 个位置标记 + {riskMap.size} 个文本标记
-                    </summary>
-                    <div className="mt-2 space-y-1 max-h-[200px] overflow-auto">
-                      {positionBasedRisks.length > 0 ? (
-                        <>
-                          <p className="text-xs text-green-600 font-medium mb-1">✅ 已标记（位置准确）：</p>
-                          {positionBasedRisks.slice(0, 20).map((item, idx) => (
-                            <div key={`pos-${idx}`} className="p-1.5 rounded text-xs bg-green-50 text-green-700">
-                              <span className="font-mono">
-                                {item.level === "red" ? "⛔" : item.level === "high" ? "⚠️" : "ℹ️"}
-                              </span>
-                              <span className="ml-2">{item.text.slice(0, 50)}{item.text.length > 50 ? "..." : ""}</span>
-                            </div>
-                          ))}
-                          {positionBasedRisks.length > 20 && (
-                            <p className="text-xs text-muted-foreground">... 还有 {positionBasedRisks.length - 20} 个</p>
-                          )}
-                        </>
-                      ) : riskMap.size > 0 ? (
-                        <>
-                          <p className="text-xs text-blue-600 font-medium mb-1">📝 文本标记：</p>
-                          {[...riskMap.entries()].slice(0, 10).map(([text, level], idx) => (
-                            <div key={`text-${idx}`} className="p-1.5 rounded text-xs bg-blue-50 text-blue-700">
-                              <span className="font-mono">
-                                {level === "red" ? "⛔" : level === "high" ? "⚠️" : "ℹ️"}
-                              </span>
-                              <span className="ml-2">{text.slice(0, 50)}{text.length > 50 ? "..." : ""}</span>
-                            </div>
-                          ))}
-                        </>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">暂无标记</p>
-                      )}
+              <div className="mt-4 border-t pt-4">
+                <details className="text-sm">
+                  <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                    🔍 调试信息
+                  </summary>
+                  <div className="mt-2 space-y-2 text-xs">
+                    <div className="p-2 bg-muted/50 rounded">
+                      <p className="font-medium">报告状态：</p>
+                      <ul className="list-disc list-inside mt-1 space-y-1">
+                        <li>报告长度：{complianceReport?.length || 0} 字符</li>
+                        <li>位置标记：{positionBasedRisks.length} 个</li>
+                        <li>文本标记：{riskMap.size} 个</li>
+                        <li>手动标记：{manualRiskMap.size} 个</li>
+                      </ul>
                     </div>
-                  </details>
-                </div>
-              )}
+                    
+                    {complianceReport && (
+                      <div className="p-2 bg-muted/50 rounded">
+                        <p className="font-medium">报告中是否包含风险标记：</p>
+                        <ul className="list-disc list-inside mt-1 space-y-1">
+                          <li>⛔ 标记：{(complianceReport.match(/⛔/g) || []).length} 个</li>
+                          <li>⚠️ 标记：{(complianceReport.match(/⚠️/g) || []).length} 个</li>
+                          <li>ℹ️ 标记：{(complianceReport.match(/ℹ️/g) || []).length} 个</li>
+                          <li>【】括号：{(complianceReport.match(/【/g) || []).length} 个</li>
+                        </ul>
+                      </div>
+                    )}
+                    
+                    {positionBasedRisks.length > 0 && (
+                      <div className="p-2 bg-green-50 text-green-700 rounded">
+                        <p className="font-medium">✅ 已识别的标记：</p>
+                        {positionBasedRisks.slice(0, 10).map((item, idx) => (
+                          <div key={idx} className="mt-1">
+                            {item.level === "red" ? "⛔" : item.level === "high" ? "⚠️" : "ℹ️"} {item.text.slice(0, 40)}...
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {riskMap.size > 0 && (
+                      <div className="p-2 bg-blue-50 text-blue-700 rounded">
+                        <p className="font-medium">📝 文本标记：</p>
+                        {[...riskMap.entries()].slice(0, 10).map(([text, level], idx) => (
+                          <div key={idx} className="mt-1">
+                            {level === "red" ? "⛔" : level === "high" ? "⚠️" : "ℹ️"} {text.slice(0, 40)}...
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {positionBasedRisks.length === 0 && riskMap.size === 0 && complianceReport && (
+                      <div className="p-2 bg-amber-50 text-amber-700 rounded">
+                        <p className="font-medium">⚠️ 未识别到任何风险标记</p>
+                        <p className="mt-1">可能原因：</p>
+                        <ul className="list-disc list-inside mt-1">
+                          <li>AI 没有输出风险标记格式</li>
+                          <li>AI 输出的格式与预期不符</li>
+                          <li>内容确实没有风险</li>
+                        </ul>
+                        <p className="mt-2">解决方案：使用上方"手动标记"按钮添加标记</p>
+                      </div>
+                    )}
+                  </div>
+                </details>
+              </div>
             </CardContent>
           </Card>
         )}
