@@ -69,7 +69,7 @@ ${scriptText}
 ### 二、版权问题
 检查是否存在：
 - 直接引用受版权保护的作品内容
-- 明显模仿知名IP的角色、情节设定
+- 明确模仿知名IP的角色、情节设定
 - 未授权使用品牌名称
 
 ### 三、敏感亲密内容
@@ -131,7 +131,7 @@ ${scriptText}
 
 2. **版权问题**
    - 直接引用受版权保护的歌词、台词、小说
-   - 明显抄袭知名IP的角色、情节
+   - 明确抄袭知名IP的角色、情节
 
 3. **敏感亲密文字**
    - 过度暴露的描写
@@ -250,6 +250,8 @@ const ComplianceReview = () => {
   const paletteEditRef = useRef<HTMLPreElement>(null);
   // Track phrase replacements so re-adjust works: original -> current
   const [phraseReplacements, setPhraseReplacements] = useState<Map<string, string>>(new Map());
+  // 对话审查开关
+  const [enableDialogueReview, setEnableDialogueReview] = useState(false);
 
   // Sync palette text with script text initially or when script changes and no adjustments made
   useEffect(() => {
@@ -341,6 +343,8 @@ const ComplianceReview = () => {
 
   // 解析各集台词统计
   const episodeStats = useMemo((): EpisodeDialogueStats[] => {
+    if (!enableDialogueReview) return [];
+    
     const text = paletteText || scriptText;
     if (!text.trim()) return [];
 
@@ -429,10 +433,12 @@ const ComplianceReview = () => {
     }
 
     return Array.from(stats.values()).sort((a, b) => a.episodeNum - b.episodeNum);
-  }, [paletteText, scriptText, isChinese, isDialogueLine, isSfxLine]);
+  }, [paletteText, scriptText, isChinese, isDialogueLine, isSfxLine, enableDialogueReview]);
 
   // 总统计
   const totalStats = useMemo(() => {
+    if (!enableDialogueReview) return { totalDialogues: 0, totalWords: 0, overLimitDialogues: 0, avgWordsPerDialogue: 0 };
+    
     const totalDialogues = episodeStats.reduce((sum, ep) => sum + ep.totalDialogues, 0);
     const totalWords = episodeStats.reduce((sum, ep) => sum + ep.totalWords, 0);
     const overLimitDialogues = episodeStats.reduce((sum, ep) => sum + ep.overLimitCount, 0);
@@ -442,10 +448,12 @@ const ComplianceReview = () => {
       overLimitDialogues,
       avgWordsPerDialogue: totalDialogues > 0 ? Math.round(totalWords / totalDialogues) : 0,
     };
-  }, [episodeStats]);
+  }, [episodeStats, enableDialogueReview]);
 
   // Build a set of line indices that have dialogue over-limit warnings
   const dialogueOverLimitLines = useMemo(() => {
+    if (!enableDialogueReview) return new Set<number>();
+    
     const set = new Set<number>();
     const text = paletteText || scriptText;
     const lines = text.split("\n");
@@ -483,7 +491,7 @@ const ComplianceReview = () => {
     }
 
     return set;
-  }, [paletteText, scriptText, isChinese, isDialogueLine, isSfxLine]);
+  }, [paletteText, scriptText, isChinese, isDialogueLine, isSfxLine, enableDialogueReview]);
 
   const replacementToOriginal = useMemo(() => {
     const map = new Map<string, string>();
@@ -666,7 +674,7 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
     return (
       <>
         {lines.map((line, lineIndex) => {
-          const isOverLimit = dialogueOverLimitLines.has(lineIndex);
+          const isOverLimit = enableDialogueReview && dialogueOverLimitLines.has(lineIndex);
           const highlighted = buildHighlightedParts(line, blankSet);
 
           return (
@@ -684,7 +692,7 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
         })}
       </>
     );
-  }, [paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases, dialogueOverLimitLines]);
+  }, [paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases, dialogueOverLimitLines, enableDialogueReview]);
 
   // 表格编辑相关状态
   const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
@@ -953,7 +961,7 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
         </table>
       </div>
     );
-  }, [tableData, activeRiskPhrases, activeRiskMap, editingCell, editingValue, replacementToOriginal, handleTableCellEdit, handleTableCellSave, handleTableCellCancel, adjustingSinglePhrase, handleSingleAdjust, isAutoAdjusting, reviewMode]);
+  }, [tableData, activeRiskPhrases, activeRiskMap, editingCell, editingValue, replacementToOriginal, handleTableCellEdit, handleTableCellSave, handleTableCellCancel, adjustingSinglePhrase, handleSingleAdjust, reviewMode]);
 
   const normalizeForCompare = (value: string) => value.replace(/\s+/g, "").trim();
 
@@ -1825,8 +1833,21 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* 对话审查开关 */}
+                <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                  <span className="text-sm font-medium">启用对话审查</span>
+                  <Button
+                    variant={enableDialogueReview ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setEnableDialogueReview(!enableDialogueReview)}
+                    className="h-8 w-12 px-0"
+                  >
+                    {enableDialogueReview ? "开" : "关"}
+                  </Button>
+                </div>
+                
                 {/* 总统计 */}
-                {totalStats.totalDialogues > 0 && (
+                {enableDialogueReview && totalStats.totalDialogues > 0 && (
                   <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-muted/50">
                     <div className="text-center">
                       <div className="text-2xl font-bold text-primary">{totalStats.totalDialogues}</div>
@@ -1850,7 +1871,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                 )}
 
                 {/* 各集详情 */}
-                {episodeStats.length > 0 ? (
+                {enableDialogueReview && episodeStats.length > 0 ? (
                   <div className="space-y-3 max-h-[400px] overflow-auto">
                     {episodeStats.map((ep) => (
                       <div key={ep.episodeNum} className="p-3 rounded-lg border border-border/50 hover:bg-accent/20 transition-colors">
@@ -1909,62 +1930,41 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                       </div>
                     ))}
                   </div>
-                ) : (
+                ) : enableDialogueReview ? (
                   <div className="text-center py-8 text-muted-foreground">
                     <Info className="h-8 w-8 mx-auto mb-2 opacity-50" />
                     <p className="text-sm">暂无台词数据</p>
                     <p className="text-xs mt-1">输入剧本后将自动统计各集台词字数</p>
                   </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Info className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">对话审查已关闭</p>
+                    <p className="text-xs mt-1">点击上方开关启用对话审查功能</p>
+                  </div>
                 )}
 
                 {/* 提示信息 */}
-                <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
-                  <div className="flex items-start gap-2">
-                    <Info className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
-                    <div className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
-                      <p><strong>字数限制参考：</strong></p>
-                      <p>• 单句台词：{isChinese ? "≤35 字" : "≤20 words"}</p>
-                      <p>• 单集总计：{isChinese ? "280-330 字" : "150-180 words"}</p>
-                      <p>• 4-5 个镜头组：{isChinese ? "≤35 字" : "≤20 words"}</p>
+                {enableDialogueReview && (
+                  <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                    <div className="flex items-start gap-2">
+                      <Info className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+                      <div className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
+                        <p><strong>字数限制参考：</strong></p>
+                        <p>• 单句台词：{isChinese ? "≤35 字" : "≤20 words"}</p>
+                        <p>• 单集总计：{isChinese ? "280-330 字" : "150-180 words"}</p>
+                        <p>• 4-5 个镜头组：{isChinese ? "≤35 字" : "≤20 words"}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* 快速操作 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">快速操作</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start gap-2"
-                  onClick={() => {
-                    const element = document.getElementById('palette-section');
-                    element?.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                >
-                  <Palette className="h-4 w-4" />
-                  查看调色盘对比
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start gap-2"
-                  onClick={handlePaletteExport}
-                  disabled={!scriptText}
-                >
-                  <Download className="h-4 w-4" />
-                  导出审核报告
-                </Button>
+                )}
               </CardContent>
             </Card>
           </div>
         </div>
 
         {/* Risk Highlight Comparison */}
-        {complianceReport && !isGenerating && scriptText && (riskPhrases.length > 0 || dialogueOverLimitLines.size > 0) && (
+        {complianceReport && !isGenerating && scriptText && (riskPhrases.length > 0 || (enableDialogueReview && dialogueOverLimitLines.size > 0)) && (
           <Card id="palette-section">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg flex items-center gap-2">
@@ -2023,7 +2023,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                   <span className="inline-block w-3 h-3 rounded bg-blue-200 dark:bg-blue-700/60 border border-blue-500" />
                   ℹ️ 优化建议
                 </span>
-                {dialogueOverLimitLines.size > 0 && (
+                {enableDialogueReview && dialogueOverLimitLines.size > 0 && (
                   <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                     <span className="inline-block w-3 h-3 rounded bg-muted-foreground/15 border border-muted-foreground/30" />
                     💬 台词超限 ({dialogueOverLimitLines.size} 处)
