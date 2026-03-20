@@ -232,6 +232,7 @@ graph TD
 
 /** 分集目录 Prompt */
 export function buildDirectoryPrompt(setup: DramaSetup, creativePlan: string, characters: string): string {
+  const totalEp = setup.totalEpisodes;
   return `你是一位专业的微短剧编剧。
 
 ${getFullMarketDirective(setup)}
@@ -242,6 +243,12 @@ ${creativePlan}
 ## 已有角色档案
 ${characters}
 
+## ⚠️ 硬性要求（最高优先级）
+**必须生成完整 ${totalEp} 集目录，不能多也不能少。**
+- 每一集都必须有独立的一行记录
+- 从第1集到第${totalEp}集，连续编号，不能跳过任何集数
+- 如果生成的集数不足 ${totalEp} 集，将被视为任务失败
+
 ## 参考知识：钩子设计
 5种钩子类型：
 - 悬念钩（20-30%）：抛出关键疑问，答案留到下集
@@ -251,14 +258,14 @@ ${characters}
 - 危机钩（10-20%）：主角陷入即时危险
 
 ## 参考知识：节奏曲线
-四段式结构（${setup.totalEpisodes}集）：
-- 起势段（约前${Math.round(setup.totalEpisodes * 0.15)}集）
-- 攀升段（约${Math.round(setup.totalEpisodes * 0.15) + 1}-${Math.round(setup.totalEpisodes * 0.45)}集）
-- 风暴段（约${Math.round(setup.totalEpisodes * 0.45) + 1}-${Math.round(setup.totalEpisodes * 0.8)}集）
-- 决战段（约${Math.round(setup.totalEpisodes * 0.8) + 1}-${setup.totalEpisodes}集）
+四段式结构（${totalEp}集）：
+- 起势段（约前${Math.round(totalEp * 0.15)}集）
+- 攀升段（约${Math.round(totalEp * 0.15) + 1}-${Math.round(totalEp * 0.45)}集）
+- 风暴段（约${Math.round(totalEp * 0.45) + 1}-${Math.round(totalEp * 0.8)}集）
+- 决战段（约${Math.round(totalEp * 0.8) + 1}-${totalEp}集）
 
 ## 你的任务
-生成完整的 ${setup.totalEpisodes} 集分集目录。
+生成完整的 ${totalEp} 集分集目录。
 
 每集一行，格式：
 第{N}集：{集标题} —— {核心冲突或爽点一句话描述} [钩子类型] [情绪:X] {标记}
@@ -272,7 +279,7 @@ ${characters}
 - [情绪:X]：标注该集的情绪强度（1-5），1=平稳铺垫，2=小波澜，3=中等紧张，4=高潮激烈，5=极致爆发
 
 要求：
-- 必须覆盖全部 ${setup.totalEpisodes} 集
+- **必须覆盖全部 ${totalEp} 集，从第1集到第${totalEp}集，一个都不能少**
 - 前 10 集必须包含至少 3 个 🔥
 - 💰 付费卡点建议分布在以下位置：
   · 第8-12集（首个付费卡点，最强悬念）

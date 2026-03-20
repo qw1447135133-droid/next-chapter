@@ -66,18 +66,33 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
     try {
       const prompt = buildDirectoryPrompt(setup, creativePlan, characters);
       const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+      // 动态计算 maxOutputTokens：每集约 80-100 字符，加上统计信息约 500 字符
+      // 确保有足够的 token 生成完整目录
+      const estimatedTokens = Math.max(8192, Math.round(setup.totalEpisodes * 150));
+      const maxTokens = Math.min(estimatedTokens, 32768); // 上限 32768
       const finalText = await callGeminiStream(
         model,
         [{ role: "user", parts: [{ text: prompt }] }],
         (chunk) => setStreamingText(chunk),
-        { maxOutputTokens: 8192 },
+        { maxOutputTokens: maxTokens },
         abortRef.current.signal,
       );
       setRawText(finalText);
       const parsed = parseDirectory(finalText);
       onUpdate(parsed, finalText);
       setStreamingText("");
-      toast({ title: `分集目录生成完成（解析到 ${parsed.length} 集）` });
+      
+      // 验证生成的集数是否符合目标
+      const targetEpisodes = setup.totalEpisodes;
+      if (parsed.length < targetEpisodes) {
+        toast({ 
+          title: `⚠️ 目录不完整`, 
+          description: `目标 ${targetEpisodes} 集，实际生成 ${parsed.length} 集。请点击"重新生成"或手动编辑补充。`,
+          variant: "destructive"
+        });
+      } else {
+        toast({ title: `分集目录生成完成（${parsed.length} 集）` });
+      }
     } catch (e: any) {
       if (e?.message?.includes("取消")) {
         const partial = streamingText;
@@ -110,6 +125,11 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
   const keyCount = directory.filter((d) => d.isKey).length;
   const climaxCount = directory.filter((d) => d.isClimax).length;
   const paywallCount = directory.filter((d) => d.isPaywall).length;
+  
+  // Check if directory matches target episodes
+  const targetEpisodes = setup.totalEpisodes;
+  const directoryMatchesTarget = directory.length === targetEpisodes;
+  const missingEpisodes = targetEpisodes - directory.length;
 
   const hookDistribution = directory.reduce<Record<string, number>>((acc, ep) => {
     const hook = ep.hookType || "未知";
@@ -147,6 +167,11 @@ const StepDirectory = ({ setup, creativePlan, characters, directory, directoryRa
             {directory.length > 0 && (
               <span className="text-sm font-normal text-muted-foreground ml-2">
                 共 {directory.length} 集 · 🔥{keyCount} · ⚡{climaxCount} · 💰{paywallCount}
+                {!directoryMatchesTarget && (
+                  <span className="text-destructive font-medium ml-2">
+                    ⚠️ 目标 {targetEpisodes} 集，缺少 {missingEpisodes} 集
+                  </span>
+                )}
               </span>
             )}
           </CardTitle>
