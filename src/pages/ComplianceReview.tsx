@@ -461,6 +461,7 @@ const ComplianceReview = () => {
 
   const buildHighlightedParts = useCallback((text: string, blankPhrases?: Set<string>) => {
     if (!text) return <>{text}</>;
+    // 使用合并后的风险映射（包含手动标记）
     if (activeRiskPhrases.length === 0) return <>{text}</>;
     
     // 标准化函数：去除空格、常见标点差异
@@ -555,17 +556,19 @@ const ComplianceReview = () => {
         return (
           <mark key={i} className={`${RISK_STYLES[level]} text-foreground rounded px-0.5 ${isBlank ? "inline-block min-w-[2em]" : ""}`}>
             {isBlank ? "\u00A0".repeat(Math.max(part.length, 2)) : part}
-            <button
-              className="inline-flex items-center justify-center w-4 h-4 ml-0.5 text-[10px] rounded hover:bg-foreground/10 align-middle cursor-pointer"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleSingleAdjust(part, level);
-              }}
-              disabled={isAdjusting || isAutoAdjusting}
-              title="重新生成"
-            >
-              {isAdjusting ? "..." : "↻"}
-            </button>
+            {!isBlank && !isAdjusting && (
+              <button
+                className="inline-flex items-center justify-center w-4 h-4 ml-0.5 text-[10px] rounded hover:bg-foreground/10 align-middle cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSingleAdjust(part, level);
+                }}
+                disabled={isAutoAdjusting}
+                title="重新生成"
+              >
+                ↻
+              </button>
+            )}
           </mark>
         );
       }
@@ -575,8 +578,15 @@ const ComplianceReview = () => {
 
   const highlightedScript = useMemo(() => {
     const text = paletteText || scriptText;
+    // 如果正在生成，只显示文本（手动标记仍然生效）
+    if (isGenerating) {
+      if (manualRiskMap.size > 0) {
+        return buildHighlightedParts(text, undefined);
+      }
+      return <>{text}</>;
+    }
     return buildHighlightedParts(text, isAutoAdjusting ? adjustingPhrases : undefined);
-  }, [paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases]);
+  }, [paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases, isGenerating, manualRiskMap]);
   const normalizeForCompare = (value: string) => value.replace(/\s+/g, "").trim();
 
   const parseRewriteJson = (raw: string) => {
@@ -897,6 +907,11 @@ const ComplianceReview = () => {
     setReportOpen(true);
     setComplianceReport("");
     setPhraseReplacements(new Map());
+    // 保留手动标记，不要清除
+    // 同时确保 paletteText 有值
+    if (!paletteText && scriptText) {
+      setPaletteText(scriptText);
+    }
     abortRef.current = new AbortController();
 
     try {
@@ -1226,13 +1241,14 @@ const ComplianceReview = () => {
         </Collapsible>
 
         {/* Risk Highlight Comparison - 只要有剧本内容就显示 */}
-        {!isGenerating && scriptText && (
+        {scriptText && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg flex items-center gap-2">
                 <Palette className="h-5 w-5" />
                 调色盘文本对比
-                {combinedRiskPhrases.length > 0 && (
+                {isGenerating && <span className="text-xs text-muted-foreground animate-pulse">（审核中...）</span>}
+                {!isGenerating && combinedRiskPhrases.length > 0 && (
                   <span className="text-sm font-normal text-muted-foreground">
                     共 {combinedRiskPhrases.length} 处标记（AI {riskPhrases.length} + 手动 {manualRiskMap.size}）
                   </span>
@@ -1428,7 +1444,7 @@ const ComplianceReview = () => {
         )}
         
         {/* 风险选择浮窗 */}
-        {!isGenerating && showRiskSelector && selectedText && selectionPosition && (
+        {!isGenerating && !paletteEditing && showRiskSelector && selectedText && selectionPosition && (
           <div
             className="fixed z-50 bg-popover border border-border rounded-lg shadow-lg p-2 flex gap-1"
             style={{ left: selectionPosition.x, top: selectionPosition.y, transform: "translateX(-50%)" }}
