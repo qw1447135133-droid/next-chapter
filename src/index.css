@@ -51,42 +51,42 @@
   }
 
   .dark {
-    --background: 225 25% 8%;
-    --foreground: 210 30% 95%;
+    --background: 225 20% 7%;
+    --foreground: 210 40% 96%;
 
-    --card: 225 25% 12%;
-    --card-foreground: 210 30% 95%;
+    --card: 225 20% 11%;
+    --card-foreground: 210 40% 96%;
 
-    --popover: 225 25% 12%;
-    --popover-foreground: 210 30% 95%;
+    --popover: 225 20% 11%;
+    --popover-foreground: 210 40% 96%;
 
-    --primary: 250 85% 65%;
+    --primary: 250 85% 68%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 225 20% 18%;
-    --secondary-foreground: 210 30% 95%;
+    --secondary: 225 18% 16%;
+    --secondary-foreground: 210 30% 90%;
 
-    --muted: 225 20% 16%;
-    --muted-foreground: 220 15% 55%;
+    --muted: 225 18% 14%;
+    --muted-foreground: 220 15% 62%;
 
     --accent: 170 70% 50%;
     --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 70% 45%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 225 20% 18%;
-    --input: 225 20% 18%;
-    --ring: 250 85% 65%;
+    --border: 225 15% 20%;
+    --input: 225 15% 20%;
+    --ring: 250 85% 68%;
 
-    --sidebar-background: 225 25% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 250 85% 65%;
+    --sidebar-background: 225 20% 9%;
+    --sidebar-foreground: 210 30% 90%;
+    --sidebar-primary: 250 85% 68%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 225 20% 15%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 225 20% 18%;
-    --sidebar-ring: 250 85% 65%;
+    --sidebar-accent: 225 18% 14%;
+    --sidebar-accent-foreground: 210 30% 90%;
+    --sidebar-border: 225 15% 20%;
+    --sidebar-ring: 250 85% 68%;
   }
 }
 
@@ -102,5 +102,45 @@
 
   h1, h2, h3, h4, h5, h6 {
     font-family: 'Space Grotesk', sans-serif;
+  }
+}
+
+@layer utilities {
+  .shimmer-progress > [data-state] > [data-state] {
+    position: relative;
+    overflow: hidden;
+  }
+  .shimmer-progress > [data-state] > [data-state]::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 60%;
+    height: 100%;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      hsla(0, 0%, 100%, 0.25) 40%,
+      hsla(0, 0%, 100%, 0.5) 50%,
+      hsla(0, 0%, 100%, 0.25) 60%,
+      transparent 100%
+    );
+    animation: shimmer-slide 2.5s ease-in-out infinite;
+  }
+  @keyframes shimmer-slide {
+    0% { left: -60%; }
+    100% { left: 160%; }
+  }
+
+  /* Completion celebration: green flash pulse */
+  .progress-done > [data-state] > [data-state] {
+    background: hsl(var(--accent)) !important;
+  }
+  .progress-celebrate > [data-state] > [data-state] {
+    animation: celebrate-flash 0.4s ease-in-out 3;
+  }
+  @keyframes celebrate-flash {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 hsl(var(--accent) / 0); }
+    50% { opacity: 0.85; box-shadow: 0 0 12px 4px hsl(var(--accent) / 0.5); }
   }
 }

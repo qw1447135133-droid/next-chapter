@@ -1,9 +1,8 @@
+/**
+ * 上传 base64 data URI 到 Supabase Storage（通过客户端 SDK，不经过 Edge Function）
+ */
 import { supabase } from "@/integrations/supabase/client";
 
-/**
- * If the given URL is a base64 data URI, upload it via the upload-image
- * edge function and return the public URL. Otherwise return the original URL.
- */
 export async function ensureStorageUrl(
   dataUrl: string,
   folder: string = "characters",
@@ -13,7 +12,6 @@ export async function ensureStorageUrl(
   }
 
   try {
-    // Parse base64 to blob
     const [header, base64Data] = dataUrl.split(",");
     const mimeMatch = header.match(/data:(.*?);/);
     const mimeType = mimeMatch?.[1] || "image/png";
@@ -24,27 +22,23 @@ export async function ensureStorageUrl(
     for (let i = 0; i < byteChars.length; i++) {
       byteArray[i] = byteChars.charCodeAt(i);
     }
-    const blob = new Blob([byteArray], { type: mimeType });
-    const file = new File([blob], `image.${ext}`, { type: mimeType });
 
-    // Upload via edge function (uses service role key, no client-side RLS issues)
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("folder", folder);
+    const fileName = `${folder}/${crypto.randomUUID()}.${ext}`;
 
-    const { data, error } = await supabase.functions.invoke("upload-image", {
-      body: formData,
-    });
+    const { error } = await supabase.storage
+      .from("generated-images")
+      .upload(fileName, byteArray, { contentType: mimeType, upsert: false });
 
-    if (error || data?.error) {
-      console.warn("[Storage fallback] Edge upload failed:", error?.message || data?.error);
+    if (error) {
+      console.warn("[Storage] Upload failed:", error.message);
       return dataUrl;
     }
 
-    console.log("[Storage fallback] Uploaded successfully:", data.imageUrl);
-    return data.imageUrl;
+    const { data } = supabase.storage.from("generated-images").getPublicUrl(fileName);
+    console.log("[Storage] Uploaded successfully:", data.publicUrl);
+    return data.publicUrl;
   } catch (err) {
-    console.warn("[Storage fallback] Error:", err);
+    console.warn("[Storage] Error:", err);
     return dataUrl;
   }
 }

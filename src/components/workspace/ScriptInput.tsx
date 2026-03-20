@@ -1,9 +1,20 @@
-import { useRef } from "react";
+import { useRef, useState, useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Sparkles, Loader2, Upload } from "lucide-react";
+import { Sparkles, Loader2, Upload, ChevronDown } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { VideoPace, VIDEO_PACE_OPTIONS, EpisodeDuration, EPISODE_DURATION_OPTIONS } from "@/types/project";
+import { Input } from "@/components/ui/input";
+
+export type DecomposeModel = "gemini-3.1-pro-preview" | "gemini-3-pro-preview" | "gemini-3-pro-preview-thinking" | "gemini-3-flash-preview";
+
+const DECOMPOSE_MODEL_OPTIONS: { value: DecomposeModel; label: string }[] = [
+  { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
+  { value: "gemini-3-pro-preview", label: "Gemini 3 Pro" },
+  { value: "gemini-3-pro-preview-thinking", label: "Gemini 3 Pro Thinking" },
+  { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
+];
 
 interface ScriptInputProps {
   script: string;
@@ -11,13 +22,39 @@ interface ScriptInputProps {
   onAnalyze: () => void;
   onCancelAnalyze?: () => void;
   isAnalyzing: boolean;
+  decomposeModel: DecomposeModel;
+  onDecomposeModelChange: (model: DecomposeModel) => void;
+  videoPace: VideoPace;
+  onVideoPaceChange: (pace: VideoPace) => void;
+  episodeDuration: EpisodeDuration;
+  onEpisodeDurationChange: (d: EpisodeDuration) => void;
+  customDuration: string;
+  onCustomDurationChange: (v: string) => void;
 }
 
 const ACCEPTED_TYPES = ".txt,.pdf,.doc,.docx";
 
-const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAnalyzing }: ScriptInputProps) => {
+const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAnalyzing, decomposeModel, onDecomposeModelChange, videoPace, onVideoPaceChange, episodeDuration, onEpisodeDurationChange, customDuration, onCustomDurationChange }: ScriptInputProps) => {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const isUploading = useRef(false);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [paceOpen, setPaceOpen] = useState(false);
+  const [durationOpen, setDurationOpen] = useState(false);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const paceDropdownRef = useRef<HTMLDivElement>(null);
+  const durationDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) setModelOpen(false);
+      if (paceDropdownRef.current && !paceDropdownRef.current.contains(e.target as Node)) setPaceOpen(false);
+      if (durationDropdownRef.current && !durationDropdownRef.current.contains(e.target as Node)) setDurationOpen(false);
+    };
+    if (modelOpen || paceOpen || durationOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [modelOpen, paceOpen, durationOpen]);
+
+  const currentModel = DECOMPOSE_MODEL_OPTIONS.find((o) => o.value === decomposeModel)!;
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -55,19 +92,9 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
       const formData = new FormData();
       formData.append("file", file);
 
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-document`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
-          body: formData,
-        }
-      );
-
-      const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || "解析失败");
+      const { data, error } = await supabase.functions.invoke("parse-document", { body: formData });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error || "解析失败");
 
       onScriptChange(data.text);
       toast({ title: "导入成功", description: `已导入 ${file.name}` });
@@ -84,7 +111,37 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
     <div className="space-y-4">
       <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-xl font-semibold font-[Space_Grotesk] mb-1">输入剧本</h2>
+          <div className="flex items-center gap-3 mb-1">
+            <h2 className="text-xl font-semibold font-[Space_Grotesk]">输入剧本</h2>
+            {/* Model Selector — pill style matching CharacterSettings */}
+            <div className="relative" ref={modelDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setModelOpen((v) => !v)}
+                disabled={isAnalyzing}
+                className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {currentModel.label}
+                <ChevronDown className={`h-3 w-3 transition-transform ${modelOpen ? "rotate-180" : ""}`} />
+              </button>
+              {modelOpen && (
+                <div className="absolute left-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border bg-popover shadow-lg py-1">
+                  {DECOMPOSE_MODEL_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => { onDecomposeModelChange(opt.value); setModelOpen(false); }}
+                      className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent ${
+                        opt.value === decomposeModel ? "text-primary font-semibold" : "text-popover-foreground"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
           <p className="text-sm text-muted-foreground">
             粘贴文本或上传文档（TXT / PDF / Word），AI 将自动拆解为分镜列表
           </p>
@@ -120,25 +177,100 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
         <span className="text-xs text-muted-foreground">
           {script.length} 字
         </span>
-        {isAnalyzing && onCancelAnalyze ? (
-          <Button
-            variant="destructive"
-            onClick={onCancelAnalyze}
-            className="gap-2"
-          >
-            <Loader2 className="h-4 w-4 animate-spin" />
-            中止生成
-          </Button>
-        ) : (
-          <Button
-            onClick={onAnalyze}
-            disabled={!script.trim()}
-            className="gap-2"
-          >
-            <Sparkles className="h-4 w-4" />
-            AI 拆解分镜
-          </Button>
-        )}
+        <div className="flex items-center gap-3">
+          {/* Episode Duration Selector */}
+          <div className="relative" ref={durationDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setDurationOpen((v) => !v)}
+              disabled={isAnalyzing}
+              className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+            >
+              单集时长：{episodeDuration === 'custom' ? (customDuration ? `${customDuration}s` : '自定义') : `${episodeDuration}s`}
+              <ChevronDown className={`h-3 w-3 transition-transform ${durationOpen ? "rotate-180" : ""}`} />
+            </button>
+            {durationOpen && (
+              <div className="absolute right-0 bottom-full mb-1 z-50 w-full rounded-lg border border-border bg-popover shadow-lg py-0.5">
+                {EPISODE_DURATION_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { onEpisodeDurationChange(opt.value); if (opt.value !== 'custom') setDurationOpen(false); }}
+                    className={`w-full text-left px-4 py-1 text-sm transition-colors rounded-md ${
+                      opt.value === episodeDuration ? "bg-blue-500 text-white" : "text-popover-foreground hover:bg-accent"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+                {episodeDuration === 'custom' && (
+                  <div className="px-4 py-2">
+                    <Input
+                      type="number"
+                      min={15}
+                      max={600}
+                      step={15}
+                      placeholder="输入秒数"
+                      value={customDuration}
+                      onChange={(e) => onCustomDurationChange(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Video Pace Selector */}
+          <div className="relative" ref={paceDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setPaceOpen((v) => !v)}
+              disabled={isAnalyzing}
+              className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+            >
+              视频节奏：{VIDEO_PACE_OPTIONS.find((o) => o.value === videoPace)?.label}
+              <ChevronDown className={`h-3 w-3 transition-transform ${paceOpen ? "rotate-180" : ""}`} />
+            </button>
+            {paceOpen && (
+              <div className="absolute right-0 bottom-full mb-1 z-50 w-full rounded-lg border border-border bg-popover shadow-lg py-0.5">
+                {VIDEO_PACE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { onVideoPaceChange(opt.value); setPaceOpen(false); }}
+                    className={`w-full text-left px-4 py-1 text-sm transition-colors rounded-md ${
+                      opt.value === videoPace ? "bg-blue-500 text-white" : "text-popover-foreground hover:bg-accent"
+                    }`}
+                  >
+                    <span className="font-medium">{opt.label}</span>
+                    <span className={`ml-2 text-xs ${opt.value === videoPace ? "text-white" : "text-muted-foreground"}`}>{opt.desc}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {isAnalyzing && onCancelAnalyze ? (
+            <Button
+              variant="destructive"
+              onClick={onCancelAnalyze}
+              className="gap-2"
+            >
+              <Loader2 className="h-4 w-4 animate-spin" />
+              中止生成
+            </Button>
+          ) : (
+            <Button
+              onClick={onAnalyze}
+              disabled={!script.trim()}
+              className="gap-2"
+            >
+              <Sparkles className="h-4 w-4" />
+              AI 拆解分镜
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

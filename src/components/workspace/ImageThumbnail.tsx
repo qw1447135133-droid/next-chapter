@@ -92,12 +92,70 @@ async function idbSet(key: string, value: string): Promise<void> {
   }
 }
 
+/**
+ * Pre-warm the thumbnail cache for a given image URL.
+ * Call this after generation so that when the user switches tabs the thumbnail is already ready.
+ */
+export function prewarmThumbnail(src: string, maxDim = 800, maxBytes = 500 * 1024): void {
+  if (!src) return;
+  // Already cached
+  if (memCache.has(src)) return;
+
+  // Check IDB, then compress if miss
+  idbGet(src).then((cached) => {
+    if (cached) {
+      memCache.set(src, cached);
+      return;
+    }
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      let w = img.width;
+      let h = img.height;
+      if (w > maxDim || h > maxDim) {
+        const ratio = Math.min(maxDim / w, maxDim / h);
+        w = Math.round(w * ratio);
+        h = Math.round(h * ratio);
+      }
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0, w, h);
+      const qualities = [0.7, 0.5, 0.35, 0.2, 0.1];
+      for (const q of qualities) {
+        const result = canvas.toDataURL("image/jpeg", q);
+        const size = Math.ceil((result.length - result.indexOf(",") - 1) * 0.75);
+        if (size <= maxBytes) {
+          memCache.set(src, result);
+          idbSet(src, result);
+          return;
+        }
+      }
+      const small = document.createElement("canvas");
+      small.width = Math.round(w * 0.5);
+      small.height = Math.round(h * 0.5);
+      const sCtx = small.getContext("2d");
+      if (!sCtx) return;
+      sCtx.drawImage(canvas, 0, 0, small.width, small.height);
+      const result = small.toDataURL("image/jpeg", 0.2);
+      memCache.set(src, result);
+      idbSet(src, result);
+    };
+    img.onerror = () => {
+      memCache.set(src, src);
+    };
+    img.src = src;
+  });
+}
+
 interface ImageThumbnailProps {
   src: string;
   alt: string;
   className?: string;
   maxBytes?: number;
-  /** Maximum dimension (width/height) for the thumbnail canvas. Default 2048. */
+  /** Maximum dimension (width/height) for the thumbnail canvas. Default 800. */
   maxDim?: number;
 }
 
@@ -106,18 +164,33 @@ interface ImageThumbnailProps {
  * or the original URL for storage-hosted images.
  * Shows a download button on hover to save the original full-size image.
  */
-const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDim = 2048 }: ImageThumbnailProps) => {
-  const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDim = 800 }: ImageThumbnailProps) => {
+  // Check mem cache synchronously for instant display; otherwise null (skeleton)
+  const initialThumb = src ? memCache.get(src) ?? null : null;
+  // For small base64 images, show immediately
+  const isSmallBase64 = src?.startsWith("data:image") && 
+    Math.ceil((src.length - src.indexOf(",") - 1) * 0.75) <= maxBytes;
+  
+  const [thumbUrl, setThumbUrl] = useState<string | null>(initialThumb ?? (isSmallBase64 ? src : null));
   const [hovered, setHovered] = useState(false);
   const [enlarged, setEnlarged] = useState(false);
 
   useEffect(() => {
+    if (!src) { setThumbUrl(null); return; }
+
     let cancelled = false;
 
     // Check memory cache first (sync)
     const mem = memCache.get(src);
     if (mem) {
       setThumbUrl(mem);
+      return;
+    }
+
+    // Small base64 — already showing
+    if (isSmallBase64) {
+      memCache.set(src, src);
+      idbSet(src, src);
       return;
     }
 
@@ -168,19 +241,18 @@ const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDi
     const doCompress = () => {
       if (cancelled) return;
       if (src.startsWith("data:image")) {
-        const byteSize = Math.ceil((src.length - src.indexOf(",") - 1) * 0.75);
-        if (byteSize <= maxBytes) {
-          setAndCache(src);
-          return;
-        }
         const img = new Image();
         img.onload = () => compressWithCanvas(img);
         img.src = src;
       } else {
+        // For storage URLs — fetch via Image element for canvas compression
         const img = new Image();
         img.crossOrigin = "anonymous";
         img.onload = () => compressWithCanvas(img);
-        img.onerror = () => setAndCache(src);
+        img.onerror = () => {
+          // Fallback: show original if compression fails
+          if (!cancelled) setThumbUrl(src);
+        };
         img.src = src;
       }
     };
@@ -258,7 +330,20 @@ const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDi
 
       <Dialog open={enlarged} onOpenChange={setEnlarged}>
         <DialogContent className="max-w-[95vw] max-h-[95vh] p-1 flex items-center justify-center bg-black/80 border border-border/30">
-          <img src={src} alt={alt} className="max-w-full max-h-[92vh] object-contain" />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute top-2 right-2 z-50 text-white hover:bg-white/20 h-8 w-8"
+            onClick={() => setEnlarged(false)}
+          >
+            <X className="h-5 w-5" />
+          </Button>
+          <img
+            src={src}
+            alt={alt}
+            className="max-w-full max-h-[92vh] object-contain cursor-pointer"
+            onClick={() => setEnlarged(false)}
+          />
         </DialogContent>
       </Dialog>
     </>

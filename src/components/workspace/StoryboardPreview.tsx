@@ -1,14 +1,21 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Scene, CharacterSetting } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Image, RefreshCw, Loader2, ArrowRight, History, ChevronDown, RectangleHorizontal, RectangleVertical, Square } from "lucide-react";
+import { Image, RefreshCw, Loader2, ArrowRight, History, ChevronDown, RectangleHorizontal, RectangleVertical, Square, Shirt } from "lucide-react";
 import ImageThumbnail from "./ImageThumbnail";
 
 export type StoryboardAspectRatio = "16:9" | "9:16" | "3:2" | "2:3";
+export type StoryboardModel = "gemini-3-pro-image-preview" | "doubao-seedream-5-0-260128" | "gemini-3.1-flash-image-preview";
+
+const STORYBOARD_MODEL_OPTIONS: { value: StoryboardModel; label: string }[] = [
+  { value: "gemini-3-pro-image-preview", label: "Nano Banana Pro" },
+  { value: "gemini-3.1-flash-image-preview", label: "Nano Banana 2" },
+  { value: "doubao-seedream-5-0-260128", label: "Seedream 5.0" },
+];
 
 const ASPECT_RATIO_OPTIONS: { value: StoryboardAspectRatio; label: string; icon: typeof RectangleHorizontal; cssAspect: string }[] = [
   { value: "16:9", label: "16:9 横屏", icon: RectangleHorizontal, cssAspect: "aspect-video" },
@@ -20,8 +27,8 @@ const ASPECT_RATIO_OPTIONS: { value: StoryboardAspectRatio; label: string; icon:
 interface StoryboardPreviewProps {
   scenes: Scene[];
   characters: CharacterSetting[];
-  onGenerateScene: (sceneId: string, aspectRatio: StoryboardAspectRatio) => void;
-  onGenerateAll: (aspectRatio: StoryboardAspectRatio) => void;
+  onGenerateScene: (sceneId: string, aspectRatio: StoryboardAspectRatio, model: StoryboardModel) => void;
+  onGenerateAll: (aspectRatio: StoryboardAspectRatio, model: StoryboardModel) => void;
   onStopAll: () => void;
   onScenesChange: (scenes: Scene[]) => void;
   generatingScenes: Set<string>;
@@ -48,11 +55,31 @@ const StoryboardPreview = ({
   });
   const setAspectRatio = (v: StoryboardAspectRatio) => {
     setAspectRatioState(v);
-    try { localStorage.setItem("storyboard-aspect-ratio", v); } catch {}
+    try { localStorage.setItem("storyboard-aspect-ratio", v); } catch { /* ignore */ }
   };
   const [arOpen, setArOpen] = useState(false);
+  const [storyboardModel, setStoryboardModelState] = useState<StoryboardModel>(() => {
+    try { return (localStorage.getItem("storyboard-model") as StoryboardModel) || "gemini-3-pro-image-preview"; } catch { return "gemini-3-pro-image-preview"; }
+  });
+  const setStoryboardModel = (v: StoryboardModel) => {
+    setStoryboardModelState(v);
+    try { localStorage.setItem("storyboard-model", v); } catch { /* ignore */ }
+  };
+  const [modelOpen, setModelOpen] = useState(false);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setModelOpen(false);
+      }
+    };
+    if (modelOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [modelOpen]);
 
   const isAnyGenerating = (generatingScenes?.size ?? 0) > 0;
+  const currentModel = STORYBOARD_MODEL_OPTIONS.find((o) => o.value === storyboardModel)!;
   const currentAR = ASPECT_RATIO_OPTIONS.find((o) => o.value === aspectRatio)!;
 
   const restoreFromHistory = (sceneId: string, url: string) => {
@@ -78,11 +105,40 @@ const StoryboardPreview = ({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold font-[Space_Grotesk] mb-1">分镜图生成</h2>
-          <p className="text-sm text-muted-foreground">为每个分镜生成对应的画面图像</p>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-semibold font-[Space_Grotesk]">分镜图生成</h2>
+            {/* Model Selector — pill style matching VideoGeneration */}
+            <div className="relative" ref={modelDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setModelOpen((v) => !v)}
+                disabled={isAnyGenerating}
+                className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {currentModel.label}
+                <ChevronDown className={`h-3 w-3 transition-transform ${modelOpen ? "rotate-180" : ""}`} />
+              </button>
+              {modelOpen && (
+                <div className="absolute left-0 top-full mt-1 z-50 min-w-[160px] rounded-lg border border-border bg-popover shadow-lg py-1">
+                  {STORYBOARD_MODEL_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => { setStoryboardModel(opt.value); setModelOpen(false); }}
+                      className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent ${
+                        opt.value === storyboardModel ? "text-primary font-semibold" : "text-popover-foreground"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground mt-1">为每个分镜生成对应的画面图像</p>
         </div>
         <div className="flex gap-2 items-center">
-          {/* Aspect Ratio Selector */}
           <Popover open={arOpen} onOpenChange={setArOpen}>
             <PopoverTrigger asChild>
               <Button variant="outline" size="sm" className="gap-1.5 h-9 text-xs" disabled={isAnyGenerating}>
@@ -115,9 +171,9 @@ const StoryboardPreview = ({
               {isAborting ? "正在中止..." : "中止生成"}
             </Button>
           ) : (
-            <Button variant="outline" onClick={() => onGenerateAll(aspectRatio)} disabled={isAnyGenerating} className="gap-1">
+            <Button variant="outline" onClick={() => onGenerateAll(aspectRatio, storyboardModel)} disabled={isAnyGenerating} className="gap-1">
               <Image className="h-3.5 w-3.5" />
-              生成全部
+              全部生成
             </Button>
           )}
           <Button size="sm" onClick={onNext} className="gap-1">
@@ -149,7 +205,7 @@ const StoryboardPreview = ({
                     variant="outline"
                     size="sm"
                     className="h-7 text-xs gap-1"
-                    onClick={() => onGenerateScene(scene.id, aspectRatio)}
+                    onClick={() => onGenerateScene(scene.id, aspectRatio, storyboardModel)}
                     disabled={isGen}
                   >
                     {isGen ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
@@ -215,6 +271,103 @@ const StoryboardPreview = ({
 
                 {/* Scene description */}
                 <p className={`text-xs text-muted-foreground ${isPortrait ? "line-clamp-2" : "line-clamp-3"}`}>{scene.description}</p>
+
+                {/* Costume selector for characters with 2+ costumes */}
+                {(() => {
+                  const charsWithCostumes = characters.filter(
+                    c => scene.characters.includes(c.name) && c.costumes && c.costumes.length > 1
+                  );
+                  if (charsWithCostumes.length === 0) return null;
+                  return (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {charsWithCostumes.map(c => {
+                        const assignedId = scene.characterCostumes?.[c.name];
+                        const assignedCostume = assignedId ? c.costumes!.find(cos => cos.id === assignedId) : null;
+                        // Auto-detect which costume matches scene text
+                        let autoLabel: string | null = null;
+                        if (!assignedCostume) {
+                          const sceneText = `${scene.description} ${scene.dialogue}`.toLowerCase();
+                          let bestScore = 0;
+                          for (const cos of c.costumes!) {
+                            if (!cos.label) continue;
+                            const label = cos.label.toLowerCase();
+                            if (sceneText.includes(label)) {
+                              const score = label.length + 100;
+                              if (score > bestScore) { bestScore = score; autoLabel = cos.label; }
+                              continue;
+                            }
+                            const parts = label.split(/[·・]/).map(p => p.trim()).filter(Boolean);
+                            let cs = 0, mp = 0;
+                            for (const part of parts) { if (part && sceneText.includes(part)) { cs += part.length; mp++; } }
+                            if (mp > 0) { const score = cs + mp * 10; if (score > bestScore) { bestScore = score; autoLabel = cos.label; } }
+                          }
+                        }
+                        const displayLabel = assignedCostume?.label || autoLabel || "未指定";
+                        const isManual = !!assignedCostume;
+
+                        return (
+                          <Popover key={c.id}>
+                            <PopoverTrigger asChild>
+                              <button
+                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors border ${
+                                  isManual
+                                    ? "bg-primary/10 text-primary border-primary/30"
+                                    : autoLabel
+                                    ? "bg-accent/50 text-accent-foreground border-border/40"
+                                    : "bg-muted/50 text-muted-foreground border-border/40"
+                                }`}
+                                title={`${c.name} 服装：${displayLabel}${isManual ? "（手动指定）" : autoLabel ? "（自动匹配）" : ""}`}
+                              >
+                                <Shirt className="h-2.5 w-2.5" />
+                                <span className="max-w-[80px] truncate">{c.name}</span>
+                                <span className="opacity-60">:</span>
+                                <span className="max-w-[60px] truncate">{displayLabel}</span>
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-48 p-1" align="start">
+                              <p className="px-2 py-1 text-xs font-medium text-muted-foreground">{c.name} 服装</p>
+                              {/* Auto option */}
+                              <button
+                                className={`w-full text-left px-2 py-1.5 rounded-sm text-xs transition-colors ${
+                                  !assignedCostume ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted text-foreground"
+                                }`}
+                                onClick={() => {
+                                  const updated = scenes.map(s => {
+                                    if (s.id !== scene.id) return s;
+                                    const cc = { ...(s.characterCostumes || {}) };
+                                    delete cc[c.name];
+                                    return { ...s, characterCostumes: Object.keys(cc).length > 0 ? cc : undefined };
+                                  });
+                                  onScenesChange(updated);
+                                }}
+                              >
+                                自动匹配{autoLabel ? ` (${autoLabel})` : ""}
+                              </button>
+                              {c.costumes!.map(cos => (
+                                <button
+                                  key={cos.id}
+                                  className={`w-full text-left px-2 py-1.5 rounded-sm text-xs transition-colors ${
+                                    assignedId === cos.id ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted text-foreground"
+                                  }`}
+                                  onClick={() => {
+                                    const updated = scenes.map(s => {
+                                      if (s.id !== scene.id) return s;
+                                      return { ...s, characterCostumes: { ...(s.characterCostumes || {}), [c.name]: cos.id } };
+                                    });
+                                    onScenesChange(updated);
+                                  }}
+                                >
+                                  {cos.label || "未命名"}
+                                  {cos.imageUrl && <span className="ml-1 text-muted-foreground">📷</span>}
+                                </button>
+                              ))}
+                            </PopoverContent>
+                          </Popover>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             </Card>
           );

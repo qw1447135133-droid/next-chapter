@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import type { DecomposeModel } from "@/components/workspace/ScriptInput";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Film, Settings } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
@@ -6,10 +7,11 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { friendlyError } from "@/lib/friendly-error";
-import { supabase } from "@/integrations/supabase/client";
-import type { Scene, CharacterSetting, SceneSetting, WorkspaceStep, ArtStyle, VideoModel } from "@/types/project";
-import { VIDEO_MODEL_API_MAP } from "@/types/project";
-import { useProjectPersistence } from "@/hooks/use-project-persistence";
+import { compressImage } from "@/lib/image-compress";
+import { invokeFunction, retryDecomposeChunk } from "@/lib/invoke-with-key";
+import type { Scene, CharacterSetting, SceneSetting, WorkspaceStep, ArtStyle, VideoModel, CostumeSetting, EpisodeDuration } from "@/types/project";
+import { VIDEO_MODEL_API_MAP, getSegmentsForDuration } from "@/types/project";
+import { useSmartPersistence } from "@/hooks/use-smart-persistence";
 import StepIndicator from "@/components/workspace/StepIndicator";
 import ScriptInput from "@/components/workspace/ScriptInput";
 import SceneList from "@/components/workspace/SceneList";
@@ -17,20 +19,88 @@ import CharacterSettings from "@/components/workspace/CharacterSettings";
 import StoryboardPreview from "@/components/workspace/StoryboardPreview";
 import VideoGeneration from "@/components/workspace/VideoGeneration";
 import VideoPreview from "@/components/workspace/VideoPreview";
+import DecomposeProgress, { type ChunkStatus } from "@/components/workspace/DecomposeProgress";
+import AnalyzeProgress, { type AnalyzePhase } from "@/components/workspace/AnalyzeProgress";
+import { getApiConfig } from "@/pages/Settings";
 
+// Helper for concurrency control
+const createSemaphore = (max: number) => {
+  let current = 0;
+  const queue: (() => void)[] = [];
+  return {
+    acquire: () => new Promise<void>((resolve) => {
+      if (current < max) { current++; resolve(); }
+      else queue.push(() => { current++; resolve(); });
+    }),
+    release: () => { current--; if (queue.length > 0) queue.shift()!(); },
+  };
+};
+
+/**
+ * Read a streaming response (with heartbeat newlines) chunk-by-chunk.
+ * Resolves as soon as the last non-empty line contains valid JSON,
+ * without waiting for the stream to fully close.
+ */
 const Workspace = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const resumeId = searchParams.get("id");
 
   const [currentStep, setCurrentStep] = useState<WorkspaceStep>(1);
-  const [script, setScript] = useState("");
+  const [script, setScript] = useState(() => {
+    try {
+      const imported = sessionStorage.getItem("imported-script");
+      if (imported) { sessionStorage.removeItem("imported-script"); return imported; }
+    } catch { /* ignore */ }
+    return "";
+  });
   const [scenes, setScenes] = useState<Scene[]>([]);
+  const scenesRef = useRef<Scene[]>([]);
+  useEffect(() => { scenesRef.current = scenes; }, [scenes]);
   const [characters, setCharacters] = useState<CharacterSetting[]>([]);
   const [sceneSettings, setSceneSettings] = useState<SceneSetting[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [artStyle, setArtStyle] = useState<ArtStyle>("live-action");
+  const [customArtStylePrompt, setCustomArtStylePromptState] = useState(() => {
+    try { return localStorage.getItem("custom-art-style-prompt") || ""; } catch { return ""; }
+  });
+  const setCustomArtStylePrompt = (v: string) => {
+    setCustomArtStylePromptState(v);
+    try { localStorage.setItem("custom-art-style-prompt", v); } catch { /* ignore */ }
+  };
   const [systemPrompt, setSystemPrompt] = useState("");
+  // Effective style for generation: custom art style passes the prompt directly
+  const effectiveStyle = artStyle === "custom" && customArtStylePrompt?.trim()
+    ? `custom:${customArtStylePrompt.trim()}`
+    : artStyle;
+  const [videoPace, setVideoPaceState] = useState<import("@/types/project").VideoPace>(() => {
+    try { return (localStorage.getItem("video-pace") as import("@/types/project").VideoPace) || "medium"; } catch { return "medium"; }
+  });
+  const setVideoPace = (v: import("@/types/project").VideoPace) => {
+    setVideoPaceState(v);
+    try { localStorage.setItem("video-pace", v); } catch { /* ignore */ }
+  };
+  const [episodeDuration, setEpisodeDurationState] = useState<EpisodeDuration>(() => {
+    try { return (localStorage.getItem("episode-duration") as EpisodeDuration) || "60"; } catch { return "60"; }
+  });
+  const setEpisodeDuration = (v: EpisodeDuration) => {
+    setEpisodeDurationState(v);
+    try { localStorage.setItem("episode-duration", v); } catch { /* ignore */ }
+  };
+  const [customDuration, setCustomDurationState] = useState(() => {
+    try { return localStorage.getItem("episode-custom-duration") || ""; } catch { return ""; }
+  });
+  const setCustomDuration = (v: string) => {
+    setCustomDurationState(v);
+    try { localStorage.setItem("episode-custom-duration", v); } catch { /* ignore */ }
+  };
+  const [decomposeModel, setDecomposeModelState] = useState<DecomposeModel>(() => {
+    try { return (localStorage.getItem("decompose-model") as DecomposeModel) || "gemini-3.1-pro-preview"; } catch { return "gemini-3.1-pro-preview"; }
+  });
+  const setDecomposeModel = (v: DecomposeModel) => {
+    setDecomposeModelState(v);
+    try { localStorage.setItem("decompose-model", v); } catch { /* ignore */ }
+  };
   // Persistent storyboard generating state
   const SB_TASK_LS_KEY = "generating-storyboard-tasks";
   const SB_TIMEOUT_MS = 240_000;
@@ -47,13 +117,13 @@ const Workspace = () => {
       const filtered = tasks.filter((t) => t.id !== id);
       filtered.push({ id, startedAt: Date.now() });
       localStorage.setItem(SB_TASK_LS_KEY, JSON.stringify(filtered));
-    } catch {}
+    } catch { /* ignore */ }
   }, []);
   const removeSbTask = useCallback((id: string) => {
     try {
       const tasks: { id: string; startedAt: number }[] = JSON.parse(localStorage.getItem(SB_TASK_LS_KEY) || "[]");
       localStorage.setItem(SB_TASK_LS_KEY, JSON.stringify(tasks.filter((t) => t.id !== id)));
-    } catch {}
+    } catch { /* ignore */ }
   }, []);
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [isAbortingVideo, setIsAbortingVideo] = useState(false);
@@ -66,14 +136,46 @@ const Workspace = () => {
   const [isAbortingAutoDetect, setIsAbortingAutoDetect] = useState(false);
   const autoDetectAbortRef = useRef(false);
   const analyzeAbortRef = useRef<AbortController | null>(null);
+  const isAnalyzingRef = useRef(false);
   const [skipStoryboard, setSkipStoryboard] = useState(false);
-  const [videoModel, setVideoModel] = useState<VideoModel>("seedance-1.5-pro");
+  const [videoModel, setVideoModelState] = useState<VideoModel>(() => {
+    try { return (localStorage.getItem("workspace-video-model") as VideoModel) || "seedance-1.5-pro"; } catch { return "seedance-1.5-pro"; }
+  });
+  const setVideoModel = (m: VideoModel) => {
+    setVideoModelState(m);
+    try { localStorage.setItem("workspace-video-model", m); } catch { /* ignore */ }
+  };
   const [projectTitle, setProjectTitle] = useState("未命名项目");
   const [isLoaded, setIsLoaded] = useState(false);
   const [rawAiOutput, setRawAiOutput] = useState<string>("");
   const isRestoringRef = useRef(false);
+  const [decomposeChunks, setDecomposeChunks] = useState<ChunkStatus[]>([]);
+  const [retryingChunk, setRetryingChunk] = useState<number | null>(null);
+  const DECOMPOSE_META_SS_KEY = "decompose-meta";
+  const lastDecomposeMetaRef = useRef<{ episodes: string[]; costumeContext: string; model: string; prompt: string; chunkSegmentCounts?: number[]; isRealEpisodes?: boolean; videoPace?: string } | null>(
+    (() => { try { const raw = sessionStorage.getItem(DECOMPOSE_META_SS_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; } })()
+  );
+  const saveDecomposeMeta = (data: typeof lastDecomposeMetaRef.current) => {
+    lastDecomposeMetaRef.current = data;
+    try { if (data) sessionStorage.setItem(DECOMPOSE_META_SS_KEY, JSON.stringify(data)); else sessionStorage.removeItem(DECOMPOSE_META_SS_KEY); } catch { /* ignore */ }
+  };
+  const [analyzePhase, setAnalyzePhase] = useState<AnalyzePhase>("idle");
+  const [phase1Info, setPhase1Info] = useState("");
+  const [phase2Info, setPhase2Info] = useState("");
+  const [phase2RetryCount, setPhase2RetryCount] = useState(0);
+  const [streamingText, setStreamingText] = useState("");
+  // Store phase 1 results for phase 2 retry — persisted to localStorage
+  const PHASE1_LS_KEY = "phase1-results";
+  const phase1ResultsRef = useRef<{ autoCharacters: CharacterSetting[]; aiSceneSettings: Array<{ name: string; description: string }> } | null>(
+    (() => { try { const raw = localStorage.getItem(PHASE1_LS_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; } })()
+  );
+  const savePhase1Results = (data: typeof phase1ResultsRef.current) => {
+    phase1ResultsRef.current = data;
+    try { if (data) localStorage.setItem(PHASE1_LS_KEY, JSON.stringify(data)); else localStorage.removeItem(PHASE1_LS_KEY); } catch { /* ignore */ }
+  };
+  const clearPhase1Results = () => { phase1ResultsRef.current = null; try { localStorage.removeItem(PHASE1_LS_KEY); } catch { /* ignore */ } };
 
-  const { createProject, saveProject, loadProject, setProjectId, getProjectId } = useProjectPersistence();
+  const { createProject, saveProject, loadProject, setProjectId, getProjectId } = useSmartPersistence();
 
   // Load existing project or mark as ready for lazy creation
   useEffect(() => {
@@ -83,13 +185,39 @@ const Workspace = () => {
         const data = await loadProject(resumeId);
         if (data) {
           setScript(data.script);
-          setScenes(data.scenes);
+          // Clean up stale video/storyboard statuses before setting scenes
+          const cleanedScenes = (data.scenes || []).map((s: Scene) => {
+            const isStuck = s.videoStatus === "preparing" || s.videoStatus === "queued" || s.videoStatus === "processing";
+            if (isStuck && s.videoTaskId) {
+              // Has taskId — will resume polling below
+              return s;
+            }
+            if (isStuck && !s.videoTaskId) {
+              // No taskId — was in "preparing" phase before API returned, clear status
+              return { ...s, videoStatus: undefined };
+            }
+            return s;
+          });
+          setScenes(cleanedScenes);
           setCharacters(data.characters);
           setSceneSettings(data.sceneSettings);
           setArtStyle(data.artStyle);
           setCurrentStep(data.currentStep as WorkspaceStep);
           setSystemPrompt(data.systemPrompt || "");
           setProjectTitle(data.title);
+
+          // Resume polling for scenes that have an active video task
+          cleanedScenes.forEach((s: Scene) => {
+            if (s.videoTaskId && (s.videoStatus === "queued" || s.videoStatus === "processing")) {
+              pollVideoTask(s.id, s.videoTaskId, undefined);
+            }
+          });
+        } else if (resumeId) {
+          // Project not found in database — redirect to fresh workspace
+          console.warn("Project not found in database, starting fresh:", resumeId);
+          toast({ title: "项目未找到", description: "该项目在数据库中不存在，已为您创建新工作区", variant: "destructive" });
+          navigate("/workspace", { replace: true });
+          return;
         }
       }
       // For new projects, don't create DB row until first meaningful save
@@ -115,14 +243,20 @@ const Workspace = () => {
             setGeneratingScenes((prev) => { const n = new Set(prev); n.delete(t.id); return n; });
           });
         }
-      } catch {}
+      } catch { /* ignore */ }
     }, 5000);
     return () => clearInterval(interval);
   }, []);
 
   const ensureProjectExists = useCallback(async () => {
     if (getProjectId()) return;
-    await createProject({ title: projectTitle });
+    const newId = await createProject({ title: projectTitle });
+    // Update URL so navigating away and back preserves the project
+    if (newId) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("id", newId);
+      window.history.replaceState({}, "", url.toString());
+    }
   }, [createProject, getProjectId, projectTitle]);
 
   // Auto-save on state changes (after initial load, skip during restoration)
@@ -144,37 +278,28 @@ const Workspace = () => {
   useEffect(() => { if (isLoaded) autoSave({ currentStep }); }, [currentStep]); // eslint-disable-line
   useEffect(() => { if (isLoaded) autoSave({ systemPrompt }); }, [systemPrompt]); // eslint-disable-line
 
-  const handleCancelAnalyze = () => {
-    analyzeAbortRef.current?.abort();
-    analyzeAbortRef.current = null;
-    setIsAnalyzing(false);
-    toast({ title: "已中止", description: "剧本分析已取消" });
-  };
+  const handleRetryChunk = async (chunkIndex: number) => {
+    const meta = lastDecomposeMetaRef.current;
+    if (!meta) {
+      toast({ title: "无法重试", description: "缺少拆解上下文信息", variant: "destructive" });
+      return;
+    }
+    setRetryingChunk(chunkIndex);
+    setDecomposeChunks(prev => prev.map(c => c.index === chunkIndex ? { ...c, status: "processing" as const, error: undefined } : c));
 
-  const handleAnalyze = async () => {
-    if (!script.trim()) return;
-    setIsAnalyzing(true);
     try {
-      // Dynamic timeout based on script length
-      const charCount = script.trim().length;
-      const timeoutMs = charCount <= 8000 ? 180_000 : charCount <= 15000 ? 360_000 : 600_000;
-      const controller = new AbortController();
-      analyzeAbortRef.current = controller;
-
-      const { data, error } = await supabase.functions.invoke("script-decompose", {
-        body: { script, systemPrompt },
-        signal: controller.signal,
+      const newScenes = await retryDecomposeChunk(chunkIndex, meta.episodes, meta.costumeContext, meta.model, meta.prompt, {
+        chunkSegments: meta.chunkSegmentCounts?.[chunkIndex],
+        isRealEpisodes: meta.isRealEpisodes,
+        videoPace: meta.videoPace,
       });
 
-      if (error) throw error;
-      if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)));
-
-      // Store raw AI output for display
-      setRawAiOutput(JSON.stringify(data, null, 2));
-
-      const parsedScenes: Scene[] = (data.scenes || []).map((s: any, i: number) => ({
+      // Re-number and merge into existing scenes
+      // Find the insertion point: after all scenes from previous chunks, before scenes from later chunks
+      const epPrefix = meta.isRealEpisodes && meta.episodes.length > 1 ? `${chunkIndex + 1}-` : "";
+      const mappedScenes: Scene[] = newScenes.map((s: any, i: number) => ({
         id: crypto.randomUUID(),
-        sceneNumber: s.sceneNumber ?? i + 1,
+        sceneNumber: i + 1,
         segmentLabel: s.segmentLabel ?? "",
         sceneName: s.sceneName ?? "",
         description: s.description ?? "",
@@ -184,75 +309,388 @@ const Workspace = () => {
         duration: s.duration ?? 5,
       }));
 
-      setScenes(parsedScenes);
-
-      const aiCharacters: Array<{ name: string; description: string }> = data.characters || [];
-      const allCharNames = new Set<string>();
-      parsedScenes.forEach((s) => s.characters.forEach((name) => allCharNames.add(name)));
-      const autoCharacters: CharacterSetting[] = Array.from(allCharNames).map((name) => {
-        const aiChar = aiCharacters.find((c) => c.name === name);
-        return {
-          id: crypto.randomUUID(),
-          name,
-          description: aiChar?.description || "",
-          isAIGenerated: false,
-          source: "auto" as const,
-        };
+      // Insert new scenes into position (replace any existing scenes for this chunk prefix, or append)
+      setScenes(prev => {
+        const withoutThisChunk = epPrefix
+          ? prev.filter(s => !s.segmentLabel?.startsWith(epPrefix))
+          : prev;
+        const allScenes = [...withoutThisChunk, ...mappedScenes];
+        // Re-number all scenes
+        return allScenes.map((s, i) => ({ ...s, sceneNumber: i + 1 }));
       });
+
+      setDecomposeChunks(prev => prev.map(c => c.index === chunkIndex ? { ...c, status: "done" as const } : c));
+      toast({ title: "重试成功", description: `第 ${chunkIndex + 1} 段已重新拆解，新增 ${mappedScenes.length} 个分镜` });
+    } catch (err: any) {
+      setDecomposeChunks(prev => prev.map(c => c.index === chunkIndex ? { ...c, status: "failed" as const, error: err?.message } : c));
+      toast({ title: "重试失败", description: err?.message || "未知错误", variant: "destructive" });
+    } finally {
+      setRetryingChunk(null);
+    }
+  };
+
+  const handleCancelAnalyze = () => {
+    analyzeAbortRef.current?.abort();
+    analyzeAbortRef.current = null;
+    isAnalyzingRef.current = false;
+    setIsAnalyzing(false);
+    // Keep phase info visible so user can see chunk status and retry
+    setDecomposeChunks(prev => {
+      if (prev.length === 0) return prev;
+      return prev.map(c =>
+        c.status === "processing" || c.status === "pending"
+          ? { ...c, status: "cancelled" as const }
+          : c
+      );
+    });
+    // Only reset to idle if no chunks were produced; otherwise show phase2-failed for retry
+    const hasAnyDone = scenes.length > 0;
+    if (hasAnyDone) {
+      setAnalyzePhase("phase2-failed");
+      setPhase2Info("已手动中止，可重试未完成的集");
+    } else {
+      setAnalyzePhase("idle");
+    }
+    toast({ title: "已中止", description: "剧本分析已取消" });
+  };
+
+  /** Run phase 2 decomposition. Can be called standalone for retry. */
+  const runPhase2 = async (
+    autoCharacters: CharacterSetting[],
+    aiSceneSettings: Array<{ name: string; description: string }>,
+    controller: AbortController,
+    resetAnalyzing: () => void,
+  ) => {
+    const config = getApiConfig();
+    const maxAutoRetries = config.retryCount ?? 2;
+    const retryDelay = config.retryDelayMs ?? 3000;
+    let lastError: any = null;
+
+    for (let attempt = 0; attempt <= maxAutoRetries; attempt++) {
+      if (controller.signal.aborted) throw new Error("请求已取消");
+
+      if (attempt > 0) {
+        setPhase2RetryCount(attempt);
+        setPhase2Info(`网络错误，${(retryDelay / 1000).toFixed(1)}s 后自动重试...`);
+        await new Promise(r => setTimeout(r, retryDelay));
+        if (controller.signal.aborted) throw new Error("请求已取消");
+        setPhase2Info(`第 ${attempt} 次重试中...`);
+      }
+
+      try {
+        setAnalyzePhase("phase2");
+        if (attempt === 0) setPhase2Info("正在拆解分镜与时长分配...");
+        setDecomposeChunks([]);
+
+        const handleDecomposeProgress = (partialData: any) => {
+          const { scenes: partialScenes, chunkIndex, totalChunks, status, error, chunkSegmentCounts: initSegCounts, isRealEpisodes: initIsEpisodes, originallyEpisodes: initOrigEpisodes } = partialData;
+          if (status === "init") {
+            const useEpisodeLabel = initIsEpisodes || initOrigEpisodes;
+            setDecomposeChunks(Array.from({ length: totalChunks }, (_, i) => ({
+              index: i,
+              label: useEpisodeLabel ? `第 ${i + 1} 集` : `第 ${i + 1} 段`,
+              status: "pending" as const,
+              segmentCount: initSegCounts?.[i],
+            })));
+            // Save meta early so retry is available even during parallel decomposition
+            if (partialData.episodes) {
+              saveDecomposeMeta({
+                episodes: partialData.episodes,
+                costumeContext: partialData.costumeContext || "",
+                model: partialData.model || decomposeModel,
+                prompt: partialData.prompt || "",
+                chunkSegmentCounts: initSegCounts,
+                isRealEpisodes: initIsEpisodes,
+                videoPace: partialData.videoPace,
+              });
+            }
+            return;
+          }
+          setDecomposeChunks(prev => prev.map(c =>
+            c.index === chunkIndex
+              ? { ...c, status: status as ChunkStatus["status"], error }
+              : c
+          ));
+          if (status === "done" || status === "failed") {
+            if (status === "done") {
+              setPhase2Info(`已完成第 ${chunkIndex + 1}/${totalChunks} 段拆解`);
+            }
+            if (partialScenes?.length > 0) {
+              const progressScenes: Scene[] = partialScenes.map((s: any, i: number) => ({
+                id: crypto.randomUUID(),
+                sceneNumber: s.sceneNumber ?? i + 1,
+                segmentLabel: s.segmentLabel ?? "",
+                sceneName: s.sceneName ?? "",
+                description: s.description ?? "",
+                characters: s.characters ?? [],
+                dialogue: s.dialogue ?? "",
+                cameraDirection: s.cameraDirection ?? "",
+                duration: s.duration ?? 5,
+              }));
+              setScenes(progressScenes);
+            }
+          }
+        };
+
+        const segmentsPerEpisode = getSegmentsForDuration(episodeDuration, customDuration ? Number(customDuration) : undefined);
+        setStreamingText("");
+        const { data: decomposeData, error: decomposeError } = await invokeFunction("script-decompose", {
+          script,
+          systemPrompt,
+          model: decomposeModel,
+          videoPace,
+          segmentsPerEpisode,
+        }, {
+          onProgress: handleDecomposeProgress,
+          onStreamText: (text) => setStreamingText(text),
+          abortSignal: controller.signal,
+        });
+        setStreamingText("");
+        if (decomposeError) throw decomposeError;
+
+        if (decomposeData?.episodes) {
+          saveDecomposeMeta({
+            episodes: decomposeData.episodes,
+            costumeContext: decomposeData.costumeContext || "",
+            model: decomposeData.model || decomposeModel,
+            prompt: decomposeData.prompt || "",
+            chunkSegmentCounts: decomposeData.chunkSegmentCounts,
+            isRealEpisodes: decomposeData.isRealEpisodes,
+            videoPace: decomposeData.videoPace,
+          });
+        }
+
+        const parsed = decomposeData;
+        if (!parsed) throw new Error("无法解析返回的数据");
+
+        const rawScenes = Array.isArray(parsed) ? parsed : (parsed?.scenes || []);
+        setRawAiOutput(JSON.stringify(parsed, null, 2));
+
+        const parsedScenes: Scene[] = rawScenes.map((s: any, i: number) => {
+          let characterCostumes: Record<string, string> | undefined;
+          if (s.characterCostumes && typeof s.characterCostumes === "object") {
+            characterCostumes = {};
+            for (const [charName, costumeLabel] of Object.entries(s.characterCostumes)) {
+              if (typeof costumeLabel !== "string") continue;
+              const char = autoCharacters.find(c => c.name === charName);
+              if (!char?.costumes) continue;
+              const costume = char.costumes.find(cos =>
+                cos.label === costumeLabel || cos.label.includes(costumeLabel) || costumeLabel.includes(cos.label)
+              );
+              if (costume) characterCostumes[charName] = costume.id;
+            }
+            if (Object.keys(characterCostumes).length === 0) characterCostumes = undefined;
+          }
+          return {
+            id: crypto.randomUUID(),
+            sceneNumber: s.sceneNumber ?? i + 1,
+            segmentLabel: s.segmentLabel ?? "",
+            sceneName: s.sceneName ?? "",
+            description: s.description ?? "",
+            characters: s.characters ?? [],
+            dialogue: s.dialogue ?? "",
+            cameraDirection: s.cameraDirection ?? "",
+            duration: s.duration ?? 5,
+            characterCostumes,
+          };
+        });
+
+        if (parsedScenes.length === 0) {
+          if (!controller.signal.aborted) {
+            toast({ title: "警告", description: "未能从剧本中识别出任何分镜，请检查剧本内容", variant: "destructive" });
+          }
+          setAnalyzePhase("phase2-failed");
+          setPhase2Info("未识别到分镜");
+          resetAnalyzing();
+          return;
+        }
+
+        setScenes(parsedScenes);
+
+        const existingNames = new Set(autoCharacters.map(c => c.name));
+        const allCharNames = new Set<string>();
+        parsedScenes.forEach((s) => s.characters.forEach((name) => allCharNames.add(name)));
+        const missingChars: CharacterSetting[] = Array.from(allCharNames)
+          .filter(name => !existingNames.has(name))
+          .map(name => ({ id: crypto.randomUUID(), name, description: "", isAIGenerated: false, source: "auto" as const }));
+        if (missingChars.length > 0) setCharacters(prev => [...prev, ...missingChars]);
+
+        if (aiSceneSettings.length === 0) {
+          const sceneNameSet = new Set<string>();
+          parsedScenes.forEach((s) => { if (s.sceneName?.trim()) sceneNameSet.add(s.sceneName.trim()); });
+          setSceneSettings(Array.from(sceneNameSet).map((name) => ({
+            id: crypto.randomUUID(), name, description: "", isAIGenerated: false, source: "auto" as const,
+          })));
+        }
+
+        const firstLine = script.trim().split("\n")[0].slice(0, 30);
+        if (firstLine) { setProjectTitle(firstLine); autoSave({ title: firstLine }); }
+
+        setAnalyzePhase("done");
+        setPhase2Info(`成功拆解 ${parsedScenes.length} 个分镜`);
+        setPhase2RetryCount(0);
+        clearPhase1Results();
+        toast({ title: "拆解完成", description: `成功拆解为 ${parsedScenes.length} 个分镜，识别 ${autoCharacters.length + missingChars.length} 个角色` });
+        resetAnalyzing();
+        return;
+
+      } catch (innerErr: any) {
+        lastError = innerErr;
+        // If aborted or timeout, don't retry
+        if (innerErr?.name === "AbortError" || innerErr?.message?.includes("aborted")) throw innerErr;
+        if (innerErr?.name === "TimeoutError" || innerErr?.message?.includes("timed out") || innerErr?.message?.includes("timeout")) {
+          if (attempt >= maxAutoRetries) throw innerErr;
+          // Continue to retry
+        }
+        // Network errors — retry
+        const isNetworkError = innerErr?.message?.includes("Failed to fetch") || innerErr?.message?.includes("502") || innerErr?.message?.includes("网络");
+        if (!isNetworkError || attempt >= maxAutoRetries) throw innerErr;
+        console.warn(`[Phase2] 第 ${attempt + 1} 次自动重试...`, innerErr?.message);
+      }
+    }
+    throw lastError;
+  };
+
+  const handleAnalyze = async () => {
+    if (!script.trim() || isAnalyzingRef.current) return;
+    isAnalyzingRef.current = true;
+    setIsAnalyzing(true);
+    setAnalyzePhase("phase1");
+    setPhase1Info("正在识别角色与场景...");
+    setPhase2Info("");
+    setStreamingText("");
+    clearPhase1Results();
+    setPhase2RetryCount(0);
+
+    const resetAnalyzing = () => {
+      isAnalyzingRef.current = false;
+      setIsAnalyzing(false);
+      analyzeAbortRef.current = null;
+      setStreamingText("");
+    };
+    
+    try {
+      const controller = new AbortController();
+      analyzeAbortRef.current = controller;
+
+      // ========== Phase 1: Extract characters & scenes ==========
+      const { data: extractData, error: extractError } = await invokeFunction("extract-characters-scenes", { script, model: decomposeModel }, {
+        onStreamText: (text) => setStreamingText(text),
+      });
+      setStreamingText("");
+      if (extractError) {
+        setAnalyzePhase("phase1-failed");
+        setPhase1Info("识别失败");
+        throw extractError;
+      }
+
+      const aiCharacters: Array<{ name: string; description: string }> = extractData.characters || [];
+      const aiSceneSettings: Array<{ name: string; description: string }> = extractData.sceneSettings || [];
+
+      const autoCharacters: CharacterSetting[] = aiCharacters.map((aiChar) => ({
+        id: crypto.randomUUID(),
+        name: aiChar.name,
+        description: aiChar?.description || "",
+        isAIGenerated: false,
+        source: "auto" as const,
+      }));
       setCharacters(autoCharacters);
 
-      const aiSceneSettings: Array<{ name: string; description: string }> = data.sceneSettings || [];
-      const sceneNameSet = new Set<string>();
       if (aiSceneSettings.length > 0) {
-        const autoScenes: SceneSetting[] = aiSceneSettings.map((s) => ({
+        setSceneSettings(aiSceneSettings.map((s) => ({
           id: crypto.randomUUID(),
           name: s.name,
           description: s.description || "",
           isAIGenerated: false,
           source: "auto" as const,
-        }));
-        setSceneSettings(autoScenes);
-      } else {
-        parsedScenes.forEach((s) => {
-          if (s.sceneName && s.sceneName.trim()) sceneNameSet.add(s.sceneName.trim());
-        });
-        const autoScenes: SceneSetting[] = Array.from(sceneNameSet).map((name) => ({
-          id: crypto.randomUUID(),
-          name,
-          description: "",
-          isAIGenerated: false,
-          source: "auto" as const,
-        }));
-        setSceneSettings(autoScenes);
+        })));
       }
 
-      // Update project title from first line of script
-      const firstLine = script.trim().split("\n")[0].slice(0, 30);
-      if (firstLine) {
-        setProjectTitle(firstLine);
-        autoSave({ title: firstLine });
-      }
+      setAnalyzePhase("phase1-done");
+      setPhase1Info(`识别 ${autoCharacters.length} 个角色，${aiSceneSettings.length} 个场景`);
 
-      toast({ title: "拆解完成", description: `成功拆解为 ${parsedScenes.length} 个分镜，识别 ${autoCharacters.length} 个角色` });
+      // Store phase 1 results for potential phase 2 retry
+      savePhase1Results({ autoCharacters, aiSceneSettings });
+
+      // ========== Phase 2 ==========
+      await runPhase2(autoCharacters, aiSceneSettings, controller, resetAnalyzing);
+        
     } catch (e: any) {
-      // Ignore abort errors (user cancelled)
       if (e?.name === "AbortError" || e?.message?.includes("aborted")) {
+        // Don't reset to idle — handleCancelAnalyze already set the right state
+        resetAnalyzing();
+        return;
+      }
+      if (e?.name === "TimeoutError" || e?.message?.includes("timed out") || e?.message?.includes("timeout")) {
+        if (analyzePhase === "phase1" || analyzePhase === "phase1-failed") {
+          setAnalyzePhase("phase1-failed");
+          setPhase1Info("请求超时");
+        } else {
+          setAnalyzePhase("phase2-failed");
+          setPhase2Info("请求超时");
+        }
+        toast({ title: "请求超时", description: "剧本拆解耗时过长，请尝试缩短剧本或重新拆解", variant: "destructive", duration: 8000 });
+        resetAnalyzing();
         return;
       }
       console.error("Script decompose error:", e);
       const fe = friendlyError(e);
-      toast({
-        title: fe.title,
-        description: `剧本拆解失败：${fe.description}`,
-        variant: "destructive",
-        duration: 8000,
-      });
-    } finally {
-      setIsAnalyzing(false);
+      // Only set phase2-failed if phase1 already completed
+      if (phase1ResultsRef.current) {
+        setAnalyzePhase("phase2-failed");
+        setPhase2Info(fe.description);
+      }
+      toast({ title: fe.title, description: `剧本拆解失败：${fe.description}`, variant: "destructive", duration: 8000 });
+      resetAnalyzing();
     }
   };
 
-  const handleGenerateSceneStoryboard = async (sceneId: string, aspectRatio: string = "16:9") => {
+  const handleRetryPhase2 = async () => {
+    if (isAnalyzingRef.current) return;
+
+    // Fall back to current state if ref was lost (e.g. after navigation/refresh)
+    if (!phase1ResultsRef.current) {
+      if (characters.length > 0 || sceneSettings.length > 0) {
+        savePhase1Results({
+          autoCharacters: characters,
+          aiSceneSettings: sceneSettings.map(s => ({ name: s.name, description: s.description })),
+        });
+      } else {
+        toast({ title: "无法重试", description: "缺少阶段一识别结果，请重新执行完整拆解", variant: "destructive" });
+        return;
+      }
+    }
+
+    isAnalyzingRef.current = true;
+    setIsAnalyzing(true);
+    setPhase2RetryCount(0);
+
+    const resetAnalyzing = () => {
+      isAnalyzingRef.current = false;
+      setIsAnalyzing(false);
+      analyzeAbortRef.current = null;
+    };
+
+    try {
+      const controller = new AbortController();
+      analyzeAbortRef.current = controller;
+      const { autoCharacters, aiSceneSettings } = phase1ResultsRef.current;
+      await runPhase2(autoCharacters, aiSceneSettings, controller, resetAnalyzing);
+    } catch (e: any) {
+      if (e?.name === "AbortError" || e?.message?.includes("aborted")) {
+        resetAnalyzing();
+        return;
+      }
+      console.error("Phase 2 retry error:", e);
+      const fe = friendlyError(e);
+      setAnalyzePhase("phase2-failed");
+      setPhase2Info(fe.description);
+      toast({ title: fe.title, description: `阶段二重试失败：${fe.description}`, variant: "destructive", duration: 8000 });
+      resetAnalyzing();
+    }
+  };
+
+  const handleGenerateSceneStoryboard = async (sceneId: string, aspectRatio: string = "16:9", model: string = "gemini-3-pro-image-preview") => {
     const scene = scenes.find((s) => s.id === sceneId);
     if (!scene) return;
 
@@ -264,20 +702,64 @@ const Workspace = () => {
         .filter((c) => scene.characters.includes(c.name))
         .map((c) => ({ name: c.name, description: c.description }));
 
-      // Compress character reference images before sending
-      const { compressImage } = await import("@/lib/image-compress");
-      const characterImagesRaw = characters
-        .filter((c) => scene.characters.includes(c.name) && c.imageUrl);
+      // Compress reference images client-side to reduce edge function payload & processing time
+      // For each character, check if the scene specifies a costume; if so, use costume image
       const characterImages = await Promise.all(
-        characterImagesRaw.map(async (c) => ({
-          name: c.name,
-          imageUrl: await compressImage(c.imageUrl!, 10 * 1024 * 1024),
-        }))
-      );
+        characters
+          .filter((c) => scene.characters.includes(c.name) && (c.imageUrl || (c.costumes && c.costumes.some(cos => cos.imageUrl))))
+          .map(async (c) => {
+            let imageUrl = c.imageUrl;
+            // Check scene-level costume assignment first
+            const costumeId = scene.characterCostumes?.[c.name];
+            if (costumeId && c.costumes) {
+              const costume = c.costumes.find(cos => cos.id === costumeId);
+              if (costume?.imageUrl) imageUrl = costume.imageUrl;
+            } else if (c.costumes && c.costumes.length > 1) {
+              // Auto-match: find the best costume variant based on scene text
+              const sceneText = `${scene.description} ${scene.dialogue}`.toLowerCase();
+              // Score each costume: check how many label components match the scene text
+              // For labels like "18岁·护士服", split on "·" and check each part
+              let bestCostume: typeof c.costumes[0] | null = null;
+              let bestScore = 0;
+              for (const cos of c.costumes) {
+                if (!cos.label || !cos.imageUrl) continue;
+                const label = cos.label.toLowerCase();
+                // Check full label match first (highest priority)
+                if (sceneText.includes(label)) {
+                  const score = label.length + 100; // full match bonus
+                  if (score > bestScore) { bestScore = score; bestCostume = cos; }
+                  continue;
+                }
+                // Split on "·" or "·" (full-width/half-width dot) and score by component matches
+                const parts = label.split(/[·・]/).map(p => p.trim()).filter(Boolean);
+                let componentScore = 0;
+                let matchedParts = 0;
+                for (const part of parts) {
+                  if (part && sceneText.includes(part)) {
+                    componentScore += part.length;
+                    matchedParts++;
+                  }
+                }
+                // Only consider if at least one part matches; prefer more parts matched
+                if (matchedParts > 0) {
+                  const score = componentScore + matchedParts * 10;
+                  if (score > bestScore) { bestScore = score; bestCostume = cos; }
+                }
+              }
+              if (bestCostume) imageUrl = bestCostume.imageUrl;
+            }
+            if (!imageUrl) return null;
+            return {
+              name: c.name,
+              // Higher quality for character refs (1536px, 1.2MB) to preserve facial details
+              imageUrl: await compressImage(imageUrl, 1200 * 1024, { maxDim: 1536 }),
+            };
+          })
+      ).then(results => results.filter(Boolean) as { name: string; imageUrl: string }[]);
 
       const sceneSetting = sceneSettings.find((ss) => ss.name === scene.sceneName?.trim());
       const sceneImageUrl = sceneSetting?.imageUrl
-        ? await compressImage(sceneSetting.imageUrl, 10 * 1024 * 1024)
+        ? await compressImage(sceneSetting.imageUrl, 800 * 1024)
         : undefined;
 
       // Gather neighboring scenes in the same scene group for spatial continuity
@@ -286,15 +768,16 @@ const Workspace = () => {
       const prevScene = sceneIdx > 0 ? sameSceneGroup[sceneIdx - 1] : undefined;
       const nextScene = sceneIdx < sameSceneGroup.length - 1 ? sameSceneGroup[sceneIdx + 1] : undefined;
 
-      // Compress previous storyboard image for visual continuity
+      // Compress previous storyboard for continuity reference
       const prevStoryboardUrl = prevScene?.storyboardUrl
-        ? await compressImage(prevScene.storyboardUrl, 5 * 1024 * 1024)
+        ? await compressImage(prevScene.storyboardUrl, 800 * 1024)
         : undefined;
 
       const neighborContext = {
         prevDescription: prevScene?.description || "",
         prevDialogue: prevScene?.dialogue || "",
         prevCamera: prevScene?.cameraDirection || "",
+        prevCharacters: prevScene?.characters || [],
         nextDescription: nextScene?.description || "",
         nextDialogue: nextScene?.dialogue || "",
         totalShotsInScene: sameSceneGroup.length,
@@ -302,32 +785,32 @@ const Workspace = () => {
       };
 
       const abortController = new AbortController();
-      timeoutId = setTimeout(() => abortController.abort(), 240_000);
+      timeoutId = setTimeout(() => abortController.abort(), 300_000);
 
-      const { data, error } = await supabase.functions.invoke("generate-storyboard", {
-        body: {
-          description: scene.description,
-          characters: scene.characters,
-          characterDescriptions: charDescs,
-          characterImages,
-          sceneImageUrl,
-          prevStoryboardUrl,
-          cameraDirection: scene.cameraDirection || "",
-          sceneName: scene.sceneName || "",
-          sceneDescription: sceneSetting?.description || "",
-          dialogue: scene.dialogue || "",
-          style: artStyle,
-          mode: "single",
-          aspectRatio,
-          scriptExcerpt: script?.slice(0, 2000) || "",
-          neighborContext,
-        },
-        signal: abortController.signal,
+      // Use local invokeFunction for storyboard generation
+      const { data, error: sbError } = await invokeFunction("generate-storyboard", {
+        description: scene.description,
+        characters: scene.characters,
+        characterDescriptions: charDescs,
+        characterImages,
+        sceneImageUrl,
+        prevStoryboardUrl,
+        cameraDirection: scene.cameraDirection || "",
+        sceneName: scene.sceneName || "",
+        sceneDescription: sceneSetting?.description || "",
+        dialogue: scene.dialogue || "",
+        style: effectiveStyle,
+        mode: "single",
+        aspectRatio,
+        model,
+        scriptExcerpt: script?.slice(0, 2000) || "",
+        neighborContext,
       });
       clearTimeout(timeoutId);
 
-      if (error) throw error;
+      if (sbError) throw sbError;
       if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)));
+      if (!data?.imageUrl) throw new Error("API 返回数据中缺少 imageUrl");
 
       setScenes((prev) =>
         prev.map((s) => {
@@ -356,12 +839,15 @@ const Workspace = () => {
     }
   };
 
-  const handleGenerateAllStoryboards = async (aspectRatio: string = "16:9") => {
+  const handleGenerateAllStoryboards = async (aspectRatio: string = "16:9", model: string = "gemini-3-pro-image-preview") => {
     stopStoryboardGenRef.current = false;
     setIsAbortingStoryboards(false);
     setIsGeneratingAllStoryboards(true);
 
-    // Group scenes by sceneName for sequential generation within same scene
+    const REQUEST_INTERVAL = 2000; // 2s delay between requests to avoid rate limiting
+    const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+    // Group scenes by sceneName for strict sequential generation within same scene
     const sceneGroups = new Map<string, typeof scenes>();
     for (const scene of scenes) {
       const key = (scene.sceneName || "").trim() || `__solo_${scene.id}`;
@@ -369,7 +855,7 @@ const Workspace = () => {
       sceneGroups.get(key)!.push(scene);
     }
 
-    // Semaphore for max 3 concurrent image generations
+    // Semaphore for max 3 concurrent generations ACROSS groups
     let running = 0;
     const queue: (() => void)[] = [];
     const acquire = () => new Promise<void>((resolve) => {
@@ -378,45 +864,45 @@ const Workspace = () => {
     });
     const release = () => { running--; if (queue.length > 0) queue.shift()!(); };
 
-    let successCount = 0;
-    let failCount = 0;
+    const successCountRef = { current: 0 };
+    const failCountRef = { current: 0 };
+    const failedSceneIds = new Set<string>();
 
-    // Process one scene group sequentially (same scene → shots in order)
+    // Process one scene group STRICTLY sequentially (same scene → shots in order, no jumping)
     const processGroup = async (groupScenes: typeof scenes) => {
       for (const scene of groupScenes) {
         if (stopStoryboardGenRef.current) return;
+        // Acquire semaphore but NEVER skip ahead — wait here until slot available
         await acquire();
         if (stopStoryboardGenRef.current) { release(); return; }
 
         let succeeded = false;
-        const maxRetries = 2;
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
-          if (stopStoryboardGenRef.current) break;
-          try {
-            await handleGenerateSceneStoryboard(scene.id, aspectRatio);
-            succeeded = true;
-            break;
-          } catch {
-            if (attempt < maxRetries) {
-              console.log(`Retrying storyboard #${scene.sceneNumber}, attempt ${attempt + 2}`);
-            }
-          }
+        try {
+          await handleGenerateSceneStoryboard(scene.id, aspectRatio, model);
+          succeeded = true;
+        } catch {
+          // No retry — fail immediately
         }
-        if (succeeded) successCount++; else failCount++;
+        if (succeeded) successCountRef.current++; else { failCountRef.current++; failedSceneIds.add(scene.id); }
+        // MUST release AFTER this shot finishes before next shot in the SAME group proceeds
         release();
+        // Interval between requests
+        if (!stopStoryboardGenRef.current) await delay(REQUEST_INTERVAL);
       }
     };
 
-    // Launch all scene groups in parallel (concurrency controlled by semaphore)
+    // Launch all scene groups in parallel (cross-group concurrency via semaphore)
     const groupTasks = Array.from(sceneGroups.values()).map((group) => processGroup(group));
     await Promise.all(groupTasks);
+
+    // Review pass removed — no automatic retries
 
     const aborted = stopStoryboardGenRef.current;
     setIsGeneratingAllStoryboards(false);
     setIsAbortingStoryboards(false);
     toast({
       title: aborted ? "已中止" : "全部分镜图生成完成",
-      description: `成功 ${successCount} 张${failCount > 0 ? `，失败 ${failCount} 张` : ""}${aborted ? "（已中止）" : ""}`,
+      description: `成功 ${successCountRef.current} 张${failCountRef.current > 0 ? `，失败 ${failCountRef.current} 张` : ""}${aborted ? "（已中止）" : ""}`,
     });
   };
 
@@ -447,20 +933,19 @@ const Workspace = () => {
     // --- Step 1: Enhance prompt via AI ---
     let enhancedDescription = cleanBrackets(scene.description);
     const maxDuration = videoModel === "vidu-q3" ? 16 : 15;
+    const minDuration = videoModel === "kling-v3" ? 3 : 4;
     // If user manually set duration, use that; otherwise use AI recommendation
     const isManual = scene.isManualDuration && scene.recommendedDuration;
-    let recommendedDuration: number = isManual ? scene.recommendedDuration! : Math.max(4, Math.min(maxDuration, scene.duration || 5));
+    let recommendedDuration: number = isManual ? scene.recommendedDuration! : Math.max(minDuration, Math.min(maxDuration, scene.duration || 5));
     try {
-      const { data: enhanceData, error: enhanceError } = await supabase.functions.invoke("enhance-video-prompt", {
-        body: {
-          description: cleanBrackets(scene.description),
-          sceneName: scene.sceneName?.trim(),
-          characters: scene.characters.map((c) => String(c || "")).filter(Boolean),
-          dialogue: scene.dialogue ? cleanBrackets(scene.dialogue) : undefined,
-          prevDescription: prevScene ? cleanBrackets(prevScene.description) : undefined,
-          nextDescription: nextScene ? cleanBrackets(nextScene.description) : undefined,
-          hasRefImage,
-        },
+      const { data: enhanceData, error: enhanceError } = await invokeFunction("enhance-video-prompt", {
+        description: cleanBrackets(scene.description),
+        sceneName: scene.sceneName?.trim(),
+        characters: scene.characters.map((c) => String(c || "")).filter(Boolean),
+        dialogue: scene.dialogue ? cleanBrackets(scene.dialogue) : undefined,
+        prevDescription: prevScene ? cleanBrackets(prevScene.description) : undefined,
+        nextDescription: nextScene ? cleanBrackets(nextScene.description) : undefined,
+        hasRefImage,
       });
       if (!enhanceError && enhanceData?.enhanced) {
         enhancedDescription = enhanceData.enhanced;
@@ -511,18 +996,32 @@ const Workspace = () => {
         duration: recommendedDuration,
         aspectRatio: (() => { try { return localStorage.getItem("storyboard-aspect-ratio") || "16:9"; } catch { return "16:9"; } })(),
       };
-      if (scene.storyboardUrl) {
+      if (!skipStoryboard && scene.storyboardUrl) {
         // Compress image to under 10MB before sending
         const { compressImage } = await import("@/lib/image-compress");
-        body.imageUrl = await compressImage(scene.storyboardUrl);
+        const compressed = await compressImage(scene.storyboardUrl);
+
+        // For Vidu, we need a real URL — upload to storage if it's a data URI
+        if (videoModel === "vidu-q3" && compressed.startsWith("data:")) {
+          const { uploadImageToStorage } = await import("@/lib/gemini-client");
+          const match = compressed.match(/^data:(image\/\w+);base64,(.+)$/);
+          if (match) {
+            const publicUrl = await uploadImageToStorage(match[2], match[1], "video-frames");
+            body.imageUrl = publicUrl;
+          } else {
+            body.imageUrl = compressed;
+          }
+        } else {
+          body.imageUrl = compressed;
+        }
       }
 
-      const { data, error } = await supabase.functions.invoke("generate-video", { body });
+      const { data, error } = await invokeFunction("generate-video", body);
       if (error) throw error;
-      if (data?.error) throw new Error(typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)));
 
       const taskId = data.task_id;
-      const provider = data.provider; // "vidu" or "seedance"
+      const provider = data.provider; // "vidu" or "seedance" or "kling"
+      const klingTaskType = data.klingTaskType; // "text2video" or "image2video" for kling
       if (!taskId) throw new Error("未返回 task_id");
 
       // Mark scene as generating, store recommended duration
@@ -533,35 +1032,37 @@ const Workspace = () => {
       toast({ title: "已提交", description: `分镜 #${scene.sceneNumber} 视频生成任务已提交` });
 
       // Start polling
-      pollVideoTask(sceneId, taskId, provider);
+      pollVideoTask(sceneId, taskId, provider, klingTaskType);
     } catch (e: any) {
       console.error("Video generation error:", e);
+      setScenes((prev) =>
+        prev.map((s) => (s.id === sceneId ? { ...s, videoStatus: "failed", videoTaskId: undefined } : s))
+      );
       const fe = friendlyError(e);
       toast({ title: fe.title, description: `视频生成失败：${fe.description}`, variant: "destructive" });
     }
   };
 
-  const pollVideoTask = async (sceneId: string, taskId: string, provider?: string) => {
+  const pollVideoTask = async (sceneId: string, taskId: string, provider?: string, klingTaskType?: string) => {
     const maxAttempts = 120; // 10 min max
     let attempts = 0;
+    let consecutiveErrors = 0;
+    const maxConsecutiveErrors = 5;
 
     const poll = async () => {
       attempts++;
       try {
-        const { data, error } = await supabase.functions.invoke("generate-video", {
-          body: { action: "status", taskId, provider },
-        });
+        const { data, error } = await invokeFunction("generate-video", { action: "status", taskId, provider, klingTaskType });
         if (error) throw error;
+        consecutiveErrors = 0; // reset on success
 
         const status = data?.status;
 
         if (status === "completed" || status === "succeeded") {
-          // Extract video URL from response
           const videoUrl = data?.video_url || data?.output?.video_url || data?.result?.url || data?.url;
           setScenes((prev) =>
             prev.map((s) => {
               if (s.id !== sceneId) return s;
-              // Save old video to history before replacing
               const history = [...(s.videoHistory || [])];
               if (s.videoUrl && !history.some((h) => h.videoUrl === s.videoUrl)) {
                 history.push({ videoUrl: s.videoUrl, createdAt: new Date().toISOString() });
@@ -585,7 +1086,6 @@ const Workspace = () => {
           return;
         }
 
-        // Still processing — update status and continue polling
         setScenes((prev) =>
           prev.map((s) => (s.id === sceneId ? { ...s, videoStatus: status || "processing" } : s))
         );
@@ -593,12 +1093,34 @@ const Workspace = () => {
         if (attempts < maxAttempts) {
           setTimeout(poll, 5000);
         } else {
-          toast({ title: "⏳ 视频生成超时", description: "视频生成时间过长，请稍后刷新页面查看是否已完成。", variant: "destructive" });
+          setScenes((prev) =>
+            prev.map((s) => s.id === sceneId ? { ...s, videoStatus: "failed", videoTaskId: undefined } : s)
+          );
+          toast({ title: "⏳ 视频生成超时", description: "视频生成时间过长，请稍后刷新页面查看。", variant: "destructive" });
         }
       } catch (e: any) {
         console.error("Poll error:", e);
+        const errMsg = e?.message || String(e);
+        // Terminal errors that won't recover with retries
+        const isTerminal = /task_not_exist|not.?found|invalid.*task|forbidden|unauthorized|4[0-9]{2}/i.test(errMsg);
+        if (isTerminal) {
+          setScenes((prev) =>
+            prev.map((s) => s.id === sceneId ? { ...s, videoStatus: "failed", videoTaskId: undefined } : s)
+          );
+          const fe = friendlyError(errMsg);
+          toast({ title: fe.title, description: `视频生成失败：${fe.description}`, variant: "destructive" });
+          return;
+        }
+        consecutiveErrors++;
+        if (consecutiveErrors >= maxConsecutiveErrors) {
+          setScenes((prev) =>
+            prev.map((s) => s.id === sceneId ? { ...s, videoStatus: "failed", videoTaskId: undefined } : s)
+          );
+          toast({ title: "网络连接失败", description: "连续多次无法连接视频服务器，请检查网络后重试。", variant: "destructive" });
+          return;
+        }
         if (attempts < maxAttempts) {
-          setTimeout(poll, 5000);
+          setTimeout(poll, 10000);
         }
       }
     };
@@ -610,16 +1132,66 @@ const Workspace = () => {
     stopVideoGenRef.current = false;
     setIsAbortingVideo(false);
     setIsGeneratingVideo(true);
+
+    const REQUEST_INTERVAL = 2000; // 2s delay between requests
+    const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+    const successCountRef = { current: 0 };
+    const failCountRef = { current: 0 };
+
+    // Group scenes by sceneName for strict sequential generation within same scene
+    const sceneGroups = new Map<string, typeof scenes>();
     for (const scene of scenes) {
-      if (stopVideoGenRef.current) break;
-      await generateVideoForScene(scene.id);
+      const key = (scene.sceneName || "").trim() || `__solo_${scene.id}`;
+      if (!sceneGroups.has(key)) sceneGroups.set(key, []);
+      sceneGroups.get(key)!.push(scene);
     }
+
+    // Semaphore for max 3 concurrent video submissions ACROSS groups
+    let running = 0;
+    const queue: (() => void)[] = [];
+    const acquire = () => new Promise<void>((resolve) => {
+      if (running < 3) { running++; resolve(); }
+      else queue.push(() => { running++; resolve(); });
+    });
+    const release = () => { running--; if (queue.length > 0) queue.shift()!(); };
+
+    const failedVideoIds = new Set<string>();
+
+    // Process one scene group STRICTLY sequentially (same scene → shots in order)
+    const processGroup = async (groupScenes: typeof scenes) => {
+      for (const scene of groupScenes) {
+        if (stopVideoGenRef.current) return;
+        await acquire();
+        if (stopVideoGenRef.current) { release(); return; }
+
+        let succeeded = false;
+        try {
+          await generateVideoForScene(scene.id);
+          succeeded = true;
+        } catch {
+          // No retry — fail immediately
+        }
+        if (succeeded) successCountRef.current++; else { failCountRef.current++; failedVideoIds.add(scene.id); }
+        release();
+        // Interval between requests
+        if (!stopVideoGenRef.current) await delay(REQUEST_INTERVAL);
+      }
+    };
+
+    // Launch all scene groups in parallel (cross-group concurrency via semaphore)
+    const groupTasks = Array.from(sceneGroups.values()).map((group) => processGroup(group));
+    await Promise.all(groupTasks);
+
+    // Review pass removed — no automatic retries
+
     const aborted = stopVideoGenRef.current;
     setIsGeneratingVideo(false);
     setIsAbortingVideo(false);
-    if (aborted) {
-      toast({ title: "已中止", description: "后续视频生成已取消，已提交的任务仍会继续" });
-    }
+    toast({
+      title: aborted ? "已中止" : "全部视频生成完成",
+      description: `已提交 ${successCountRef.current} 个${failCountRef.current > 0 ? `，失败 ${failCountRef.current} 个` : ""}${aborted ? "（已中止，已提交的任务仍会继续）" : ""}`,
+    });
   };
 
   const handleStopVideos = () => {
@@ -629,6 +1201,28 @@ const Workspace = () => {
 
   const handleRegenerateVideo = async (sceneId: string) => {
     await generateVideoForScene(sceneId);
+  };
+
+  const canAdvanceToStep = (step: WorkspaceStep): boolean => {
+    if (step <= 1) return true;
+    if (step >= 2 && scenes.length === 0) return false;
+    if (step >= 3 && !skipStoryboard) {
+      const hasAnyCharDesc = characters.some(c => c.description);
+      if (!hasAnyCharDesc) return false;
+    }
+    if (step >= 4 && !skipStoryboard) {
+      const hasAnyStoryboard = scenes.some(s => s.storyboardUrl);
+      if (!hasAnyStoryboard) return false;
+    }
+    if (step >= 5) {
+      const hasAnyVideo = scenes.some(s => s.videoUrl);
+      if (!hasAnyVideo) return false;
+    }
+    return true;
+  };
+
+  const safeGoToStep = (step: WorkspaceStep) => {
+    if (canAdvanceToStep(step)) setCurrentStep(step);
   };
 
   const renderStep = () => {
@@ -642,7 +1236,27 @@ const Workspace = () => {
               onAnalyze={handleAnalyze}
               onCancelAnalyze={handleCancelAnalyze}
               isAnalyzing={isAnalyzing}
+              decomposeModel={decomposeModel}
+              onDecomposeModelChange={setDecomposeModel}
+              videoPace={videoPace}
+              onVideoPaceChange={setVideoPace}
+              episodeDuration={episodeDuration}
+              onEpisodeDurationChange={setEpisodeDuration}
+              customDuration={customDuration}
+              onCustomDurationChange={setCustomDuration}
             />
+            {analyzePhase !== "idle" && (
+              <AnalyzeProgress
+                phase={analyzePhase}
+                phase1Info={phase1Info}
+                phase2Info={phase2Info}
+                phase2RetryCount={phase2RetryCount}
+                phase2MaxRetries={getApiConfig().retryCount ?? 2}
+                onRetryPhase2={handleRetryPhase2}
+                isRetryingPhase2={isAnalyzing && analyzePhase === "phase2"}
+                streamingText={streamingText}
+              />
+            )}
             {rawAiOutput && (
               <details className="mb-4">
                 <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground transition-colors select-none">
@@ -653,8 +1267,19 @@ const Workspace = () => {
                 </pre>
               </details>
             )}
+            {decomposeChunks.length > 1 && (
+              <DecomposeProgress
+                chunks={decomposeChunks}
+                onRetryChunk={handleRetryChunk}
+                isRetrying={retryingChunk}
+                onScrollToEpisode={(epIndex) => {
+                  const el = document.getElementById(`episode-group-ep-${epIndex + 1}`);
+                  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }}
+              />
+            )}
             {scenes.length > 0 && (
-              <SceneList scenes={scenes} onScenesChange={setScenes} onNext={() => setCurrentStep(2)} />
+              <SceneList scenes={scenes} onScenesChange={setScenes} onNext={() => safeGoToStep(2)} characters={characters} />
             )}
           </div>
         );
@@ -664,11 +1289,14 @@ const Workspace = () => {
             characters={characters}
             sceneSettings={sceneSettings}
             artStyle={artStyle}
+            customArtStylePrompt={customArtStylePrompt}
             onArtStyleChange={setArtStyle}
+            onCustomArtStylePromptChange={setCustomArtStylePrompt}
             onCharactersChange={setCharacters}
             onSceneSettingsChange={setSceneSettings}
-            onNext={() => setCurrentStep(skipStoryboard ? 4 : 3)}
+            onNext={() => safeGoToStep(skipStoryboard ? 4 : 3)}
             script={script}
+            decomposeModel={decomposeModel}
             isAutoDetectingAll={isAutoDetectingAll}
             setIsAutoDetectingAll={setIsAutoDetectingAll}
             isAbortingAutoDetect={isAbortingAutoDetect}
@@ -688,7 +1316,7 @@ const Workspace = () => {
             generatingScenes={generatingScenes}
             isGeneratingAll={isGeneratingAllStoryboards}
             isAborting={isAbortingStoryboards}
-            onNext={() => setCurrentStep(4)}
+            onNext={() => safeGoToStep(4)}
           />
         );
       case 4:
@@ -702,7 +1330,7 @@ const Workspace = () => {
             onRegenerateScene={handleRegenerateVideo}
             isGenerating={isGeneratingVideo}
             isAborting={isAbortingVideo}
-            onNext={() => setCurrentStep(5)}
+            onNext={() => safeGoToStep(5)}
             onScenesChange={setScenes}
             useImg2Video={!skipStoryboard}
           />
@@ -716,7 +1344,7 @@ const Workspace = () => {
     <div className="min-h-screen bg-background flex flex-col">
       <header className="flex items-center justify-between px-6 py-3 border-b border-border/50">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
+          <Button variant="ghost" size="icon" onClick={() => navigate("/modules")}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex items-center gap-2">
@@ -730,7 +1358,12 @@ const Workspace = () => {
       </header>
 
       <div className="px-6 py-3 border-b border-border/30 flex items-center justify-between gap-4">
-        <StepIndicator currentStep={currentStep} onStepClick={setCurrentStep} disabledSteps={skipStoryboard ? [3] : []} />
+        <StepIndicator
+          currentStep={currentStep}
+          onStepClick={safeGoToStep}
+          disabledSteps={skipStoryboard ? [3] : []}
+          canAdvanceTo={canAdvanceToStep}
+        />
         <div className="flex items-center gap-2 shrink-0">
           <Switch id="skip-storyboard" checked={!skipStoryboard} onCheckedChange={(v) => setSkipStoryboard(!v)} />
           <Label htmlFor="skip-storyboard" className="text-xs text-muted-foreground whitespace-nowrap cursor-pointer">
@@ -739,7 +1372,7 @@ const Workspace = () => {
         </div>
       </div>
 
-      <main className={`flex-1 ${currentStep === 3 || currentStep === 4 ? "max-w-7xl" : "max-w-4xl"} mx-auto w-full p-6`}>{renderStep()}</main>
+      <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-6">{renderStep()}</main>
     </div>
   );
 };

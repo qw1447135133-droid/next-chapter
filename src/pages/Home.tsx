@@ -8,16 +8,25 @@ const features = [
     icon: Sparkles,
     title: "AI 剧本拆解",
     desc: "智能分析剧本，自动生成分镜列表",
+    iconBg: "bg-amber-500/10 dark:bg-amber-500/15",
+    iconColor: "text-amber-600 dark:text-amber-400",
+    borderColor: "border-amber-200/60 dark:border-amber-500/20",
   },
   {
     icon: Layers,
     title: "分镜图生成",
     desc: "根据角色与场景设定，AI 绘制每一帧",
+    iconBg: "bg-indigo-500/10 dark:bg-indigo-500/15",
+    iconColor: "text-indigo-600 dark:text-indigo-400",
+    borderColor: "border-indigo-200/60 dark:border-indigo-500/20",
   },
   {
     icon: Play,
     title: "视频合成",
     desc: "一键将分镜图转化为流畅视频",
+    iconBg: "bg-rose-500/10 dark:bg-rose-500/15",
+    iconColor: "text-rose-600 dark:text-rose-400",
+    borderColor: "border-rose-200/60 dark:border-rose-500/20",
   },
 ];
 
@@ -30,11 +39,11 @@ const Home = () => {
       <header className="flex items-center justify-between px-6 py-4 border-b border-border/50">
         <div className="flex items-center gap-2">
           <Film className="h-6 w-6 text-primary" />
-          <span className="text-lg font-semibold font-[Space_Grotesk]">StoryForge</span>
+          <span className="text-lg font-semibold font-[Space_Grotesk]">Infinio</span>
         </div>
         <Button variant="ghost" size="sm" onClick={() => navigate("/settings")}>
           <Settings className="h-4 w-4 mr-1" />
-          API 设置
+          设置
         </Button>
       </header>
 
@@ -44,7 +53,7 @@ const Home = () => {
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, ease: "easeOut" }}
-          className="max-w-2xl space-y-6"
+          className="max-w-3xl space-y-6"
         >
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-1.5 text-sm text-primary">
             <Sparkles className="h-3.5 w-3.5" />
@@ -59,15 +68,15 @@ const Home = () => {
             </span>
           </h1>
 
-          <p className="text-lg text-muted-foreground max-w-md mx-auto">
-            输入剧本，AI 自动拆解分镜、生成画面、合成视频。每一步都可调整，完全掌控创作流程。
+          <p className="text-lg text-muted-foreground max-w-lg mx-auto">
+            全链路 AI 驱动，从剧本创作到视频合成一站完成，专业内容生产提速 10 倍。
           </p>
 
           <div className="flex items-center justify-center gap-3 pt-2">
             <Button
               size="lg"
               className="gap-2 rounded-xl px-6 bg-primary text-primary-foreground hover:bg-primary/90"
-              onClick={() => navigate("/workspace")}
+              onClick={() => navigate("/modules")}
             >
               开始创作
               <ArrowRight className="h-4 w-4" />
@@ -88,17 +97,17 @@ const Home = () => {
           initial={{ opacity: 0, y: 40 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, delay: 0.3, ease: "easeOut" }}
-          className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-20 max-w-3xl w-full"
+          className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-20 max-w-5xl w-full"
         >
           {features.map((f, i) => (
             <div
               key={i}
-              className="flex flex-col items-center gap-3 p-6 rounded-2xl border border-border/60 bg-card/50 backdrop-blur-sm"
+              className={`flex flex-col items-center gap-3 p-6 rounded-2xl border ${f.borderColor} bg-card/50 backdrop-blur-sm`}
             >
-              <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                <f.icon className="h-5 w-5 text-primary" />
+              <div className={`h-10 w-10 rounded-xl ${f.iconBg} flex items-center justify-center`}>
+                <f.icon className={`h-5 w-5 ${f.iconColor}`} />
               </div>
-              <h3 className="font-semibold font-[Space_Grotesk]">{f.title}</h3>
+              <h3 className="font-semibold font-[Space_Grotesk] text-foreground">{f.title}</h3>
               <p className="text-sm text-muted-foreground">{f.desc}</p>
             </div>
           ))}
@@ -106,7 +115,7 @@ const Home = () => {
       </main>
 
       <footer className="text-center py-6 text-xs text-muted-foreground">
-        StoryForge · AI 剧本转视频平台
+        Infinio · AI 剧本转视频平台
       </footer>
     </div>
   );

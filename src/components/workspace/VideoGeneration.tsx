@@ -8,6 +8,7 @@ import { Slider } from "@/components/ui/slider";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Play, RefreshCw, Loader2, ArrowRight, CheckCircle, XCircle, ChevronDown, History, RotateCcw, Clock, RectangleHorizontal, RectangleVertical } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import ImageThumbnail from "@/components/workspace/ImageThumbnail";
 import type { StoryboardAspectRatio } from "./StoryboardPreview";
 
 const ASPECT_RATIO_OPTIONS: { value: StoryboardAspectRatio; label: string; icon: typeof RectangleHorizontal }[] = [
@@ -65,7 +66,7 @@ const VideoGeneration = ({
   });
   const setAspectRatio = (v: StoryboardAspectRatio) => {
     setAspectRatioState(v);
-    try { localStorage.setItem("storyboard-aspect-ratio", v); } catch {}
+    try { localStorage.setItem("storyboard-aspect-ratio", v); } catch { /* ignore */ }
   };
   const [arOpen, setArOpen] = useState(false);
   const currentAR = ASPECT_RATIO_OPTIONS.find((o) => o.value === aspectRatio)!;
@@ -297,11 +298,12 @@ const VideoGeneration = ({
                       </div>
                       {(() => {
                         const maxVal = videoModel.startsWith("vidu") ? 16 : 15;
+                        const minVal = videoModel.startsWith("kling") ? 3 : 4;
                         const currentVal = scene.recommendedDuration || scene.duration || 5;
                         return (
                           <>
                             <Slider
-                              min={4}
+                              min={minVal}
                               max={maxVal}
                               step={1}
                               value={[currentVal]}
@@ -319,7 +321,7 @@ const VideoGeneration = ({
                               className="[&_[role=slider]]:bg-emerald-500 [&_[role=slider]]:border-emerald-500 [&_[role=slider]]:w-5 [&_[role=slider]]:h-5 [&_.relative>.absolute]:bg-emerald-500"
                             />
                             <div className="flex justify-between mt-2">
-                              {Array.from({ length: maxVal - 3 }, (_, i) => i + 4).map((d) => (
+                              {Array.from({ length: maxVal - minVal + 1 }, (_, i) => i + minVal).map((d) => (
                                 <button
                                   key={d}
                                   type="button"
@@ -376,16 +378,38 @@ const VideoGeneration = ({
                     </Badge>
                   )}
                   {scene.videoUrl ? (
-                    <video
-                      src={scene.videoUrl}
-                      muted
-                      loop
-                      playsInline
-                      className="h-full w-full object-cover"
-                      onClick={() => setEnlargedVideo(scene.videoUrl!)}
-                      onMouseEnter={(e) => e.currentTarget.play()}
-                      onMouseLeave={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = 0; }}
-                    />
+                    <>
+                      <video
+                        src={scene.videoUrl}
+                        muted
+                        loop
+                        playsInline
+                        className="h-full w-full object-cover"
+                        onClick={() => setEnlargedVideo(scene.videoUrl!)}
+                        onMouseEnter={(e) => e.currentTarget.play()}
+                        onMouseLeave={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = 0; }}
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          target.style.display = "none";
+                          const fallback = target.nextElementSibling as HTMLElement | null;
+                          if (fallback) fallback.style.display = "flex";
+                        }}
+                        onLoadedData={(e) => {
+                          const target = e.currentTarget;
+                          target.style.display = "";
+                          const fallback = target.nextElementSibling as HTMLElement | null;
+                          if (fallback) fallback.style.display = "none";
+                        }}
+                      />
+                      <div
+                        className="absolute inset-0 flex-col items-center justify-center gap-2 bg-muted cursor-pointer"
+                        style={{ display: "none" }}
+                        onClick={() => window.open(scene.videoUrl!, "_blank")}
+                      >
+                        <XCircle className="h-5 w-5 text-muted-foreground/50" />
+                        <span className="text-xs text-muted-foreground">视频加载失败，点击新窗口查看</span>
+                      </div>
+                    </>
                   ) : isSceneProcessing ? (
                     <div className="flex flex-col items-center gap-2">
                       <Loader2 className={`${isPortrait ? "h-5 w-5" : "h-8 w-8"} text-primary animate-spin`} />
@@ -394,7 +418,7 @@ const VideoGeneration = ({
                       </span>
                     </div>
                   ) : scene.storyboardUrl ? (
-                    <img src={scene.storyboardUrl} className="h-full w-full object-cover opacity-50" alt="" />
+                    <ImageThumbnail src={scene.storyboardUrl} alt="" className="h-full w-full object-cover opacity-50" maxDim={800} />
                   ) : (
                     <div className="text-center text-muted-foreground/40">
                       <Play className={`${isPortrait ? "h-4 w-4" : "h-6 w-6"} mx-auto mb-1`} />
