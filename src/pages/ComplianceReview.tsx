@@ -1633,7 +1633,7 @@ ${JSON.stringify(payload, null, 2)}`;
         </Collapsible>
 
         {/* Risk Highlight Comparison */}
-        {complianceReport && !isGenerating && scriptText && riskPhrases.length > 0 && (
+        {complianceReport && !isGenerating && scriptText && (riskPhrases.length > 0 || dialogueWarnings.length > 0) && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg flex items-center gap-2">
