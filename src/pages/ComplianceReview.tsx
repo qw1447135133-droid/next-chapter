@@ -474,8 +474,18 @@ const ComplianceReview = () => {
       if (level) {
         const isBlank = blankPhrases?.has(part);
         const isAdjusting = adjustingSinglePhrase === part;
+        // 检查是否是被调整过的文本，获取原文
+        const originalText = replacementToOriginal.get(part);
+        const tooltipText = originalText 
+          ? `原文：${originalText}` 
+          : undefined;
+        
         return (
-          <mark key={i} className={`${RISK_STYLES[level]} text-foreground rounded px-0.5 ${isBlank ? "inline-block min-w-[2em]" : ""}`}>
+          <mark 
+            key={i} 
+            className={`${RISK_STYLES[level]} text-foreground rounded px-0.5 ${isBlank ? "inline-block min-w-[2em]" : ""} ${originalText ? "cursor-help" : ""}`}
+            title={tooltipText}
+          >
             {isBlank ? "\u00A0".repeat(Math.max(part.length, 2)) : part}
             {!isBlank && !isAdjusting && (
               <button
@@ -495,7 +505,7 @@ const ComplianceReview = () => {
       }
       return <span key={i}>{part}</span>;
     });
-  }, [activeRiskPhrases, activeRiskMap, adjustingSinglePhrase, handleSingleAdjust, isAutoAdjusting]);
+  }, [activeRiskPhrases, activeRiskMap, adjustingSinglePhrase, handleSingleAdjust, isAutoAdjusting, replacementToOriginal]);
 
   const highlightedScript = useMemo(() => {
     const text = paletteText || scriptText;
@@ -669,6 +679,29 @@ const ComplianceReview = () => {
         const ws = XLSX.utils.aoa_to_sheet(exportData);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, tableData.sheetName || "Sheet1");
+        
+        // 添加修改记录 sheet
+        if (phraseReplacements.size > 0) {
+          const modificationData = [
+            ["序号", "原文", "调整后", "风险等级"],
+            ...[...phraseReplacements.entries()].map(([original, replacement], idx) => {
+              // 查找风险等级
+              const level = combinedRiskMap.get(replacement) || combinedRiskMap.get(original);
+              const levelText = level === "red" ? "红线问题" : level === "high" ? "高风险" : level === "info" ? "建议" : "-";
+              return [idx + 1, original, replacement, levelText];
+            })
+          ];
+          const wsModifications = XLSX.utils.aoa_to_sheet(modificationData);
+          // 设置列宽
+          wsModifications["!cols"] = [
+            { wch: 6 },   // 序号
+            { wch: 50 },  // 原文
+            { wch: 50 },  // 调整后
+            { wch: 10 },  // 风险等级
+          ];
+          XLSX.utils.book_append_sheet(wb, wsModifications, "修改记录");
+        }
+        
         const baseName = tableData.fileName.replace(/\.[^.]+$/, "");
         const exportFileName = `${baseName}_合规审核_${new Date().toISOString().slice(0, 10)}.xlsx`;
         XLSX.writeFile(wb, exportFileName);
@@ -699,7 +732,12 @@ const ComplianceReview = () => {
             runs.push(new TextRun({ text: line.slice(cursor, mp.start), size: 24 }));
           }
           const color = mp.level === "red" ? "FF0000" : mp.level === "high" ? "FF8C00" : "2563EB";
-          runs.push(new TextRun({ text: mp.phrase, size: 24, highlight: mp.level === "red" ? "red" : mp.level === "high" ? "yellow" : "cyan", color }));
+          // 检查是否是被调整过的文本
+          const originalText = replacementToOriginal.get(mp.phrase);
+          const textWithOriginal = originalText 
+            ? `${mp.phrase}（原：${originalText}）`
+            : mp.phrase;
+          runs.push(new TextRun({ text: textWithOriginal, size: 24, highlight: mp.level === "red" ? "red" : mp.level === "high" ? "yellow" : "cyan", color }));
           cursor = mp.start + mp.phrase.length;
         }
         if (cursor < line.length) {
@@ -707,6 +745,27 @@ const ComplianceReview = () => {
         }
         return new Paragraph({ children: runs });
       });
+
+      // 修改记录部分
+      const modificationParagraphs = phraseReplacements.size > 0 ? [
+        new Paragraph({
+          children: [new TextRun({ text: "修改记录", bold: true, size: 28 })],
+          heading: HeadingLevel.HEADING_2,
+          spacing: { before: 400, after: 200 },
+        }),
+        ...[...phraseReplacements.entries()].map(([original, replacement]) => 
+          new Paragraph({
+            children: [
+              new TextRun({ text: "原文：", bold: true, size: 22 }),
+              new TextRun({ text: original, size: 22, color: "FF0000", strike: true }),
+              new TextRun({ text: "  →  ", size: 22 }),
+              new TextRun({ text: "调整后：", bold: true, size: 22 }),
+              new TextRun({ text: replacement, size: 22, color: "008000" }),
+            ],
+            spacing: { after: 100 },
+          })
+        ),
+      ] : [];
 
       const doc = new Document({
         sections: [{
@@ -721,6 +780,7 @@ const ComplianceReview = () => {
               spacing: { after: 200 },
             }),
             ...paragraphs,
+            ...modificationParagraphs,
           ],
         }],
       });
@@ -730,7 +790,7 @@ const ComplianceReview = () => {
     } catch (e: any) {
       toast({ title: "导出失败", description: e?.message, variant: "destructive" });
     }
-  }, [paletteEditing, paletteText, scriptText, activeRiskMap, inputMode, tableData]);
+  }, [paletteEditing, paletteText, scriptText, activeRiskMap, inputMode, tableData, replacementToOriginal, phraseReplacements, combinedRiskMap]);
 
   const handlePaletteEditToggle = () => {
     if (paletteEditing) {
