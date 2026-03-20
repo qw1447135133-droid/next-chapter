@@ -597,8 +597,33 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
 
   const highlightedScript = useMemo(() => {
     const text = paletteText || scriptText;
-    return buildHighlightedParts(text, isAutoAdjusting ? adjustingPhrases : undefined);
-  }, [paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases]);
+    if (!text) return null;
+
+    const lines = text.split("\n");
+    const blankSet = isAutoAdjusting ? adjustingPhrases : undefined;
+
+    return (
+      <>
+        {lines.map((line, lineIndex) => {
+          const isOverLimit = dialogueOverLimitLines.has(lineIndex);
+          const highlighted = buildHighlightedParts(line, blankSet);
+
+          return (
+            <span key={lineIndex}>
+              {isOverLimit ? (
+                <mark className="bg-muted-foreground/15 text-foreground/70 rounded px-0.5" title="台词字数超限">
+                  {highlighted}
+                </mark>
+              ) : (
+                highlighted
+              )}
+              {lineIndex < lines.length - 1 && "\n"}
+            </span>
+          );
+        })}
+      </>
+    );
+  }, [paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases, dialogueOverLimitLines]);
 
   // 表格编辑相关状态
   const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
