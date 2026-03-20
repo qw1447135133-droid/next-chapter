@@ -471,6 +471,8 @@ const ComplianceReview = () => {
 
     for (const line of lines) {
       const trimmed = line.trim();
+
+      // Detect episode header: # 1-1 or # Episode 1 Scene 1
       const episodeMatch = trimmed.match(/^#\s*(\d+)/);
       if (episodeMatch) {
         // Reset scene tracking
@@ -691,7 +693,7 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
         })}
       </>
     );
-  }, [paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases, dialogueOverLimitLines, enableDialogueReview]);
+  }, [paletteText, scriptText, buildHighlightedParts, enableDialogueReview, dialogueOverLimitLines, isAutoAdjusting, adjustingPhrases]);
 
   // 表格编辑相关状态
   const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
@@ -844,7 +846,7 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
       if (isEditing) {
         return (
           <textarea
-            ref={tableCellInputRef as any}
+            ref={tableCellInputRef}
             value={editingValue}
             onChange={(e) => setEditingValue(e.target.value)}
             onBlur={handleTableCellSave}
@@ -960,7 +962,7 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
         </table>
       </div>
     );
-  }, [tableData, activeRiskPhrases, activeRiskMap, editingCell, editingValue, replacementToOriginal, handleTableCellEdit, handleTableCellSave, handleTableCellCancel, adjustingSinglePhrase, handleSingleAdjust]);
+  }, [tableData, activeRiskPhrases, activeRiskMap, editingCell, editingValue, replacementToOriginal, handleTableCellEdit, handleTableCellSave, handleTableCellCancel, adjustingSinglePhrase, handleSingleAdjust, isAutoAdjusting, reviewMode]);
 
   const normalizeForCompare = (value: string) => value.replace(/\s+/g, "").trim();
 
@@ -1061,13 +1063,13 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
    - 关键信息保留
 
 2. **画面合规改写**：
-   - 暴力情节：改为轻度动作或用侧面描写替代
-   - 亲密情节：改为含蓄表达或用转场暗示
+   - 暴力情节：改为"推搡"、"摔倒"等轻度动作，或用侧面描写、心理描写替代
+   - 亲密情节：改为含蓄的"相拥"、"低语"等，或用转场、暗示替代
    - 其他风险：用安全的表现方式替代
 
 3. **整体改写段落**：
-   - 改写整个段落的画面呈现
-   - 可以调整动作、环境、心理描写
+   - 改写整个段落的画面呈现方式
+   - 可以调整动作描写、环境描写、心理描写
    - 确保画面效果安全合规
 
 4. **必须实际改写**：
@@ -1113,7 +1115,7 @@ ${JSON.stringify(payload, null, 2)}`;
         model,
         [{ role: "user", parts: [{ text: prompt }] }],
         () => {},
-        { maxOutputTokens: 8192, temperature: strict ? 0.8 : 0.5 },
+        { maxOutputTokens: 8192, temperature: 0.7 },
         autoAdjustAbortRef.current?.signal,
       );
 
@@ -1153,107 +1155,7 @@ ${JSON.stringify(payload, null, 2)}`;
         pending = nextPending.filter((entry) => workingText.includes(entry.current));
       }
 
-      // --- Phase 2: Dialogue trimming ---
-      // Re-analyze dialogue warnings on the working text
-      const dialogueLines = workingText.split("\n");
-      const overLimitDialogues: string[] = [];
-      const shotGroupLim = isChinese ? 35 : 20;
-      const episodeMaxLim = isChinese ? 330 : 180;
-      let tempShotWords = 0;
-      let tempShotDialogues: string[] = [];
-      let tempEpWords = 0;
-      let tempEpDialogues: string[] = [];
-      let tempEp = "";
-      let tempShotCount = 0;
-
-      for (const dl of dialogueLines) {
-        const trimmed = dl.trim();
-        const epMatch = trimmed.match(/^#\s*(\d+)/);
-        if (epMatch) {
-          if (tempShotDialogues.length > 0 && tempShotWords > shotGroupLim) {
-            overLimitDialogues.push(...tempShotDialogues);
-          }
-          tempShotCount++;
-          if (tempShotCount > 5) {
-            tempShotWords = 0; tempShotDialogues = []; tempShotCount = 1;
-          }
-          const sceneMatch = trimmed.match(/^#\s*(\d+)-/);
-          const newEp = sceneMatch ? sceneMatch[1] : epMatch[1];
-          if (newEp !== tempEp) {
-            if (tempEp && tempEpWords > episodeMaxLim) overLimitDialogues.push(...tempEpDialogues);
-            tempEp = newEp; tempEpWords = 0; tempEpDialogues = [];
-            tempShotWords = 0; tempShotDialogues = []; tempShotCount = 1;
-          }
-          continue;
-        }
-        if (isDialogueLine(trimmed) && !isSfxLine(trimmed)) {
-          const match = trimmed.match(/^[^\s△#]{1,10}[：:]\s*(?:[\(（][^）\)]*[）\)])?(.*)$/);
-          const content = match ? match[1].trim() : trimmed;
-          const wc = isChinese ? (content.match(/[\u4e00-\u9fa5]/g) || []).length : content.split(/\s+/).filter(w => w.length > 0).length;
-          tempShotWords += wc; tempShotDialogues.push(trimmed);
-          tempEpWords += wc; tempEpDialogues.push(trimmed);
-        }
-      }
-      if (tempShotDialogues.length > 0 && tempShotWords > shotGroupLim) overLimitDialogues.push(...tempShotDialogues);
-      if (tempEp && tempEpWords > episodeMaxLim) overLimitDialogues.push(...tempEpDialogues);
-
-      const uniqueOverLimit = [...new Set(overLimitDialogues)];
-      let dialogueTrimCount = 0;
-
-      if (uniqueOverLimit.length > 0) {
-        try {
-          const trimPrompt = `你是短剧台词精简专家。
-
-## 任务
-以下台词行字数超出限制，请精简对话内容，删减不重要的台词或简略对话（不改变意思）。
-${isChinese ? "中文标准：4-5个镜头一起的对白≤35字，一集台词≤330字" : "English standard: 4-5 shots together ≤20 words, episode ≤180 words"}
-
-## 待精简台词
-${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), null, 2)}
-
-## 输出格式
-只输出 JSON 数组：[{"id":1,"replacement":"精简后的台词"}]
-- 如果某行可以完全删除，replacement 设为空字符串 ""
-- 保持角色名和格式不变（如"角色名：台词"）`;
-
-          const trimRaw = await callGeminiStream(
-            model,
-            [{ role: "user", parts: [{ text: trimPrompt }] }],
-            () => {},
-            { maxOutputTokens: 4096, temperature: 0.5 },
-            autoAdjustAbortRef.current?.signal,
-          );
-
-          const trimResults = parseRewriteJson(trimRaw);
-          for (const [id, replacement] of trimResults.entries()) {
-            const original = uniqueOverLimit[id - 1];
-            if (!original) continue;
-            if (replacement === "") {
-              // Remove the line entirely
-              workingText = workingText.split(original).map(s => s).join("");
-              // Clean up double newlines
-              workingText = workingText.replace(/\n{3,}/g, "\n\n");
-            } else if (replacement !== original) {
-              workingText = workingText.split(original).join(replacement);
-            }
-            dialogueTrimCount++;
-          }
-        } catch (trimErr: any) {
-          if (!trimErr?.message?.includes("取消")) {
-            console.warn("Dialogue trim failed:", trimErr);
-          }
-        }
-      }
-
-      if (appliedCount === 0 && dialogueTrimCount === 0) {
-        toast({ title: "自动调整未生效", description: "AI 改写结果与原文过于相似，请点击「自动调整」重试，或手动编辑文本", variant: "destructive" });
-        return;
-      }
-
-      setPhraseReplacements(workingReplacements);
-      setPaletteText(workingText);
-
-      // 如果是表格模式，同步更新表格数据
+      // Update UI
       if (inputMode === "table" && tableData) {
         const newRows = tableData.rows.map(row =>
           row.map(cell => {
@@ -1268,27 +1170,31 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
         setTableData({ ...tableData, rows: newRows });
         const textContent = [tableData.headers, ...newRows].map(row => (row as any[]).join("\t")).join("\n");
         setScriptText(textContent);
+        setPaletteText(textContent);
+      } else {
+        setPaletteText(workingText);
+        setScriptText(workingText);
       }
 
-      const parts: string[] = [];
-      if (appliedCount > 0) parts.push(`${appliedCount} 处风险`);
-      if (dialogueTrimCount > 0) parts.push(`${dialogueTrimCount} 处台词精简`);
       toast({
         title: "自动调整完成",
-        description: `已调整 ${parts.join("、")}${pending.length > 0 ? `，仍有 ${pending.length} 处建议手动调整` : ""}`,
+        description: `已调整 ${appliedCount} 处风险内容`,
       });
     } catch (e: any) {
-      if (!e?.message?.includes("取消")) {
-        toast({ title: "自动调整失败", description: e?.message, variant: "destructive" });
+      if (e?.name !== "AbortError") {
+        toast({
+          title: "自动调整失败",
+          description: e?.message || "未知错误",
+          variant: "destructive",
+        });
       }
     } finally {
-      setAdjustingPhrases(new Set());
       setIsAutoAdjusting(false);
+      setAdjustingPhrases(new Set());
       autoAdjustAbortRef.current = null;
     }
   };
 
-  // Export palette text - xlsx if table mode, otherwise docx
   const handlePaletteExport = useCallback(async () => {
     try {
       if (inputMode === "table" && tableData) {
@@ -1533,15 +1439,8 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
         if (partial) setComplianceReport(partial);
         toast({ title: "已停止生成" });
       } else {
-        const errorMsg = e?.message || "未知错误";
-        toast({
-          title: "审核失败",
-          description: errorMsg.length > 100 ? errorMsg.slice(0, 100) + "..." : errorMsg,
-          variant: "destructive"
-        });
-        if (streamingText) {
-          setComplianceReport(streamingText);
-        }
+        const fe = friendlyError(e);
+        toast({ title: fe.title, description: `合规审核失败：${fe.description}`, variant: "destructive" });
       }
     } finally {
       setIsGenerating(false);
@@ -1551,7 +1450,14 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
   };
 
   const handleStop = () => abortRef.current?.abort();
-  const displayText = isGenerating ? streamingText : complianceReport;
+
+  const displayText = useMemo(() => {
+    if (editing && !isGenerating) return complianceReport;
+    if (showTranslation && hasTranslation(complianceReport)) {
+      return getTranslation(complianceReport) || complianceReport;
+    }
+    return complianceReport;
+  }, [complianceReport, editing, isGenerating, showTranslation, hasTranslation, getTranslation]);
 
   // Count unique phrases per level from riskMap
   const redLineCount = useMemo(() => [...riskMap.values()].filter(l => l === "red").length, [riskMap]);
@@ -1575,10 +1481,10 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
 
       <main className="flex-1 px-6 py-8 max-w-7xl mx-auto w-full space-y-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left: Script Input */}
+          {/* Left: Script Input - Match palette section width */}
           <div className="lg:col-span-2 space-y-6">
             {/* Script Input Card */}
-            <Card>
+            <Card className="w-full"> {/* Added w-full to ensure full width */}
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <FileText className="h-5 w-5" />
@@ -1594,15 +1500,18 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                       className="gap-1.5 min-w-[140px] justify-between"
                     >
                       <span className="truncate">{MODEL_OPTIONS.find(o => o.value === model)?.label}</span>
-                      <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                      <ChevronDown className="h-3.5 w-3.5" />
                     </Button>
                     {modelDropdownOpen && (
-                      <div className="absolute right-0 top-full mt-1 z-50 bg-popover border border-border rounded-md shadow-lg py-1 min-w-[160px]">
+                      <div className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-lg border border-border bg-popover shadow-lg py-1">
                         {MODEL_OPTIONS.map((opt) => (
                           <button
                             key={opt.value}
-                            onClick={() => handleModelChange(opt.value)}
-                            className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors ${opt.value === model ? "bg-primary/10 text-primary font-semibold" : "text-popover-foreground hover:text-foreground"}`}
+                            type="button"
+                            onClick={() => { handleModelChange(opt.value); setModelDropdownOpen(false); }}
+                            className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent ${
+                              opt.value === model ? "bg-primary/10 text-primary font-semibold" : "text-popover-foreground hover:text-foreground"
+                            }`}
                           >
                             {opt.label}
                           </button>
@@ -1631,9 +1540,9 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                 </div>
               </CardHeader>
               <CardContent>
-                {/* 输入模式切换 */}
+                {/* Input mode toggle */}
                 {tableData && (
-                  <Tabs value={inputMode} onValueChange={(v) => setInputMode(v as "text" | "table")} className="mb-4">
+                  <Tabs value={inputMode} onValueChange={setInputMode} className="mb-4">
                     <TabsList>
                       <TabsTrigger value="table"><TableIcon className="h-3.5 w-3.5 mr-1" />表格模式</TabsTrigger>
                       <TabsTrigger value="text"><FileText className="h-3.5 w-3.5 mr-1" />文本模式</TabsTrigger>
@@ -1641,7 +1550,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                   </Tabs>
                 )}
 
-                {/* 表格显示模式 */}
+                {/* Table display mode */}
                 {inputMode === "table" && tableData ? (
                   <div className="max-h-[400px] overflow-auto rounded-md border border-border">
                     <div className="text-xs text-muted-foreground px-3 py-1.5 bg-muted/50 border-b border-border flex items-center gap-2">
@@ -1662,7 +1571,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                         {tableData.rows.map((row, rowIndex) => (
                           <TableRow key={rowIndex}>
                             {row.map((cell, cellIndex) => (
-                              <TableCell key={cellIndex} className="text-xs py-1.5">{String(cell ?? "")}</TableCell>
+                              <TableCell key={cellIndex} className="text-xs py-1.5 max-w-[200px] truncate">{String(cell ?? "")}</TableCell>
                             ))}
                           </TableRow>
                         ))}
@@ -1670,26 +1579,19 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                     </Table>
                   </div>
                 ) : (
-                  /* 文本显示模式 */
-                  <>
-                    <Textarea
-                      value={scriptText}
-                      onChange={(e) => setScriptText(e.target.value)}
-                      placeholder="粘贴剧本内容，或点击上方按钮上传 TXT / PDF / DOCX / XLSX 文档..."
-                      rows={12}
-                      className="font-mono text-sm"
-                    />
-                    <div className="text-xs text-muted-foreground mt-2 text-right">
-                      {scriptText.length} 字
-                    </div>
-                  </>
+                  /* Text display mode */
+                  <div className="max-h-[400px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
+                    <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
+                      {scriptText || <span className="text-muted-foreground/50">在此粘贴剧本内容，或点击上方按钮上传文档...</span>}
+                    </pre>
+                  </div>
                 )}
               </CardContent>
             </Card>
 
-            {/* Compliance Report Card — Collapsible */}
+            {/* Compliance Report Card - Match palette section width */}
             <Collapsible open={reportOpen} onOpenChange={setReportOpen}>
-              <Card>
+              <Card className="w-full"> {/* Added w-full to ensure full width */}
                 <CollapsibleTrigger asChild>
                   <CardHeader className="flex flex-row items-center justify-between cursor-pointer select-none hover:bg-accent/30 transition-colors rounded-t-lg">
                     <CardTitle className="text-lg flex items-center gap-2">
@@ -1703,7 +1605,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                       {reportOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                     </CardTitle>
                     <div className="flex gap-2 items-center" onClick={(e) => e.stopPropagation()}>
-                      {/* 对话审查开关 */}
+                      {/* Dialogue review toggle */}
                       <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5">
                         <span className="text-xs font-medium text-muted-foreground">对话审查</span>
                         <Switch
@@ -1713,29 +1615,35 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                         />
                       </div>
 
-                      {/* 审核模式切换 */}
+                      {/* Review mode toggle */}
                       <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5">
                         <button
                           onClick={() => setReviewMode("text")}
-                          className={`px-2 py-1 text-xs rounded transition-colors ${reviewMode === "text" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}
+                          className={`px-2 py-1 text-xs rounded transition-colors ${
+                            reviewMode === "text" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"
+                          }`}
                         >
                           文字审核
                         </button>
                         <button
                           onClick={() => setReviewMode("script")}
-                          className={`px-2 py-1 text-xs rounded transition-colors ${reviewMode === "script" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}
+                          className={`px-2 py-1 text-xs rounded transition-colors ${
+                            reviewMode === "script" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"
+                          }`}
                         >
                           情节审核
                         </button>
                       </div>
 
-                      {/* 严格程度切换 */}
+                      {/* Strictness level toggle */}
                       <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5">
                         {(Object.keys(STRICTNESS_CONFIG) as StrictnessLevel[]).map((level) => (
                           <button
                             key={level}
                             onClick={() => setStrictness(level)}
-                            className={`px-2 py-1 text-xs rounded transition-colors ${strictness === level ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}
+                            className={`px-2 py-1 text-xs rounded transition-colors ${
+                              strictness === level ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"
+                            }`}
                             title={STRICTNESS_CONFIG[level].desc}
                           >
                             {STRICTNESS_CONFIG[level].label}
@@ -1826,107 +1734,104 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
             </Collapsible>
           </div>
 
-          {/* Right: Only show dialogue stats if dialogue review is NOT enabled */}
-          {/* Removed dialogue stats panel as requested */}
-        </div>
-
-        {/* Risk Highlight Comparison - Only show if there are risks or dialogue review is enabled */}
-        {(complianceReport && !isGenerating && scriptText && (riskPhrases.length > 0 || (enableDialogueReview && dialogueOverLimitLines.size > 0))) && (
-          <Card id="palette-section">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Palette className="h-5 w-5" />
-                调色盘文本对比
-                <span className="text-sm font-normal text-muted-foreground">
-                  共识别 {riskPhrases.length} 处风险片段，{riskPhrases.filter(p => (paletteText || scriptText).includes(p)).length} 处已标记
-                </span>
-              </CardTitle>
-              <div className="flex gap-2">
-                {/* 表格模式下的撤销/重做 */}
-                {inputMode === "table" && tableData && (
-                  <>
-                    <Button variant="outline" size="sm" onClick={handleTableUndo} disabled={historyIndex < 0} className="gap-1" title="撤销">
-                      <Undo2 className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={handleTableRedo} disabled={historyIndex >= tableHistory.length - 1} className="gap-1" title="重做">
-                      <Redo2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </>
-                )}
-                {isAutoAdjusting ? (
-                  <Button variant="destructive" size="sm" onClick={() => autoAdjustAbortRef.current?.abort()} className="gap-1.5">
-                    <Square className="h-3.5 w-3.5" />
-                    停止
-                  </Button>
-                ) : (
-                  <Button variant="outline" size="sm" onClick={handleAutoAdjust} className="gap-1.5" disabled={paletteEditing || isAutoAdjusting}>
-                    <Wand2 className="h-3.5 w-3.5" />
-                    自动调整
-                  </Button>
-                )}
-                {inputMode !== "table" && (
-                  <Button variant="outline" size="sm" onClick={handlePaletteEditToggle} className="gap-1.5" disabled={isAutoAdjusting}>
-                    {paletteEditing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
-                    {paletteEditing ? "完成" : "编辑"}
-                  </Button>
-                )}
-                <Button variant="outline" size="sm" onClick={handlePaletteExport} className="gap-1.5">
-                  <Download className="h-3.5 w-3.5" />
-                  导出
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-4 mb-4">
-                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="inline-block w-3 h-3 rounded bg-red-200 dark:bg-red-800/60 border border-red-500" />
-                  ⛔ 红线问题
-                </span>
-                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="inline-block w-3 h-3 rounded bg-orange-200 dark:bg-orange-700/60 border border-orange-500" />
-                  ⚠️ 高风险内容
-                </span>
-                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="inline-block w-3 h-3 rounded bg-blue-200 dark:bg-blue-700/60 border border-blue-500" />
-                  ℹ️ 优化建议
-                </span>
-                {enableDialogueReview && dialogueOverLimitLines.size > 0 && (
-                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <span className="inline-block w-3 h-3 rounded bg-muted-foreground/15 border border-muted-foreground/30" />
-                    💬 台词超限 ({dialogueOverLimitLines.size} 处)
+          {/* Right: Palette Text Comparison - Match original width */}
+          <div className="space-y-6">
+            <Card id="palette-section" className="w-full"> {/* Added w-full to ensure full width */}
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Palette className="h-5 w-5" />
+                  调色盘文本对比
+                  <span className="text-sm font-normal text-muted-foreground">
+                    共识别 {riskPhrases.length} 处风险片段，{riskPhrases.filter(p => (paletteText || scriptText).includes(p)).length} 处已标记
                   </span>
+                </CardTitle>
+                <div className="flex gap-2">
+                  {/* Table mode undo/redo */}
+                  {inputMode === "table" && tableData && (
+                    <>
+                      <Button variant="outline" size="sm" onClick={handleTableUndo} disabled={historyIndex < 0} className="gap-1" title="撤销">
+                        <Undo2 className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={handleTableRedo} disabled={historyIndex >= tableHistory.length - 1} className="gap-1" title="重做">
+                        <Redo2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </>
+                  )}
+                  {isAutoAdjusting ? (
+                    <Button variant="destructive" size="sm" onClick={() => autoAdjustAbortRef.current?.abort()} className="gap-1.5">
+                      <Square className="h-3.5 w-3.5" />
+                      停止
+                    </Button>
+                  ) : (
+                    <Button variant="outline" size="sm" onClick={handleAutoAdjust} className="gap-1.5" disabled={paletteEditing || isAutoAdjusting}>
+                      <Wand2 className="h-3.5 w-3.5" />
+                      自动调整
+                    </Button>
+                  )}
+                  {inputMode !== "table" && (
+                    <Button variant="outline" size="sm" onClick={handlePaletteEditToggle} className="gap-1.5" disabled={isAutoAdjusting}>
+                      {paletteEditing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+                      {paletteEditing ? "完成" : "编辑"}
+                    </Button>
+                  )}
+                  <Button variant="outline" size="sm" onClick={handlePaletteExport} className="gap-1.5">
+                    <Download className="h-3.5 w-3.5" />
+                    导出
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-4 mb-4">
+                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className="inline-block w-3 h-3 rounded bg-red-200 dark:bg-red-800/60 border border-red-500" />
+                    ⛔ 红线问题
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className="inline-block w-3 h-3 rounded bg-orange-200 dark:bg-orange-700/60 border border-orange-500" />
+                    ⚠️ 高风险内容
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className="inline-block w-3 h-3 rounded bg-blue-200 dark:bg-blue-700/60 border border-blue-500" />
+                    ℹ️ 优化建议
+                  </span>
+                  {enableDialogueReview && dialogueOverLimitLines.size > 0 && (
+                    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span className="inline-block w-3 h-3 rounded bg-muted-foreground/15 border border-muted-foreground/30" />
+                      💬 台词超限 ({dialogueOverLimitLines.size} 处)
+                    </span>
+                  )}
+                </div>
+                {/* Table mode uses highlighted table, text mode uses highlighted text */}
+                {inputMode === "table" && tableData ? (
+                  renderHighlightedTable()
+                ) : paletteEditing ? (
+                  <div ref={paletteScrollRef} className="max-h-[600px] overflow-auto rounded-md border border-border bg-muted/30">
+                    <Textarea
+                      value={paletteText || scriptText}
+                      onChange={(e) => setPaletteText(e.target.value)}
+                      rows={20}
+                      className="font-mono text-sm border-0 focus-visible:ring-0 bg-transparent min-h-[300px]"
+                    />
+                  </div>
+                ) : highlightedScript ? (
+                  <div ref={paletteScrollRef} className="max-h-[600px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
+                    <pre
+                      ref={paletteEditRef}
+                      className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90"
+                    >
+                      {highlightedScript}
+                    </pre>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground text-sm">
+                    <p>AI 报告中标记的风险片段未能在原文中精确匹配。</p>
+                    <p className="mt-1">请尝试重新生成报告，AI 将更精确地引用原文。</p>
+                  </div>
                 )}
-              </div>
-              {/* 表格模式使用高亮表格，文本模式使用高亮文本 */}
-              {inputMode === "table" && tableData ? (
-                renderHighlightedTable()
-              ) : paletteEditing ? (
-                <div ref={paletteScrollRef} className="max-h-[600px] overflow-auto rounded-md border border-border bg-muted/30">
-                  <Textarea
-                    value={paletteText || scriptText}
-                    onChange={(e) => setPaletteText(e.target.value)}
-                    rows={20}
-                    className="font-mono text-sm border-0 focus-visible:ring-0 bg-transparent min-h-[300px]"
-                  />
-                </div>
-              ) : highlightedScript ? (
-                <div ref={paletteScrollRef} className="max-h-[600px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
-                  <pre
-                    ref={paletteEditRef}
-                    className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90"
-                  >
-                    {highlightedScript}
-                  </pre>
-                </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground text-sm">
-                  <p>AI 报告中标记的风险片段未能在原文中精确匹配。</p>
-                  <p className="mt-1">请尝试重新生成报告，AI 将更精确地引用原文。</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </main>
     </div>
   );
