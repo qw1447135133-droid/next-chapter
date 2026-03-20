@@ -29,7 +29,7 @@ const MODEL_OPTIONS: { value: ComplianceModel; label: string }[] = [
 // 文字审核提示词 - 检查字面违规
 const STANDALONE_COMPLIANCE_PROMPT = (scriptText: string) => `你是一位资深的短剧内容合规审核专家。
 
-## 待审核内容
+## 待审核内容（共 ${scriptText.length} 字符）
 ${scriptText}
 
 ---
@@ -43,69 +43,43 @@ ${scriptText}
 
 ---
 
-## ⛔⛔⛔ 强制输出格式 ⛔⛔⛔
+## 输出要求
 
-你必须在报告末尾输出一个 **### 风险标记列表（JSON）** 部分，格式如下：
+完成审核后，你必须在报告最后输出风险标记。使用以下两种格式之一：
 
-\`\`\`json
-### 风险标记列表（JSON）
-[
-  {"level": "red", "start": 100, "end": 150, "text": "从原文精确复制的文本"},
-  {"level": "high", "start": 200, "end": 250, "text": "从原文精确复制的文本"},
-  {"level": "info", "start": 300, "end": 350, "text": "从原文精确复制的文本"}
-]
+### 格式一：JSON 格式（推荐）
+
+\`\`\`
+### 风险标记列表
+[{"level":"red","start":0,"end":10},{"level":"high","start":20,"end":30}]
 \`\`\`
 
-### 字段说明
-- **level**: 风险等级，必须是 \`"red"\`（红线）、\`"high"\`（高风险）、\`"info"\`（建议）之一
-- **start**: 该文本在原文中的**起始字符位置**（从0开始计数）
-- **end**: 该文本在原文中的**结束字符位置**（不包含该位置字符）
-- **text**: 从原文**精确复制**的文本内容
+### 格式二：括号格式
 
-### 如何确定位置
-1. 在上面的"待审核内容"中找到有问题的文本
-2. 从文本开头往回数，计算这是第几个字符（从0开始）
-3. 从文本末尾往回数，计算结束位置
-
-### 示例
-
-待审核内容：
 \`\`\`
-012345678901234567890123456789
-他狠狠地打了她一巴掌。
-\`\`\`
-
-如果要标记"打了她一巴掌"（高风险），位置是：
-- start: 4（"打"字的位置）
-- end: 10（"掌"字后面，即句号前）
-- text: "打了她一巴掌"
-
-输出：
-\`\`\`json
-### 风险标记列表（JSON）
-[
-  {"level": "high", "start": 4, "end": 10, "text": "打了她一巴掌"}
-]
+⛔【有问题的原文文本】
+⚠️【有问题的原文文本】
+ℹ️【有问题的原文文本】
 \`\`\`
 
 ---
 
 ## 输出结构
 
-1. **合规总评**
-2. **激烈冲突检测**
-3. **版权问题排查**
-4. **敏感内容检测**
-5. **对话长度密度检测**
-6. **修改建议**
-7. **### 风险标记列表（JSON）** ← 必须包含此部分！
+1. 合规总评
+2. 激烈冲突检测
+3. 版权问题排查
+4. 敏感内容检测
+5. 对话长度密度检测
+6. 修改建议
+7. 风险标记列表（必须包含！）
 
 用 Markdown 格式输出。`;
 
 // 情节审核提示词 - 审核整个段落的画面表现 + 文字违规
 const SCRIPT_REVIEW_PROMPT = (scriptText: string) => `你是一位资深的短剧内容合规审核专家。
 
-## 待审核剧本
+## 待审核剧本（共 ${scriptText.length} 字符）
 ${scriptText}
 
 ---
@@ -118,39 +92,35 @@ ${scriptText}
 
 ---
 
-## ⛔⛔⛔ 强制输出格式 ⛔⛔⛔
+## 输出要求
 
-你必须在报告末尾输出一个 **### 风险标记列表（JSON）** 部分，格式如下：
+完成审核后，你必须在报告最后输出风险标记。使用以下两种格式之一：
 
-\`\`\`json
-### 风险标记列表（JSON）
-[
-  {"level": "red", "start": 100, "end": 150, "text": "从原文精确复制的文本"},
-  {"level": "high", "start": 200, "end": 250, "text": "从原文精确复制的文本"}
-]
+### 格式一：JSON 格式（推荐）
+
+\`\`\`
+### 风险标记列表
+[{"level":"red","start":0,"end":10},{"level":"high","start":20,"end":30}]
 \`\`\`
 
-### 字段说明
-- **level**: \`"red"\`（红线）、\`"high"\`（高风险）、\`"info"\`（建议）
-- **start**: 文本在原文中的起始字符位置（从0开始）
-- **end**: 文本在原文中的结束字符位置
-- **text**: 从原文精确复制的文本
+### 格式二：括号格式
 
-### 重要提示
-1. start 和 end 是**字符索引**，从0开始计数
-2. text 必须与原文从 start 到 end 的内容**完全一致**
-3. 如果位置计算错误，系统将无法正确标记
+\`\`\`
+⛔【有问题的原文文本】
+⚠️【有问题的原文文本】
+ℹ️【有问题的原文文本】
+\`\`\`
 
 ---
 
 ## 输出结构
 
-1. **合规总评**
-2. **文字违规检测**
-3. **画面违规检测**
-4. **对话长度密度检测**
-5. **修改建议**
-6. **### 风险标记列表（JSON）** ← 必须包含！
+1. 合规总评
+2. 文字违规检测
+3. 画面违规检测
+4. 对话长度密度检测
+5. 修改建议
+6. 风险标记列表（必须包含！）
 
 用 Markdown 格式输出。`;
 
@@ -231,49 +201,74 @@ const ComplianceReview = () => {
     setModelDropdownOpen(false);
   };
 
-  // 从报告中解析 JSON 格式的风险标记
+  // 从报告中解析风险标记（支持 JSON 和 emoji 两种格式）
   const positionBasedRisks = useMemo(() => {
     if (!complianceReport || !scriptText) return [];
     
-    // 查找 ### 风险标记列表（JSON） 部分
-    const jsonMatch = complianceReport.match(/###\s*风险标记列表.*?JSON.*?\n([\s\S]*?)(?=\n###|\n##\s|$)/i);
-    if (!jsonMatch) return [];
+    const result: { level: RiskLevel; start: number; end: number; text: string }[] = [];
     
-    const jsonText = jsonMatch[1].trim();
-    
-    // 提取 JSON 数组
-    const arrayMatch = jsonText.match(/\[[\s\S]*\]/);
-    if (!arrayMatch) return [];
-    
-    try {
-      const parsed = JSON.parse(arrayMatch[0]);
-      if (!Array.isArray(parsed)) return [];
-      
-      // 验证并过滤有效的标记
-      return parsed.filter((item: any) => {
-        if (!item || typeof item !== "object") return false;
-        if (!["red", "high", "info"].includes(item.level)) return false;
-        if (typeof item.start !== "number" || typeof item.end !== "number") return false;
-        if (item.start < 0 || item.end > scriptText.length || item.start >= item.end) return false;
-        
-        // 验证 text 是否匹配原文
-        const actualText = scriptText.slice(item.start, item.end);
-        if (item.text && item.text !== actualText) {
-          // 文本不匹配，但位置有效，更新 text
-          item.text = actualText;
+    // 方式1：尝试解析 JSON 格式
+    const jsonMatch = complianceReport.match(/###\s*风险标记列表[^\n]*\n([\s\S]*?)(?=\n###|\n##\s|$)/i);
+    if (jsonMatch) {
+      const jsonText = jsonMatch[1].trim();
+      const arrayMatch = jsonText.match(/\[[\s\S]*\]/);
+      if (arrayMatch) {
+        try {
+          const parsed = JSON.parse(arrayMatch[0]);
+          if (Array.isArray(parsed)) {
+            for (const item of parsed) {
+              if (!item || typeof item !== "object") continue;
+              if (!["red", "high", "info"].includes(item.level)) continue;
+              if (typeof item.start !== "number" || typeof item.end !== "number") continue;
+              if (item.start < 0 || item.end > scriptText.length || item.start >= item.end) continue;
+              
+              result.push({
+                level: item.level as RiskLevel,
+                start: item.start,
+                end: item.end,
+                text: item.text || scriptText.slice(item.start, item.end)
+              });
+            }
+          }
+        } catch (e) {
+          console.error("解析风险标记JSON失败:", e);
         }
-        
-        return true;
-      }).map((item: any) => ({
-        level: item.level as RiskLevel,
-        start: item.start,
-        end: item.end,
-        text: item.text || scriptText.slice(item.start, item.end)
-      }));
-    } catch (e) {
-      console.error("解析风险标记JSON失败:", e);
-      return [];
+      }
     }
+    
+    // 方式2：解析 emoji 格式（作为补充）
+    const emojiPatterns: [RegExp, RiskLevel][] = [
+      [/⛔\s*【([^】]+)】/g, "red"],
+      [/⚠️\s*【([^】]+)】/g, "high"],
+      [/ℹ️\s*【([^】]+)】/g, "info"],
+      [/⛔\s*\[([^\]]+)\]/g, "red"],
+      [/⚠️\s*\[([^\]]+)\]/g, "high"],
+      [/ℹ️\s*\[([^\]]+)\]/g, "info"],
+    ];
+    
+    for (const [regex, level] of emojiPatterns) {
+      regex.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = regex.exec(complianceReport)) !== null) {
+        const text = m[1].trim();
+        if (text.length < 2) continue;
+        
+        // 在原文中查找位置
+        const idx = scriptText.indexOf(text);
+        if (idx !== -1) {
+          // 检查是否已存在
+          const exists = result.some(r => r.start === idx && r.end === idx + text.length);
+          if (!exists) {
+            result.push({ level, start: idx, end: idx + text.length, text });
+          }
+        }
+      }
+    }
+    
+    // 按起始位置排序
+    result.sort((a, b) => a.start - b.start);
+    
+    return result;
   }, [complianceReport, scriptText]);
 
   // 提取风险片段（兼容旧格式）
@@ -466,237 +461,199 @@ const ComplianceReview = () => {
   const buildHighlightedParts = useCallback((text: string, blankPhrases?: Set<string>) => {
     if (!text) return <>{text}</>;
     
-    // 优先使用基于位置的风险标记
-    if (positionBasedRisks.length > 0) {
-      // 创建位置区间列表
-      const ranges: { start: number; end: number; level: RiskLevel; text: string }[] = [...positionBasedRisks];
-      
-      // 添加手动标记（需要查找位置）
-      for (const [phrase, level] of manualRiskMap.entries()) {
-        let searchStart = 0;
-        while (true) {
-          const idx = text.indexOf(phrase, searchStart);
-          if (idx === -1) break;
+    // 收集所有风险区间
+    const ranges: { start: number; end: number; level: RiskLevel; text: string }[] = [];
+    
+    // 1. 添加基于位置的风险（最高优先级）
+    for (const risk of positionBasedRisks) {
+      if (risk.start >= 0 && risk.end <= text.length && risk.start < risk.end) {
+        ranges.push({ ...risk });
+      }
+    }
+    
+    // 2. 添加手动标记
+    for (const [phrase, level] of manualRiskMap.entries()) {
+      let searchStart = 0;
+      while (searchStart < text.length) {
+        const idx = text.indexOf(phrase, searchStart);
+        if (idx === -1) break;
+        // 检查是否与已有区间重叠
+        const overlaps = ranges.some(r => idx < r.end && idx + phrase.length > r.start);
+        if (!overlaps) {
           ranges.push({ start: idx, end: idx + phrase.length, level, text: phrase });
-          searchStart = idx + 1;
         }
-      }
-      
-      // 添加基于文本匹配的风险（兼容旧格式）
-      for (const phrase of activeRiskPhrases) {
-        if (text.includes(phrase)) {
-          const level = activeRiskMap.get(phrase);
-          if (level) {
-            let searchStart = 0;
-            while (true) {
-              const idx = text.indexOf(phrase, searchStart);
-              if (idx === -1) break;
-              // 检查是否已存在重叠的位置标记
-              const hasOverlap = ranges.some(r => 
-                (idx >= r.start && idx < r.end) || (idx + phrase.length > r.start && idx + phrase.length <= r.end)
-              );
-              if (!hasOverlap) {
-                ranges.push({ start: idx, end: idx + phrase.length, level, text: phrase });
-              }
-              searchStart = idx + 1;
-            }
-          }
-        }
-      }
-      
-      // 按起始位置排序
-      ranges.sort((a, b) => a.start - b.start);
-      
-      // 合并重叠的区间（保留高风险级别）
-      const merged: typeof ranges = [];
-      for (const range of ranges) {
-        const last = merged[merged.length - 1];
-        if (last && range.start < last.end) {
-          // 重叠，扩展或更新
-          last.end = Math.max(last.end, range.end);
-          // 保留更高级别的风险
-          if (range.level === "red" || (range.level === "high" && last.level === "info")) {
-            last.level = range.level;
-          }
-          last.text = text.slice(last.start, last.end);
-        } else {
-          merged.push({ ...range });
-        }
-      }
-      
-      // 构建高亮结果
-      const result: React.ReactNode[] = [];
-      let cursor = 0;
-      
-      for (let i = 0; i < merged.length; i++) {
-        const range = merged[i];
-        
-        // 添加普通文本
-        if (range.start > cursor) {
-          result.push(<span key={`text-${i}`}>{text.slice(cursor, range.start)}</span>);
-        }
-        
-        // 添加高亮文本
-        const highlightedText = text.slice(range.start, range.end);
-        const originalText = replacementToOriginal.get(highlightedText);
-        const isBlank = blankPhrases?.has(highlightedText);
-        
-        result.push(
-          <mark 
-            key={`mark-${i}`}
-            className={`${RISK_STYLES[range.level]} text-foreground rounded px-0.5 ${isBlank ? "inline-block min-w-[2em]" : ""} ${originalText ? "cursor-help" : ""}`}
-            title={originalText ? `原文：${originalText}` : undefined}
-          >
-            {isBlank ? "\u00A0".repeat(Math.max(highlightedText.length, 2)) : highlightedText}
-          </mark>
-        );
-        
-        cursor = range.end;
-      }
-      
-      // 添加剩余文本
-      if (cursor < text.length) {
-        result.push(<span key="text-end">{text.slice(cursor)}</span>);
-      }
-      
-      return <>{result}</>;
-    }
-    
-    // 回退到旧的文本匹配方式
-    if (activeRiskPhrases.length === 0 && manualRiskMap.size === 0) return <>{text}</>;
-    
-    // ... 保留旧的模糊匹配逻辑作为备选 ...
-    const normalize = (s: string) => 
-      s.replace(/\s+/g, "")
-       .replace(/[，。！？、；：""''（）【】「」《》·…—,.!?;:'"()\[\]{}<>]/g, "");
-    
-    const extendedRiskMap = new Map<string, RiskLevel>(activeRiskMap);
-    
-    for (const phrase of activeRiskPhrases) {
-      if (text.includes(phrase)) continue;
-      const level = activeRiskMap.get(phrase);
-      if (!level) continue;
-      
-      const normalizedPhrase = normalize(phrase);
-      if (normalizedPhrase.length >= 5) {
-        const normalizedText = normalize(text);
-        if (normalizedText.includes(normalizedPhrase)) {
-          const idx = normalizedText.indexOf(normalizedPhrase);
-          let charCount = 0;
-          for (let i = 0; i < text.length; i++) {
-            const ch = text[i];
-            if (!/\s/.test(ch) && !/[，。！？、；：""''（）【】「」《》·…—,.!?;:'"()\[\]{}<>]/.test(ch)) {
-              if (charCount === idx) {
-                const estimatedLen = Math.ceil(phrase.length * 1.3);
-                const candidate = text.slice(i, i + estimatedLen);
-                if (!extendedRiskMap.has(candidate)) {
-                  extendedRiskMap.set(candidate, level);
-                }
-                break;
-              }
-              charCount++;
-            }
-          }
-        }
+        searchStart = idx + 1;
       }
     }
     
-    const allPhrases = [...extendedRiskMap.keys(), ...manualRiskMap.keys()].sort((a, b) => b.length - a.length);
-    const matching = [...new Set(allPhrases)].filter(p => text.includes(p));
-    if (matching.length === 0) return <>{text}</>;
-    
-    const escaped = matching.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-    const regex = new RegExp(`(${escaped.join("|")})`, "g");
-    const parts = text.split(regex);
-    
-    return parts.map((part, i) => {
-      const level = extendedRiskMap.get(part) || manualRiskMap.get(part);
-      if (level) {
-        const originalText = replacementToOriginal.get(part);
-        return (
-          <mark 
-            key={i} 
-            className={`${RISK_STYLES[level]} text-foreground rounded px-0.5 ${originalText ? "cursor-help" : ""}`}
-            title={originalText ? `原文：${originalText}` : undefined}
-          >
-            {part}
-          </mark>
-        );
+    // 3. 添加基于文本匹配的风险（兼容旧格式）
+    for (const [phrase, level] of riskMap.entries()) {
+      if (phrase.length < 2) continue;
+      let searchStart = 0;
+      while (searchStart < text.length) {
+        const idx = text.indexOf(phrase, searchStart);
+        if (idx === -1) break;
+        // 检查是否与已有区间重叠
+        const overlaps = ranges.some(r => idx < r.end && idx + phrase.length > r.start);
+        if (!overlaps) {
+          ranges.push({ start: idx, end: idx + phrase.length, level, text: phrase });
+        }
+        searchStart = idx + 1;
       }
-      return <span key={i}>{part}</span>;
-    });
-  }, [positionBasedRisks, manualRiskMap, activeRiskPhrases, activeRiskMap, replacementToOriginal]);
+    }
+    
+    // 如果没有任何风险，返回原文本
+    if (ranges.length === 0) return <>{text}</>;
+    
+    // 按起始位置排序
+    ranges.sort((a, b) => a.start - b.start);
+    
+    // 合并重叠的区间
+    const merged: typeof ranges = [];
+    for (const range of ranges) {
+      const last = merged[merged.length - 1];
+      if (last && range.start < last.end) {
+        // 重叠，扩展或更新
+        last.end = Math.max(last.end, range.end);
+        // 保留更高级别的风险
+        if (range.level === "red" || (range.level === "high" && last.level === "info")) {
+          last.level = range.level;
+        }
+        last.text = text.slice(last.start, last.end);
+      } else {
+        merged.push({ ...range });
+      }
+    }
+    
+    // 构建高亮结果
+    const result: React.ReactNode[] = [];
+    let cursor = 0;
+    
+    for (let i = 0; i < merged.length; i++) {
+      const range = merged[i];
+      
+      // 添加普通文本
+      if (range.start > cursor) {
+        result.push(<span key={`text-${i}`}>{text.slice(cursor, range.start)}</span>);
+      }
+      
+      // 添加高亮文本
+      const highlightedText = text.slice(range.start, range.end);
+      const originalText = replacementToOriginal.get(highlightedText);
+      const isBlank = blankPhrases?.has(highlightedText);
+      
+      result.push(
+        <mark 
+          key={`mark-${i}`}
+          className={`${RISK_STYLES[range.level]} text-foreground rounded px-0.5 ${isBlank ? "inline-block min-w-[2em]" : ""} ${originalText ? "cursor-help" : ""}`}
+          title={originalText ? `原文：${originalText}` : undefined}
+        >
+          {isBlank ? "\u00A0".repeat(Math.max(highlightedText.length, 2)) : highlightedText}
+        </mark>
+      );
+      
+      cursor = range.end;
+    }
+    
+    // 添加剩余文本
+    if (cursor < text.length) {
+      result.push(<span key="text-end">{text.slice(cursor)}</span>);
+    }
+    
+    return <>{result}</>;
+  }, [positionBasedRisks, manualRiskMap, riskMap, replacementToOriginal]);
 
   // 表格模式下高亮单个单元格
   const highlightTableCell = useCallback((cellText: string, cellStartPos?: number) => {
     if (!cellText) return <>{cellText}</>;
     
-    // 如果有位置信息和基于位置的风险，优先使用
-    if (cellStartPos !== undefined && positionBasedRisks.length > 0) {
+    // 收集当前单元格内的风险区间
+    const cellRanges: { start: number; end: number; level: RiskLevel }[] = [];
+    
+    // 1. 基于位置的风险
+    if (cellStartPos !== undefined) {
       const cellEndPos = cellStartPos + cellText.length;
-      // 找出当前单元格内的风险
-      const cellRisks = positionBasedRisks.filter(r => 
-        r.start >= cellStartPos && r.end <= cellEndPos
-      ).map(r => ({
-        ...r,
-        localStart: r.start - cellStartPos,
-        localEnd: r.end - cellStartPos
-      }));
-      
-      if (cellRisks.length === 0) return <>{cellText}</>;
-      
-      // 构建高亮
-      const result: React.ReactNode[] = [];
-      let cursor = 0;
-      
-      for (let i = 0; i < cellRisks.length; i++) {
-        const risk = cellRisks[i];
-        if (risk.localStart > cursor) {
-          result.push(<span key={`text-${i}`}>{cellText.slice(cursor, risk.localStart)}</span>);
+      for (const risk of positionBasedRisks) {
+        if (risk.start >= cellStartPos && risk.end <= cellEndPos) {
+          cellRanges.push({
+            start: risk.start - cellStartPos,
+            end: risk.end - cellStartPos,
+            level: risk.level
+          });
         }
-        result.push(
-          <mark key={`mark-${i}`} className={`${RISK_STYLES[risk.level]} rounded px-0.5`}>
-            {cellText.slice(risk.localStart, risk.localEnd)}
-          </mark>
-        );
-        cursor = risk.localEnd;
       }
-      
-      if (cursor < cellText.length) {
-        result.push(<span key="text-end">{cellText.slice(cursor)}</span>);
-      }
-      
-      return <>{result}</>;
     }
     
-    // 回退到文本匹配
-    if (activeRiskPhrases.length === 0) return <>{cellText}</>;
-    
-    const matching = activeRiskPhrases.filter(p => cellText.includes(p));
-    if (matching.length === 0) return <>{cellText}</>;
-    
-    const sorted = matching.sort((a, b) => b.length - a.length);
-    const escaped = sorted.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-    const regex = new RegExp(`(${escaped.join("|")})`, "g");
-    const parts = cellText.split(regex);
-    
-    return parts.map((part, i) => {
-      const level = activeRiskMap.get(part);
-      if (level) {
-        const originalText = replacementToOriginal.get(part);
-        return (
-          <mark 
-            key={i} 
-            className={`${RISK_STYLES[level]} rounded px-0.5 ${originalText ? "cursor-help" : ""}`}
-            title={originalText ? `原文：${originalText}` : undefined}
-          >
-            {part}
-          </mark>
-        );
+    // 2. 手动标记
+    for (const [phrase, level] of manualRiskMap.entries()) {
+      if (phrase.length < 2) continue;
+      let searchStart = 0;
+      while (searchStart < cellText.length) {
+        const idx = cellText.indexOf(phrase, searchStart);
+        if (idx === -1) break;
+        const overlaps = cellRanges.some(r => idx < r.end && idx + phrase.length > r.start);
+        if (!overlaps) {
+          cellRanges.push({ start: idx, end: idx + phrase.length, level });
+        }
+        searchStart = idx + 1;
       }
-      return <span key={i}>{part}</span>;
-    });
-  }, [positionBasedRisks, activeRiskPhrases, activeRiskMap, replacementToOriginal]);
+    }
+    
+    // 3. 基于文本的风险
+    for (const [phrase, level] of riskMap.entries()) {
+      if (phrase.length < 2) continue;
+      let searchStart = 0;
+      while (searchStart < cellText.length) {
+        const idx = cellText.indexOf(phrase, searchStart);
+        if (idx === -1) break;
+        const overlaps = cellRanges.some(r => idx < r.end && idx + phrase.length > r.start);
+        if (!overlaps) {
+          cellRanges.push({ start: idx, end: idx + phrase.length, level });
+        }
+        searchStart = idx + 1;
+      }
+    }
+    
+    if (cellRanges.length === 0) return <>{cellText}</>;
+    
+    // 排序并合并
+    cellRanges.sort((a, b) => a.start - b.start);
+    const merged: typeof cellRanges = [];
+    for (const range of cellRanges) {
+      const last = merged[merged.length - 1];
+      if (last && range.start < last.end) {
+        last.end = Math.max(last.end, range.end);
+        if (range.level === "red" || (range.level === "high" && last.level === "info")) {
+          last.level = range.level;
+        }
+      } else {
+        merged.push({ ...range });
+      }
+    }
+    
+    // 构建高亮
+    const result: React.ReactNode[] = [];
+    let cursor = 0;
+    
+    for (let i = 0; i < merged.length; i++) {
+      const range = merged[i];
+      if (range.start > cursor) {
+        result.push(<span key={`text-${i}`}>{cellText.slice(cursor, range.start)}</span>);
+      }
+      result.push(
+        <mark key={`mark-${i}`} className={`${RISK_STYLES[range.level]} rounded px-0.5`}>
+          {cellText.slice(range.start, range.end)}
+        </mark>
+      );
+      cursor = range.end;
+    }
+    
+    if (cursor < cellText.length) {
+      result.push(<span key="text-end">{cellText.slice(cursor)}</span>);
+    }
+    
+    return <>{result}</>;
+  }, [positionBasedRisks, manualRiskMap, riskMap]);
 
   const highlightedScript = useMemo(() => {
     const text = paletteText || scriptText;
@@ -1426,12 +1383,10 @@ const ComplianceReview = () => {
                 <Palette className="h-5 w-5" />
                 调色盘文本对比
                 {isGenerating && <span className="text-xs text-muted-foreground animate-pulse">（审核中...）</span>}
-                {!isGenerating && (positionBasedRisks.length > 0 || combinedRiskPhrases.length > 0) && (
+                {!isGenerating && (positionBasedRisks.length > 0 || riskMap.size > 0 || manualRiskMap.size > 0) && (
                   <span className="text-sm font-normal text-muted-foreground">
-                    共 {positionBasedRisks.length + combinedRiskPhrases.length} 处标记
-                    {positionBasedRisks.length > 0 && <span className="text-green-600">（{positionBasedRisks.length} 精确定位</span>}
-                    {combinedRiskPhrases.length > 0 && <span className="text-blue-600"> + {combinedRiskPhrases.length} 文本匹配</span>}
-                    {manualRiskMap.size > 0 && <span className="text-amber-600"> + {manualRiskMap.size} 手动</span>}）
+                    共 {positionBasedRisks.length + riskMap.size + manualRiskMap.size} 处标记
+                    {positionBasedRisks.length > 0 && <span className="text-green-600 ml-1">({positionBasedRisks.length} 精确定位)</span>}
                   </span>
                 )}
               </CardTitle>
@@ -1666,59 +1621,44 @@ const ComplianceReview = () => {
               )}
               
               {/* AI 标记匹配状态调试 */}
-              {(positionBasedRisks.length > 0 || riskPhrases.length > 0) && (
+              {(positionBasedRisks.length > 0 || riskMap.size > 0) && (
                 <div className="mt-4 border-t pt-4">
                   <details className="text-sm">
                     <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                      🔍 AI 标记状态（位置标记 {positionBasedRisks.length} 个 + 文本标记 {riskPhrases.length} 个）
+                      🔍 标记状态：{positionBasedRisks.length} 个位置标记 + {riskMap.size} 个文本标记
                     </summary>
                     <div className="mt-2 space-y-1 max-h-[200px] overflow-auto">
-                      {positionBasedRisks.length > 0 && (
+                      {positionBasedRisks.length > 0 ? (
                         <>
-                          <p className="text-xs text-green-600 font-medium mb-1">✅ 基于位置的标记（精确匹配）：</p>
-                          {positionBasedRisks.map((item, idx) => (
+                          <p className="text-xs text-green-600 font-medium mb-1">✅ 已标记（位置准确）：</p>
+                          {positionBasedRisks.slice(0, 20).map((item, idx) => (
                             <div key={`pos-${idx}`} className="p-1.5 rounded text-xs bg-green-50 text-green-700">
                               <span className="font-mono">
                                 {item.level === "red" ? "⛔" : item.level === "high" ? "⚠️" : "ℹ️"}
-                                [{item.start}-{item.end}]
                               </span>
                               <span className="ml-2">{item.text.slice(0, 50)}{item.text.length > 50 ? "..." : ""}</span>
                             </div>
                           ))}
-                        </>
-                      )}
-                      {riskPhrases.length > 0 && (
-                        <>
-                          <p className="text-xs text-blue-600 font-medium mb-1 mt-2">📝 基于文本的标记（模糊匹配）：</p>
-                          {riskPhrases.slice(0, 10).map((phrase, idx) => {
-                            const isMatched = (paletteText || scriptText).includes(phrase);
-                            const level = riskMap.get(phrase);
-                            return (
-                              <div
-                                key={`text-${idx}`}
-                                className={`p-1.5 rounded text-xs ${
-                                  isMatched ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
-                                }`}
-                              >
-                                <span className="font-mono">
-                                  {level === "red" ? "⛔" : level === "high" ? "⚠️" : "ℹ️"}
-                                  {isMatched ? "✓" : "✗"}
-                                </span>
-                                <span className="ml-2">{phrase.slice(0, 50)}{phrase.length > 50 ? "..." : ""}</span>
-                              </div>
-                            );
-                          })}
-                          {riskPhrases.length > 10 && (
-                            <p className="text-xs text-muted-foreground">... 还有 {riskPhrases.length - 10} 个</p>
+                          {positionBasedRisks.length > 20 && (
+                            <p className="text-xs text-muted-foreground">... 还有 {positionBasedRisks.length - 20} 个</p>
                           )}
                         </>
+                      ) : riskMap.size > 0 ? (
+                        <>
+                          <p className="text-xs text-blue-600 font-medium mb-1">📝 文本标记：</p>
+                          {[...riskMap.entries()].slice(0, 10).map(([text, level], idx) => (
+                            <div key={`text-${idx}`} className="p-1.5 rounded text-xs bg-blue-50 text-blue-700">
+                              <span className="font-mono">
+                                {level === "red" ? "⛔" : level === "high" ? "⚠️" : "ℹ️"}
+                              </span>
+                              <span className="ml-2">{text.slice(0, 50)}{text.length > 50 ? "..." : ""}</span>
+                            </div>
+                          ))}
+                        </>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">暂无标记</p>
                       )}
                     </div>
-                    {positionBasedRisks.length === 0 && riskPhrases.length > 0 && (
-                      <p className="mt-2 text-xs text-amber-600">
-                        💡 AI 未输出位置信息（JSON格式），使用文本匹配。建议重新审核以获取精确标记。
-                      </p>
-                    )}
                   </details>
                 </div>
               )}
