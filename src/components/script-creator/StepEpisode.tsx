@@ -88,19 +88,10 @@ function getEpisodePostamble(content: string): string {
 
 const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext }: StepEpisodeProps) => {
   // Fallback: if directory is empty (e.g. adaptation mode), generate placeholder entries from totalEpisodes
-  // Also warn if directory length doesn't match target
   const displayDirectory: EpisodeEntry[] = useMemo(() => {
-    const targetEpisodes = setup.totalEpisodes || 60;
-    
-    // If directory exists but doesn't match target, show warning in console
-    if (directory.length > 0 && directory.length !== targetEpisodes) {
-      console.warn(`[StepEpisode] 目录集数 (${directory.length}) 与目标集数 (${targetEpisodes}) 不匹配`);
-    }
-    
     if (directory.length > 0) return directory;
-    
-    // Fallback: generate placeholder entries
-    return Array.from({ length: targetEpisodes }, (_, i) => ({
+    const total = setup.totalEpisodes || 60;
+    return Array.from({ length: total }, (_, i) => ({
       number: i + 1,
       title: `第${i + 1}集`,
       summary: "",

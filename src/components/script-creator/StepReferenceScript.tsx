@@ -5,7 +5,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
 import { ArrowRight, FileText, Upload, Sparkles, Loader2, CheckCircle2, PlayCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { callGemini, callGeminiStream, extractText } from "@/lib/gemini-client";
@@ -121,8 +120,6 @@ const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferen
   const [targetMarket, setTargetMarket] = useState(setup?.targetMarket || "");
   const [totalEpisodes, setTotalEpisodes] = useState<number | null>(setup?.totalEpisodes || null);
   const [suggestedEpisodes, setSuggestedEpisodes] = useState<number | null>(null);
-  const [isCustomEpisodes, setIsCustomEpisodes] = useState(false);
-  const [customEpisodesInput, setCustomEpisodesInput] = useState("");
   const [audience, setAudience] = useState(setup?.audience || "");
   const [tone, setTone] = useState(setup?.tone || "");
   const [ending, setEnding] = useState(setup?.ending || "");
@@ -420,14 +417,6 @@ ${structureParts.join("\n\n---\n\n")}
       toast({ title: '请先点击「AI 识别剧本」识别配置项', variant: "destructive" });
       return;
     }
-    // 验证自定义集数
-    if (isCustomEpisodes) {
-      const num = parseInt(customEpisodesInput);
-      if (isNaN(num) || num < 10 || num > 200) {
-        toast({ title: "请输入有效的集数（10-200）", variant: "destructive" });
-        return;
-      }
-    }
     const dramaSetup: DramaSetup = {
       genres: [],
       audience: audience || "全龄",
@@ -613,72 +602,26 @@ ${structureParts.join("\n\n---\n\n")}
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">目标集数</Label>
-                {isCustomEpisodes ? (
-                  <div className="flex gap-1.5">
-                    <Input
-                      type="number"
-                      min={10}
-                      max={200}
-                      value={customEpisodesInput}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setCustomEpisodesInput(val);
-                        const num = parseInt(val);
-                        if (num >= 10 && num <= 200) {
-                          setTotalEpisodes(num);
-                        } else {
-                          setTotalEpisodes(null);
-                        }
-                      }}
-                      placeholder="10-200"
-                      className="h-8 flex-1 text-sm"
-                    />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="shrink-0 text-xs h-8"
-                      onClick={() => {
-                        setIsCustomEpisodes(false);
-                        setTotalEpisodes(suggestedEpisodes || 60);
-                      }}
-                    >
-                      预设
-                    </Button>
-                  </div>
-                ) : (
-                  <Select
-                    value={totalEpisodes ? String(totalEpisodes) : ""}
-                    onValueChange={(v) => {
-                      if (v === "custom") {
-                        setIsCustomEpisodes(true);
-                        setTotalEpisodes(null);
-                      } else {
-                        setIsCustomEpisodes(false);
-                        setTotalEpisodes(Number(v));
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="h-8 text-sm">
-                      <SelectValue placeholder="待选择" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {suggestedEpisodes && (
-                        <SelectItem value={String(suggestedEpisodes)}>
-                          AI建议：{suggestedEpisodes}集
-                        </SelectItem>
-                      )}
-                      {EPISODE_COUNTS.filter(e => e.value > 0 && e.value !== suggestedEpisodes).map((ep) => (
-                        <SelectItem key={ep.value} value={String(ep.value)}>
-                          {ep.label}
-                        </SelectItem>
-                      ))}
-                      <SelectItem value="custom">自定义</SelectItem>
-                    </SelectContent>
-                  </Select>
-                )}
-                {isCustomEpisodes && customEpisodesInput && (parseInt(customEpisodesInput) < 10 || parseInt(customEpisodesInput) > 200) && (
-                  <p className="text-xs text-destructive">请输入 10-200 之间的集数</p>
-                )}
+                <Select
+                  value={totalEpisodes ? String(totalEpisodes) : ""}
+                  onValueChange={(v) => setTotalEpisodes(Number(v))}
+                >
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue placeholder="待选择" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {suggestedEpisodes && (
+                      <SelectItem value={String(suggestedEpisodes)}>
+                        AI建议：{suggestedEpisodes}集
+                      </SelectItem>
+                    )}
+                    {EPISODE_COUNTS.filter(e => e.value > 0 && e.value !== suggestedEpisodes).map((ep) => (
+                      <SelectItem key={ep.value} value={String(ep.value)}>
+                        {ep.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">受众</Label>

@@ -125,11 +125,6 @@ export const FRAMEWORK_STYLES = [
   { value: "科幻未来", label: "科幻未来", desc: "星际探索、AI时代、赛博朋克" },
   { value: "民国谍战", label: "民国谍战", desc: "乱世风云、谍影重重、家国情怀" },
   { value: "校园青春", label: "校园青春", desc: "校园恋爱、青春成长、友情热血" },
-  // 新增4个风格
-  { value: "悬疑惊悚", label: "悬疑惊悚", desc: "推理破案、心理博弈、暗黑反转" },
-  { value: "超级英雄", label: "超级英雄", desc: "异能觉醒、拯救世界、英雄成长" },
-  { value: "都市异能", label: "都市异能", desc: "现代都市、隐藏异能、都市传说" },
-  { value: "历史战争", label: "历史战争", desc: "乱世枭雄、沙场征伐、家国天下" },
 ] as const;
 
 export type SetupMode = "topic" | "creative";
