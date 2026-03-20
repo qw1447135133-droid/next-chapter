@@ -1085,7 +1085,99 @@ ${JSON.stringify(payload, null, 2)}`;
         pending = nextPending.filter((entry) => workingText.includes(entry.current));
       }
 
-      if (appliedCount === 0) {
+      // --- Phase 2: Dialogue trimming ---
+      // Re-analyze dialogue warnings on the working text
+      const dialogueLines = workingText.split("\n");
+      const overLimitDialogues: string[] = [];
+      const shotGroupLim = isChinese ? 35 : 20;
+      const episodeMaxLim = isChinese ? 330 : 180;
+      let tempShotWords = 0;
+      let tempShotDialogues: string[] = [];
+      let tempEpWords = 0;
+      let tempEpDialogues: string[] = [];
+      let tempEp = "";
+      let tempShotCount = 0;
+
+      for (const dl of dialogueLines) {
+        const trimmed = dl.trim();
+        const epMatch = trimmed.match(/^#\s*(\d+)/);
+        if (epMatch) {
+          if (tempShotDialogues.length > 0 && tempShotWords > shotGroupLim) {
+            overLimitDialogues.push(...tempShotDialogues);
+          }
+          tempShotCount++;
+          if (tempShotCount > 5) {
+            tempShotWords = 0; tempShotDialogues = []; tempShotCount = 1;
+          }
+          const sceneMatch = trimmed.match(/^#\s*(\d+)-/);
+          const newEp = sceneMatch ? sceneMatch[1] : epMatch[1];
+          if (newEp !== tempEp) {
+            if (tempEp && tempEpWords > episodeMaxLim) overLimitDialogues.push(...tempEpDialogues);
+            tempEp = newEp; tempEpWords = 0; tempEpDialogues = [];
+            tempShotWords = 0; tempShotDialogues = []; tempShotCount = 1;
+          }
+          continue;
+        }
+        if (isDialogueLine(trimmed) && !isSfxLine(trimmed)) {
+          const match = trimmed.match(/^[^\s△#]{1,10}[：:]\s*(?:[\(（][^）\)]*[）\)])?(.*)$/);
+          const content = match ? match[1].trim() : trimmed;
+          const wc = isChinese ? (content.match(/[\u4e00-\u9fa5]/g) || []).length : content.split(/\s+/).filter(w => w.length > 0).length;
+          tempShotWords += wc; tempShotDialogues.push(trimmed);
+          tempEpWords += wc; tempEpDialogues.push(trimmed);
+        }
+      }
+      if (tempShotDialogues.length > 0 && tempShotWords > shotGroupLim) overLimitDialogues.push(...tempShotDialogues);
+      if (tempEp && tempEpWords > episodeMaxLim) overLimitDialogues.push(...tempEpDialogues);
+
+      const uniqueOverLimit = [...new Set(overLimitDialogues)];
+      let dialogueTrimCount = 0;
+
+      if (uniqueOverLimit.length > 0) {
+        try {
+          const trimPrompt = `你是短剧台词精简专家。
+
+## 任务
+以下台词行字数超出限制，请精简对话内容，删减不重要的台词或简略对话（不改变意思）。
+${isChinese ? "中文标准：4-5个镜头一起的对白≤35字，一集台词≤330字" : "English standard: 4-5 shots together ≤20 words, episode ≤180 words"}
+
+## 待精简台词
+${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), null, 2)}
+
+## 输出格式
+只输出 JSON 数组：[{"id":1,"replacement":"精简后的台词"}]
+- 如果某行可以完全删除，replacement 设为空字符串 ""
+- 保持角色名和格式不变（如"角色名：台词"）`;
+
+          const trimRaw = await callGeminiStream(
+            model,
+            [{ role: "user", parts: [{ text: trimPrompt }] }],
+            () => {},
+            { maxOutputTokens: 4096, temperature: 0.5 },
+            autoAdjustAbortRef.current?.signal,
+          );
+
+          const trimResults = parseRewriteJson(trimRaw);
+          for (const [id, replacement] of trimResults.entries()) {
+            const original = uniqueOverLimit[id - 1];
+            if (!original) continue;
+            if (replacement === "") {
+              // Remove the line entirely
+              workingText = workingText.split(original).map(s => s).join("");
+              // Clean up double newlines
+              workingText = workingText.replace(/\n{3,}/g, "\n\n");
+            } else if (replacement !== original) {
+              workingText = workingText.split(original).join(replacement);
+            }
+            dialogueTrimCount++;
+          }
+        } catch (trimErr: any) {
+          if (!trimErr?.message?.includes("取消")) {
+            console.warn("Dialogue trim failed:", trimErr);
+          }
+        }
+      }
+
+      if (appliedCount === 0 && dialogueTrimCount === 0) {
         toast({ title: "自动调整未生效", description: "AI 改写结果与原文过于相似，请点击「自动调整」重试，或手动编辑文本", variant: "destructive" });
         return;
       }
@@ -1110,9 +1202,12 @@ ${JSON.stringify(payload, null, 2)}`;
         setScriptText(textContent);
       }
 
+      const parts: string[] = [];
+      if (appliedCount > 0) parts.push(`${appliedCount} 处风险`);
+      if (dialogueTrimCount > 0) parts.push(`${dialogueTrimCount} 处台词精简`);
       toast({
         title: "自动调整完成",
-        description: pending.length > 0 ? `已调整 ${appliedCount} 处，仍有 ${pending.length} 处建议手动调整` : `已调整 ${appliedCount} 处`,
+        description: `已调整 ${parts.join("、")}${pending.length > 0 ? `，仍有 ${pending.length} 处建议手动调整` : ""}`,
       });
     } catch (e: any) {
       if (!e?.message?.includes("取消")) {
