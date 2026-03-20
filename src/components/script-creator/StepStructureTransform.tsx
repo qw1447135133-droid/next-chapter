@@ -3,10 +3,11 @@ import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, Loader2, RefreshCw, Pencil, Eye, Square, Columns2 } from "lucide-react";
+import { ArrowRight, RefreshCw, Pencil, Eye, Square, Columns2, Plus, X, Sparkles } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { callGeminiStream } from "@/lib/gemini-client";
+import { callGeminiStream, callGemini, extractText } from "@/lib/gemini-client";
 import { buildStructureTransformPrompt } from "@/lib/drama-prompts";
 import { FRAMEWORK_STYLES } from "@/types/drama";
 import type { DramaSetup } from "@/types/drama";
@@ -33,18 +34,108 @@ const StepStructureTransform = ({
   onUpdate,
   onNext,
 }: StepStructureTransformProps) => {
+  // 支持多选（最多2个）
+  const [selectedStyles, setSelectedStyles] = useState<string[]>(() => {
+    if (frameworkStyle) {
+      // 兼容旧数据，可能是逗号分隔的多风格
+      return frameworkStyle.split(",").filter(Boolean);
+    }
+    return [];
+  });
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [editing, setEditing] = useState(false);
   const [showComparison, setShowComparison] = useState(true);
-  const [selectedStyle, setSelectedStyle] = useState(frameworkStyle || "");
+  
+  // 自定义风格相关
+  const [showCustomInput, setShowCustomInput] = useState(false);
+  const [customStyleInput, setCustomStyleInput] = useState("");
+  const [isDetectingStyle, setIsDetectingStyle] = useState(false);
+  
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useAutoScroll<HTMLPreElement>(isGenerating, streamingText);
   const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress, canResume: transCanResume, resumeTranslation } = useTranslation();
   const nonChinese = isNonChineseText(structureTransform);
 
+  // 切换风格选择
+  const toggleStyle = (style: string) => {
+    if (isGenerating) return;
+    
+    setSelectedStyles((prev) => {
+      if (prev.includes(style)) {
+        // 取消选择
+        return prev.filter((s) => s !== style);
+      }
+      if (prev.length >= 2) {
+        // 已选2个，替换第一个
+        toast({ title: "最多选择2个风格方向", description: "已自动替换最早选择的风格" });
+        return [prev[1], style];
+      }
+      // 添加选择
+      return [...prev, style];
+    });
+  };
+
+  // AI 识别自定义风格
+  const handleDetectCustomStyle = async () => {
+    if (!customStyleInput.trim()) {
+      toast({ title: "请输入风格描述", variant: "destructive" });
+      return;
+    }
+    
+    setIsDetectingStyle(true);
+    try {
+      const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+      const prompt = `你是一位专业的剧本风格分析师。请分析用户输入的风格描述，提炼出一个简洁的风格名称（2-6个字）和简短描述（10-20字）。
+
+用户输入：${customStyleInput}
+
+请以 JSON 格式输出：
+{
+  "name": "风格名称",
+  "desc": "风格描述"
+}
+
+只输出 JSON，不要输出其他内容。`;
+
+      const result = await callGemini(
+        model,
+        [{ role: "user", parts: [{ text: prompt }] }],
+        { maxOutputTokens: 256 },
+      );
+      
+      const text = extractText(result);
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        const newStyle = parsed.name || "自定义风格";
+        
+        // 添加到已选风格
+        setSelectedStyles((prev) => {
+          if (prev.length >= 2) {
+            return [prev[1], newStyle];
+          }
+          return [...prev, newStyle];
+        });
+        
+        setCustomStyleInput("");
+        setShowCustomInput(false);
+        toast({ title: `已识别风格：${newStyle}`, description: parsed.desc });
+      }
+    } catch (e: any) {
+      toast({ title: "识别失败", description: e?.message, variant: "destructive" });
+    } finally {
+      setIsDetectingStyle(false);
+    }
+  };
+
+  // 移除已选风格
+  const removeStyle = (style: string) => {
+    setSelectedStyles((prev) => prev.filter((s) => s !== style));
+  };
+
   const handleGenerate = async () => {
-    if (!selectedStyle) {
+    if (selectedStyles.length === 0) {
       toast({ title: "请先选择框架风格方向", variant: "destructive" });
       return;
     }
@@ -52,12 +143,14 @@ const StepStructureTransform = ({
       toast({ title: '请先在「参考剧本」步骤完成识别，提取原文结构', variant: "destructive" });
       return;
     }
-    onStyleChange(selectedStyle);
+    
+    const styleString = selectedStyles.join(",");
+    onStyleChange(styleString);
     setIsGenerating(true);
     setStreamingText("");
     abortRef.current = new AbortController();
     try {
-      const prompt = buildStructureTransformPrompt(setup, referenceStructure, selectedStyle);
+      const prompt = buildStructureTransformPrompt(setup, referenceStructure, styleString);
       const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
       const finalText = await callGeminiStream(
         model,
@@ -91,21 +184,107 @@ const StepStructureTransform = ({
       {/* Framework style selection */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">框架风格方向</CardTitle>
+          <CardTitle className="text-lg flex items-center gap-2">
+            框架风格方向
+            <span className="text-xs font-normal text-muted-foreground">
+              （最多选择2个，将融合两种风格特点）
+            </span>
+          </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {/* 已选风格显示 */}
+          {selectedStyles.length > 0 && (
+            <div className="flex flex-wrap gap-2 p-3 bg-primary/5 rounded-lg border border-primary/20">
+              <span className="text-xs text-muted-foreground mr-1">已选择：</span>
+              {selectedStyles.map((style) => (
+                <Badge
+                  key={style}
+                  variant="default"
+                  className="px-3 py-1 text-sm gap-1"
+                >
+                  {style}
+                  <button
+                    onClick={() => removeStyle(style)}
+                    className="ml-1 hover:bg-primary-foreground/20 rounded-full p-0.5"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ))}
+            </div>
+          )}
+          
+          {/* 风格选项 */}
           <div className="flex flex-wrap gap-2">
             {FRAMEWORK_STYLES.map((style) => (
               <Badge
                 key={style.value}
-                variant={selectedStyle === style.value ? "default" : "outline"}
+                variant={selectedStyles.includes(style.value) ? "default" : "outline"}
                 className="cursor-pointer px-3 py-1.5 text-sm transition-all hover:scale-105"
-                onClick={() => !isGenerating && setSelectedStyle(style.value)}
+                onClick={() => toggleStyle(style.value)}
               >
                 {style.label}
                 <span className="ml-1 text-xs opacity-70">{style.desc}</span>
               </Badge>
             ))}
+          </div>
+          
+          {/* 自定义风格输入 */}
+          <div className="pt-2 border-t">
+            {!showCustomInput ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCustomInput(true)}
+                className="gap-1.5"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                自定义风格
+              </Button>
+            ) : (
+              <div className="flex gap-2 items-start">
+                <div className="flex-1">
+                  <Input
+                    value={customStyleInput}
+                    onChange={(e) => setCustomStyleInput(e.target.value)}
+                    placeholder="输入风格描述，如：赛博朋克+修仙的融合风格..."
+                    className="text-sm"
+                    disabled={isDetectingStyle}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    描述你想要的风格特点，AI 将自动识别并命名
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={handleDetectCustomStyle}
+                  disabled={!customStyleInput.trim() || isDetectingStyle}
+                  className="gap-1.5"
+                >
+                  {isDetectingStyle ? (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      识别中
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-3.5 w-3.5" />
+                      AI识别
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowCustomInput(false);
+                    setCustomStyleInput("");
+                  }}
+                >
+                  取消
+                </Button>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -113,7 +292,14 @@ const StepStructureTransform = ({
       {/* Transform result */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-lg">结构转换</CardTitle>
+          <CardTitle className="text-lg">
+            结构转换
+            {selectedStyles.length > 0 && (
+              <span className="text-sm font-normal text-muted-foreground ml-2">
+                → {selectedStyles.join(" + ")}
+              </span>
+            )}
+          </CardTitle>
           <div className="flex gap-2">
             {structureTransform && !isGenerating && (
               <>
@@ -152,7 +338,7 @@ const StepStructureTransform = ({
                 size="sm"
                 onClick={handleGenerate}
                 className="gap-1.5"
-                disabled={!selectedStyle}
+                disabled={selectedStyles.length === 0}
               >
                 <RefreshCw className="h-3.5 w-3.5" />
                 {structureTransform ? "重新生成" : "AI 转换"}
@@ -180,7 +366,7 @@ const StepStructureTransform = ({
               </div>
               <div>
                 <h4 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">
-                  转换结果（{selectedStyle}）
+                  转换结果
                 </h4>
                 {editing ? (
                   <Textarea
@@ -202,8 +388,11 @@ const StepStructureTransform = ({
             </div>
           ) : !displayText ? (
             <div className="text-center py-16 text-muted-foreground">
-              <p>选择框架风格方向后，点击"AI 转换"按钮</p>
+              <p>选择框架风格方向后（最多2个），点击"AI 转换"按钮</p>
               <p className="text-xs mt-2">AI 将保留原文的核心情节，转换为所选风格的创作方案</p>
+              {selectedStyles.length === 2 && (
+                <p className="text-xs mt-2 text-primary">将融合「{selectedStyles[0]}」与「{selectedStyles[1]}」两种风格特点</p>
+              )}
             </div>
           ) : editing && !isGenerating ? (
             <Textarea

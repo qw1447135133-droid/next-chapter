@@ -1061,21 +1061,36 @@ export function buildStructureTransformPrompt(
   referenceScript: string,
   frameworkStyle: string,
 ): string {
-  return `你是一位专业的微短剧改编编剧，擅长将不同风格的故事进行框架转换。
+  // 支持多风格融合（逗号分隔）
+  const styles = frameworkStyle.split(",").filter(Boolean);
+  const isMultiStyle = styles.length > 1;
+  const styleText = styles.join("」与「");
+  
+  // 多风格融合提示
+  const fusionGuide = isMultiStyle ? `
+## 风格融合要点
+你正在进行**「${styleText}」**的双风格融合创作，需要特别注意：
+1. **世界观融合**：创造一个能同时容纳「${styles[0]}」与「${styles[1]}」两种元素的独特世界
+2. **元素交织**：两种风格的标志性元素要自然交织，而非生硬拼凑
+3. **主次分明**：确定主风格（${styles[0]}）作为基调，副风格（${styles[1]}）作为特色增量
+4. **创新突破**：融合两种风格可能产生意想不到的创新效果，大胆尝试
+5. **逻辑自洽**：无论融合多么大胆，内部逻辑必须自洽` : "";
+
+  return `你是一位专业的微短剧改编编剧，擅长将不同风格的故事进行框架转换${isMultiStyle ? "，尤其精通多风格融合创作" : ""}。
 
 ${getFullMarketDirective(setup)}
-
+${fusionGuide}
 ## 你的任务
-将以下参考剧本的叙事结构转换为「${frameworkStyle}」风格的创作方案。
+将以下参考剧本的叙事结构转换为「${styleText}」风格的创作方案。
 
 ## 转换原则
 1. **保留核心情节骨架**：主要矛盾冲突、人物关系拓扑、关键转折点必须保留
-2. **风格全面置换**：世界观、时代背景、社会体系、权力结构、文化元素全部替换为「${frameworkStyle}」设定
+2. **风格全面置换**：世界观、时代背景、社会体系、权力结构、文化元素全部替换为「${styleText}」设定
 3. **等价替换法则**：
-   - 原文中的社会阶层 → ${frameworkStyle}对应的等级体系
-   - 原文中的权力机制 → ${frameworkStyle}对应的权力形式
-   - 原文中的情感表达 → ${frameworkStyle}对应的情感方式
-4. **强化风格特色**：加入${frameworkStyle}风格特有的元素、术语、场景设定
+   - 原文中的社会阶层 → ${styleText}对应的等级体系
+   - 原文中的权力机制 → ${styleText}对应的权力形式
+   - 原文中的情感表达 → ${styleText}对应的情感方式
+4. **强化风格特色**：加入${styleText}风格特有的元素、术语、场景设定
 
 ## 参考剧本结构
 ${referenceScript}
@@ -1084,14 +1099,14 @@ ${referenceScript}
 请生成完整的创作方案，包含以下板块：
 
 1. **剧名备选**（3个），每个附一句话说明
-2. **时空背景**：转换后的时代、地点、社会环境、体系设定
+2. **时空背景**：转换后的时代、地点、社会环境、体系设定${isMultiStyle ? `\n   - 特别说明「${styles[0]}」与「${styles[1]}」如何融合` : ""}
 3. **一句话故事线** + **核心冲突**
 4. **情节对照表**：原文核心情节 → 转换后对应情节（逐条对照）
 5. **三幕结构拆解**：
    - 第一幕（建置）：集数范围、核心事件
    - 第二幕（对抗）：集数范围、冲突升级
    - 第三幕（高潮/结局）：集数范围、终极对决
-6. **${frameworkStyle}特色元素清单**：本风格必须包含的标志性场景/设定/术语
+6. **${styleText}特色元素清单**：本风格必须包含的标志性场景/设定/术语${isMultiStyle ? `\n   - 「${styles[0]}」特有元素\n   - 「${styles[1]}」特有元素\n   - 融合创新元素` : ""}
 7. **付费卡点规划**：具体集数 + 卡点类型
 8. **结局设计**
 
