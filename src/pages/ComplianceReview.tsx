@@ -238,6 +238,14 @@ const ComplianceReview = () => {
   const paletteEditRef = useRef<HTMLPreElement>(null);
   // Track phrase replacements so re-adjust works: original -> current
   const [phraseReplacements, setPhraseReplacements] = useState<Map<string, string>>(new Map());
+  
+  // 手动标记相关状态
+  const [manualRiskMap, setManualRiskMap] = useState<Map<string, RiskLevel>>(new Map());
+  const [selectedText, setSelectedText] = useState("");
+  const [showRiskSelector, setShowRiskSelector] = useState(false);
+  const [selectionPosition, setSelectionPosition] = useState<{ x: number; y: number } | null>(null);
+  const scriptTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const paletteContainerRef = useRef<HTMLDivElement>(null);
 
   // Sync palette text with script text initially or when script changes and no adjustments made
   useEffect(() => {
@@ -300,6 +308,78 @@ const ComplianceReview = () => {
   }, [complianceReport]);
 
   const riskPhrases = useMemo(() => [...riskMap.keys()], [riskMap]);
+  
+  // 合并 AI 识别和手动标记的风险
+  const combinedRiskMap = useMemo(() => {
+    const map = new Map<string, RiskLevel>(riskMap);
+    // 添加手动标记（手动标记优先）
+    for (const [phrase, level] of manualRiskMap.entries()) {
+      map.set(phrase, level);
+    }
+    return map;
+  }, [riskMap, manualRiskMap]);
+  
+  const combinedRiskPhrases = useMemo(() => [...combinedRiskMap.keys()], [combinedRiskMap]);
+
+  // 处理文本选择
+  const handleTextSelection = useCallback(() => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) {
+      setShowRiskSelector(false);
+      setSelectedText("");
+      return;
+    }
+    
+    const text = selection.toString().trim();
+    if (text.length < 2) {
+      setShowRiskSelector(false);
+      return;
+    }
+    
+    // 获取选中文本的位置
+    const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    
+    setSelectedText(text);
+    setSelectionPosition({ x: rect.left + rect.width / 2, y: rect.bottom + 5 });
+    setShowRiskSelector(true);
+  }, []);
+  
+  // 添加手动标记
+  const addManualMark = useCallback((level: RiskLevel) => {
+    if (!selectedText) return;
+    
+    setManualRiskMap(prev => {
+      const newMap = new Map(prev);
+      newMap.set(selectedText, level);
+      return newMap;
+    });
+    
+    // 同步到调色盘文本
+    if (!paletteText && scriptText) {
+      setPaletteText(scriptText);
+    }
+    
+    setShowRiskSelector(false);
+    setSelectedText("");
+    
+    toast({ title: "已添加标记", description: `「${selectedText.slice(0, 20)}...」标记为${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优化建议"}` });
+  }, [selectedText, paletteText, scriptText]);
+  
+  // 移除手动标记
+  const removeManualMark = useCallback((phrase: string) => {
+    setManualRiskMap(prev => {
+      const newMap = new Map(prev);
+      newMap.delete(phrase);
+      return newMap;
+    });
+  }, []);
+  
+  // 清除所有手动标记
+  const clearManualMarks = useCallback(() => {
+    setManualRiskMap(new Map());
+    toast({ title: "已清除所有手动标记" });
+  }, []);
 
   const RISK_STYLES: Record<RiskLevel, string> = {
     red: "bg-red-200 dark:bg-red-800/60 border-b-2 border-red-500",
@@ -311,16 +391,16 @@ const ComplianceReview = () => {
   // Supports: normal view, editing (contentEditable), and auto-adjusting (blanks for adjusting phrases)
   // Build a combined map that includes both original phrases and their replacements
   const activeRiskMap = useMemo(() => {
-    const map = new Map<string, RiskLevel>(riskMap);
+    const map = new Map<string, RiskLevel>(combinedRiskMap);
     // Add replaced phrases with their original risk level
     for (const [original, replacement] of phraseReplacements.entries()) {
-      const level = riskMap.get(original);
+      const level = combinedRiskMap.get(original);
       if (level && !map.has(replacement)) {
         map.set(replacement, level);
       }
     }
     return map;
-  }, [riskMap, phraseReplacements]);
+  }, [combinedRiskMap, phraseReplacements]);
 
   const activeRiskPhrases = useMemo(() => [...activeRiskMap.keys()], [activeRiskMap]);
 
@@ -1145,20 +1225,91 @@ const ComplianceReview = () => {
           </Card>
         </Collapsible>
 
-        {/* Risk Highlight Comparison */}
-        {complianceReport && !isGenerating && scriptText && (
+        {/* Risk Highlight Comparison - 只要有剧本内容就显示 */}
+        {!isGenerating && scriptText && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg flex items-center gap-2">
                 <Palette className="h-5 w-5" />
                 调色盘文本对比
-                {riskPhrases.length > 0 && (
+                {combinedRiskPhrases.length > 0 && (
                   <span className="text-sm font-normal text-muted-foreground">
-                    共识别 {riskPhrases.length} 处风险片段，{riskPhrases.filter(p => (paletteText || scriptText).includes(p)).length} 处已标记
+                    共 {combinedRiskPhrases.length} 处标记（AI {riskPhrases.length} + 手动 {manualRiskMap.size}）
                   </span>
                 )}
               </CardTitle>
               <div className="flex gap-2">
+                {/* 手动标记按钮 */}
+                <div className="flex items-center gap-1 mr-2">
+                  <span className="text-xs text-muted-foreground">手动标记：</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs border-red-300 text-red-600 hover:bg-red-50"
+                    onClick={() => {
+                      const text = prompt("输入要标记为红线问题的文本：");
+                      if (text) {
+                        setManualRiskMap(prev => {
+                          const newMap = new Map(prev);
+                          newMap.set(text, "red");
+                          return newMap;
+                        });
+                        if (!paletteText && scriptText) setPaletteText(scriptText);
+                        toast({ title: "已添加红线标记" });
+                      }
+                    }}
+                  >
+                    ⛔ 红线
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs border-orange-300 text-orange-600 hover:bg-orange-50"
+                    onClick={() => {
+                      const text = prompt("输入要标记为高风险的文本：");
+                      if (text) {
+                        setManualRiskMap(prev => {
+                          const newMap = new Map(prev);
+                          newMap.set(text, "high");
+                          return newMap;
+                        });
+                        if (!paletteText && scriptText) setPaletteText(scriptText);
+                        toast({ title: "已添加高风险标记" });
+                      }
+                    }}
+                  >
+                    ⚠️ 高风险
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs border-blue-300 text-blue-600 hover:bg-blue-50"
+                    onClick={() => {
+                      const text = prompt("输入要标记为优化建议的文本：");
+                      if (text) {
+                        setManualRiskMap(prev => {
+                          const newMap = new Map(prev);
+                          newMap.set(text, "info");
+                          return newMap;
+                        });
+                        if (!paletteText && scriptText) setPaletteText(scriptText);
+                        toast({ title: "已添加优化建议标记" });
+                      }
+                    }}
+                  >
+                    ℹ️ 建议
+                  </Button>
+                  {manualRiskMap.size > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-muted-foreground"
+                      onClick={clearManualMarks}
+                    >
+                      清除手动
+                    </Button>
+                  )}
+                </div>
                 {isAutoAdjusting ? (
                   <Button variant="destructive" size="sm" onClick={() => autoAdjustAbortRef.current?.abort()} className="gap-1.5">
                     <Square className="h-3.5 w-3.5" />
@@ -1194,11 +1345,14 @@ const ComplianceReview = () => {
                   <span className="inline-block w-3 h-3 rounded bg-blue-200 dark:bg-blue-700/60 border border-blue-500" />
                   ℹ️ 优化建议
                 </span>
+                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground ml-auto">
+                  💡 提示：选中文本后可点击上方按钮手动标记
+                </span>
               </div>
-              {riskPhrases.length === 0 && (
+              {riskPhrases.length === 0 && manualRiskMap.size === 0 && (
                 <div className="text-center py-4 text-muted-foreground text-sm bg-amber-50 dark:bg-amber-900/20 rounded-md mb-4">
-                  <p>⚠️ 未能从报告中识别出风险片段</p>
-                  <p className="mt-1 text-xs">请检查 AI 是否使用了正确的格式标记（⛔【内容】、⚠️【内容】、ℹ️【内容】）</p>
+                  <p>暂无标记</p>
+                  <p className="mt-1 text-xs">AI 审核后自动标记，或使用上方按钮手动添加标记</p>
                 </div>
               )}
               {riskPhrases.length > 0 && (() => {
@@ -1206,9 +1360,8 @@ const ComplianceReview = () => {
                 const unmatchedCount = riskPhrases.length - matchedCount;
                 return unmatchedCount > 0 ? (
                   <div className="text-center py-3 text-muted-foreground text-sm bg-blue-50 dark:bg-blue-900/20 rounded-md mb-4">
-                    <p>📊 已识别 {riskPhrases.length} 处风险，成功匹配 {matchedCount} 处</p>
-                    <p className="mt-1 text-xs">有 {unmatchedCount} 处因文字差异未精确匹配（AI 可能修改了原文引用）</p>
-                    <p className="mt-1 text-xs text-amber-600">建议：检查报告中标记的文本是否与原文完全一致</p>
+                    <p>📊 AI 识别 {riskPhrases.length} 处，成功匹配 {matchedCount} 处</p>
+                    <p className="mt-1 text-xs">有 {unmatchedCount} 处因文字差异未精确匹配，可手动添加标记</p>
                   </div>
                 ) : null;
               })()}
@@ -1229,7 +1382,11 @@ const ComplianceReview = () => {
                       {paletteText || scriptText}
                     </pre>
                   ) : (
-                    <div className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
+                    <div 
+                      ref={paletteContainerRef}
+                      className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 select-text"
+                      onMouseUp={handleTextSelection}
+                    >
                       {highlightedScript || (paletteText || scriptText)}
                     </div>
                   )}
@@ -1239,8 +1396,79 @@ const ComplianceReview = () => {
                   <p>请先输入或上传剧本内容</p>
                 </div>
               )}
+              
+              {/* 手动标记列表 */}
+              {manualRiskMap.size > 0 && (
+                <div className="mt-4 border-t pt-4">
+                  <h4 className="text-sm font-medium mb-2">手动标记列表</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {[...manualRiskMap.entries()].map(([phrase, level]) => (
+                      <div
+                        key={phrase}
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs ${
+                          level === "red" ? "bg-red-100 text-red-700" :
+                          level === "high" ? "bg-orange-100 text-orange-700" :
+                          "bg-blue-100 text-blue-700"
+                        }`}
+                      >
+                        <span className="max-w-[200px] truncate">{phrase}</span>
+                        <button
+                          onClick={() => removeManualMark(phrase)}
+                          className="hover:opacity-70 ml-1"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
+        )}
+        
+        {/* 风险选择浮窗 */}
+        {!isGenerating && showRiskSelector && selectedText && selectionPosition && (
+          <div
+            className="fixed z-50 bg-popover border border-border rounded-lg shadow-lg p-2 flex gap-1"
+            style={{ left: selectionPosition.x, top: selectionPosition.y, transform: "translateX(-50%)" }}
+          >
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 px-3 text-xs border-red-300 text-red-600 hover:bg-red-50"
+              onClick={() => addManualMark("red")}
+            >
+              ⛔ 红线
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 px-3 text-xs border-orange-300 text-orange-600 hover:bg-orange-50"
+              onClick={() => addManualMark("high")}
+            >
+              ⚠️ 高风险
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 px-3 text-xs border-blue-300 text-blue-600 hover:bg-blue-50"
+              onClick={() => addManualMark("info")}
+            >
+              ℹ️ 建议
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 px-2 text-xs"
+              onClick={() => {
+                setShowRiskSelector(false);
+                setSelectedText("");
+              }}
+            >
+              取消
+            </Button>
+          </div>
         )}
       </main>
     </div>
