@@ -1519,18 +1519,20 @@ ${JSON.stringify(payload, null, 2)}`;
               {/* 表格模式使用高亮表格，文本模式使用高亮文本 */}
               {inputMode === "table" && tableData ? (
                 renderHighlightedTable()
+              ) : paletteEditing ? (
+                <div ref={paletteScrollRef} className="max-h-[600px] overflow-auto rounded-md border border-border bg-muted/30">
+                  <Textarea
+                    value={paletteText || scriptText}
+                    onChange={(e) => setPaletteText(e.target.value)}
+                    rows={20}
+                    className="font-mono text-sm border-0 focus-visible:ring-0 bg-transparent min-h-[300px]"
+                  />
+                </div>
               ) : highlightedScript ? (
-                <div ref={paletteScrollRef} className="max-h-[500px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
+                <div ref={paletteScrollRef} className="max-h-[600px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
                   <pre
                     ref={paletteEditRef}
-                    className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 outline-none"
-                    contentEditable={paletteEditing}
-                    suppressContentEditableWarning
-                    onBlur={() => {
-                      if (paletteEditing && paletteEditRef.current) {
-                        setPaletteText(paletteEditRef.current.innerText);
-                      }
-                    }}
+                    className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90"
                   >
                     {highlightedScript}
                   </pre>
