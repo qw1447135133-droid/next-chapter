@@ -1631,7 +1631,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                 </div>
               </CardHeader>
               <CardContent>
-                {/* 输入模式切换 */}
+                {/* Input mode toggle */}
                 {tableData && (
                   <Tabs value={inputMode} onValueChange={(v) => setInputMode(v as "text" | "table")} className="mb-4">
                     <TabsList>
@@ -1641,7 +1641,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                   </Tabs>
                 )}
 
-                {/* 表格显示模式 */}
+                {/* Table display mode */}
                 {inputMode === "table" && tableData ? (
                   <div className="max-h-[400px] overflow-auto rounded-md border border-border">
                     <div className="text-xs text-muted-foreground px-3 py-1.5 bg-muted/50 border-b border-border flex items-center gap-2">
@@ -1670,7 +1670,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                     </Table>
                   </div>
                 ) : (
-                  /* 文本显示模式 */
+                  /* Text display mode */
                   <>
                     <Textarea
                       value={scriptText}
@@ -1703,7 +1703,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                       {reportOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                     </CardTitle>
                     <div className="flex gap-2 items-center" onClick={(e) => e.stopPropagation()}>
-                      {/* 对话审查开关 */}
+                      {/* Dialogue review toggle */}
                       <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5">
                         <span className="text-xs font-medium text-muted-foreground">对话审查</span>
                         <Switch
@@ -1713,7 +1713,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                         />
                       </div>
 
-                      {/* 审核模式切换 */}
+                      {/* Review mode toggle */}
                       <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5">
                         <button
                           onClick={() => setReviewMode("text")}
@@ -1729,7 +1729,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                         </button>
                       </div>
 
-                      {/* 严格程度切换 */}
+                      {/* Strictness level toggle */}
                       <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5">
                         {(Object.keys(STRICTNESS_CONFIG) as StrictnessLevel[]).map((level) => (
                           <button
@@ -1826,8 +1826,131 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
             </Collapsible>
           </div>
 
-          {/* Right: Only show dialogue stats if dialogue review is NOT enabled */}
-          {/* Removed dialogue stats panel as requested */}
+          {/* Right: Only show dialogue stats if dialogue review is enabled */}
+          {enableDialogueReview && (
+            <div className="space-y-6">
+              {/* Dialogue Stats Panel */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <MessageSquare className="h-5 w-5" />
+                    台词字数统计
+                    {totalStats.totalDialogues > 0 && (
+                      <Badge variant="secondary" className="text-xs">
+                        {episodeStats.length} 集
+                      </Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Total stats */}
+                  {totalStats.totalDialogues > 0 && (
+                    <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-muted/50">
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-primary">{totalStats.totalDialogues}</div>
+                        <div className="text-xs text-muted-foreground">总台词数</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-primary">{totalStats.totalWords}</div>
+                        <div className="text-xs text-muted-foreground">总字数</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-muted-foreground">{totalStats.avgWordsPerDialogue}</div>
+                        <div className="text-xs text-muted-foreground">平均字数/句</div>
+                      </div>
+                      <div className="text-center">
+                        <div className={`text-2xl font-bold ${totalStats.overLimitDialogues > 0 ? "text-destructive" : "text-emerald-500"}`}>
+                          {totalStats.overLimitDialogues}
+                        </div>
+                        <div className="text-xs text-muted-foreground">超限台词</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Episode details */}
+                  {episodeStats.length > 0 ? (
+                    <div className="space-y-3 max-h-[400px] overflow-auto">
+                      {episodeStats.map((ep) => (
+                        <div key={ep.episodeNum} className="p-3 rounded-lg border border-border/50 hover:bg-accent/20 transition-colors">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-sm">第 {ep.episodeNum} 集</span>
+                              {ep.overLimitCount > 0 && (
+                                <Badge variant="destructive" className="text-[10px] h-5">
+                                  <AlertTriangle className="h-3 w-3 mr-1" />
+                                  {ep.overLimitCount} 句超限
+                                </Badge>
+                              )}
+                            </div>
+                            <span className="text-xs text-muted-foreground">{ep.totalWords} 字</span>
+                          </div>
+                          
+                          {/* Progress bar */}
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-xs">
+                              <span className="text-muted-foreground">台词分布</span>
+                              <span className={ep.totalWords > (isChinese ? 330 : 180) ? "text-destructive font-medium" : "text-muted-foreground"}>
+                                {ep.totalWords}/{(isChinese ? 330 : 180)}
+                              </span>
+                            </div>
+                            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full rounded-full transition-all ${
+                                  ep.totalWords > (isChinese ? 330 : 180) ? "bg-destructive" : "bg-primary"
+                                }`}
+                                style={{ width: `${Math.min(100, (ep.totalWords / (isChinese ? 330 : 180)) * 100)}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Scene details */}
+                          {ep.scenes.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              {ep.scenes.slice(0, 3).map((scene) => (
+                                <div key={scene.sceneNum} className="flex items-center justify-between text-xs">
+                                  <span className="text-muted-foreground">{scene.sceneNum}</span>
+                                  <div className="flex items-center gap-2">
+                                    <span>{scene.words} 字</span>
+                                    {scene.overLimit && (
+                                      <AlertTriangle className="h-3 w-3 text-destructive" />
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                              {ep.scenes.length > 3 && (
+                                <div className="text-xs text-muted-foreground text-center">
+                                  +{ep.scenes.length - 3} 个场景
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Info className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">暂无台词数据</p>
+                      <p className="text-xs mt-1">输入剧本后将自动统计各集台词字数</p>
+                    </div>
+                  )}
+
+                  {/* Tips */}
+                  <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                    <div className="flex items-start gap-2">
+                      <Info className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+                      <div className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
+                        <p><strong>字数限制参考：</strong></p>
+                        <p>• 单句台词：{isChinese ? "≤35 字" : "≤20 words"}</p>
+                        <p>• 单集总计：{isChinese ? "280-330 字" : "150-180 words"}</p>
+                        <p>• 4-5 个镜头组：{isChinese ? "≤35 字" : "≤20 words"}</p>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </div>
 
         {/* Risk Highlight Comparison - Only show if there are risks or dialogue review is enabled */}
@@ -1842,7 +1965,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                 </span>
               </CardTitle>
               <div className="flex gap-2">
-                {/* 表格模式下的撤销/重做 */}
+                {/* Undo/redo for table mode */}
                 {inputMode === "table" && tableData && (
                   <>
                     <Button variant="outline" size="sm" onClick={handleTableUndo} disabled={historyIndex < 0} className="gap-1" title="撤销">
@@ -1897,7 +2020,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                   </span>
                 )}
               </div>
-              {/* 表格模式使用高亮表格，文本模式使用高亮文本 */}
+              {/* Table mode uses highlighted table, text mode uses highlighted text */}
               {inputMode === "table" && tableData ? (
                 renderHighlightedTable()
               ) : paletteEditing ? (
