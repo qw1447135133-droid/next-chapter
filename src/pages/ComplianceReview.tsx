@@ -388,10 +388,15 @@ const ComplianceReview = () => {
     // 标准化函数：去除空格、常见标点差异
     const normalize = (s: string) => 
       s.replace(/\s+/g, "")
-       .replace(/[，。！？、；：""''（）【】「」,.!?;:'"()]/g, "");
+       .replace(/[，。！？、；：""''（）【】「」《》·…—,.!?;:'"()\[\]{}<>]/g, "");
+    
+    // 更宽松的标准化（只保留中文和字母数字）
+    const superNormalize = (s: string) => 
+      s.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "").toLowerCase();
     
     // 创建原文的标准化映射
     const normalizedText = normalize(text);
+    const superNormalizedText = superNormalize(text);
     
     // 扩展的风险映射（包含模糊匹配）
     const extendedRiskMap = new Map<string, RiskLevel>(activeRiskMap);
@@ -404,57 +409,104 @@ const ComplianceReview = () => {
       const level = activeRiskMap.get(phrase);
       if (!level) continue;
       
-      const normalizedPhrase = normalize(phrase);
-      if (normalizedPhrase.length < 5) continue; // 太短跳过
+      // 尝试多种匹配策略
       
-      // 在标准化后的原文中查找
-      const normIdx = normalizedText.indexOf(normalizedPhrase);
-      if (normIdx === -1) {
-        // 尝试查找部分匹配（前70%）
-        const partialLen = Math.floor(normalizedPhrase.length * 0.7);
-        const partialPhrase = normalizedPhrase.slice(0, partialLen);
-        const partialIdx = normalizedText.indexOf(partialPhrase);
-        
-        if (partialIdx !== -1) {
-          // 找到部分匹配，尝试确定原文中的边界
-          // 在原文中找到对应位置
-          let charCount = 0;
-          for (let i = 0; i < text.length; i++) {
-            const ch = text[i];
-            if (!/\s/.test(ch) && !/[，。！？、；：""''（）【】「」,.!?;:'"()]/.test(ch)) {
-              if (charCount === partialIdx) {
-                // 找到起始位置，尝试提取对应的原文
-                const estimatedLen = Math.ceil(phrase.length * 1.2);
-                const candidate = text.slice(i, i + estimatedLen);
+      // 策略1：标准化后精确匹配
+      const normalizedPhrase = normalize(phrase);
+      if (normalizedText.includes(normalizedPhrase) && normalizedPhrase.length >= 5) {
+        // 在原文中定位
+        const idx = normalizedText.indexOf(normalizedPhrase);
+        let charCount = 0;
+        for (let i = 0; i < text.length; i++) {
+          const ch = text[i];
+          if (!/\s/.test(ch) && !/[，。！？、；：""''（）【】「」《》·…—,.!?;:'"()\[\]{}<>]/.test(ch)) {
+            if (charCount === idx) {
+              const estimatedLen = Math.ceil(phrase.length * 1.3);
+              const candidate = text.slice(i, i + estimatedLen);
+              if (!extendedRiskMap.has(candidate)) {
                 extendedRiskMap.set(candidate, level);
-                break;
               }
-              charCount++;
+              break;
             }
+            charCount++;
           }
         }
         continue;
       }
       
-      // 找到完全匹配，确定原文边界
-      let charCount = 0;
-      let startPos = -1;
-      
-      for (let i = 0; i < text.length; i++) {
-        const ch = text[i];
-        if (!/\s/.test(ch) && !/[，。！？、；：""''（）【】「」,.!?;:'"()]/.test(ch)) {
-          if (charCount === normIdx) {
-            startPos = i;
+      // 策略2：超标准化后匹配
+      const superNormalizedPhrase = superNormalize(phrase);
+      if (superNormalizedPhrase.length >= 5 && superNormalizedText.includes(superNormalizedPhrase)) {
+        const idx = superNormalizedText.indexOf(superNormalizedPhrase);
+        let charCount = 0;
+        for (let i = 0; i < text.length; i++) {
+          const ch = text[i];
+          if (/[\u4e00-\u9fa5a-zA-Z0-9]/.test(ch)) {
+            if (charCount === idx) {
+              const estimatedLen = Math.ceil(phrase.length * 1.5);
+              const candidate = text.slice(i, i + estimatedLen);
+              if (!extendedRiskMap.has(candidate)) {
+                extendedRiskMap.set(candidate, level);
+              }
+              break;
+            }
+            charCount++;
           }
-          charCount++;
         }
+        continue;
       }
       
-      if (startPos !== -1) {
-        // 估算原文长度
-        const estimatedLen = phrase.length + Math.floor(phrase.length * 0.3);
-        const candidate = text.slice(startPos, startPos + estimatedLen);
-        extendedRiskMap.set(candidate, level);
+      // 策略3：关键词匹配（提取短语中的关键词）
+      if (normalizedPhrase.length >= 8) {
+        // 提取关键词（连续的中文或英文词组）
+        const keywords = phrase.match(/[\u4e00-\u9fa5]{2,}|[a-zA-Z]{3,}/g) || [];
+        for (const keyword of keywords) {
+          if (keyword.length >= 4 && text.includes(keyword)) {
+            // 找到关键词，扩展到完整句子
+            const kwIdx = text.indexOf(keyword);
+            // 向前扩展到句首或标点
+            let start = kwIdx;
+            while (start > 0 && !/[。！？\n]/.test(text[start - 1])) {
+              start--;
+              if (kwIdx - start > phrase.length * 1.5) break; // 不要扩展太远
+            }
+            // 向后扩展到句尾或标点
+            let end = kwIdx + keyword.length;
+            while (end < text.length && !/[。！？\n]/.test(text[end])) {
+              end++;
+              if (end - kwIdx > phrase.length * 1.5) break;
+            }
+            const candidate = text.slice(start, end).trim();
+            if (candidate.length >= 5 && !extendedRiskMap.has(candidate)) {
+              extendedRiskMap.set(candidate, level);
+            }
+            break;
+          }
+        }
+        continue;
+      }
+      
+      // 策略4：部分匹配（前50%）
+      const partialLen = Math.max(5, Math.floor(normalizedPhrase.length * 0.5));
+      const partialPhrase = normalizedPhrase.slice(0, partialLen);
+      const partialIdx = normalizedText.indexOf(partialPhrase);
+      
+      if (partialIdx !== -1) {
+        let charCount = 0;
+        for (let i = 0; i < text.length; i++) {
+          const ch = text[i];
+          if (!/\s/.test(ch) && !/[，。！？、；：""''（）【】「」《》·…—,.!?;:'"()\[\]{}<>]/.test(ch)) {
+            if (charCount === partialIdx) {
+              const estimatedLen = Math.ceil(phrase.length * 1.5);
+              const candidate = text.slice(i, i + estimatedLen);
+              if (!extendedRiskMap.has(candidate)) {
+                extendedRiskMap.set(candidate, level);
+              }
+              break;
+            }
+            charCount++;
+          }
+        }
       }
     }
     
