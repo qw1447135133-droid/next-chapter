@@ -437,8 +437,6 @@ const ComplianceReview = () => {
 
   // 总统计
   const totalStats = useMemo(() => {
-    if (!enableDialogueReview) return { totalDialogues: 0, totalWords: 0, overLimitDialogues: 0, avgWordsPerDialogue: 0 };
-    
     const totalDialogues = episodeStats.reduce((sum, ep) => sum + ep.totalDialogues, 0);
     const totalWords = episodeStats.reduce((sum, ep) => sum + ep.totalWords, 0);
     const overLimitDialogues = episodeStats.reduce((sum, ep) => sum + ep.overLimitCount, 0);
@@ -448,7 +446,7 @@ const ComplianceReview = () => {
       overLimitDialogues,
       avgWordsPerDialogue: totalDialogues > 0 ? Math.round(totalWords / totalDialogues) : 0,
     };
-  }, [episodeStats, enableDialogueReview]);
+  }, [episodeStats]);
 
   // Build a set of line indices that have dialogue over-limit warnings
   const dialogueOverLimitLines = useMemo(() => {
@@ -1598,12 +1596,12 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                       <ChevronDown className="h-3.5 w-3.5 shrink-0" />
                     </Button>
                     {modelDropdownOpen && (
-                      <div className="absolute right-0 top-full mt-1 z-50 bg-popover border border-border rounded-md shadow-md py-1 min-w-[160px]">
+                      <div className="absolute right-0 top-full mt-1 z-50 bg-popover border border-border rounded-md shadow-lg py-1 min-w-[160px]">
                         {MODEL_OPTIONS.map((opt) => (
                           <button
                             key={opt.value}
                             onClick={() => handleModelChange(opt.value)}
-                            className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors ${model === opt.value ? "bg-accent/50 font-medium" : ""}`}
+                            className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors ${model === opt.value ? "bg-primary/10 text-primary font-medium" : "text-popover-foreground"}`}
                           >
                             {opt.label}
                           </button>
@@ -1632,6 +1630,22 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                 </div>
               </CardHeader>
               <CardContent>
+                {/* 对话审查开关 */}
+                <div className="flex items-center justify-between p-3 mb-4 rounded-lg bg-muted/50 border border-border/50">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">对话审查</span>
+                  </div>
+                  <Button
+                    variant={enableDialogueReview ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setEnableDialogueReview(!enableDialogueReview)}
+                    className="h-8 w-12 px-0"
+                  >
+                    {enableDialogueReview ? "开" : "关"}
+                  </Button>
+                </div>
+
                 {/* 输入模式切换 */}
                 {tableData && (
                   <Tabs value={inputMode} onValueChange={(v) => setInputMode(v as "text" | "table")} className="mb-4">
@@ -1817,135 +1831,116 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
             </Collapsible>
           </div>
 
-          {/* Right: Dialogue Stats Panel */}
-          <div className="space-y-6">
-            {/* 台词字数统计面板 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <MessageSquare className="h-5 w-5" />
-                  台词字数统计
+          {/* Right: Dialogue Stats Panel - Only show if dialogue review is enabled */}
+          {enableDialogueReview && (
+            <div className="space-y-6">
+              {/* 台词字数统计面板 */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <MessageSquare className="h-5 w-5" />
+                    台词字数统计
+                    {totalStats.totalDialogues > 0 && (
+                      <Badge variant="secondary" className="text-xs">
+                        {episodeStats.length} 集
+                      </Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* 总统计 */}
                   {totalStats.totalDialogues > 0 && (
-                    <Badge variant="secondary" className="text-xs">
-                      {episodeStats.length} 集
-                    </Badge>
+                    <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-muted/50">
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-primary">{totalStats.totalDialogues}</div>
+                        <div className="text-xs text-muted-foreground">总台词数</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-primary">{totalStats.totalWords}</div>
+                        <div className="text-xs text-muted-foreground">总字数</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-muted-foreground">{totalStats.avgWordsPerDialogue}</div>
+                        <div className="text-xs text-muted-foreground">平均字数/句</div>
+                      </div>
+                      <div className="text-center">
+                        <div className={`text-2xl font-bold ${totalStats.overLimitDialogues > 0 ? "text-destructive" : "text-emerald-500"}`}>
+                          {totalStats.overLimitDialogues}
+                        </div>
+                        <div className="text-xs text-muted-foreground">超限台词</div>
+                      </div>
+                    </div>
                   )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* 对话审查开关 */}
-                <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                  <span className="text-sm font-medium">启用对话审查</span>
-                  <Button
-                    variant={enableDialogueReview ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setEnableDialogueReview(!enableDialogueReview)}
-                    className="h-8 w-12 px-0"
-                  >
-                    {enableDialogueReview ? "开" : "关"}
-                  </Button>
-                </div>
-                
-                {/* 总统计 */}
-                {enableDialogueReview && totalStats.totalDialogues > 0 && (
-                  <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-muted/50">
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-primary">{totalStats.totalDialogues}</div>
-                      <div className="text-xs text-muted-foreground">总台词数</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-primary">{totalStats.totalWords}</div>
-                      <div className="text-xs text-muted-foreground">总字数</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-muted-foreground">{totalStats.avgWordsPerDialogue}</div>
-                      <div className="text-xs text-muted-foreground">平均字数/句</div>
-                    </div>
-                    <div className="text-center">
-                      <div className={`text-2xl font-bold ${totalStats.overLimitDialogues > 0 ? "text-destructive" : "text-emerald-500"}`}>
-                        {totalStats.overLimitDialogues}
-                      </div>
-                      <div className="text-xs text-muted-foreground">超限台词</div>
-                    </div>
-                  </div>
-                )}
 
-                {/* 各集详情 */}
-                {enableDialogueReview && episodeStats.length > 0 ? (
-                  <div className="space-y-3 max-h-[400px] overflow-auto">
-                    {episodeStats.map((ep) => (
-                      <div key={ep.episodeNum} className="p-3 rounded-lg border border-border/50 hover:bg-accent/20 transition-colors">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-sm">第 {ep.episodeNum} 集</span>
-                            {ep.overLimitCount > 0 && (
-                              <Badge variant="destructive" className="text-[10px] h-5">
-                                <AlertTriangle className="h-3 w-3 mr-1" />
-                                {ep.overLimitCount} 句超限
-                              </Badge>
-                            )}
+                  {/* 各集详情 */}
+                  {episodeStats.length > 0 ? (
+                    <div className="space-y-3 max-h-[400px] overflow-auto">
+                      {episodeStats.map((ep) => (
+                        <div key={ep.episodeNum} className="p-3 rounded-lg border border-border/50 hover:bg-accent/20 transition-colors">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-sm">第 {ep.episodeNum} 集</span>
+                              {ep.overLimitCount > 0 && (
+                                <Badge variant="destructive" className="text-[10px] h-5">
+                                  <AlertTriangle className="h-3 w-3 mr-1" />
+                                  {ep.overLimitCount} 句超限
+                                </Badge>
+                              )}
+                            </div>
+                            <span className="text-xs text-muted-foreground">{ep.totalWords} 字</span>
                           </div>
-                          <span className="text-xs text-muted-foreground">{ep.totalWords} 字</span>
-                        </div>
-                        
-                        {/* 进度条 */}
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-xs">
-                            <span className="text-muted-foreground">台词分布</span>
-                            <span className={ep.totalWords > (isChinese ? 330 : 180) ? "text-destructive font-medium" : "text-muted-foreground"}>
-                              {ep.totalWords}/{(isChinese ? 330 : 180)}
-                            </span>
+                          
+                          {/* 进度条 */}
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-xs">
+                              <span className="text-muted-foreground">台词分布</span>
+                              <span className={ep.totalWords > (isChinese ? 330 : 180) ? "text-destructive font-medium" : "text-muted-foreground"}>
+                                {ep.totalWords}/{(isChinese ? 330 : 180)}
+                              </span>
+                            </div>
+                            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full rounded-full transition-all ${
+                                  ep.totalWords > (isChinese ? 330 : 180) ? "bg-destructive" : "bg-primary"
+                                }`}
+                                style={{ width: `${Math.min(100, (ep.totalWords / (isChinese ? 330 : 180)) * 100)}%` }}
+                              />
+                            </div>
                           </div>
-                          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                            <div 
-                              className={`h-full rounded-full transition-all ${
-                                ep.totalWords > (isChinese ? 330 : 180) ? "bg-destructive" : "bg-primary"
-                              }`}
-                              style={{ width: `${Math.min(100, (ep.totalWords / (isChinese ? 330 : 180)) * 100)}%` }}
-                            />
-                          </div>
-                        </div>
 
-                        {/* 场景详情 */}
-                        {ep.scenes.length > 0 && (
-                          <div className="mt-2 space-y-1">
-                            {ep.scenes.slice(0, 3).map((scene) => (
-                              <div key={scene.sceneNum} className="flex items-center justify-between text-xs">
-                                <span className="text-muted-foreground">{scene.sceneNum}</span>
-                                <div className="flex items-center gap-2">
-                                  <span>{scene.words} 字</span>
-                                  {scene.overLimit && (
-                                    <AlertTriangle className="h-3 w-3 text-destructive" />
-                                  )}
+                          {/* 场景详情 */}
+                          {ep.scenes.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              {ep.scenes.slice(0, 3).map((scene) => (
+                                <div key={scene.sceneNum} className="flex items-center justify-between text-xs">
+                                  <span className="text-muted-foreground">{scene.sceneNum}</span>
+                                  <div className="flex items-center gap-2">
+                                    <span>{scene.words} 字</span>
+                                    {scene.overLimit && (
+                                      <AlertTriangle className="h-3 w-3 text-destructive" />
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
-                            {ep.scenes.length > 3 && (
-                              <div className="text-xs text-muted-foreground text-center">
-                                +{ep.scenes.length - 3} 个场景
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : enableDialogueReview ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Info className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">暂无台词数据</p>
-                    <p className="text-xs mt-1">输入剧本后将自动统计各集台词字数</p>
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Info className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">对话审查已关闭</p>
-                    <p className="text-xs mt-1">点击上方开关启用对话审查功能</p>
-                  </div>
-                )}
+                              ))}
+                              {ep.scenes.length > 3 && (
+                                <div className="text-xs text-muted-foreground text-center">
+                                  +{ep.scenes.length - 3} 个场景
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Info className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">暂无台词数据</p>
+                      <p className="text-xs mt-1">输入剧本后将自动统计各集台词字数</p>
+                    </div>
+                  )}
 
-                {/* 提示信息 */}
-                {enableDialogueReview && (
+                  {/* 提示信息 */}
                   <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
                     <div className="flex items-start gap-2">
                       <Info className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
@@ -1957,14 +1952,14 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                       </div>
                     </div>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </div>
 
-        {/* Risk Highlight Comparison */}
-        {complianceReport && !isGenerating && scriptText && (riskPhrases.length > 0 || (enableDialogueReview && dialogueOverLimitLines.size > 0)) && (
+        {/* Risk Highlight Comparison - Only show if there are risks or dialogue review is enabled */}
+        {(complianceReport && !isGenerating && scriptText && (riskPhrases.length > 0 || (enableDialogueReview && dialogueOverLimitLines.size > 0))) && (
           <Card id="palette-section">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg flex items-center gap-2">
