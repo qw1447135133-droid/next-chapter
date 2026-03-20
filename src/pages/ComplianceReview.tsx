@@ -279,6 +279,151 @@ const ComplianceReview = () => {
 
   const activeRiskPhrases = useMemo(() => [...activeRiskMap.keys()], [activeRiskMap]);
 
+  // --- Dialogue word count detection ---
+  // Detect if text is primarily Chinese
+  const isChinese = useMemo(() => {
+    const text = paletteText || scriptText;
+    const cjk = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+    return cjk > text.length * 0.15;
+  }, [paletteText, scriptText]);
+
+  // Dialogue line patterns
+  const isDialogueLine = useCallback((line: string) => {
+    const trimmed = line.trim();
+    // Chinese: 角色名：台词 or 旁白：
+    if (/^[^\s△#]{1,10}[：:]/.test(trimmed) && !/^(音效|SFX|sfx)[：:]/.test(trimmed) && !trimmed.startsWith("△")) return true;
+    return false;
+  }, []);
+
+  const isSfxLine = useCallback((line: string) => {
+    const trimmed = line.trim();
+    return /^(音效|SFX|sfx)[：:]/i.test(trimmed) || /^\(音效\)/i.test(trimmed) || /^\(SFX\)/i.test(trimmed);
+  }, []);
+
+  // Analyze dialogue word counts: group by shots and episodes
+  type DialogueWarning = {
+    type: "shot_group" | "episode";
+    lines: string[];       // the dialogue lines
+    lineIndices: number[];  // indices in the full text lines array
+    wordCount: number;
+    limit: number;
+    episode?: string;
+  };
+
+  const dialogueWarnings = useMemo(() => {
+    const text = paletteText || scriptText;
+    if (!text.trim()) return [] as DialogueWarning[];
+
+    const lines = text.split("\n");
+    const warnings: DialogueWarning[] = [];
+
+    // Limits
+    const shotGroupLimit = isChinese ? 35 : 20;
+    const episodeMinLimit = isChinese ? 280 : 150;
+    const episodeMaxLimit = isChinese ? 330 : 180;
+
+    // Parse into episodes and shots
+    let currentEpisode = "";
+    let episodeDialogueWords = 0;
+    let episodeDialogueLines: string[] = [];
+    let episodeDialogueIndices: number[] = [];
+    let shotBuffer: { lines: string[]; indices: number[]; words: number } = { lines: [], indices: [], words: 0 };
+    let shotCount = 0;
+
+    const countWords = (line: string) => {
+      // Extract dialogue content after "角色名：" or "Character:"
+      const match = line.match(/^[^\s△#]{1,10}[：:]\s*(?:[\(（][^）\)]*[）\)])?(.*)$/);
+      const content = match ? match[1].trim() : line.trim();
+      if (isChinese) {
+        return (content.match(/[\u4e00-\u9fa5]/g) || []).length;
+      }
+      return content.split(/\s+/).filter(w => w.length > 0).length;
+    };
+
+    const flushShotGroup = () => {
+      if (shotBuffer.lines.length > 0 && shotBuffer.words > shotGroupLimit) {
+        warnings.push({
+          type: "shot_group",
+          lines: [...shotBuffer.lines],
+          lineIndices: [...shotBuffer.indices],
+          wordCount: shotBuffer.words,
+          limit: shotGroupLimit,
+          episode: currentEpisode,
+        });
+      }
+      shotBuffer = { lines: [], indices: [], words: 0 };
+      shotCount = 0;
+    };
+
+    const flushEpisode = () => {
+      if (currentEpisode && episodeDialogueWords > episodeMaxLimit) {
+        warnings.push({
+          type: "episode",
+          lines: [...episodeDialogueLines],
+          lineIndices: [...episodeDialogueIndices],
+          wordCount: episodeDialogueWords,
+          limit: episodeMaxLimit,
+          episode: currentEpisode,
+        });
+      }
+      episodeDialogueWords = 0;
+      episodeDialogueLines = [];
+      episodeDialogueIndices = [];
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+
+      // Detect episode header: # 1-1 or # Episode 1 Scene 1
+      const episodeMatch = trimmed.match(/^#\s*(\d+)/);
+      if (episodeMatch) {
+        // New scene/shot
+        shotCount++;
+        if (shotCount > 5) {
+          flushShotGroup();
+        }
+
+        // Detect episode change
+        const epNum = episodeMatch[1];
+        const sceneMatch = trimmed.match(/^#\s*(\d+)-/);
+        const newEp = sceneMatch ? `第${sceneMatch[1]}集` : `第${epNum}集`;
+        if (newEp !== currentEpisode) {
+          flushShotGroup();
+          flushEpisode();
+          currentEpisode = newEp;
+        }
+        continue;
+      }
+
+      if (isDialogueLine(trimmed) && !isSfxLine(trimmed)) {
+        const words = countWords(trimmed);
+        shotBuffer.lines.push(trimmed);
+        shotBuffer.indices.push(i);
+        shotBuffer.words += words;
+        episodeDialogueWords += words;
+        episodeDialogueLines.push(trimmed);
+        episodeDialogueIndices.push(i);
+      }
+    }
+
+    flushShotGroup();
+    flushEpisode();
+
+    return warnings;
+  }, [paletteText, scriptText, isChinese, isDialogueLine, isSfxLine]);
+
+  // Build a set of line indices that have dialogue over-limit warnings
+  const dialogueOverLimitLines = useMemo(() => {
+    const set = new Set<number>();
+    for (const w of dialogueWarnings) {
+      for (const idx of w.lineIndices) {
+        set.add(idx);
+      }
+    }
+    return set;
+  }, [dialogueWarnings]);
+
   const replacementToOriginal = useMemo(() => {
     const map = new Map<string, string>();
     for (const [original, replacement] of phraseReplacements.entries()) {
