@@ -696,14 +696,19 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
     return <>{result}</>;
   }, [positionBasedRisks, manualRiskMap, riskMap, replacementToOriginal]);
 
-  // 表格模式下高亮单个单元格
-  const highlightTableCell = useCallback((cellText: string, cellStartPos?: number) => {
-    if (!cellText) return <>{cellText}</>;
+  // 表格模式下高亮单个单元格（支持编辑模式）
+  const highlightTableCellEditable = useCallback((cellText: string, cellStartPos: number | undefined, isEditing: boolean, onChange: (value: string) => void) => {
+    if (!cellText) {
+      if (isEditing) {
+        return <textarea className="w-full min-h-[40px] bg-transparent border border-input rounded px-1 text-xs resize-y" defaultValue="" onChange={(e) => onChange(e.target.value)} />;
+      }
+      return <>{cellText}</>;
+    }
     
     // 收集当前单元格内的风险区间
     const cellRanges: { start: number; end: number; level: RiskLevel }[] = [];
     
-    // 1. 基于位置的风险
+    // 基于位置的风险
     if (cellStartPos !== undefined) {
       const cellEndPos = cellStartPos + cellText.length;
       for (const risk of positionBasedRisks) {
@@ -717,7 +722,7 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
       }
     }
     
-    // 2. 手动标记
+    // 手动标记
     for (const [phrase, level] of manualRiskMap.entries()) {
       if (phrase.length < 2) continue;
       let searchStart = 0;
@@ -732,7 +737,7 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
       }
     }
     
-    // 3. 基于文本的风险
+    // 基于文本的风险
     for (const [phrase, level] of riskMap.entries()) {
       if (phrase.length < 2) continue;
       let searchStart = 0;
@@ -747,9 +752,30 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
       }
     }
     
+    // 编辑模式：返回带背景色的 textarea
+    if (isEditing) {
+      // 计算整个单元格的最高风险级别作为背景色
+      let bgClass = "";
+      if (cellRanges.some(r => r.level === "red")) {
+        bgClass = "bg-red-50 dark:bg-red-900/20";
+      } else if (cellRanges.some(r => r.level === "high")) {
+        bgClass = "bg-orange-50 dark:bg-orange-900/20";
+      } else if (cellRanges.some(r => r.level === "info")) {
+        bgClass = "bg-blue-50 dark:bg-blue-900/20";
+      }
+      
+      return (
+        <textarea
+          className={`w-full min-h-[40px] bg-transparent border border-input rounded px-1 text-xs resize-y ${bgClass}`}
+          defaultValue={cellText}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      );
+    }
+    
+    // 查看模式：带颜色标记
     if (cellRanges.length === 0) return <>{cellText}</>;
     
-    // 排序并合并
     cellRanges.sort((a, b) => a.start - b.start);
     const merged: typeof cellRanges = [];
     for (const range of cellRanges) {
@@ -764,7 +790,6 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
       }
     }
     
-    // 构建高亮
     const result: React.ReactNode[] = [];
     let cursor = 0;
     
@@ -1672,22 +1697,8 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
               })()}
               {highlightedScript || (paletteText || scriptText) ? (
                 <div ref={paletteScrollRef} className="max-h-[500px] overflow-auto rounded-md border border-border bg-muted/30">
-                  {paletteEditing ? (
-                    <pre
-                      ref={paletteEditRef}
-                      className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 outline-none p-4"
-                      contentEditable={true}
-                      suppressContentEditableWarning
-                      onBlur={() => {
-                        if (paletteEditing && paletteEditRef.current) {
-                          setPaletteText(paletteEditRef.current.innerText);
-                        }
-                      }}
-                    >
-                      {paletteText || scriptText}
-                    </pre>
-                  ) : inputMode === "table" && tableData ? (
-                    // 表格模式：显示表格并高亮
+                  {inputMode === "table" && tableData ? (
+                    // 表格模式：始终显示表格
                     (() => {
                       // 计算每个单元格在 scriptText 中的位置
                       let pos = 0;
@@ -1718,9 +1729,24 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
                               <TableRow key={rowIndex}>
                                 {row.map((cell, cellIndex) => {
                                   const cellPos = cellPositions.find(p => p.row === rowIndex && p.col === cellIndex);
+                                  const cellText = String(cell ?? "");
+                                  
                                   return (
                                     <TableCell key={cellIndex} className="text-xs py-1.5">
-                                      {highlightTableCell(String(cell ?? ""), cellPos?.start)}
+                                      {highlightTableCellEditable(
+                                        cellText,
+                                        cellPos?.start,
+                                        paletteEditing,
+                                        (value) => {
+                                          // 更新 tableData
+                                          const newRows = tableData.rows.map((r, ri) => 
+                                            ri === rowIndex 
+                                              ? r.map((c, ci) => ci === cellIndex ? value : c)
+                                              : r
+                                          );
+                                          setTableData({ ...tableData, rows: newRows });
+                                        }
+                                      )}
                                     </TableCell>
                                   );
                                 })}
@@ -1730,7 +1756,23 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
                         </Table>
                       );
                     })()
+                  ) : paletteEditing ? (
+                    // 文本模式下的编辑
+                    <pre
+                      ref={paletteEditRef}
+                      className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 outline-none p-4"
+                      contentEditable={true}
+                      suppressContentEditableWarning
+                      onBlur={() => {
+                        if (paletteEditing && paletteEditRef.current) {
+                          setPaletteText(paletteEditRef.current.innerText);
+                        }
+                      }}
+                    >
+                      {paletteText || scriptText}
+                    </pre>
                   ) : (
+                    // 文本模式下的查看
                     <div 
                       ref={paletteContainerRef}
                       className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 select-text p-4"
