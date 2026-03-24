@@ -3,7 +3,7 @@ import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, Loader2, RefreshCw, Pencil, Eye, Square } from "lucide-react";
+import { ArrowRight, Loader2, RefreshCw, Pencil, Eye } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildCreativePlanPrompt } from "@/lib/drama-prompts";
@@ -72,7 +72,7 @@ const StepCreativePlan = ({ setup, plan, onUpdate, onNext }: StepCreativePlanPro
             )}
             {isGenerating ? (
               <Button variant="destructive" size="sm" onClick={handleStop} className="gap-1.5">
-                <Square className="h-3.5 w-3.5" />
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 停止
               </Button>
             ) : (

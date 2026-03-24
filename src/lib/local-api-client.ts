@@ -65,11 +65,11 @@ export async function callLocalVideoApi<T = any>(
   } = {}
 ): Promise<T> {
   const config = getApiConfig();
-  const endpoint = config.seedanceEndpoint || "http://202.90.21.53:13003/v1";
+  const endpoint = config.jimengEndpoint || "http://202.90.21.53:13003/v1";
   const timeout = options.timeout || 600_000;
 
-  if (!config.seedance) {
-    throw new Error("请先在设置中配置 Seedance API Key");
+  if (!config.jimeng) {
+    throw new Error("请先在设置中配置 Jimeng API Key");
   }
 
   const controller = new AbortController();
@@ -80,7 +80,7 @@ export async function callLocalVideoApi<T = any>(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.seedance}`,
+        "Authorization": `Bearer ${config.jimeng}`,
       },
       body: JSON.stringify(body),
       signal: controller.signal,

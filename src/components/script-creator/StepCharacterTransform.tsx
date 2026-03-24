@@ -3,7 +3,7 @@ import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, RefreshCw, Pencil, Eye, Square, GitBranch } from "lucide-react";
+import { ArrowRight, RefreshCw, Pencil, Eye, Loader2, GitBranch } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildCharacterTransformPrompt } from "@/lib/drama-prompts";
@@ -152,7 +152,9 @@ const StepCharacterTransform = ({
     <div className="space-y-4">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-lg">角色转换（{frameworkStyle}风格）</CardTitle>
+          <CardTitle className="text-lg">
+            角色转换（{frameworkStyle ? `${frameworkStyle}风格` : "保持原剧类型"}）
+          </CardTitle>
           <div className="flex gap-2">
             {mermaidCode && !isGenerating && (
               <Button variant="outline" size="sm" onClick={() => setShowDiagram(!showDiagram)} className="gap-1.5">
@@ -179,7 +181,7 @@ const StepCharacterTransform = ({
             )}
             {isGenerating ? (
               <Button variant="destructive" size="sm" onClick={handleStop} className="gap-1.5">
-                <Square className="h-3.5 w-3.5" />
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 停止
               </Button>
             ) : (

@@ -1,16 +1,15 @@
-import { useState, useRef, useMemo, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useRef, useMemo, useEffect, useLayoutEffect, useCallback, type ReactNode } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { ArrowLeft, RefreshCw, Pencil, Eye, Square, ShieldCheck, Upload, Film, FileText, ChevronDown, ChevronUp, Palette, Wand2, Download, Table as TableIcon, FileSpreadsheet, Undo2, Redo2, MessageSquare, AlertTriangle, Info, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, RefreshCw, Pencil, Eye, Loader2, ShieldCheck, Upload, Film, FileText, ChevronDown, ChevronUp, Palette, Wand2, Download, FileSpreadsheet, Undo2, Redo2, MessageSquare, AlertTriangle, Info, CheckCircle2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { supabase } from "@/integrations/supabase/client";
@@ -18,6 +17,13 @@ import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, 
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
 import { saveAs } from "file-saver";
 import * as XLSX from "xlsx";
+import {
+  addComplianceTask,
+  updateComplianceTask,
+  saveComplianceStandaloneRestore,
+  loadComplianceStandaloneRestore,
+} from "@/lib/task-history";
+import { TaskHistoryMenu } from "@/components/TaskHistoryMenu";
 
 type ComplianceModel = "gemini-3.1-pro-preview" | "gemini-3-pro-preview" | "gemini-3-flash-preview";
 type ReviewMode = "text" | "script";
@@ -214,8 +220,286 @@ type EpisodeDialogueStats = {
   }[];
 };
 
+/** 将「角色名：…」台词行拆成前缀（含说话人、冒号、可选括注）与正文，用于字数超限只标记正文 */
+function splitDialoguePrefixContent(line: string): { prefix: string; content: string } | null {
+  const leadingMatch = line.match(/^(\s*)/);
+  const leading = leadingMatch ? leadingMatch[1] : "";
+  const trimmed = line.slice(leading.length);
+  const m = trimmed.match(/^([^\s△#]{1,10}[：:]\s*(?:[\(（][^）\)]*[）\)]\s*)?)(.*)$/s);
+  if (!m) return null;
+  return { prefix: leading + m[1], content: m[2] };
+}
+
+type RiskLevel = "red" | "high" | "info";
+
+const RISK_LEVEL_VALUE: Record<RiskLevel, number> = { red: 3, high: 2, info: 1 };
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** 子串是否可用于「模糊子串」回退：纯拉丁/数字/符号片段过短时极易误命中人名、缩写（如 Maya） */
+function isSafeFuzzySubstringForMatch(sub: string): boolean {
+  if (sub.length < 4) return false;
+  const hasCjk = /[\u4e00-\u9fa5]/.test(sub);
+  if (hasCjk) return true;
+  // 无中文：仅当长度足够（≥8）才允许模糊匹配，避免 4～7 字母人名/单词误标
+  return sub.length >= 8;
+}
+
+/** 行内仅含场记板 🎬 与空白（常见于集数标题被换行拆开） */
+function isClapperOnlyLine(line: string): boolean {
+  const t = line.trim();
+  if (t.length === 0 || t.length > 24) return false;
+  const rest = t.replace(/🎬/gu, "").replace(/\s+/g, "");
+  return rest.length === 0;
+}
+
+/**
+ * 单元格为纯集数标题（仅 🎬 与「第N集」，可含空格/全角数字）。
+ * 用于表格窄列时避免被浏览器折成「第一行 🎬 第 1 集 / 第二行 🎬」的假两排。
+ */
+function isEpisodeTitleLikeCell(s: string): boolean {
+  const t = String(s).trim();
+  if (t.length === 0 || t.length > 120) return false;
+  const noEmoji = t.replace(/🎬/gu, "").replace(/\s+/g, "");
+  return /^第[\d0-9\uFF10-\uFF19]+集$/.test(noEmoji);
+}
+
+/**
+ * 将「含 第N集 的一行」与下一行单独的 🎬 合并为一行，避免调色盘等按行渲染时出现两排集数标题。
+ */
+function normalizeEpisodeClapperLineBreaks(text: string): string {
+  if (!text.includes("\n")) return text;
+  const hasEpisodeNo = /第\s*\d+\s*集/;
+  const lines = text.split("\n");
+  const out: string[] = [];
+  for (const line of lines) {
+    if (out.length > 0 && hasEpisodeNo.test(out[out.length - 1]) && isClapperOnlyLine(line)) {
+      const prev = out[out.length - 1];
+      out[out.length - 1] = `${prev.replace(/\s+$/, "")} ${line.trim()}`;
+    } else {
+      out.push(line);
+    }
+  }
+  return out.join("\n");
+}
+
+/** 表格单元格内 Alt+Enter 等导致的「第N集」与单独 🎬 拆行 */
+function normalizeTableCellsEpisodeClapper(rows: (string | number | null)[][]): string[][] {
+  return rows.map(r => r.map(c => normalizeEpisodeClapperLineBreaks(String(c ?? ""))));
+}
+
+/**
+ * 合并连续数据行：上一行某格含「第N集」，下一行各非空格均为仅 🎬 时，把下一行拼入该格（解决 Excel 里占两行的集数标题）。
+ */
+function mergeEpisodeClapperContinuationRows(rows: string[][]): string[][] {
+  const hasEpisodeNo = /第\s*\d+\s*集/;
+  const out: string[][] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i].map(c => String(c));
+
+    if (row.every(c => !c.trim())) {
+      out.push(row);
+      continue;
+    }
+    if (out.length === 0) {
+      out.push(row);
+      continue;
+    }
+
+    const prev = out[out.length - 1];
+    const epCol = prev.findIndex(c => hasEpisodeNo.test(c));
+    if (epCol < 0) {
+      out.push(row);
+      continue;
+    }
+
+    const nonEmptyParts = row.map(c => c.trim()).filter(Boolean);
+    if (nonEmptyParts.length === 0 || !nonEmptyParts.every(p => isClapperOnlyLine(p))) {
+      out.push(row);
+      continue;
+    }
+
+    const merged = prev.map(c => String(c));
+    merged[epCol] = `${merged[epCol].replace(/\s+$/, "")} ${nonEmptyParts.join(" ")}`.trim();
+    out[out.length - 1] = merged;
+  }
+
+  return out;
+}
+
+function normalizeTableRowsForEpisodeClapper(rows: (string | number | null)[][]): string[][] {
+  return mergeEpisodeClapperContinuationRows(normalizeTableCellsEpisodeClapper(rows));
+}
+
+/**
+ * 在剧本正文中定位 AI 报告里引用的风险片段（整篇匹配，支持跨行）。
+ * 顺序：精确 → trim 后精确 → 灵活空白/换行 → 冒号全半角统一 → 最长子串（≥4 字；纯英文子串需 ≥8 字）
+ */
+function findMatchRangesInScript(script: string, phrase: string): [number, number][] {
+  const ranges: [number, number][] = [];
+  const t = phrase.trim();
+  if (!t) return ranges;
+
+  let from = 0;
+  let idx = 0;
+  while ((idx = script.indexOf(phrase, from)) !== -1) {
+    ranges.push([idx, idx + phrase.length]);
+    from = idx + 1;
+  }
+  if (ranges.length > 0) return ranges;
+
+  if (t !== phrase) {
+    from = 0;
+    while ((idx = script.indexOf(t, from)) !== -1) {
+      ranges.push([idx, idx + t.length]);
+      from = idx + 1;
+    }
+    if (ranges.length > 0) return ranges;
+  }
+
+  const flex = escapeRegExp(t).replace(/\s+/g, "\\s+");
+  try {
+    const re = new RegExp(flex, "g");
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(script)) !== null) {
+      ranges.push([m.index, m.index + m[0].length]);
+    }
+  } catch {
+    /* ignore */
+  }
+  if (ranges.length > 0) return ranges;
+
+  const normalizeColons = (s: string) => s.replace(/：/g, ":");
+  const scriptN = normalizeColons(script);
+  const phraseT = normalizeColons(t);
+  if (scriptN !== script || phraseT !== t) {
+    from = 0;
+    while ((idx = scriptN.indexOf(phraseT, from)) !== -1) {
+      ranges.push([idx, idx + phraseT.length]);
+      from = idx + 1;
+    }
+    if (ranges.length > 0) return ranges;
+  }
+
+  for (let len = t.length; len >= 4; len--) {
+    for (let i = 0; i <= t.length - len; i++) {
+      const sub = t.slice(i, i + len);
+      if (sub.length < 4) continue;
+      if (!isSafeFuzzySubstringForMatch(sub)) continue;
+      let f = 0;
+      let j = 0;
+      while ((j = script.indexOf(sub, f)) !== -1) {
+        ranges.push([j, j + sub.length]);
+        f = j + 1;
+      }
+      if (ranges.length > 0) return ranges;
+    }
+  }
+
+  return ranges;
+}
+
+function mergeOverlappingRiskSpans(
+  ranges: { start: number; end: number; level: RiskLevel }[],
+): { start: number; end: number; level: RiskLevel }[] {
+  if (ranges.length === 0) return [];
+  const points = new Set<number>();
+  for (const r of ranges) {
+    points.add(r.start);
+    points.add(r.end);
+  }
+  const sorted = [...points].sort((a, b) => a - b);
+  const out: { start: number; end: number; level: RiskLevel }[] = [];
+
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const a = sorted[i];
+    const b = sorted[i + 1];
+    if (a === b) continue;
+    let maxVal = 0;
+    let maxLevel: RiskLevel = "info";
+    for (const r of ranges) {
+      if (r.start <= a && r.end >= b) {
+        if (RISK_LEVEL_VALUE[r.level] > maxVal) {
+          maxVal = RISK_LEVEL_VALUE[r.level];
+          maxLevel = r.level;
+        }
+      }
+    }
+    if (maxVal > 0) {
+      out.push({ start: a, end: b, level: maxLevel });
+    }
+  }
+
+  const merged: typeof out = [];
+  for (const sp of out) {
+    const prev = merged[merged.length - 1];
+    if (prev && prev.end === sp.start && prev.level === sp.level) {
+      prev.end = sp.end;
+    } else {
+      merged.push({ ...sp });
+    }
+  }
+  return merged;
+}
+
+function intersectSpansWithRange(
+  spans: { start: number; end: number; level: RiskLevel }[],
+  rangeStart: number,
+  rangeEnd: number,
+): { start: number; end: number; level: RiskLevel }[] {
+  const out: { start: number; end: number; level: RiskLevel }[] = [];
+  for (const sp of spans) {
+    const s = Math.max(sp.start, rangeStart);
+    const e = Math.min(sp.end, rangeEnd);
+    if (s < e) {
+      out.push({ start: s - rangeStart, end: e - rangeStart, level: sp.level });
+    }
+  }
+  return out;
+}
+
+/** 台词正文计字（与 dialogueOverLimitLines 规则一致） */
+function dialogueLineContentWordCount(line: string, isChinese: boolean): number {
+  const match = line.trim().match(/^[^\s△#]{1,10}[：:]\s*(?:[\(（][^）\)]*[）\)])?(.*)$/);
+  const content = match ? match[1].trim() : line.trim();
+  if (isChinese) return (content.match(/[\u4e00-\u9fa5]/g) || []).length;
+  return content.split(/\s+/).filter((w) => w.length > 0).length;
+}
+
+type RiskSpanBackup = { snippet: string; level: RiskLevel; hintStart: number };
+
+/** 用人编辑前快照的原文片段在当前正文中重新定位（多命中时取距 hintStart 最近） */
+function spanBackupsToLocatedSpans(
+  body: string,
+  backups: RiskSpanBackup[],
+): { start: number; end: number; level: RiskLevel }[] {
+  const ranges: { start: number; end: number; level: RiskLevel }[] = [];
+  for (const b of backups) {
+    if (!b.snippet.trim()) continue;
+    const found = findMatchRangesInScript(body, b.snippet);
+    if (found.length === 0) continue;
+    let bestS = found[0][0];
+    let bestE = found[0][1];
+    let bestDist = Math.abs(found[0][0] - b.hintStart);
+    for (const [s, e] of found) {
+      const d = Math.abs(s - b.hintStart);
+      if (d < bestDist) {
+        bestS = s;
+        bestE = e;
+        bestDist = d;
+      }
+    }
+    ranges.push({ start: bestS, end: bestE, level: b.level });
+  }
+  return mergeOverlappingRiskSpans(ranges);
+}
+
 const ComplianceReview = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [scriptText, setScriptText] = useState("");
   const [complianceReport, setComplianceReport] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -225,7 +509,7 @@ const ComplianceReview = () => {
   const [reportOpen, setReportOpen] = useState(true);
   // 表格数据状态
   const [tableData, setTableData] = useState<TableData | null>(null);
-  const [inputMode, setInputMode] = useState<"text" | "table">("text");
+  /** 有表格数据 = 表格模式；否则 = 文本模式（仅由上传/解析决定，不可手动切换） */
   // 审核模式：文字审核 | 剧本审核
   const [reviewMode, setReviewMode] = useState<ReviewMode>("text");
   // 严格程度
@@ -241,6 +525,7 @@ const ComplianceReview = () => {
   const paletteScrollRef = useRef<HTMLDivElement>(null);
   // 分段审核进度
   const [segmentProgress, setSegmentProgress] = useState<{ current: number; total: number } | null>(null);
+  const complianceTaskIdRef = useRef<string | null>(null);
   const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress, canResume: transCanResume, resumeTranslation } = useTranslation();
   const nonChinese = isNonChineseText(complianceReport);
   const [paletteEditing, setPaletteEditing] = useState(false);
@@ -248,11 +533,50 @@ const ComplianceReview = () => {
   const [isAutoAdjusting, setIsAutoAdjusting] = useState(false);
   const autoAdjustAbortRef = useRef<AbortController | null>(null);
   const [adjustingPhrases, setAdjustingPhrases] = useState<Set<string>>(new Set());
-  const paletteEditRef = useRef<HTMLPreElement>(null);
+  const paletteTextareaRef = useRef<HTMLTextAreaElement>(null);
   // Track phrase replacements so re-adjust works: original -> current
   const [phraseReplacements, setPhraseReplacements] = useState<Map<string, string>>(new Map());
   // 对话审查开关
   const [enableDialogueReview, setEnableDialogueReview] = useState(false);
+
+  // 从任务历史进入：?task=任务 id，恢复本地快照
+  const taskRestoreId = searchParams.get("task");
+  useEffect(() => {
+    if (!taskRestoreId) return;
+    const data = loadComplianceStandaloneRestore(taskRestoreId);
+    if (data) {
+      if (data.tableData) {
+        const td = data.tableData;
+        const normRows = normalizeTableRowsForEpisodeClapper(td.rows);
+        const mergedTable = { ...td, rows: normRows, originalData: [td.headers, ...normRows] };
+        setTableData(mergedTable);
+        const textContent = [td.headers, ...normRows].map(r => (r as (string | number | null)[]).join("\t")).join("\n");
+        setScriptText(textContent);
+        setPaletteText(textContent);
+      } else {
+        const restored = normalizeEpisodeClapperLineBreaks(data.scriptText);
+        setScriptText(restored);
+        setPaletteText(restored);
+        setTableData(null);
+      }
+      setComplianceReport(data.complianceReport);
+      setReviewMode(data.reviewMode);
+      setStrictness(data.strictness);
+      setReportOpen(!!(data.complianceReport && data.complianceReport.trim()));
+      setPhraseReplacements(new Map());
+      toast({ title: "已恢复该次审核内容" });
+    } else {
+      toast({ title: "无法恢复", description: "本地未找到该条记录的内容（可能已清除或为新版本之前的历史）", variant: "destructive" });
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("task");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [taskRestoreId, setSearchParams]);
 
   // Sync palette text with script text initially or when script changes and no adjustments made
   useEffect(() => {
@@ -272,6 +596,20 @@ const ComplianceReview = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (paletteEditing) {
+      paletteTextareaRef.current?.focus({ preventScroll: true });
+    }
+  }, [paletteEditing]);
+
+  /** 调色盘编辑：textarea 随内容增高，避免出现内部滚动条与外层双拉条 */
+  useLayoutEffect(() => {
+    const el = paletteTextareaRef.current;
+    if (!el || !paletteEditing) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [paletteEditing, paletteText, scriptText]);
+
   const handleModelChange = (m: ComplianceModel) => {
     setModel(m);
     localStorage.setItem("compliance-model", m);
@@ -279,7 +617,6 @@ const ComplianceReview = () => {
   };
 
   // Extract risk phrases with severity levels from report
-  type RiskLevel = "red" | "high" | "info";
   const riskMap = useMemo(() => {
     if (!complianceReport) return new Map<string, RiskLevel>();
     const map = new Map<string, RiskLevel>();
@@ -291,7 +628,9 @@ const ComplianceReview = () => {
     for (const [regex, level] of patterns) {
       let m: RegExpExecArray | null;
       while ((m = regex.exec(complianceReport)) !== null) {
-        const phrase = m[1];
+        const phrase = typeof m[1] === "string" ? m[1].trim() : "";
+        // 空片段会导致 cellStr.includes("") 恒为真，进而 new RegExp("()") 在长文本上 split 爆炸并卡死/白屏
+        if (!phrase) continue;
         if (!map.has(phrase) || (level === "red") || (level === "high" && map.get(phrase) === "info")) {
           map.set(phrase, level);
         }
@@ -320,6 +659,67 @@ const ComplianceReview = () => {
   }, [riskMap, phraseReplacements]);
 
   const activeRiskPhrases = useMemo(() => [...activeRiskMap.keys()], [activeRiskMap]);
+
+  /** 整篇剧本上合并后的风险区间（直接对应调色盘引用的正文） */
+  const mergedRiskSpans = useMemo(() => {
+    const body = paletteText || scriptText;
+    if (!body.trim() || activeRiskMap.size === 0) return [];
+    const ranges: { start: number; end: number; level: RiskLevel }[] = [];
+    for (const [phrase, level] of activeRiskMap.entries()) {
+      for (const [start, end] of findMatchRangesInScript(body, phrase)) {
+        ranges.push({ start, end, level });
+      }
+    }
+    return mergeOverlappingRiskSpans(ranges);
+  }, [paletteText, scriptText, activeRiskMap]);
+
+  const [riskSpanBackups, setRiskSpanBackups] = useState<RiskSpanBackup[]>([]);
+  const riskSpanCaptureRef = useRef<{ report: string | null; replSize: number }>({
+    report: null,
+    replSize: -1,
+  });
+
+  useEffect(() => {
+    if (!complianceReport?.trim()) {
+      setRiskSpanBackups([]);
+      riskSpanCaptureRef.current = { report: null, replSize: -1 };
+      return;
+    }
+    if (isGenerating) return;
+    const body = paletteText || scriptText;
+    const replSize = phraseReplacements.size;
+    const cap = riskSpanCaptureRef.current;
+    const reportChanged = cap.report !== complianceReport;
+    const replChanged = cap.replSize !== replSize;
+    if (!reportChanged && !replChanged) return;
+    riskSpanCaptureRef.current = { report: complianceReport, replSize };
+    setRiskSpanBackups(
+      mergedRiskSpans
+        .map((s) => ({
+          snippet: body.slice(s.start, s.end),
+          level: s.level,
+          hintStart: s.start,
+        }))
+        .filter((b) => b.snippet.trim().length > 0),
+    );
+  }, [complianceReport, isGenerating, mergedRiskSpans, phraseReplacements, paletteText, scriptText]);
+
+  const relocatedRiskSpans = useMemo(() => {
+    const body = paletteText || scriptText;
+    if (!body.trim() || riskSpanBackups.length === 0) return [];
+    return spanBackupsToLocatedSpans(body, riskSpanBackups);
+  }, [paletteText, scriptText, riskSpanBackups]);
+
+  const displayRiskSpans = useMemo(
+    () => mergeOverlappingRiskSpans([...mergedRiskSpans, ...relocatedRiskSpans]),
+    [mergedRiskSpans, relocatedRiskSpans],
+  );
+
+  const markedRiskPhraseCount = useMemo(() => {
+    const body = paletteText || scriptText;
+    if (!body.trim()) return 0;
+    return riskPhrases.filter((p) => findMatchRangesInScript(body, p).length > 0).length;
+  }, [riskPhrases, paletteText, scriptText]);
 
   // --- Dialogue word count detection ---
   // Detect if text is primarily Chinese
@@ -449,16 +849,14 @@ const ComplianceReview = () => {
     };
   }, [episodeStats]);
 
-  // Build a set of line indices that have dialogue over-limit warnings
+  // 单行台词字数超限（仅正文计字，与统计里的 overLimitCount 一致；不按场次累计）
   const dialogueOverLimitLines = useMemo(() => {
     if (!enableDialogueReview) return new Set<number>();
-    
+
     const set = new Set<number>();
     const text = paletteText || scriptText;
     const lines = text.split("\n");
-    let lineIndex = 0;
-    let currentSceneWords = 0;
-    let sceneStartLine = 0;
+    const perLineLimit = isChinese ? 35 : 20;
 
     const countWords = (line: string) => {
       const match = line.match(/^[^\s△#]{1,10}[：:]\s*(?:[\(（][^）\)]*[）\)])?(.*)$/);
@@ -469,25 +867,15 @@ const ComplianceReview = () => {
       return content.split(/\s+/).filter(w => w.length > 0).length;
     };
 
-    for (const line of lines) {
+    lines.forEach((line, lineIndex) => {
       const trimmed = line.trim();
-      const episodeMatch = trimmed.match(/^#\s*(\d+)/);
-      if (episodeMatch) {
-        // Reset scene tracking
-        currentSceneWords = 0;
-        sceneStartLine = lineIndex;
-      }
-
       if (isDialogueLine(trimmed) && !isSfxLine(trimmed)) {
         const words = countWords(trimmed);
-        currentSceneWords += words;
-        if (currentSceneWords > (isChinese ? 35 : 20)) {
+        if (words > perLineLimit) {
           set.add(lineIndex);
         }
       }
-
-      lineIndex++;
-    }
+    });
 
     return set;
   }, [paletteText, scriptText, isChinese, isDialogueLine, isSfxLine, enableDialogueReview]);
@@ -574,7 +962,7 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
       }
 
       // 更新文本
-      const currentText = inputMode === "table" && tableData
+      const currentText = tableData
         ? tableData.rows.map(row => row.join("\t")).join("\n")
         : paletteText || scriptText;
 
@@ -589,7 +977,7 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
       });
 
       // 根据模式更新
-      if (inputMode === "table" && tableData) {
+      if (tableData) {
         const newRows = tableData.rows.map(row =>
           row.map(cell => {
             const cellStr = String(cell ?? "");
@@ -611,57 +999,73 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
     } finally {
       setAdjustingSinglePhrase(null);
     }
-  }, [adjustingSinglePhrase, model, reviewMode]);
+  }, [adjustingSinglePhrase, model, reviewMode, tableData, paletteText, scriptText]);
 
-  const buildHighlightedParts = useCallback((text: string, blankPhrases?: Set<string>) => {
-    if (!text || activeRiskPhrases.length === 0) return <>{text}</>;
-
-    const sorted = [...activeRiskPhrases].sort((a, b) => b.length - a.length);
-    const matching = sorted.filter(p => text.includes(p));
-
-    // 情节审核模式：额外检查风险段落是否包含这段文本
-    if (reviewMode === "script") {
-      for (const phrase of sorted) {
-        if (!matching.includes(phrase) && phrase.includes(text)) {
-          matching.push(phrase);
+  const renderSpanWithRisk = useCallback(
+    (
+      segment: string,
+      localSpans: { start: number; end: number; level: RiskLevel }[],
+      blankPhrases?: Set<string>,
+      keyPrefix = "",
+    ) => {
+      if (!segment) return null;
+      if (localSpans.length === 0) return <>{segment}</>;
+      const sorted = [...localSpans].sort((a, b) => a.start - b.start);
+      const nodes: ReactNode[] = [];
+      let pos = 0;
+      for (let si = 0; si < sorted.length; si++) {
+        const sp = sorted[si];
+        if (sp.start >= segment.length) break;
+        const a = Math.max(sp.start, 0);
+        const b = Math.min(sp.end, segment.length);
+        if (a > pos) {
+          nodes.push(<span key={`${keyPrefix}g-${pos}-${si}`}>{segment.slice(pos, a)}</span>);
         }
-      }
-    }
-
-    if (matching.length === 0) return <>{text}</>;
-
-    const escaped = matching.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-    const regex = new RegExp(`(${escaped.join("|")})`, "g");
-    const parts = text.split(regex);
-
-    return parts.map((part, i) => {
-      const level = activeRiskMap.get(part);
-      if (level) {
-        const isBlank = blankPhrases?.has(part);
-        const originalText = replacementToOriginal.get(part);
-        const showTooltip = !!originalText;
-        const isAdjusting = adjustingSinglePhrase === part;
-
-        return (
-          <mark key={i} className={`${RISK_STYLES[level]} text-foreground rounded px-0.5 ${isBlank ? "inline-block min-w-[2em]" : ""}`} title={showTooltip ? `原文: ${originalText}` : undefined}>
-            {isBlank ? "\u00A0".repeat(Math.max(part.length, 2)) : part}
-            <button
-              className="inline-flex items-center justify-center w-4 h-4 ml-0.5 text-[10px] rounded hover:bg-foreground/10 align-middle cursor-pointer"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleSingleAdjust(part, level);
-              }}
-              disabled={isAdjusting || isAutoAdjusting}
-              title="重新生成"
+        if (a < b) {
+          const part = segment.slice(a, b);
+          const level = sp.level;
+          const isBlank = blankPhrases?.has(part);
+          const originalText = replacementToOriginal.get(part);
+          const showTooltip = !!originalText;
+          const isAdjusting = adjustingSinglePhrase === part;
+          nodes.push(
+            <mark
+              key={`${keyPrefix}m-${a}-${b}-${si}`}
+              className={`${RISK_STYLES[level]} text-foreground rounded px-0.5 ${isBlank ? "inline-block min-w-[2em]" : ""}`}
+              title={showTooltip ? `原文: ${originalText}` : undefined}
             >
-              {isAdjusting ? "..." : "↻"}
-            </button>
-          </mark>
-        );
+              {isBlank ? "\u00A0".repeat(Math.max(part.length, 2)) : part}
+              {paletteEditing ? (
+                <span
+                  className="inline-flex w-4 h-4 ml-0.5 shrink-0 invisible pointer-events-none align-middle"
+                  aria-hidden
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center w-4 h-4 ml-0.5 text-[10px] rounded hover:bg-foreground/10 align-middle cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSingleAdjust(part, level);
+                  }}
+                  disabled={isAdjusting || isAutoAdjusting}
+                  title="重新生成"
+                >
+                  {isAdjusting ? "..." : "↻"}
+                </button>
+              )}
+            </mark>,
+          );
+        }
+        pos = Math.max(pos, b);
       }
-      return <span key={i}>{part}</span>;
-    });
-  }, [activeRiskPhrases, activeRiskMap, replacementToOriginal, adjustingSinglePhrase, handleSingleAdjust, isAutoAdjusting, reviewMode]);
+      if (pos < segment.length) {
+        nodes.push(<span key={`${keyPrefix}g-${pos}-end`}>{segment.slice(pos)}</span>);
+      }
+      return <>{nodes}</>;
+    },
+    [replacementToOriginal, adjustingSinglePhrase, handleSingleAdjust, isAutoAdjusting, paletteEditing],
+  );
 
   const highlightedScript = useMemo(() => {
     const text = paletteText || scriptText;
@@ -669,29 +1073,68 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
 
     const lines = text.split("\n");
     const blankSet = isAutoAdjusting ? adjustingPhrases : undefined;
+    let lineBase = 0;
 
     return (
       <>
         {lines.map((line, lineIndex) => {
           const isOverLimit = enableDialogueReview && dialogueOverLimitLines.has(lineIndex);
-          const highlighted = buildHighlightedParts(line, blankSet);
+          const trimmed = line.trim();
+          const split =
+            isOverLimit && isDialogueLine(trimmed) && !isSfxLine(trimmed)
+              ? splitDialoguePrefixContent(line)
+              : null;
 
-          return (
-            <span key={lineIndex}>
-              {isOverLimit ? (
-                <mark className="bg-muted-foreground/15 text-foreground/70 rounded px-0.5" title="台词字数超限">
-                  {highlighted}
+          const lineEnd = lineBase + line.length;
+
+          if (split) {
+            const { prefix, content } = split;
+            const prefixLen = prefix.length;
+            // 说话人/前缀不标 AI 风险；仅超限正文可标风险
+            const contentSpans = intersectSpansWithRange(displayRiskSpans, lineBase + prefixLen, lineEnd);
+
+            const node = (
+              <span key={lineIndex}>
+                {renderSpanWithRisk(prefix, [], blankSet, `L${lineIndex}-p`)}
+                <mark className="bg-muted-foreground/15 text-foreground/70 rounded px-0.5" title="台词字数超限（仅正文）">
+                  {renderSpanWithRisk(content, contentSpans, blankSet, `L${lineIndex}-c`)}
                 </mark>
-              ) : (
-                highlighted
-              )}
+                {lineIndex < lines.length - 1 && "\n"}
+              </span>
+            );
+            lineBase = lineEnd + (lineIndex < lines.length - 1 ? 1 : 0);
+            return node;
+          }
+
+          let lineSpans = intersectSpansWithRange(displayRiskSpans, lineBase, lineEnd);
+          const isSfxRow = isSfxLine(trimmed);
+          const isDlgRow = isDialogueLine(trimmed);
+          if (isSfxRow || (isDlgRow && !(enableDialogueReview && isOverLimit))) {
+            lineSpans = [];
+          }
+          const node = (
+            <span key={lineIndex}>
+              {renderSpanWithRisk(line, lineSpans, blankSet, `L${lineIndex}`)}
               {lineIndex < lines.length - 1 && "\n"}
             </span>
           );
+          lineBase = lineEnd + (lineIndex < lines.length - 1 ? 1 : 0);
+          return node;
         })}
       </>
     );
-  }, [paletteText, scriptText, buildHighlightedParts, isAutoAdjusting, adjustingPhrases, dialogueOverLimitLines, enableDialogueReview]);
+  }, [
+    paletteText,
+    scriptText,
+    displayRiskSpans,
+    renderSpanWithRisk,
+    isAutoAdjusting,
+    adjustingPhrases,
+    dialogueOverLimitLines,
+    enableDialogueReview,
+    isDialogueLine,
+    isSfxLine,
+  ]);
 
   // 表格编辑相关状态
   const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
@@ -796,10 +1239,19 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
       }
     });
 
+    const perLineLimit = isChinese ? 35 : 20;
+    const shieldCellFromAiRisk = (cellStr: string) => {
+      const t = cellStr.trim();
+      if (isSfxLine(t)) return true;
+      if (!isDialogueLine(t)) return false;
+      if (!enableDialogueReview) return true;
+      return dialogueContentWordCount(cellStr, isChinese) <= perLineLimit;
+    };
+
     // 情节审核模式：预处理每行的风险信息
     const rowRiskInfo = reviewMode === "script" ? (() => {
       const info = new Map<number, { level: RiskLevel; phrase: string; matchedText: string }>();
-      const sorted = [...activeRiskPhrases].sort((a, b) => b.length - a.length);
+      const sorted = [...activeRiskPhrases].filter(p => p.length > 0).sort((a, b) => b.length - a.length);
 
       const hasCommonSubstring = (a: string, b: string, minLen: number): boolean => {
         for (let i = 0; i <= a.length - minLen; i++) {
@@ -870,6 +1322,21 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
       if (reviewMode === "script" && rowRiskInfo) {
         const rowInfo = rowRiskInfo.get(rowIndex);
         if (rowInfo) {
+          if (shieldCellFromAiRisk(cellStr)) {
+            return (
+              <span className="cursor-pointer hover:bg-accent/30 px-1 rounded" onClick={() => handleTableCellEdit(rowIndex, cellIndex)} title="点击编辑">
+                {cellStr}
+              </span>
+            );
+          }
+          // 空白单元格不铺整格风险底纹，否则 mark 的 padding 会在空白处显示成色条（如集数后空列）
+          if (!cellStr.trim()) {
+            return (
+              <span className="cursor-pointer hover:bg-accent/30 px-1 rounded" onClick={() => handleTableCellEdit(rowIndex, cellIndex)} title="点击编辑">
+                {cellStr}
+              </span>
+            );
+          }
           return (
             <span className="cursor-pointer hover:bg-accent/30 px-1 rounded" onClick={() => handleTableCellEdit(rowIndex, cellIndex)} title={`风险段落: ${rowInfo.phrase.slice(0, 100)}...`}>
               <mark className={`${RISK_STYLES[rowInfo.level]} text-foreground rounded px-0.5`}>
@@ -889,8 +1356,16 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
         );
       }
 
+      if (shieldCellFromAiRisk(cellStr)) {
+        return (
+          <span className="cursor-pointer hover:bg-accent/30 px-1 rounded" onClick={() => handleTableCellEdit(rowIndex, cellIndex)} title="点击编辑">
+            {cellStr}
+          </span>
+        );
+      }
+
       // 文字审核模式：检查单元格内的风险短语
-      const sorted = [...activeRiskPhrases].sort((a, b) => b.length - a.length);
+      const sorted = [...activeRiskPhrases].filter(p => p.length > 0).sort((a, b) => b.length - a.length);
       const matching = sorted.filter(p => cellStr.includes(p));
 
       if (matching.length === 0) {
@@ -950,7 +1425,10 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
             {tableData.rows.map((row, rowIndex) => (
               <tr key={rowIndex} className="border-b border-border/50 hover:bg-accent/20 transition-colors">
                 {row.map((cell, cellIndex) => (
-                  <td key={cellIndex} className="text-xs px-3 py-2 align-top max-w-[300px]">
+                  <td
+                    key={cellIndex}
+                    className={`text-xs px-3 py-2 align-top max-w-[300px] ${isEpisodeTitleLikeCell(String(cell ?? "")) ? "whitespace-nowrap" : ""}`}
+                  >
                     {renderCell(cell, rowIndex, cellIndex)}
                   </td>
                 ))}
@@ -960,7 +1438,25 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
         </table>
       </div>
     );
-  }, [tableData, activeRiskPhrases, activeRiskMap, editingCell, editingValue, replacementToOriginal, handleTableCellEdit, handleTableCellSave, handleTableCellCancel, adjustingSinglePhrase, handleSingleAdjust]);
+  }, [
+    tableData,
+    activeRiskPhrases,
+    activeRiskMap,
+    editingCell,
+    editingValue,
+    replacementToOriginal,
+    handleTableCellEdit,
+    handleTableCellSave,
+    handleTableCellCancel,
+    adjustingSinglePhrase,
+    handleSingleAdjust,
+    isAutoAdjusting,
+    reviewMode,
+    enableDialogueReview,
+    isChinese,
+    isDialogueLine,
+    isSfxLine,
+  ]);
 
   const normalizeForCompare = (value: string) => value.replace(/\s+/g, "").trim();
 
@@ -1011,7 +1507,7 @@ ${level === "red" ? "红线问题" : level === "high" ? "高风险内容" : "优
   const handleAutoAdjust = async () => {
     const targetEntries: { original: string; current: string; level: RiskLevel }[] = [];
 
-    const textToCheck = inputMode === "table" && tableData
+    const textToCheck = tableData
       ? tableData.rows.map(row => row.join("\t")).join("\n")
       : paletteText || scriptText;
 
@@ -1121,7 +1617,7 @@ ${JSON.stringify(payload, null, 2)}`;
     };
 
     try {
-      let workingText = inputMode === "table" && tableData
+      let workingText = tableData
         ? tableData.rows.map(row => row.join("\t")).join("\n")
         : paletteText || scriptText;
       let workingReplacements = new Map(phraseReplacements);
@@ -1254,7 +1750,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
       setPaletteText(workingText);
 
       // 如果是表格模式，同步更新表格数据
-      if (inputMode === "table" && tableData) {
+      if (tableData) {
         const newRows = tableData.rows.map(row =>
           row.map(cell => {
             const cellStr = String(cell ?? "");
@@ -1291,7 +1787,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
   // Export palette text - xlsx if table mode, otherwise docx
   const handlePaletteExport = useCallback(async () => {
     try {
-      if (inputMode === "table" && tableData) {
+      if (tableData) {
         const exportData = [tableData.headers, ...tableData.rows];
         const ws = XLSX.utils.aoa_to_sheet(exportData);
         const wb = XLSX.utils.book_new();
@@ -1356,18 +1852,23 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
     } catch (e: any) {
       toast({ title: "导出失败", description: e?.message, variant: "destructive" });
     }
-  }, [paletteEditing, paletteText, scriptText, activeRiskMap, inputMode, tableData]);
+  }, [paletteEditing, paletteText, scriptText, activeRiskMap, tableData]);
 
-  const handlePaletteEditToggle = () => {
-    if (paletteEditing) {
-      // Save: paletteText is already updated via onChange
-      setScriptText(paletteText || scriptText);
-    } else {
-      if (!paletteText) {
-        setPaletteText(scriptText);
-      }
-    }
-    setPaletteEditing(!paletteEditing);
+  /** 文本模式：点击高亮区进入编辑（有选中文本时不触发，便于复制） */
+  const handlePaletteReadOnlyClick = () => {
+    if (paletteEditing || isAutoAdjusting) return;
+    const sel = typeof window !== "undefined" ? window.getSelection()?.toString() ?? "" : "";
+    if (sel.length > 0) return;
+    if (!paletteText) setPaletteText(scriptText);
+    setPaletteEditing(true);
+  };
+
+  const handlePaletteTextBlur = () => {
+    const next = paletteText || scriptText;
+    const merged = tableData ? next : normalizeEpisodeClapperLineBreaks(next);
+    setScriptText(merged);
+    if (!tableData) setPaletteText(merged);
+    setPaletteEditing(false);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1384,9 +1885,8 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
     try {
       if (ext === "txt") {
         const text = await file.text();
-        setScriptText((prev) => (prev ? prev + "\n\n" : "") + text);
+        setScriptText((prev) => normalizeEpisodeClapperLineBreaks((prev ? prev + "\n\n" : "") + text));
         setTableData(null);
-        setInputMode("text");
         toast({ title: "文件已加载" });
       } else if (["xlsx", "xls", "csv"].includes(ext)) {
         const data = await file.arrayBuffer();
@@ -1401,13 +1901,13 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
         }
 
         const headers = (jsonData[0] as string[]).map((h, i) => String(h || `列${i + 1}`));
-        const rows = jsonData.slice(1).map(row =>
+        const rawRows = jsonData.slice(1).map(row =>
           (row as (string | number | null)[]).map(cell => cell ?? "")
         );
+        const rows = normalizeTableRowsForEpisodeClapper(rawRows);
 
-        setTableData({ headers, rows, fileName: file.name, sheetName, originalData: jsonData });
-        setInputMode("table");
-        const textContent = jsonData.map(row => (row as any[]).join("\t")).join("\n");
+        setTableData({ headers, rows, fileName: file.name, sheetName, originalData: [headers, ...rows] });
+        const textContent = [headers, ...rows].map(row => (row as (string | number | null)[]).join("\t")).join("\n");
         setScriptText(textContent);
         toast({ title: "表格已加载", description: `${file.name} - ${sheetName} (${rows.length} 行数据)` });
       } else if (["pdf", "docx", "doc"].includes(ext)) {
@@ -1416,9 +1916,8 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
         const { data, error } = await supabase.functions.invoke("parse-document", { body: formData });
         if (error) throw error;
         if (data?.text) {
-          setScriptText((prev) => (prev ? prev + "\n\n" : "") + data.text);
+          setScriptText((prev) => normalizeEpisodeClapperLineBreaks((prev ? prev + "\n\n" : "") + data.text));
           setTableData(null);
-          setInputMode("text");
           toast({ title: "文档解析完成" });
         }
       } else {
@@ -1454,12 +1953,35 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
     setPhraseReplacements(new Map());
     abortRef.current = new AbortController();
 
+    const trimmed = scriptText.trim();
+    const titleForTask =
+      trimmed.slice(0, 48) + (trimmed.length > 48 ? "…" : "") || "合规审核";
+    const taskId = addComplianceTask({
+      source: "standalone",
+      title: titleForTask,
+      status: "running",
+      reviewMode,
+      segmentProgress: null,
+      detail: needsSegment ? "准备分段审核…" : "审核中…",
+    });
+    complianceTaskIdRef.current = taskId;
+    saveComplianceStandaloneRestore(taskId, {
+      v: 1,
+      scriptText,
+      complianceReport: "",
+      reviewMode,
+      strictness,
+      inputMode: tableData ? "table" : "text",
+      tableData,
+    });
+
     try {
       const promptGenerator = reviewMode === "script" ? SCRIPT_REVIEW_PROMPT : STANDALONE_COMPLIANCE_PROMPT;
       const prompt = promptGenerator(scriptText, strictness);
 
       if (!needsSegment) {
         setSegmentProgress(null);
+        updateComplianceTask(taskId, { detail: "单次全文审核中…" });
 
         const finalText = await callGeminiStream(
           model,
@@ -1471,6 +1993,21 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
 
         setComplianceReport(finalText);
         setStreamingText("");
+        saveComplianceStandaloneRestore(taskId, {
+          v: 1,
+          scriptText,
+          complianceReport: finalText,
+          reviewMode,
+          strictness,
+          inputMode: tableData ? "table" : "text",
+          tableData,
+        });
+        updateComplianceTask(taskId, {
+          status: "completed",
+          detail: "审核完成",
+          segmentProgress: null,
+        });
+        complianceTaskIdRef.current = null;
         toast({ title: reviewMode === "script" ? "情节审核完成" : "文字审核完成" });
       } else {
         // 长文本分段处理
@@ -1478,7 +2015,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
         const chineseRatio = chineseCount / totalChars;
         const segmentSize = chineseRatio > 0.3 ? MAX_CHINESE : MAX_ENGLISH;
 
-        const isTableMode = inputMode === "table" && tableData;
+        const isTableMode = !!tableData;
         const paragraphs = isTableMode
           ? scriptText.split(/\n/)
           : scriptText.split(/\n\n+/);
@@ -1505,6 +2042,10 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
 
           setSegmentProgress({ current: i + 1, total: totalSegments });
           setStreamingText(`正在审核第 ${i + 1}/${totalSegments} 段（${segments[i].length} 字）…`);
+          updateComplianceTask(taskId, {
+            segmentProgress: { current: i + 1, total: totalSegments },
+            detail: `正在审核第 ${i + 1}/${totalSegments} 段（${segments[i].length} 字）`,
+          });
 
           const segPrompt = promptGenerator(segments[i], strictness);
           const report = await callGeminiStream(
@@ -1524,16 +2065,72 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
             segmentReports.join("\n\n---\n\n");
           setComplianceReport(combinedReport);
           setStreamingText("");
+          saveComplianceStandaloneRestore(taskId, {
+            v: 1,
+            scriptText,
+            complianceReport: combinedReport,
+            reviewMode,
+            strictness,
+            inputMode: tableData ? "table" : "text",
+            tableData,
+          });
+          updateComplianceTask(taskId, {
+            status: "completed",
+            detail: `已完成 ${totalSegments} 段分段审核`,
+            segmentProgress: null,
+          });
+          complianceTaskIdRef.current = null;
           toast({ title: "合规审核完成", description: `已完成 ${totalSegments} 段分段审核` });
+        } else if (complianceTaskIdRef.current) {
+          saveComplianceStandaloneRestore(taskId, {
+            v: 1,
+            scriptText,
+            complianceReport: "",
+            reviewMode,
+            strictness,
+            inputMode: tableData ? "table" : "text",
+            tableData,
+          });
+          updateComplianceTask(taskId, {
+            status: "cancelled",
+            detail: "未生成有效分段报告",
+            segmentProgress: null,
+          });
+          complianceTaskIdRef.current = null;
         }
       }
     } catch (e: any) {
+      const tid = complianceTaskIdRef.current;
       if (e?.message?.includes("取消") || e?.name === "AbortError") {
         const partial = streamingText;
+        const reportForSave = partial || "";
         if (partial) setComplianceReport(partial);
+        if (tid) {
+          saveComplianceStandaloneRestore(tid, {
+            v: 1,
+            scriptText,
+            complianceReport: reportForSave,
+            reviewMode,
+            strictness,
+            inputMode: tableData ? "table" : "text",
+            tableData,
+          });
+          updateComplianceTask(tid, {
+            status: "cancelled",
+            detail: partial ? "已保存部分报告" : "用户已停止",
+            segmentProgress: null,
+          });
+        }
         toast({ title: "已停止生成" });
       } else {
         const errorMsg = e?.message || "未知错误";
+        if (tid) {
+          updateComplianceTask(tid, {
+            status: "failed",
+            detail: errorMsg.length > 200 ? errorMsg.slice(0, 200) + "…" : errorMsg,
+            segmentProgress: null,
+          });
+        }
         toast({
           title: "审核失败",
           description: errorMsg.length > 100 ? errorMsg.slice(0, 100) + "..." : errorMsg,
@@ -1543,6 +2140,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
           setComplianceReport(streamingText);
         }
       }
+      complianceTaskIdRef.current = null;
     } finally {
       setIsGenerating(false);
       setSegmentProgress(null);
@@ -1571,12 +2169,11 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
             <span className="text-lg font-semibold font-[Space_Grotesk]">Infinio</span>
           </div>
         </div>
+        <TaskHistoryMenu />
       </header>
 
       <main className="flex-1 px-6 py-8 max-w-7xl mx-auto w-full space-y-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left: Script Input */}
-          <div className="lg:col-span-2 space-y-6">
+        <div className="space-y-6">
             {/* Script Input Card */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
@@ -1631,18 +2228,8 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                 </div>
               </CardHeader>
               <CardContent>
-                {/* 输入模式切换 */}
-                {tableData && (
-                  <Tabs value={inputMode} onValueChange={(v) => setInputMode(v as "text" | "table")} className="mb-4">
-                    <TabsList>
-                      <TabsTrigger value="table"><TableIcon className="h-3.5 w-3.5 mr-1" />表格模式</TabsTrigger>
-                      <TabsTrigger value="text"><FileText className="h-3.5 w-3.5 mr-1" />文本模式</TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                )}
-
-                {/* 表格显示模式 */}
-                {inputMode === "table" && tableData ? (
+                {/* 表格文件 → 表格视图；文档/文本 → 文本编辑（由上传自动决定，不可手动切换） */}
+                {tableData ? (
                   <div className="max-h-[400px] overflow-auto rounded-md border border-border">
                     <div className="text-xs text-muted-foreground px-3 py-1.5 bg-muted/50 border-b border-border flex items-center gap-2">
                       <FileSpreadsheet className="h-3.5 w-3.5" />
@@ -1662,7 +2249,12 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                         {tableData.rows.map((row, rowIndex) => (
                           <TableRow key={rowIndex}>
                             {row.map((cell, cellIndex) => (
-                              <TableCell key={cellIndex} className="text-xs py-1.5">{String(cell ?? "")}</TableCell>
+                              <TableCell
+                                key={cellIndex}
+                                className={`text-xs py-1.5 ${isEpisodeTitleLikeCell(String(cell ?? "")) ? "whitespace-nowrap align-top" : ""}`}
+                              >
+                                {String(cell ?? "")}
+                              </TableCell>
                             ))}
                           </TableRow>
                         ))}
@@ -1675,7 +2267,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                     <Textarea
                       value={scriptText}
                       onChange={(e) => setScriptText(e.target.value)}
-                      placeholder="粘贴剧本内容，或点击上方按钮上传 TXT / PDF / DOCX / XLSX 文档..."
+                      placeholder="粘贴剧本内容，或上传文件：表格（xlsx/xls/csv）以表格展示，文档（txt/pdf/docx）以文本编辑。"
                       rows={12}
                       className="font-mono text-sm"
                     />
@@ -1762,7 +2354,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                       )}
                       {isGenerating ? (
                         <Button variant="destructive" size="sm" onClick={handleStop} className="gap-1.5">
-                          <Square className="h-3.5 w-3.5" />
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           停止
                         </Button>
                       ) : (
@@ -1812,7 +2404,10 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                       />
                     ) : showTranslation && !isGenerating && hasTranslation(complianceReport) ? (
                       <div className="max-h-[600px] overflow-auto">
-                        <InterleavedText text={complianceReport} translatedLines={getTranslation(complianceReport)!} />
+                        <InterleavedText
+                          text={complianceReport}
+                          translatedLines={getTranslation(complianceReport) ?? []}
+                        />
                       </div>
                     ) : (
                       <pre ref={scrollRef} className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90 max-h-[600px] overflow-auto">
@@ -1824,10 +2419,6 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                 </CollapsibleContent>
               </Card>
             </Collapsible>
-          </div>
-
-          {/* Right: Only show dialogue stats if dialogue review is NOT enabled */}
-          {/* Removed dialogue stats panel as requested */}
         </div>
 
         {/* Risk Highlight Comparison - Only show if there are risks or dialogue review is enabled */}
@@ -1838,12 +2429,12 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                 <Palette className="h-5 w-5" />
                 调色盘文本对比
                 <span className="text-sm font-normal text-muted-foreground">
-                  共识别 {riskPhrases.length} 处风险片段，{riskPhrases.filter(p => (paletteText || scriptText).includes(p)).length} 处已标记
+                  共识别 {riskPhrases.length} 处风险片段，{markedRiskPhraseCount} 处已标记
                 </span>
               </CardTitle>
               <div className="flex gap-2">
                 {/* 表格模式下的撤销/重做 */}
-                {inputMode === "table" && tableData && (
+                {tableData && (
                   <>
                     <Button variant="outline" size="sm" onClick={handleTableUndo} disabled={historyIndex < 0} className="gap-1" title="撤销">
                       <Undo2 className="h-3.5 w-3.5" />
@@ -1855,19 +2446,13 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                 )}
                 {isAutoAdjusting ? (
                   <Button variant="destructive" size="sm" onClick={() => autoAdjustAbortRef.current?.abort()} className="gap-1.5">
-                    <Square className="h-3.5 w-3.5" />
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     停止
                   </Button>
                 ) : (
                   <Button variant="outline" size="sm" onClick={handleAutoAdjust} className="gap-1.5" disabled={paletteEditing || isAutoAdjusting}>
                     <Wand2 className="h-3.5 w-3.5" />
                     自动调整
-                  </Button>
-                )}
-                {inputMode !== "table" && (
-                  <Button variant="outline" size="sm" onClick={handlePaletteEditToggle} className="gap-1.5" disabled={isAutoAdjusting}>
-                    {paletteEditing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
-                    {paletteEditing ? "完成" : "编辑"}
                   </Button>
                 )}
                 <Button variant="outline" size="sm" onClick={handlePaletteExport} className="gap-1.5">
@@ -1898,23 +2483,55 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                 )}
               </div>
               {/* 表格模式使用高亮表格，文本模式使用高亮文本 */}
-              {inputMode === "table" && tableData ? (
+              {tableData ? (
                 renderHighlightedTable()
               ) : paletteEditing ? (
-                <div ref={paletteScrollRef} className="max-h-[600px] overflow-auto rounded-md border border-border bg-muted/30">
-                  <Textarea
-                    value={paletteText || scriptText}
-                    onChange={(e) => setPaletteText(e.target.value)}
-                    rows={20}
-                    className="font-mono text-sm border-0 focus-visible:ring-0 bg-transparent min-h-[300px]"
-                  />
+                <div
+                  ref={paletteScrollRef}
+                  className="max-h-[600px] overflow-y-auto overflow-x-hidden overscroll-contain rounded-md border border-border bg-muted/30"
+                >
+                  {/* 单层滚动：仅外层 overflow；grid 叠层 + 高度同步，避免 textarea 内部再出滚动条 */}
+                  <div className="grid w-full grid-cols-1 grid-rows-1 min-w-0">
+                    <pre
+                      className="pointer-events-none col-start-1 row-start-1 m-0 min-w-0 self-start whitespace-pre-wrap break-words p-4 text-sm leading-relaxed font-sans text-foreground/90"
+                      aria-hidden
+                    >
+                      {highlightedScript}
+                    </pre>
+                    <textarea
+                      ref={paletteTextareaRef}
+                      value={paletteText || scriptText}
+                      onChange={(e) => setPaletteText(e.target.value)}
+                      onBlur={handlePaletteTextBlur}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          (e.target as HTMLTextAreaElement).blur();
+                        }
+                      }}
+                      style={{ resize: "none" }}
+                      className="col-start-1 row-start-1 self-start z-10 box-border min-h-0 min-w-0 w-full resize-none overflow-hidden border-0 bg-transparent p-4 whitespace-pre-wrap break-words text-sm leading-relaxed font-sans text-transparent [caret-color:hsl(var(--foreground))] selection:bg-primary/30 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                      spellCheck={false}
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                    />
+                  </div>
                 </div>
               ) : highlightedScript ? (
-                <div ref={paletteScrollRef} className="max-h-[600px] overflow-auto rounded-md border border-border p-4 bg-muted/30">
-                  <pre
-                    ref={paletteEditRef}
-                    className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90"
-                  >
+                <div
+                  ref={paletteScrollRef}
+                  className="max-h-[600px] overflow-auto rounded-md border border-border bg-muted/30 p-4 cursor-text select-text"
+                  onClick={handlePaletteReadOnlyClick}
+                  role="textbox"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      handlePaletteReadOnlyClick();
+                    }
+                  }}
+                >
+                  <pre className="whitespace-pre-wrap break-words text-sm leading-relaxed font-sans text-foreground/90 m-0">
                     {highlightedScript}
                   </pre>
                 </div>

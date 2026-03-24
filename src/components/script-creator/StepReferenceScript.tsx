@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -115,10 +116,26 @@ function splitIntoChunks(text: string, maxSize: number): string[] {
   return chunks;
 }
 
+/** 与 StepSetup「总集数」预设一致，用于区分下拉预设与自定义输入 */
+const PRESET_EPISODE_VALUES = new Set(
+  EPISODE_COUNTS.filter((e) => e.value > 0).map((e) => e.value),
+);
+
 const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferenceScriptProps) => {
   const [script, setScript] = useState(referenceScript || "");
   const [targetMarket, setTargetMarket] = useState(setup?.targetMarket || "");
+  const [possibleMarkets, setPossibleMarkets] = useState<string[]>([]); // 识别出的可能市场
   const [totalEpisodes, setTotalEpisodes] = useState<number | null>(setup?.totalEpisodes || null);
+  const [isEpisodeCustom, setIsEpisodeCustom] = useState(() => {
+    const n = setup?.totalEpisodes;
+    if (n == null) return false;
+    return !PRESET_EPISODE_VALUES.has(n);
+  });
+  const [customEpisodes, setCustomEpisodes] = useState(() => {
+    const n = setup?.totalEpisodes;
+    if (n != null && !PRESET_EPISODE_VALUES.has(n)) return String(n);
+    return "";
+  });
   const [suggestedEpisodes, setSuggestedEpisodes] = useState<number | null>(null);
   const [audience, setAudience] = useState(setup?.audience || "");
   const [tone, setTone] = useState(setup?.tone || "");
@@ -228,13 +245,19 @@ ${script.slice(0, 3000)}
 
 ## 请以 JSON 格式输出以下字段：
 {
-  "targetMarket": "cn|jp|west|kr|sea",
+  "targetMarket": "cn",
+  "possibleMarkets": ["cn", "jp", "west", "kr", "sea"],
   "audience": "女频|男频|全龄",
   "tone": "甜|虐|甜虐|爽|燃|搞笑",
   "ending": "HE|BE|OE",
   "suggestedEpisodes": 60,
   "reason": "简短说明判断依据"
 }
+
+**字段说明：**
+- targetMarket：主要目标市场（最匹配的一个）
+- possibleMarkets：可能匹配的所有市场数组（可以是1个或多个）
+- 其他字段同上
 
 **只输出 JSON，不要输出其他任何内容。**`;
 
@@ -248,6 +271,12 @@ ${script.slice(0, 3000)}
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
           if (parsed.targetMarket) setTargetMarket(parsed.targetMarket);
+          // Store possible markets for later use
+          if (parsed.possibleMarkets && Array.isArray(parsed.possibleMarkets)) {
+            setPossibleMarkets(parsed.possibleMarkets);
+          } else if (parsed.targetMarket) {
+            setPossibleMarkets([parsed.targetMarket]);
+          }
           if (parsed.audience) setAudience(parsed.audience);
           if (parsed.tone) setTone(parsed.tone);
           if (parsed.ending) setEnding(parsed.ending);
@@ -255,6 +284,8 @@ ${script.slice(0, 3000)}
             const ep = Number(parsed.suggestedEpisodes);
             setSuggestedEpisodes(ep);
             setTotalEpisodes(ep);
+            setIsEpisodeCustom(false);
+            setCustomEpisodes("");
           }
         }
         configDone = true;
@@ -417,12 +448,19 @@ ${structureParts.join("\n\n---\n\n")}
       toast({ title: '请先点击「AI 识别剧本」识别配置项', variant: "destructive" });
       return;
     }
+    const finalEpisodes = isEpisodeCustom
+      ? parseInt(customEpisodes, 10) || 0
+      : totalEpisodes || 0;
+    if (finalEpisodes < 10 || finalEpisodes > 200) {
+      toast({ title: "集数需在 10-200 之间", variant: "destructive" });
+      return;
+    }
     const dramaSetup: DramaSetup = {
       genres: [],
       audience: audience || "全龄",
       tone: tone || "爽",
       ending: ending || "HE",
-      totalEpisodes: totalEpisodes || 60,
+      totalEpisodes: finalEpisodes,
       targetMarket: targetMarket || "cn",
     };
     onComplete(script, dramaSetup, extractedStructure);
@@ -431,9 +469,18 @@ ${structureParts.join("\n\n---\n\n")}
   const findLabel = (list: readonly { value: string; label: string }[], val: string) =>
     list.find((i) => i.value === val)?.label || "";
 
-  const episodeLabel = totalEpisodes
-    ? (EPISODE_COUNTS.find((e) => e.value === totalEpisodes)?.label || `${totalEpisodes}集`)
-    : "";
+  const handleTargetEpisodesSelect = (v: string) => {
+    const num = Number(v);
+    if (num === -1) {
+      setIsEpisodeCustom(true);
+      setCustomEpisodes(
+        totalEpisodes != null ? String(totalEpisodes) : suggestedEpisodes != null ? String(suggestedEpisodes) : "60",
+      );
+    } else {
+      setIsEpisodeCustom(false);
+      setTotalEpisodes(num);
+    }
+  };
 
   const ceilPercent = progress.total > 0
     ? ((progress.done + (progress.processing ? 1 : 0)) / progress.total) * 100
@@ -596,32 +643,82 @@ ${structureParts.join("\n\n---\n\n")}
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">目标市场</Label>
-                <div className="h-8 px-3 flex items-center rounded-md border bg-muted/40 text-sm">
-                  {findLabel(TARGET_MARKETS, targetMarket) || <span className="text-muted-foreground/50">待识别</span>}
+                <div className="min-h-[32px] px-3 flex flex-wrap items-center gap-1.5 rounded-md border bg-muted/40 text-sm">
+                  {targetMarket ? (
+                    <>
+                      <span className="font-medium">{findLabel(TARGET_MARKETS, targetMarket)}</span>
+                      {possibleMarkets.length > 1 && (
+                        <span className="text-xs text-muted-foreground">
+                          （亦可适配：
+                          {possibleMarkets
+                            .filter((m) => m !== targetMarket)
+                            .map((m) => findLabel(TARGET_MARKETS, m))
+                            .filter(Boolean)
+                            .join("、") || "无"}
+                          ）
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground/50">待识别</span>
+                  )}
                 </div>
+                {possibleMarkets.length > 1 && (
+                  <p className="text-[10px] text-muted-foreground/60">
+                    识别出 {possibleMarkets.length} 个可能适配的市场
+                  </p>
+                )}
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">目标集数</Label>
-                <Select
-                  value={totalEpisodes ? String(totalEpisodes) : ""}
-                  onValueChange={(v) => setTotalEpisodes(Number(v))}
-                >
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue placeholder="待选择" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {suggestedEpisodes && (
-                      <SelectItem value={String(suggestedEpisodes)}>
-                        AI建议：{suggestedEpisodes}集
-                      </SelectItem>
-                    )}
-                    {EPISODE_COUNTS.filter(e => e.value > 0 && e.value !== suggestedEpisodes).map((ep) => (
-                      <SelectItem key={ep.value} value={String(ep.value)}>
-                        {ep.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {isEpisodeCustom ? (
+                  <div className="flex gap-1.5">
+                    <Input
+                      type="number"
+                      min={10}
+                      max={200}
+                      value={customEpisodes}
+                      onChange={(e) => setCustomEpisodes(e.target.value)}
+                      placeholder="10-200"
+                      className="h-8 flex-1 text-sm"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 shrink-0 px-2 text-xs"
+                      onClick={() => {
+                        setIsEpisodeCustom(false);
+                        setTotalEpisodes(suggestedEpisodes ?? 60);
+                      }}
+                    >
+                      预设
+                    </Button>
+                  </div>
+                ) : (
+                  <Select
+                    value={totalEpisodes != null ? String(totalEpisodes) : ""}
+                    onValueChange={handleTargetEpisodesSelect}
+                  >
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue placeholder="待选择" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {suggestedEpisodes != null && (
+                        <SelectItem value={String(suggestedEpisodes)}>
+                          AI建议：{suggestedEpisodes}集
+                        </SelectItem>
+                      )}
+                      {EPISODE_COUNTS.filter(
+                        (e) => e.value === -1 || (e.value > 0 && e.value !== suggestedEpisodes),
+                      ).map((ep) => (
+                        <SelectItem key={ep.value} value={String(ep.value)}>
+                          {ep.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">受众</Label>

@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowRight, Loader2, Play, Check, Square, RefreshCw, History, ChevronDown, ChevronUp, Trash2, ClipboardCheck, X, Wrench, BarChart3 } from "lucide-react";
+import { ArrowRight, Loader2, Play, Check, RefreshCw, History, ChevronDown, ChevronUp, Trash2, ClipboardCheck, X, Wrench, BarChart3 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildEpisodePrompt, buildSceneRegenPrompt, buildReviewPrompt, getDurationConstraints } from "@/lib/drama-prompts";
@@ -86,6 +86,39 @@ function getEpisodePostamble(content: string): string {
   return "";
 }
 
+/** Some LLM outputs may incorrectly put leading `△` on dialogue/narration/sfx lines.
+ * Enforce: `△` is only for descriptive/action/direction lines; remove it when the line is dialogue-like. */
+function sanitizeEpisodeFormat(raw: string): string {
+  const lines = raw.split("\n");
+  return lines
+    .map((line) => {
+      const leadingMatch = line.match(/^\s*/);
+      const leading = leadingMatch ? leadingMatch[0] : "";
+      const trimmed = line.trimStart();
+
+      if (!trimmed.startsWith("△")) return line;
+
+      const rest = trimmed.slice(1).trimStart();
+
+      const isNarration = rest.startsWith("旁白：") || rest.startsWith("旁白:");
+      const isSfx = /^(音效|SFX|sfx|音乐|BGM)\s*[：:]/.test(rest);
+      const isMusicLine = rest.startsWith("♪");
+
+      // Dialogue line: <RoleName>：(<dir>) <content> (or roleName: (<dir>) ...)
+      const isDialogue =
+        /^[^\s△#]{1,24}[：:]\s*(?:（[^）]*）|\([^)]*\))/u.test(rest) &&
+        !/^#\s*\d+-\d+/.test(rest) &&
+        !/^##\s*场次/.test(rest);
+
+      if (isNarration || isSfx || isMusicLine || isDialogue) {
+        return leading + rest;
+      }
+
+      return line;
+    })
+    .join("\n");
+}
+
 const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext }: StepEpisodeProps) => {
   // Fallback: if directory is empty (e.g. adaptation mode), generate placeholder entries from totalEpisodes
   const displayDirectory: EpisodeEntry[] = useMemo(() => {
@@ -110,6 +143,8 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const [durationOption, setDurationOption] = useState("90");
   const [customDuration, setCustomDuration] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [genFailureDialogOpen, setGenFailureDialogOpen] = useState(false);
+  const [genFailureReport, setGenFailureReport] = useState<{ epNum: number; error: string }[]>([]);
   const [currentGen, setCurrentGen] = useState<number | null>(null);
   const [streamingText, setStreamingText] = useState("");
   const [selectedEp, setSelectedEp] = useState<number | null>(null);
@@ -272,96 +307,166 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const handleGenerate = async (overrideRange?: string, overrideInstruction?: string) => {
     const nums = parseRange(overrideRange || rangeInput);
     const instruction = overrideInstruction ?? episodeRegenInstruction;
-    if (nums.length === 0) {
+    const uniqueNums = [...new Set(nums)].sort((a, b) => a - b);
+    if (uniqueNums.length === 0) {
       toast({ title: "请输入有效的集数", variant: "destructive" });
       return;
     }
 
-    // Check prerequisites: for the first episode in range, previous must exist (unless it's ep 1 or already completed)
-    const currentCompleted = new Set(episodes.map(e => e.number));
-    const firstBlocked = nums.find(n => n > 1 && !currentCompleted.has(n - 1) && !currentCompleted.has(n) && !nums.includes(n - 1));
+    // Sequential prerequisite check: if a previous episode isn't generated and isn't included, block.
+    const currentCompleted = new Set(episodes.map((e) => e.number));
+    const firstBlocked = uniqueNums.find((n) => n > 1 && !currentCompleted.has(n - 1) && !uniqueNums.includes(n - 1));
     if (firstBlocked) {
-      toast({ title: `无法生成第 ${firstBlocked} 集`, description: `请先生成第 ${firstBlocked - 1} 集，需要按顺序生成以保证剧情连贯`, variant: "destructive" });
+      toast({
+        title: `无法生成第 ${firstBlocked} 集`,
+        description: `请先生成第 ${firstBlocked - 1} 集，需要按顺序生成以保证剧情连贯`,
+        variant: "destructive",
+      });
       return;
     }
 
+    setGenFailureDialogOpen(false);
+    setGenFailureReport([]);
+
     setIsGenerating(true);
     abortRef.current = new AbortController();
-    const updatedEpisodes = [...episodes];
+    const signal = abortRef.current.signal;
 
-    for (const num of nums) {
-      if (abortRef.current?.signal.aborted) break;
+    const updatedEpisodes = [...episodes];
+    const failures: { epNum: number; error: string }[] = [];
+
+    const effectiveDuration =
+      durationOption === "custom" ? parseInt(customDuration) || 90 : parseInt(durationOption);
+    const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+    const customInstruction = instruction.trim() || undefined;
+
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    const buildPreviousContent = (num: number) => {
+      const prev = updatedEpisodes
+        .filter((ep) => ep.number < num && ep.content?.trim())
+        .sort((a, b) => b.number - a.number)
+        .slice(0, 2)
+        .reverse()
+        .map((ep) => `--- 第${ep.number}集 ---\n${ep.content.slice(-800)}`);
+      return prev.join("\n\n");
+    };
+
+    const buildNextContent = (num: number) => {
+      const next = updatedEpisodes
+        .filter((ep) => ep.number > num && ep.content?.trim())
+        .sort((a, b) => a.number - b.number)
+        .slice(0, 2)
+        .map((ep) => `--- 后续回顾 第${ep.number}集 ---\n${ep.content.slice(0, 800)}`);
+      return next.join("\n\n");
+    };
+
+    const attemptTimeoutMs = 120000; // hard timeout per episode attempt
+
+    const generateOne = async (num: number) => {
+      if (signal.aborted) return false;
+
       setCurrentGen(num);
       setStreamingText("");
-      try {
-        const previousContent = updatedEpisodes
-          .filter((ep) => ep.number < num)
-          .sort((a, b) => b.number - a.number)
-          .slice(0, 2)
-          .reverse()
-          .map((ep) => `--- 第${ep.number}集 ---\n${ep.content.slice(-800)}`)
-          .join("\n\n");
 
-        const effectiveDuration = durationOption === "custom" ? parseInt(customDuration) || 90 : parseInt(durationOption);
-        const prompt = buildEpisodePrompt(setup, characters, displayDirectory, num, previousContent, instruction.trim() || undefined, effectiveDuration);
-        const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
-        const finalText = await callGeminiStream(
-          model,
-          [{ role: "user", parts: [{ text: prompt }] }],
-          (chunk) => setStreamingText(chunk),
-          { maxOutputTokens: 8192 },
-          abortRef.current.signal,
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (signal.aborted) return false;
+
+        const previousContent = buildPreviousContent(num);
+        const nextContent = buildNextContent(num);
+
+        const prompt = buildEpisodePrompt(
+          setup,
+          characters,
+          displayDirectory,
+          num,
+          previousContent,
+          nextContent || undefined,
+          customInstruction,
+          effectiveDuration,
         );
 
-        const epEntry = displayDirectory.find((d) => d.number === num);
-        const existing = updatedEpisodes.find((e) => e.number === num);
-        const history = existing ? pushHistory(existing, "整集重写") : [];
+        let didTimeout = false;
+        const attemptAbort = new AbortController();
+        const timeoutId = window.setTimeout(() => {
+          didTimeout = true;
+          attemptAbort.abort();
+        }, attemptTimeoutMs);
+        const onOuterAbort = () => attemptAbort.abort();
+        signal.addEventListener("abort", onOuterAbort, { once: true });
 
-        const newEp: EpisodeScript = {
-          number: num,
-          title: epEntry?.title || `第${num}集`,
-          content: finalText,
-          wordCount: finalText.length,
-          history,
-        };
+        try {
+          const finalText = await callGeminiStream(
+            model,
+            [{ role: "user", parts: [{ text: prompt }] }],
+            (chunk) => {
+              setCurrentGen(num);
+              setStreamingText(chunk);
+            },
+            { maxOutputTokens: 8192 },
+            attemptAbort.signal,
+          );
 
-        const existIdx = updatedEpisodes.findIndex((e) => e.number === num);
-        if (existIdx >= 0) updatedEpisodes[existIdx] = newEp;
-        else updatedEpisodes.push(newEp);
+          const sanitizedText = sanitizeEpisodeFormat(finalText);
 
-        onUpdate([...updatedEpisodes]);
-        toast({ title: `第 ${num} 集撰写完成（${finalText.length}字）` });
-      } catch (e: any) {
-        if (e?.message?.includes("取消")) {
-          const partial = streamingText;
-          if (partial) {
-            const epEntry = displayDirectory.find((d) => d.number === num);
-            const existing = updatedEpisodes.find((e) => e.number === num);
-            const history = existing ? pushHistory(existing, "整集重写（中断）") : [];
-            const newEp: EpisodeScript = {
-              number: num,
-              title: epEntry?.title || `第${num}集`,
-              content: partial,
-              wordCount: partial.length,
-              history,
-            };
-            const existIdx = updatedEpisodes.findIndex((e) => e.number === num);
-            if (existIdx >= 0) updatedEpisodes[existIdx] = newEp;
-            else updatedEpisodes.push(newEp);
-            onUpdate([...updatedEpisodes]);
+          const epEntry = displayDirectory.find((d) => d.number === num);
+          const existing = updatedEpisodes.find((e) => e.number === num);
+          const history = existing ? pushHistory(existing, "整集重写") : [];
+
+          const newEp: EpisodeScript = {
+            number: num,
+            title: epEntry?.title || `第${num}集`,
+            content: sanitizedText,
+            wordCount: sanitizedText.length,
+            history,
+          };
+
+          const existIdx = updatedEpisodes.findIndex((e) => e.number === num);
+          if (existIdx >= 0) updatedEpisodes[existIdx] = newEp;
+          else updatedEpisodes.push(newEp);
+
+          onUpdate([...updatedEpisodes]);
+          toast({ title: `第 ${num} 集撰写完成（${sanitizedText.length}字）` });
+          return true;
+        } catch (e: any) {
+          if (signal.aborted) return false;
+          const errMsg = e?.message || "未知错误";
+          const displayErrMsg = didTimeout ? `生成超时（>${attemptTimeoutMs / 1000}s）` : errMsg;
+
+          if (attempt === 0) {
+            toast({ title: `第 ${num} 集生成失败，2 秒后重试`, description: displayErrMsg, variant: "destructive" });
+            await sleep(2000);
+            continue;
           }
-          toast({ title: "已停止生成" });
-        } else {
-          toast({ title: `第 ${num} 集生成失败`, description: e?.message, variant: "destructive" });
-        }
-        break;
-      }
-    }
 
-    setCurrentGen(null);
-    setStreamingText("");
-    setIsGenerating(false);
-    abortRef.current = null;
+          failures.push({ epNum: num, error: displayErrMsg });
+          setGenFailureReport([...failures]);
+          setGenFailureDialogOpen(true);
+          // Stop further generation
+          abortRef.current?.abort();
+          return false;
+        } finally {
+          window.clearTimeout(timeoutId);
+          signal.removeEventListener("abort", onOuterAbort);
+        }
+      }
+
+      return false;
+    };
+
+    try {
+      // Multi-episode: fully sequential generation (no batching)
+      for (const num of uniqueNums) {
+        if (signal.aborted) break;
+        const ok = await generateOne(num);
+        if (!ok) break;
+      }
+    } finally {
+      setCurrentGen(null);
+      setStreamingText("");
+      setIsGenerating(false);
+      abortRef.current = null;
+    }
   };
 
   /** Regenerate a single scene within an episode */
@@ -398,13 +503,14 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
       newScenes[sceneIndex] = { header: newHeader, body: newBody };
 
       const postamble = getEpisodePostamble(selectedScript.content);
-      const rebuiltContent = [
+      const rebuiltContentRaw = [
         preamble,
         "",
         ...newScenes.map((s) => `${s.header}\n\n${s.body}`),
         "",
         postamble,
       ].filter(Boolean).join("\n\n");
+      const rebuiltContent = sanitizeEpisodeFormat(rebuiltContentRaw);
 
       const history = pushHistory(selectedScript, `场次${sceneIndex + 1}重写`);
       const updatedEp: EpisodeScript = {
@@ -529,7 +635,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
             </div>
             {isGenerating ? (
               <Button variant="destructive" onClick={handleStop} className="gap-2">
-                <Square className="h-4 w-4" />
+                <Loader2 className="h-4 w-4 animate-spin" />
                 停止
               </Button>
             ) : (
@@ -817,13 +923,14 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                               const newScenes = [...scenes];
                               newScenes[idx] = { ...newScenes[idx], body: e.target.value };
                               const postamble = getEpisodePostamble(selectedScript.content);
-                              const rebuiltContent = [
+                              const rebuiltContentRaw = [
                                 preamble,
                                 "",
                                 ...newScenes.map((s) => `${s.header}\n\n${s.body}`),
                                 "",
                                 postamble,
                               ].filter(Boolean).join("\n\n");
+                              const rebuiltContent = sanitizeEpisodeFormat(rebuiltContentRaw);
                               const updatedEp: EpisodeScript = {
                                 ...selectedScript,
                                 content: rebuiltContent,
@@ -1042,7 +1149,8 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                 <p className="text-xs text-muted-foreground">
                   正在审查第 {batchReviewProgress.epNum} 集…
                 </p>
-                <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => batchAbortRef.current?.abort()}>
+                <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={() => batchAbortRef.current?.abort()}>
+                  <Loader2 className="h-3 w-3 animate-spin" />
                   停止
                 </Button>
               </div>
@@ -1231,6 +1339,38 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
           )}
         </DialogContent>
       </Dialog>
+
+      {/* 分集生成失败报告（重试后仍失败） */}
+      <Dialog open={genFailureDialogOpen} onOpenChange={setGenFailureDialogOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>分集撰写失败报告</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              以下集数在生成失败后已重试 1 次（延迟 2 秒），仍未成功。你可以重新调整范围后再次开始撰写。
+            </p>
+            <div className="space-y-2">
+              {genFailureReport.length === 0 ? (
+                <p className="text-sm text-muted-foreground">无失败记录</p>
+              ) : (
+                genFailureReport.map((r) => (
+                  <div key={r.epNum} className="rounded-md border border-border/60 bg-muted/20 p-3">
+                    <div className="text-sm font-semibold">第 {r.epNum} 集</div>
+                    <pre className="mt-2 whitespace-pre-wrap break-words text-xs text-muted-foreground">{r.error}</pre>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={() => setGenFailureDialogOpen(false)} variant="outline">
+                关闭
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 };

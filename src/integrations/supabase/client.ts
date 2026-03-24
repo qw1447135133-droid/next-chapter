@@ -43,5 +43,14 @@ export function getSupabase(): SupabaseClient<Database> {
   return supabaseInstance;
 }
 
-// 兼容旧代码 - 导出默认实例
-export const supabase = getSupabase();
+// 兼容旧代码 - 延迟初始化，避免模块加载时因未配置而崩溃
+let _supabase: SupabaseClient<Database> | null = null;
+
+export const supabase = new Proxy({} as SupabaseClient<Database>, {
+  get(_target, prop) {
+    if (!_supabase) {
+      _supabase = getSupabase();
+    }
+    return (_supabase as any)[prop];
+  },
+});

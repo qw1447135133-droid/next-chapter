@@ -594,6 +594,7 @@ export function buildEpisodePrompt(
   directory: EpisodeEntry[],
   episodeNumber: number,
   previousEpisodes: string,
+  nextEpisodes?: string,
   customInstruction?: string,
   durationSeconds?: number,
 ): string {
@@ -623,6 +624,7 @@ ${prevEp ? `- 上一集：第${prevEp.number}集 ${prevEp.title} —— ${prevEp
 ${nextEp ? `- 下一集：第${nextEp.number}集 ${nextEp.title} —— ${nextEp.summary}` : ""}
 
 ${previousEpisodes ? `## 前集回顾\n${previousEpisodes.slice(-2000)}` : ""}
+${nextEpisodes ? `\n## 后续集回顾\n${nextEpisodes.slice(-2000)}` : ""}
 
 ${isFirstEp ? `## 重要：开篇黄金法则
 - 第1秒：画面冲击或悬念抛出
@@ -1053,22 +1055,72 @@ export function buildStructureTransformPrompt(
   setup: DramaSetup,
   referenceScript: string,
   frameworkStyle: string,
+  transformMarket?: string,
 ): string {
-  return `你是一位专业的微短剧改编编剧，擅长将不同风格的故事进行框架转换。
+  const styles = frameworkStyle ? frameworkStyle.split(/[、,，]/).map((s) => s.trim()).filter(Boolean) : [];
+  const keepOriginal = styles.length === 0;
+  const styleLabel = keepOriginal ? "原剧类型" : styles.join("、");
+  // 允许在转换步骤临时切换目标市场
+  const effectiveMarket = transformMarket || setup.targetMarket || "cn";
+  const marketSetup = { ...setup, targetMarket: effectiveMarket };
 
-${getFullMarketDirective(setup)}
+  if (keepOriginal) {
+    return `你是一位专业的微短剧改编编剧，擅长在保留原剧类型的基础上进行适度洗稿。
+
+${getFullMarketDirective(marketSetup)}
 
 ## 你的任务
-将以下参考剧本的叙事结构转换为「${frameworkStyle}」风格的创作方案。
+对以下参考剧本进行**保持原剧类型的改编**：不改变故事类型/世界观/时代背景，仅对人物、场景、道具进行改名，整体洗稿程度约60%。
+
+## 转换原则
+1. **保持原剧类型**：世界观、时代背景、社会体系、权力结构、文化元素与原剧本一致，不做风格置换
+2. **改名置换**：
+   - 人物姓名 → 更换为同风格的新名字
+   - 场景名称 → 更换为同类型的新场景
+   - 道具/物品 → 更换为同功能的新道具
+3. **洗稿约60%**：保留核心情节骨架和关键转折，对表述、细节、对话进行约60%的改写，避免照抄原文
+
+## 参考剧本结构
+${referenceScript}
+
+## 输出要求
+请生成完整的创作方案，包含以下板块：
+
+1. **剧名备选**（3个），每个附一句话说明
+2. **时空背景**：与原剧本一致的类型设定（简要说明）
+3. **一句话故事线** + **核心冲突**
+4. **情节对照表**：原文核心情节 → 改编后对应情节（逐条对照，体现改名与洗稿）
+5. **三幕结构拆解**：
+   - 第一幕（建置）：集数范围、核心事件
+   - 第二幕（对抗）：集数范围、冲突升级
+   - 第三幕（高潮/结局）：集数范围、终极对决
+6. **人物/场景/道具改名对照**：原文 → 改编后（确保全面置换）
+7. **付费卡点规划**：具体集数 + 卡点类型
+8. **结局设计**
+
+总集数：${setup.totalEpisodes}集
+用 Markdown 格式输出，清晰分区。`;
+  }
+
+  const styleRef = styles.length === 2
+    ? `「${styles[0]}」与「${styles[1]}」融合`
+    : `「${styleLabel}」`;
+
+  return `你是一位专业的微短剧改编编剧，擅长将不同风格的故事进行框架转换。
+
+${getFullMarketDirective(marketSetup)}
+
+## 你的任务
+将以下参考剧本的叙事结构转换为${styleRef}风格的创作方案。
 
 ## 转换原则
 1. **保留核心情节骨架**：主要矛盾冲突、人物关系拓扑、关键转折点必须保留
-2. **风格全面置换**：世界观、时代背景、社会体系、权力结构、文化元素全部替换为「${frameworkStyle}」设定
+2. **风格全面置换**：世界观、时代背景、社会体系、权力结构、文化元素全部替换为${styleRef}设定
 3. **等价替换法则**：
-   - 原文中的社会阶层 → ${frameworkStyle}对应的等级体系
-   - 原文中的权力机制 → ${frameworkStyle}对应的权力形式
-   - 原文中的情感表达 → ${frameworkStyle}对应的情感方式
-4. **强化风格特色**：加入${frameworkStyle}风格特有的元素、术语、场景设定
+   - 原文中的社会阶层 → ${styleRef}对应的等级体系
+   - 原文中的权力机制 → ${styleRef}对应的权力形式
+   - 原文中的情感表达 → ${styleRef}对应的情感方式
+4. **强化风格特色**：加入${styleLabel}风格特有的元素、术语、场景设定
 
 ## 参考剧本结构
 ${referenceScript}
@@ -1084,7 +1136,7 @@ ${referenceScript}
    - 第一幕（建置）：集数范围、核心事件
    - 第二幕（对抗）：集数范围、冲突升级
    - 第三幕（高潮/结局）：集数范围、终极对决
-6. **${frameworkStyle}特色元素清单**：本风格必须包含的标志性场景/设定/术语
+6. **${styleLabel}特色元素清单**：本风格必须包含的标志性场景/设定/术语
 7. **付费卡点规划**：具体集数 + 卡点类型
 8. **结局设计**
 
@@ -1099,21 +1151,67 @@ export function buildCharacterTransformPrompt(
   frameworkStyle: string,
   structureTransform: string,
 ): string {
+  const styles = frameworkStyle ? frameworkStyle.split(/[、,，]/).map((s) => s.trim()).filter(Boolean) : [];
+  const keepOriginal = styles.length === 0;
+  const styleLabel = keepOriginal ? "原剧类型" : styles.join("、");
+
+  if (keepOriginal) {
+    return `你是一位专业的微短剧改编编剧。
+
+${getFullMarketDirective(setup)}
+
+## 你的任务
+基于已完成的结构转换方案，将原文中的角色体系进行**改名置换**：保持原剧类型与身份设定，仅更换人物姓名及少量描述表述。
+
+## 转换原则
+1. **角色关系拓扑不变**：主角、对手、盟友、隐藏反派的关系结构保持一致
+2. **身份与类型不变**：职业/身份、能力/特长、社会层级与原剧本一致
+3. **改名置换**：角色姓名 → 更换为同风格的新名字
+4. **性格内核保留**：角色的核心动机、性格特征、人物弧光保持一致
+
+## 原文剧本
+${referenceScript}
+
+## 已完成的结构转换方案
+${structureTransform}
+
+## 输出要求
+生成完整角色体系，包含：
+
+1. **角色对照表**：原文角色 → 改编角色（逐一对照，体现改名）
+2. **主要角色档案**（每个角色包含）：
+   - 姓名、年龄、外貌特征（2-3句）
+   - 性格关键词（3-5个）
+   - 公开身份 vs 真实身份
+   - 核心动机
+   - 爽点功能
+   - 口头禅或语言特征
+   - 人物弧光
+3. **角色关系图**（使用 Mermaid graph TD 格式输出）
+
+请在 \`\`\`mermaid 和 \`\`\` 之间输出关系图代码。
+
+4. **感情线弧线**：关系发展的关键节点（标注集数）
+5. **四层反派体系**
+
+用 Markdown 格式输出。`;
+  }
+
   return `你是一位专业的微短剧改编编剧。
 
 ${getFullMarketDirective(setup)}
 
 ## 你的任务
-基于已完成的结构转换方案，将原文中的角色体系转换为「${frameworkStyle}」风格。
+基于已完成的结构转换方案，将原文中的角色体系转换为「${styleLabel}」风格。
 
 ## 转换原则
 1. **角色关系拓扑不变**：主角、对手、盟友、隐藏反派的关系结构保持一致
 2. **身份风格置换**：
-   - 角色姓名 → 符合${frameworkStyle}风格的名字
-   - 职业/身份 → ${frameworkStyle}对应的身份设定
-   - 能力/特长 → ${frameworkStyle}体系下的对应能力
+   - 角色姓名 → 符合${styleLabel}风格的名字
+   - 职业/身份 → ${styleLabel}对应的身份设定
+   - 能力/特长 → ${styleLabel}体系下的对应能力
 3. **性格内核保留**：角色的核心动机、性格特征、人物弧光保持一致
-4. **风格化表达**：口头禅、语言特征适配${frameworkStyle}风格
+4. **风格化表达**：口头禅、语言特征适配${styleLabel}风格
 
 ## 原文剧本
 ${referenceScript}

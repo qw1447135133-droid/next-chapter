@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Copy, Check, Download, Film, Loader2, Square, FileText } from "lucide-react";
+import { Copy, Check, Download, Film, Loader2, FileText } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildExportPrompt } from "@/lib/drama-prompts";
@@ -238,7 +238,7 @@ const StepExport = ({ setup, dramaTitle, creativePlan, characters, episodes }: S
             </Button>
             {isExporting ? (
               <Button variant="destructive" onClick={handleStop} className="gap-1.5">
-                <Square className="h-4 w-4" />
+                <Loader2 className="h-4 w-4 animate-spin" />
                 停止
               </Button>
             ) : (

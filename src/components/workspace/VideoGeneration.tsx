@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect } from "react";
-import { Scene, VideoModel, VIDEO_MODEL_LABELS, VideoHistoryEntry } from "@/types/project";
+import { Scene, CharacterSetting, VideoModel, VIDEO_MODEL_LABELS, VideoHistoryEntry } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Play, RefreshCw, Loader2, ArrowRight, CheckCircle, XCircle, ChevronDown, History, RotateCcw, Clock, RectangleHorizontal, RectangleVertical } from "lucide-react";
+import { Play, RefreshCw, Loader2, ArrowRight, CheckCircle, XCircle, ChevronDown, History, RotateCcw, Clock, RectangleHorizontal, RectangleVertical, ScanSearch } from "lucide-react";
+import JimengVideoPanel from "./JimengVideoPanel";
 import { Badge } from "@/components/ui/badge";
 import ImageThumbnail from "@/components/workspace/ImageThumbnail";
 import type { StoryboardAspectRatio } from "./StoryboardPreview";
@@ -20,6 +21,7 @@ const ASPECT_RATIO_OPTIONS: { value: StoryboardAspectRatio; label: string; icon:
 
 interface VideoGenerationProps {
   scenes: Scene[];
+  characters: CharacterSetting[];
   videoModel: VideoModel;
   onVideoModelChange: (model: VideoModel) => void;
   onGenerateAll: () => void;
@@ -29,7 +31,10 @@ interface VideoGenerationProps {
   isAborting: boolean;
   onNext: () => void;
   onScenesChange?: (scenes: Scene[]) => void;
-  useImg2Video?: boolean;
+  /** 当前视频生成模式 */
+  videoMode?: "api" | "reverse";
+  /** 模式切换回调 */
+  onVideoModeChange?: (mode: "api" | "reverse") => void;
 }
 
 const statusLabel: Record<string, { text: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -43,6 +48,7 @@ const statusLabel: Record<string, { text: string; variant: "default" | "secondar
 
 const VideoGeneration = ({
   scenes,
+  characters,
   videoModel,
   onVideoModelChange,
   onGenerateAll,
@@ -52,9 +58,18 @@ const VideoGeneration = ({
   isAborting,
   onNext,
   onScenesChange,
-  useImg2Video = false,
+  videoMode: controlledVideoMode,
+  onVideoModeChange: onControlledVideoModeChange,
 }: VideoGenerationProps) => {
   const anyProcessing = scenes.some((s) => s.videoStatus === "preparing" || s.videoStatus === "queued" || s.videoStatus === "processing");
+
+  // 受控模式优先，否则本地状态
+  const [internalVideoMode, setInternalVideoMode] = useState<"api" | "reverse">("api");
+  const videoMode = controlledVideoMode ?? internalVideoMode;
+  const setVideoMode = (mode: "api" | "reverse") => {
+    setInternalVideoMode(mode);
+    onControlledVideoModeChange?.(mode);
+  };
   const [modelOpen, setModelOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState<string | null>(null);
   const [enlargedVideo, setEnlargedVideo] = useState<string | null>(null);
@@ -109,68 +124,101 @@ const VideoGeneration = ({
 
   return (
     <div className="space-y-4">
+      {/* 标题栏 + 模式切换 — 始终可见 */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h2 className="text-xl font-semibold font-[Space_Grotesk]">视频生成</h2>
-          {/* Model selector dropdown */}
-          <div className="relative" ref={dropdownRef}>
-            <button
-              type="button"
-              onClick={() => setModelOpen((v) => !v)}
-              className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
-            >
-              {VIDEO_MODEL_LABELS[videoModel]}
-              <ChevronDown className={`h-3 w-3 transition-transform ${modelOpen ? "rotate-180" : ""}`} />
-            </button>
-            {modelOpen && (
-              <div className="absolute left-0 top-full mt-1 z-50 min-w-[160px] rounded-lg border border-border bg-popover shadow-lg py-1">
-                {(Object.keys(VIDEO_MODEL_LABELS) as VideoModel[]).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => { onVideoModelChange(m); setModelOpen(false); }}
-                    className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent ${
-                      m === videoModel ? "text-primary font-semibold" : "text-popover-foreground"
-                    }`}
-                  >
-                    {VIDEO_MODEL_LABELS[m]}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <h2 className="text-xl font-semibold font-[Space_Grotesk]">
+            {videoMode === "reverse" ? "逆向模式" : "视频生成"}
+          </h2>
+          {videoMode === "api" && (
+            <div className="relative" ref={dropdownRef}>
+              <button
+                type="button"
+                onClick={() => setModelOpen((v) => !v)}
+                className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+              >
+                {VIDEO_MODEL_LABELS[videoModel]}
+                <ChevronDown className={`h-3 w-3 transition-transform ${modelOpen ? "rotate-180" : ""}`} />
+              </button>
+              {modelOpen && (
+                <div className="absolute left-0 top-full mt-1 z-50 min-w-[160px] rounded-lg border border-border bg-popover shadow-lg py-1">
+                  {(Object.keys(VIDEO_MODEL_LABELS) as VideoModel[]).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => { onVideoModelChange(m); setModelOpen(false); }}
+                      className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent ${
+                        m === videoModel ? "text-primary font-semibold" : "text-popover-foreground"
+                      }`}
+                    >
+                      {VIDEO_MODEL_LABELS[m]}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex gap-2 items-center">
-          {/* Aspect Ratio Selector — hidden when img2video is on */}
-          {!useImg2Video && (
-            <Popover open={arOpen} onOpenChange={setArOpen}>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-1.5 h-9 text-xs" disabled={isGenerating || anyProcessing}>
-                  <currentAR.icon className="h-3.5 w-3.5" />
-                  {currentAR.value}
-                  <ChevronDown className="h-3 w-3 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-40 p-1" align="end">
-                {ASPECT_RATIO_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-sm text-xs transition-colors ${
-                      aspectRatio === opt.value
-                        ? "bg-primary/10 text-primary font-medium"
-                        : "hover:bg-muted text-foreground"
-                    }`}
-                    onClick={() => { setAspectRatio(opt.value); setArOpen(false); }}
-                  >
-                    <opt.icon className="h-3.5 w-3.5 shrink-0" />
-                    {opt.label}
-                  </button>
-                ))}
-              </PopoverContent>
-            </Popover>
-          )}
+          <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5">
+            <button
+              type="button"
+              onClick={() => setVideoMode("api")}
+              className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                videoMode === "api"
+                  ? "bg-background shadow-sm font-medium text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              API 模式
+            </button>
+            <button
+              type="button"
+              title="即梦逆向自动化"
+              onClick={() => setVideoMode("reverse")}
+              className={`px-2.5 py-1 text-xs rounded transition-colors flex items-center gap-1 ${
+                videoMode === "reverse"
+                  ? "bg-background shadow-sm font-medium text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <ScanSearch className="h-3 w-3" />
+              逆向模式
+            </button>
+          </div>
 
-          {isGenerating || anyProcessing ? (
+          <Popover open={arOpen} onOpenChange={setArOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 h-9 text-xs"
+                disabled={videoMode === "api" && (isGenerating || anyProcessing)}
+              >
+                <currentAR.icon className="h-3.5 w-3.5" />
+                {currentAR.value}
+                <ChevronDown className="h-3 w-3 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-40 p-1" align="end">
+              {ASPECT_RATIO_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-sm text-xs transition-colors ${
+                    aspectRatio === opt.value
+                      ? "bg-primary/10 text-primary font-medium"
+                      : "hover:bg-muted text-foreground"
+                  }`}
+                  onClick={() => { setAspectRatio(opt.value); setArOpen(false); }}
+                >
+                  <opt.icon className="h-3.5 w-3.5 shrink-0" />
+                  {opt.label}
+                </button>
+              ))}
+            </PopoverContent>
+          </Popover>
+
+          {videoMode === "api" && (isGenerating || anyProcessing ? (
             <Button variant="destructive" onClick={onStopAll} disabled={isAborting} className="gap-1">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               {isAborting ? "正在中止..." : "中止生成"}
@@ -180,7 +228,7 @@ const VideoGeneration = ({
               <Play className="h-3.5 w-3.5" />
               生成全部视频
             </Button>
-          )}
+          ))}
           <Button size="sm" onClick={onNext} className="gap-1">
             下一步
             <ArrowRight className="h-3.5 w-3.5" />
@@ -188,250 +236,254 @@ const VideoGeneration = ({
         </div>
       </div>
 
-      <div className={gridClass}>
-        {scenes.map((scene) => {
-          const isSceneProcessing = scene.videoStatus === "preparing" || scene.videoStatus === "queued" || scene.videoStatus === "processing";
-          const status = scene.videoStatus ? statusLabel[scene.videoStatus] : null;
-          const videoHistoryCount = (scene.videoHistory || []).length;
+      {/* 主体内容 */}
+      {videoMode === "reverse"
+        ? <JimengVideoPanel scenes={scenes} characters={characters} aspectRatio={aspectRatio} />
+        : <div className={gridClass}>
+            {scenes.map((scene) => {
+              const isSceneProcessing = scene.videoStatus === "preparing" || scene.videoStatus === "queued" || scene.videoStatus === "processing";
+              const status = scene.videoStatus ? statusLabel[scene.videoStatus] : null;
+              const videoHistoryCount = (scene.videoHistory || []).length;
 
-          return (
-            <Card key={scene.id} className="border-border/60 overflow-hidden">
-              {/* Header bar — matches storyboard layout */}
-              <div className={`${isPortrait ? "p-2" : "p-3"} border-b border-border/30 flex items-center justify-between`}>
-                <div className="min-w-0">
-                  <h3 className={`${isPortrait ? "text-xs" : "text-sm"} font-medium text-foreground truncate`}>
-                    #{scene.sceneNumber}
-                    {scene.segmentLabel && <span className="text-muted-foreground ml-1">({scene.segmentLabel})</span>}
-                  </h3>
-                  {scene.sceneName && !isPortrait && (
-                    <p className="text-xs text-muted-foreground mt-0.5">场景：{scene.sceneName}</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-1">
-                  {videoHistoryCount > 0 && (
-                    <Dialog
-                      open={historyOpen === scene.id}
-                      onOpenChange={(open) => setHistoryOpen(open ? scene.id : null)}
-                    >
-                      <DialogTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-7 text-xs gap-1">
-                          <History className="h-3 w-3" />
-                          ({videoHistoryCount})
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="max-w-lg">
-                        <DialogHeader>
-                          <DialogTitle>视频历史 — 分镜 #{scene.sceneNumber}</DialogTitle>
-                        </DialogHeader>
-                        <ScrollArea className="max-h-[60vh]">
-                          <div className="grid grid-cols-2 gap-2 p-1">
-                            {(scene.videoHistory || []).map((entry, idx) => (
-                              <div
-                                key={idx}
-                                className="rounded-md overflow-hidden border border-border/60 hover:border-primary transition-colors"
-                              >
-                                <video
-                                  src={entry.videoUrl}
-                                  className="w-full aspect-video object-cover"
-                                  muted
-                                  preload="metadata"
-                                />
-                                <div className="p-1.5 flex items-center justify-between">
-                                  <span className="text-[10px] text-muted-foreground">
-                                    {new Date(entry.createdAt).toLocaleString("zh-CN")}
-                                  </span>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-5 text-[10px] gap-0.5 px-1.5"
-                                    onClick={() => restoreFromHistory(scene.id, entry)}
+              return (
+                <Card key={scene.id} className="border-border/60 overflow-hidden">
+                  {/* Header bar — matches storyboard layout */}
+                  <div className={`${isPortrait ? "p-2" : "p-3"} border-b border-border/30 flex items-center justify-between`}>
+                    <div className="min-w-0">
+                      <h3 className={`${isPortrait ? "text-xs" : "text-sm"} font-medium text-foreground truncate`}>
+                        #{scene.sceneNumber}
+                        {scene.segmentLabel && <span className="text-muted-foreground ml-1">({scene.segmentLabel})</span>}
+                      </h3>
+                      {scene.sceneName && !isPortrait && (
+                        <p className="text-xs text-muted-foreground mt-0.5">场景：{scene.sceneName}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {videoHistoryCount > 0 && (
+                        <Dialog
+                          open={historyOpen === scene.id}
+                          onOpenChange={(open) => setHistoryOpen(open ? scene.id : null)}
+                        >
+                          <DialogTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1">
+                              <History className="h-3 w-3" />
+                              ({videoHistoryCount})
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="max-w-lg">
+                            <DialogHeader>
+                              <DialogTitle>视频历史 — 分镜 #{scene.sceneNumber}</DialogTitle>
+                            </DialogHeader>
+                            <ScrollArea className="max-h-[60vh]">
+                              <div className="grid grid-cols-2 gap-2 p-1">
+                                {(scene.videoHistory || []).map((entry, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="rounded-md overflow-hidden border border-border/60 hover:border-primary transition-colors"
                                   >
-                                    <RotateCcw className="h-2.5 w-2.5" />
-                                    恢复
-                                  </Button>
-                                </div>
+                                    <video
+                                      src={entry.videoUrl}
+                                      className="w-full aspect-video object-cover"
+                                      muted
+                                      preload="metadata"
+                                    />
+                                    <div className="p-1.5 flex items-center justify-between">
+                                      <span className="text-[10px] text-muted-foreground">
+                                        {new Date(entry.createdAt).toLocaleString("zh-CN")}
+                                      </span>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-5 text-[10px] gap-0.5 px-1.5"
+                                        onClick={() => restoreFromHistory(scene.id, entry)}
+                                      >
+                                        <RotateCcw className="h-2.5 w-2.5" />
+                                        恢复
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
-                          </div>
-                        </ScrollArea>
-                      </DialogContent>
-                    </Dialog>
-                  )}
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button
-                        type="button"
-                        className={`inline-flex items-center gap-1 shrink-0 rounded-full h-7 px-3 text-xs font-medium transition-colors cursor-pointer ${
-                          scene.isManualDuration
-                            ? "bg-emerald-500/15 text-emerald-600 border border-emerald-500/30 hover:bg-emerald-500/25"
-                            : "border border-input bg-background hover:bg-accent text-foreground"
-                        }`}
-                      >
-                        <Clock className="h-3 w-3" />
-                        {scene.isManualDuration ? `${scene.recommendedDuration || scene.duration || 5}s` : "自动"}
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-72 p-4" side="top" align="end">
-                      <div className="flex items-center justify-between mb-3">
-                        <p className="text-sm font-semibold text-foreground">
-                          {scene.isManualDuration
-                            ? `手动：${scene.recommendedDuration || scene.duration || 5}s`
-                            : `自动：${scene.recommendedDuration || scene.duration || 5}s`}
-                        </p>
-                        {scene.isManualDuration && (
+                            </ScrollArea>
+                          </DialogContent>
+                        </Dialog>
+                      )}
+                      <Popover>
+                        <PopoverTrigger asChild>
                           <button
                             type="button"
-                            onClick={() => {
-                              if (onScenesChange) {
-                                onScenesChange(
-                                  scenes.map((s) =>
-                                    s.id === scene.id ? { ...s, isManualDuration: false } : s
-                                  )
-                                );
-                              }
-                            }}
-                            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                            className={`inline-flex items-center gap-1 shrink-0 rounded-full h-7 px-3 text-xs font-medium transition-colors cursor-pointer ${
+                              scene.isManualDuration
+                                ? "bg-emerald-500/15 text-emerald-600 border border-emerald-500/30 hover:bg-emerald-500/25"
+                                : "border border-input bg-background hover:bg-accent text-foreground"
+                            }`}
                           >
-                            恢复自动
+                            <Clock className="h-3 w-3" />
+                            {scene.isManualDuration ? `${scene.recommendedDuration || scene.duration || 5}s` : "自动"}
                           </button>
-                        )}
-                      </div>
-                      {(() => {
-                        const maxVal = videoModel.startsWith("vidu") ? 16 : 15;
-                        const minVal = videoModel.startsWith("kling") ? 3 : 4;
-                        const currentVal = scene.recommendedDuration || scene.duration || 5;
-                        return (
-                          <>
-                            <Slider
-                              min={minVal}
-                              max={maxVal}
-                              step={1}
-                              value={[currentVal]}
-                              onValueChange={([val]) => {
-                                if (onScenesChange) {
-                                  onScenesChange(
-                                    scenes.map((s) =>
-                                      s.id === scene.id
-                                        ? { ...s, recommendedDuration: val, isManualDuration: true }
-                                        : s
-                                    )
-                                  );
-                                }
-                              }}
-                              className="[&_[role=slider]]:bg-emerald-500 [&_[role=slider]]:border-emerald-500 [&_[role=slider]]:w-5 [&_[role=slider]]:h-5 [&_.relative>.absolute]:bg-emerald-500"
-                            />
-                            <div className="flex justify-between mt-2">
-                              {Array.from({ length: maxVal - minVal + 1 }, (_, i) => i + minVal).map((d) => (
-                                <button
-                                  key={d}
-                                  type="button"
-                                  onClick={() => {
+                        </PopoverTrigger>
+                        <PopoverContent className="w-72 p-4" side="top" align="end">
+                          <div className="flex items-center justify-between mb-3">
+                            <p className="text-sm font-semibold text-foreground">
+                              {scene.isManualDuration
+                                ? `手动：${scene.recommendedDuration || scene.duration || 5}s`
+                                : `自动：${scene.recommendedDuration || scene.duration || 5}s`}
+                            </p>
+                            {scene.isManualDuration && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (onScenesChange) {
+                                    onScenesChange(
+                                      scenes.map((s) =>
+                                        s.id === scene.id ? { ...s, isManualDuration: false } : s
+                                      )
+                                    );
+                                  }
+                                }}
+                                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                恢复自动
+                              </button>
+                            )}
+                          </div>
+                          {(() => {
+                            const maxVal = videoModel.startsWith("vidu") ? 16 : 15;
+                            const minVal = videoModel.startsWith("kling") ? 3 : 4;
+                            const currentVal = scene.recommendedDuration || scene.duration || 5;
+                            return (
+                              <>
+                                <Slider
+                                  min={minVal}
+                                  max={maxVal}
+                                  step={1}
+                                  value={[currentVal]}
+                                  onValueChange={([val]) => {
                                     if (onScenesChange) {
                                       onScenesChange(
                                         scenes.map((s) =>
                                           s.id === scene.id
-                                            ? { ...s, recommendedDuration: d, isManualDuration: true }
+                                            ? { ...s, recommendedDuration: val, isManualDuration: true }
                                             : s
                                         )
                                       );
                                     }
                                   }}
-                                  className={`text-xs w-5 h-5 rounded-full flex items-center justify-center transition-colors ${
-                                    d === currentVal
-                                      ? "bg-emerald-500 text-white font-bold"
-                                      : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                                  }`}
-                                >
-                                  {d}
-                                </button>
-                              ))}
-                            </div>
-                          </>
-                        );
-                      })()}
-                    </PopoverContent>
-                  </Popover>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs gap-1"
-                    onClick={() => onRegenerateScene(scene.id)}
-                    disabled={isSceneProcessing}
-                  >
-                    {isSceneProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                    {scene.videoUrl ? "重新生成" : "生成视频"}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Content: video + description */}
-              <div className={`${isPortrait ? "p-2 space-y-1" : "p-3 space-y-2"}`}>
-                <div className={`${aspectCssClass} bg-muted rounded-md flex items-center justify-center overflow-hidden relative ${scene.videoUrl ? "cursor-pointer" : ""}`}>
-                  {status && (
-                    <Badge variant={status.variant} className={`absolute top-2 right-2 ${isPortrait ? "text-[10px] px-1.5 py-0.5" : "text-xs"} z-10`}>
-                      {scene.videoStatus === "completed" || scene.videoStatus === "succeeded" ? (
-                        <CheckCircle className="h-3 w-3 mr-1" />
-                      ) : scene.videoStatus === "failed" ? (
-                        <XCircle className="h-3 w-3 mr-1" />
-                      ) : null}
-                      {status.text}
-                    </Badge>
-                  )}
-                  {scene.videoUrl ? (
-                    <>
-                      <video
-                        src={scene.videoUrl}
-                        muted
-                        loop
-                        playsInline
-                        className="h-full w-full object-cover"
-                        onClick={() => setEnlargedVideo(scene.videoUrl!)}
-                        onMouseEnter={(e) => e.currentTarget.play()}
-                        onMouseLeave={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = 0; }}
-                        onError={(e) => {
-                          const target = e.currentTarget;
-                          target.style.display = "none";
-                          const fallback = target.nextElementSibling as HTMLElement | null;
-                          if (fallback) fallback.style.display = "flex";
-                        }}
-                        onLoadedData={(e) => {
-                          const target = e.currentTarget;
-                          target.style.display = "";
-                          const fallback = target.nextElementSibling as HTMLElement | null;
-                          if (fallback) fallback.style.display = "none";
-                        }}
-                      />
-                      <div
-                        className="absolute inset-0 flex-col items-center justify-center gap-2 bg-muted cursor-pointer"
-                        style={{ display: "none" }}
-                        onClick={() => window.open(scene.videoUrl!, "_blank")}
+                                  className="[&_[role=slider]]:bg-emerald-500 [&_[role=slider]]:border-emerald-500 [&_[role=slider]]:w-5 [&_[role=slider]]:h-5 [&_.relative>.absolute]:bg-emerald-500"
+                                />
+                                <div className="flex justify-between mt-2">
+                                  {Array.from({ length: maxVal - minVal + 1 }, (_, i) => i + minVal).map((d) => (
+                                    <button
+                                      key={d}
+                                      type="button"
+                                      onClick={() => {
+                                        if (onScenesChange) {
+                                          onScenesChange(
+                                            scenes.map((s) =>
+                                              s.id === scene.id
+                                                ? { ...s, recommendedDuration: d, isManualDuration: true }
+                                                : s
+                                            )
+                                          );
+                                        }
+                                      }}
+                                      className={`text-xs w-5 h-5 rounded-full flex items-center justify-center transition-colors ${
+                                        d === currentVal
+                                          ? "bg-emerald-500 text-white font-bold"
+                                          : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                                      }`}
+                                    >
+                                      {d}
+                                    </button>
+                                  ))}
+                                </div>
+                              </>
+                            );
+                          })()}
+                        </PopoverContent>
+                      </Popover>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs gap-1"
+                        onClick={() => onRegenerateScene(scene.id)}
+                        disabled={isSceneProcessing}
                       >
-                        <XCircle className="h-5 w-5 text-muted-foreground/50" />
-                        <span className="text-xs text-muted-foreground">视频加载失败，点击新窗口查看</span>
-                      </div>
-                    </>
-                  ) : isSceneProcessing ? (
-                    <div className="flex flex-col items-center gap-2">
-                      <Loader2 className={`${isPortrait ? "h-5 w-5" : "h-8 w-8"} text-primary animate-spin`} />
-                      <span className="text-xs text-muted-foreground">
-                        {scene.videoStatus === "preparing" ? "准备中..." : "视频生成中..."}
-                      </span>
+                        {isSceneProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                        {scene.videoUrl ? "重新生成" : "生成视频"}
+                      </Button>
                     </div>
-                  ) : scene.storyboardUrl ? (
-                    <ImageThumbnail src={scene.storyboardUrl} alt="" className="h-full w-full object-cover opacity-50" maxDim={800} />
-                  ) : (
-                    <div className="text-center text-muted-foreground/40">
-                      <Play className={`${isPortrait ? "h-4 w-4" : "h-6 w-6"} mx-auto mb-1`} />
-                      <span className="text-xs">点击「生成视频」</span>
+                  </div>
+
+                  {/* Content: video + description */}
+                  <div className={`${isPortrait ? "p-2 space-y-1" : "p-3 space-y-2"}`}>
+                    <div className={`${aspectCssClass} bg-muted rounded-md flex items-center justify-center overflow-hidden relative ${scene.videoUrl ? "cursor-pointer" : ""}`}>
+                      {status && (
+                        <Badge variant={status.variant} className={`absolute top-2 right-2 ${isPortrait ? "text-[10px] px-1.5 py-0.5" : "text-xs"} z-10`}>
+                          {scene.videoStatus === "completed" || scene.videoStatus === "succeeded" ? (
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                          ) : scene.videoStatus === "failed" ? (
+                            <XCircle className="h-3 w-3 mr-1" />
+                          ) : null}
+                          {status.text}
+                        </Badge>
+                      )}
+                      {scene.videoUrl ? (
+                        <>
+                          <video
+                            src={scene.videoUrl}
+                            muted
+                            loop
+                            playsInline
+                            className="h-full w-full object-cover"
+                            onClick={() => setEnlargedVideo(scene.videoUrl!)}
+                            onMouseEnter={(e) => e.currentTarget.play()}
+                            onMouseLeave={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = 0; }}
+                            onError={(e) => {
+                              const target = e.currentTarget;
+                              target.style.display = "none";
+                              const fallback = target.nextElementSibling as HTMLElement | null;
+                              if (fallback) fallback.style.display = "flex";
+                            }}
+                            onLoadedData={(e) => {
+                              const target = e.currentTarget;
+                              target.style.display = "";
+                              const fallback = target.nextElementSibling as HTMLElement | null;
+                              if (fallback) fallback.style.display = "none";
+                            }}
+                          />
+                          <div
+                            className="absolute inset-0 flex-col items-center justify-center gap-2 bg-muted cursor-pointer"
+                            style={{ display: "none" }}
+                            onClick={() => window.open(scene.videoUrl!, "_blank")}
+                          >
+                            <XCircle className="h-5 w-5 text-muted-foreground/50" />
+                            <span className="text-xs text-muted-foreground">视频加载失败，点击新窗口查看</span>
+                          </div>
+                        </>
+                      ) : isSceneProcessing ? (
+                        <div className="flex flex-col items-center gap-2">
+                          <Loader2 className={`${isPortrait ? "h-5 w-5" : "h-8 w-8"} text-primary animate-spin`} />
+                          <span className="text-xs text-muted-foreground">
+                            {scene.videoStatus === "preparing" ? "准备中..." : "视频生成中..."}
+                          </span>
+                        </div>
+                      ) : scene.storyboardUrl ? (
+                        <ImageThumbnail src={scene.storyboardUrl} alt="" className="h-full w-full object-cover opacity-50" maxDim={800} />
+                      ) : (
+                        <div className="text-center text-muted-foreground/40">
+                          <Play className={`${isPortrait ? "h-4 w-4" : "h-6 w-6"} mx-auto mb-1`} />
+                          <span className="text-xs">点击「生成视频」</span>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-                <p className={`text-xs text-muted-foreground ${isPortrait ? "line-clamp-2" : "line-clamp-3"}`}>{scene.description}</p>
-              </div>
-            </Card>
-          );
-        })}
-      </div>
+                    <p className={`text-xs text-muted-foreground ${isPortrait ? "line-clamp-2" : "line-clamp-3"}`}>{scene.description}</p>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+      }
 
       {/* Enlarged video dialog */}
       <Dialog open={!!enlargedVideo} onOpenChange={(open) => !open && setEnlargedVideo(null)}>

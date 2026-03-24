@@ -1,0 +1,43 @@
+appId: com.infinio.app
+productName: Infinio
+copyright: Copyright © 2026
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - electron/**/*
+  - "!**/*.map"
+  - "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}"
+  - "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}"
+  - "!**/node_modules/.bin"
+  - "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}"
+
+# extraResources 指向 Downloads 目录中的 auto_jimeng
+extraResources:
+  - from: C:/Users/admin/Downloads/auto_jimeng/auto_jimeng
+    to: auto_jimeng
+    filter:
+      - "**/*"
+
+asar: true
+compression: maximum
+
+# 禁用代码签名（避免 winCodeSign macOS 符号链接问题）
+win:
+  target:
+    - target: portable
+      arch:
+        - x64
+  signingHashAlgorithms: []
+  signAndEditExecutable: false
+  artifactName: ${productName}-${version}-win-${arch}.${ext}
+
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
+
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/
+

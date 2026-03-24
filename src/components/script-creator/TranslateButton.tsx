@@ -471,12 +471,19 @@ export function TranslateToggle({
       size="sm"
       onClick={onStop}
       className="gap-1.5"
+      disabled={disabled}
     >
       <Loader2 className="h-3.5 w-3.5 animate-spin" />
       停止翻译
     </Button>
   ) : showTranslation ? (
-    <Button variant="outline" size="sm" onClick={onClear} className="gap-1.5">
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={onClear}
+      className="gap-1.5"
+      disabled={disabled}
+    >
       <X className="h-3.5 w-3.5" />
       关闭翻译
     </Button>

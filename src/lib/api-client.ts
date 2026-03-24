@@ -71,8 +71,8 @@ export async function callVideoApi<T = any>(
   const endpoint = "https://api.zhanhu.ai/v1";
   const timeout = options.timeout || 600_000; // 视频生成可能需要更长时间
 
-  if (!config.seedance) {
-    throw new Error("请先在设置中配置 Seedance API Key");
+  if (!config.jimeng) {
+    throw new Error("请先在设置中配置 Jimeng API Key");
   }
 
   const controller = new AbortController();
@@ -83,7 +83,7 @@ export async function callVideoApi<T = any>(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.seedance}`,
+        "Authorization": `Bearer ${config.jimeng}`,
       },
       body: JSON.stringify(body),
       signal: controller.signal,

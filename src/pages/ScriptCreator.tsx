@@ -68,6 +68,41 @@ function upsertDramaProject(project: DramaProject): void {
   saveDramaProjects(projects);
 }
 
+const ALL_DRAMA_STEP_VALUES = new Set<string>([...DRAMA_STEPS, ...ADAPTATION_STEPS]);
+
+function isDramaStepParam(s: string | null): s is DramaStep {
+  return s !== null && ALL_DRAMA_STEP_VALUES.has(s);
+}
+
+function canAdvanceTo(project: DramaProject, step: DramaStep): boolean {
+  switch (step) {
+    case "setup":
+      return true;
+    case "reference-script":
+      return true;
+    case "creative-plan":
+      return !!project.setup;
+    case "structure-transform":
+      return !!project.referenceScript;
+    case "characters":
+      return !!project.creativePlan;
+    case "character-transform":
+      return !!project.structureTransform;
+    case "directory":
+      return !!project.characters;
+    case "outlines":
+      return project.directory.length > 0 || !!project.directoryRaw;
+    case "episodes":
+      return project.directory.length > 0 || !!project.directoryRaw;
+    case "compliance":
+      return project.episodes.length > 0;
+    case "export":
+      return project.episodes.length > 0;
+    default:
+      return false;
+  }
+}
+
 export function listDramaProjects() {
   return getDramaProjects()
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
@@ -94,11 +129,21 @@ const ScriptCreator = () => {
   const [searchParams] = useSearchParams();
   const resumeId = searchParams.get("id");
   const modeParam = searchParams.get("mode") as DramaMode | null;
+  const stepFromUrl = searchParams.get("step");
 
   const [project, setProject] = useState<DramaProject>(() => {
-    if (resumeId) {
-      const loaded = loadProjectById(resumeId);
-      if (loaded) return { ...loaded, mode: loaded.mode || "traditional" };
+    const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+    const id = params?.get("id") ?? null;
+    const stepParam = params?.get("step");
+    if (id) {
+      const loaded = loadProjectById(id);
+      if (loaded) {
+        const p = { ...loaded, mode: loaded.mode || "traditional" };
+        if (stepParam && isDramaStepParam(stepParam) && canAdvanceTo(p, stepParam)) {
+          return { ...p, currentStep: stepParam };
+        }
+        return p;
+      }
     }
     if (modeParam === "traditional" || modeParam === "adaptation") {
       return createEmptyDramaProject(modeParam);
@@ -136,6 +181,25 @@ const ScriptCreator = () => {
   const goToStep = (step: DramaStep) => {
     setProject((p) => ({ ...p, currentStep: step }));
   };
+
+  // 从任务历史等入口进入：?id=&step=compliance
+  useEffect(() => {
+    if (!resumeId || !stepFromUrl || !isDramaStepParam(stepFromUrl)) return;
+    const loaded = loadProjectById(resumeId);
+    if (!loaded) return;
+    setShowModeSelector(false);
+    setProject((prev) => {
+      if (prev.id !== resumeId) {
+        const p = { ...loaded, mode: loaded.mode || "traditional" };
+        if (!canAdvanceTo(p, stepFromUrl)) return p;
+        return { ...p, currentStep: stepFromUrl };
+      }
+      if (!canAdvanceTo(prev, stepFromUrl)) return prev;
+      if (prev.currentStep === stepFromUrl) return prev;
+      return { ...prev, currentStep: stepFromUrl };
+    });
+    navigate(`/script-creator?id=${encodeURIComponent(resumeId)}`, { replace: true });
+  }, [resumeId, stepFromUrl, navigate]);
 
   const extractTitle = useCallback((plan: string) => {
     const match = plan.match(/[《](.+?)[》]/);
@@ -369,6 +433,8 @@ const ScriptCreator = () => {
             complianceReport={project.complianceReport || ""}
             onUpdate={handleComplianceUpdate}
             onNext={() => goToStep("export")}
+            projectId={project.id}
+            dramaTitle={project.dramaTitle}
           />
         ) : null;
       case "export":
@@ -418,9 +484,6 @@ const ScriptCreator = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={handleNewProject} className="text-xs">
-            新建项目
-          </Button>
           <Button variant="ghost" size="sm" onClick={() => navigate("/settings")}>
             <Settings className="h-4 w-4" />
           </Button>
@@ -509,22 +572,5 @@ const ScriptCreator = () => {
     </div>
   );
 };
-
-function canAdvanceTo(project: DramaProject, step: DramaStep): boolean {
-  switch (step) {
-    case "setup": return true;
-    case "reference-script": return true;
-    case "creative-plan": return !!project.setup;
-    case "structure-transform": return !!project.referenceScript;
-    case "characters": return !!project.creativePlan;
-    case "character-transform": return !!project.structureTransform;
-    case "directory": return !!project.characters;
-    case "outlines": return project.directory.length > 0 || !!project.directoryRaw;
-    case "episodes": return project.directory.length > 0 || !!project.directoryRaw;
-    case "compliance": return project.episodes.length > 0;
-    case "export": return project.episodes.length > 0;
-    default: return false;
-  }
-}
 
 export default ScriptCreator;

@@ -24,10 +24,15 @@ import { invokeFunction } from "@/lib/invoke-with-key";
 import { toast } from "@/hooks/use-toast";
 import { friendlyError } from "@/lib/friendly-error";
 import { ensureStorageUrl } from "@/lib/upload-base64-to-storage";
+import { compressImage } from "@/lib/image-compress";
+import { callGemini, explainGeminiNoText, extractText } from "@/lib/gemini-client";
 
 
 const CHAR_IMAGE_TIMEOUT_MS = 180_000;
 const SCENE_IMAGE_TIMEOUT_MS = 300_000;
+/** 多模态画风提取单独用 Pro，避免与「剧本拆解」共用 Flash 时在网关/多模态下长时间无响应 */
+const ART_STYLE_EXTRACT_MODEL = "gemini-3.1-pro-preview";
+const ART_STYLE_EXTRACT_TIMEOUT_MS = 120_000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label = "图像生成"): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -78,6 +83,13 @@ const CharacterSettings = ({
 }: CharacterSettingsProps) => {
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const sceneFileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  // Custom art style: upload image -> extract style prompt
+  const customArtStyleImgInputRef = useRef<HTMLInputElement | null>(null);
+  const customArtStyleAbortRef = useRef<AbortController | null>(null);
+  const artStyleExtractGenerationRef = useRef(0);
+  const [isExtractingArtStyle, setIsExtractingArtStyle] = useState(false);
+  const [customArtStyleImgPreview, setCustomArtStyleImgPreview] = useState<string | null>(null);
   const [expandedCostumeCharIds, setExpandedCostumeCharIds] = useState<Set<string>>(new Set());
   const [expandedTimeVariantSceneIds, setExpandedTimeVariantSceneIds] = useState<Set<string>>(new Set());
 
@@ -200,6 +212,124 @@ const CharacterSettings = ({
     }
   };
 
+  const handleCustomArtStyleImagePick = () => {
+    customArtStyleImgInputRef.current?.click();
+  };
+
+  const handleCustomArtStyleUploadButtonClick = () => {
+    if (isExtractingArtStyle) {
+      customArtStyleAbortRef.current?.abort();
+      return;
+    }
+    handleCustomArtStyleImagePick();
+  };
+
+  const analyzeCustomArtStyleFromImage = async (file: File | null | undefined) => {
+    if (!file) return;
+    if (!onCustomArtStylePromptChange) return;
+
+    customArtStyleAbortRef.current?.abort();
+    const controller = new AbortController();
+    customArtStyleAbortRef.current = controller;
+    const runId = ++artStyleExtractGenerationRef.current;
+
+    setIsExtractingArtStyle(true);
+    let timedOut = false;
+    const timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, ART_STYLE_EXTRACT_TIMEOUT_MS);
+    try {
+      const fileDataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("图片读取失败"));
+        reader.readAsDataURL(file);
+      });
+
+      // 控制体积：过大 JSON 易导致代理/上游长时间无响应；画风分析无需高分辨率
+      const compressed = await compressImage(fileDataUrl, 380 * 1024, { maxDim: 720, minQuality: 0.35 });
+      const match = compressed.match(/^data:([^;]+);base64,(.+)$/);
+      if (!match) throw new Error("图片数据格式异常");
+
+      const mimeType = match[1];
+      const base64 = match[2];
+      setCustomArtStyleImgPreview(compressed);
+
+      const prompt = `你是一位专业的视觉风格顾问。请观察参考图，输出该画面的画风方向（中文）。
+
+【输出格式——严格按以下两行输出，不要加任何额外说明】
+
+第一行：【方向】<一个大方向词，如：写实CG / 三维动画（迪士尼皮克斯）/ 二维动画（日系番剧）/ 电影感实拍 / 国风水墨 / 赛博朋克CG / 平面插画 / 厚涂原画 / 哥特暗黑 / 手绘水彩 / 低多边形 / 像素复古 / 古风插画 / 东方幻想 / 欧美厚涂>
+
+第二行：【概述】<50-100字的风格描述，聚焦于渲染质感、光影基调、色彩调性、笔触/建模特征、整体观感。不得提及画面中出现的任何人物、物体、场景、文字、故事元素，只描述该方向的整体艺术特征。>
+
+【示例输出】
+【方向】写实CG
+【概述】高精度三维建模，SubSurface散射皮肤质感，影棚三点布光高光锐利，色彩饱和度适中偏暖，暗部细节丰富，景深虚化自然，整体接近高端广告级视觉水准。
+
+【方向】二维动画（日系番剧）
+【概述】赛璐璐分层渲染，平涂色块与线性渐变并行，描边清晰但不厚重，受光面简洁留白，暗部色块平涂不渐变，色彩饱和度高、配色明快，整体轻快平面化，接近主流番剧作画风格。
+`;
+
+      const artStyleContents = [
+        {
+          role: "user" as const,
+          parts: [{ text: prompt }, { inlineData: { mimeType, data: base64 } }],
+        },
+      ];
+      const genWithThinking = {
+        maxOutputTokens: 256,
+        thinkingConfig: { thinkingBudget: 0 },
+      };
+      let raw: Awaited<ReturnType<typeof callGemini>>;
+      try {
+        raw = await callGemini(ART_STYLE_EXTRACT_MODEL, artStyleContents, genWithThinking, controller.signal);
+      } catch (firstErr: unknown) {
+        const m = String((firstErr as Error)?.message || firstErr);
+        if (/thinking|Thinking|unknown.*field|INVALID_ARGUMENT|invalid.*argument|400/i.test(m)) {
+          raw = await callGemini(
+            ART_STYLE_EXTRACT_MODEL,
+            artStyleContents,
+            { maxOutputTokens: 256 },
+            controller.signal,
+          );
+        } else {
+          throw firstErr;
+        }
+      }
+
+      const nextPrompt = extractText(raw)?.trim();
+      if (!nextPrompt) {
+        const hint = explainGeminiNoText(raw);
+        throw new Error(hint || "未能从参考图提取到有效风格提示词");
+      }
+
+      onCustomArtStylePromptChange(nextPrompt);
+      toast({ title: "画风提取完成", description: "已将参考图风格写入自定义画风提示词" });
+    } catch (e: any) {
+      if (e?.name === "AbortError") {
+        if (timedOut) {
+          toast({
+            title: "画风提取超时",
+            description: `超过 ${ART_STYLE_EXTRACT_TIMEOUT_MS / 1000} 秒未返回，请检查网络、代理或稍后重试。`,
+            variant: "destructive",
+          });
+        } else if (runId === artStyleExtractGenerationRef.current) {
+          toast({ title: "已中止画风提取", description: "可随时重新上传参考图" });
+        }
+        return;
+      }
+      const fe = friendlyError(e);
+      toast({ title: fe.title, description: fe.description, variant: "destructive" });
+    } finally {
+      window.clearTimeout(timeoutId);
+      if (runId === artStyleExtractGenerationRef.current) {
+        setIsExtractingArtStyle(false);
+      }
+    }
+  };
+
   const handleGenerateCharacter = async (id: string) => {
     if (generatingCharImgIds.has(id)) return; // prevent duplicate calls
     const character = characters.find((c) => c.id === id);
@@ -221,7 +351,8 @@ const CharacterSettings = ({
       try {
       let successCount = 0;
       let failCount = 0;
-      let anchorImageUrl: string | undefined;
+      // Anchor = 第一套服装的图（含手动上传），后续所有服装变体以此为参考保证同一人
+      let anchorImageUrl: string | undefined = costumes[0]?.imageUrl;
 
       for (let cosIdx = 0; cosIdx < costumes.length; cosIdx++) {
         const cos = costumes[cosIdx];
@@ -275,9 +406,11 @@ const CharacterSettings = ({
           toast({ title: "生成成功", description: `${character.name}「${freshCos?.label || cos.label}」服装设定图已生成（${successCount}/${costumes.length}）` });
           // Upload to storage in background, then update URL silently
           ensureStorageUrl(rawUrl, "costumes").then(finalUrl => {
-            if (finalUrl !== rawUrl) {
+            const latest = charactersRef.current.find(ch => ch.id === id);
+            const first = latest?.costumes?.[0];
+            if (finalUrl !== rawUrl || (first && !anchorImageUrl)) {
+              // 如果是首套服装更新了 URL，或首套原本无图，则同步 anchorImageUrl
               if (isFirstCostume) anchorImageUrl = finalUrl;
-              const latest = charactersRef.current.find(ch => ch.id === id);
               const updCostumes = (latest?.costumes || []).map(cc =>
                 cc.id === cos.id ? { ...cc, imageUrl: finalUrl } : cc
               );
@@ -907,8 +1040,8 @@ const CharacterSettings = ({
       const costumesToGen = latestChar.costumes!.filter(cos => cos.label?.trim());
       // Use localCostumes pattern to prevent React re-renders from resetting ref mid-loop
       let localCostumes = [...(latestChar?.costumes || []).map(cc => ({ ...cc }))];
-      // Anchor logic: first costume generates without reference; subsequent costumes use first's image
-      let costumeAnchorUrl: string | undefined;
+      // Anchor = 第一套服装的图（含手动上传），后续所有服装变体以此为参考保证同一人
+      let costumeAnchorUrl: string | undefined = latestChar?.costumes?.[0]?.imageUrl;
       try {
       for (let cosIdx = 0; cosIdx < costumesToGen.length; cosIdx++) {
         const cos = costumesToGen[cosIdx];
@@ -957,9 +1090,10 @@ const CharacterSettings = ({
           cosImgOk = true;
           // Background upload to storage, then silently update URL
           ensureStorageUrl(rawUrl, "costumes").then(finalUrl => {
-            if (finalUrl !== rawUrl) {
+            const latest = charactersRef.current.find(ch => ch.id === c.id);
+            const first = latest?.costumes?.[0];
+            if (finalUrl !== rawUrl || (first && !costumeAnchorUrl)) {
               if (isFirstCostume) costumeAnchorUrl = finalUrl;
-              const latest = charactersRef.current.find(ch => ch.id === c.id);
               const updCostumes = (latest?.costumes || []).map(cc =>
                 cc.id === cos.id ? { ...cc, imageUrl: finalUrl } : cc
               );
@@ -1347,14 +1481,76 @@ const CharacterSettings = ({
 
       {/* Custom art style input */}
       {artStyle === "custom" && (
-        <div className="flex items-start gap-2">
-          <Textarea
-            placeholder="输入自定义画风提示词，例如：水墨画风格，留白大量空间，笔触细腻，中国传统山水画意境..."
-            value={customArtStylePrompt || ""}
-            onChange={(e) => onCustomArtStylePromptChange?.(e.target.value)}
-            className="min-h-[60px] text-sm"
-            rows={2}
-          />
+        <div className="rounded-xl border border-border/80 bg-muted/25 p-4 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch">
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">画风提示词</label>
+              <Textarea
+                placeholder="输入自定义画风提示词，例如：水墨画风格，留白大量空间，笔触细腻，中国传统山水画意境..."
+                value={customArtStylePrompt || ""}
+                onChange={(e) => onCustomArtStylePromptChange?.(e.target.value)}
+                className="min-h-[104px] resize-y text-sm bg-background/80"
+                rows={4}
+              />
+            </div>
+
+            <div className="flex shrink-0 flex-col gap-3 sm:w-[148px]">
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                ref={customArtStyleImgInputRef}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  analyzeCustomArtStyleFromImage(file);
+                  // Allow re-uploading the same file consecutively.
+                  e.currentTarget.value = "";
+                }}
+              />
+              <div className="space-y-1.5">
+                <span className="text-xs font-medium text-muted-foreground">参考图</span>
+                <div
+                  className={`relative overflow-hidden rounded-lg border bg-background/90 shadow-inner ${
+                    customArtStyleImgPreview
+                      ? "border-border aspect-[3/4] max-h-[200px] w-full ring-1 ring-black/5 dark:ring-white/10"
+                      : "border-dashed border-muted-foreground/25 aspect-[3/4] max-h-[200px] w-full"
+                  }`}
+                >
+                  {customArtStyleImgPreview ? (
+                    <img
+                      src={customArtStyleImgPreview}
+                      alt="画风参考"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full min-h-[120px] flex-col items-center justify-center gap-1 px-2 text-center">
+                      <ImageIcon className="h-8 w-8 text-muted-foreground/50" />
+                      <span className="text-[11px] leading-tight text-muted-foreground">上传后在此预览</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant={isExtractingArtStyle ? "secondary" : "outline"}
+                size="sm"
+                className="h-9 w-full gap-1.5 text-xs font-medium"
+                onClick={handleCustomArtStyleUploadButtonClick}
+              >
+                {isExtractingArtStyle ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                    中止提取
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-3.5 w-3.5 shrink-0" />
+                    上传提取画风
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1482,15 +1678,14 @@ const CharacterSettings = ({
             const costumes = c.costumes || [];
             const firstCostume = costumes[0];
             const isFirst = firstCostume?.id === costumeId;
+            // 从最新角色状态读取首套服装图（含批量生成中途更新到的图）
+            const firstImageUrl = charactersRef.current.find(ch => ch.id === c.id)?.costumes?.[0]?.imageUrl;
             // Non-first costumes must reference the first costume's image
-            if (!isFirst) {
-              const firstImageUrl = firstCostume?.imageUrl;
-              if (!firstImageUrl) {
-                toast({ title: "请先生成首张图片", description: "后续服装图需要以首套服装图作为参考", variant: "destructive" });
-                return;
-              }
+            if (!isFirst && !firstImageUrl) {
+              toast({ title: "请先生成首套服装图", description: "后续服装图需要以首套服装图作为参考", variant: "destructive" });
+              return;
             }
-            const referenceImageUrl = isFirst ? undefined : (firstCostume?.imageUrl || undefined);
+            const referenceImageUrl = isFirst ? undefined : (firstImageUrl || undefined);
             const costumeTaskKey = `costume-${costumeId}`;
             addTask(costumeTaskKey, "charImg");
             setGeneratingCharImgIds((prev) => new Set(prev).add(costumeTaskKey));
@@ -1661,6 +1856,9 @@ const CharacterSettings = ({
                   {hasCostumes && c.activeCostumeId && (() => {
                     const activeCostume = c.costumes!.find((cos) => cos.id === c.activeCostumeId);
                     if (!activeCostume) return null;
+                    const firstCostume = c.costumes![0];
+                    const isFirst = firstCostume?.id === activeCostume.id;
+                    const firstHasImage = !!firstCostume?.imageUrl;
                     return (
                       <div className="space-y-2 rounded-lg border border-border/40 bg-background p-3">
                         <div className="flex items-center gap-2">
@@ -1710,7 +1908,12 @@ const CharacterSettings = ({
                             size="sm"
                             className="gap-1 text-xs h-7"
                             onClick={() => handleGenerateCostumeImage(activeCostume.id)}
-                            disabled={generatingCharImgIds.has(`costume-${activeCostume.id}`) || !activeCostume.label.trim()}
+                            disabled={
+                              generatingCharImgIds.has(`costume-${activeCostume.id}`) ||
+                              !activeCostume.label.trim() ||
+                              (!isFirst && !firstHasImage)
+                            }
+                            title={!isFirst && !firstHasImage ? "请先生成首套服装图" : undefined}
                           >
                             {generatingCharImgIds.has(`costume-${activeCostume.id}`) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                             AI 生成服装图

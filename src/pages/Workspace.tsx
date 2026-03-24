@@ -47,6 +47,7 @@ const Workspace = () => {
   const resumeId = searchParams.get("id");
 
   const [currentStep, setCurrentStep] = useState<WorkspaceStep>(1);
+  const [videoMode, setVideoMode] = useState<"api" | "reverse">("api");
   const [script, setScript] = useState(() => {
     try {
       const imported = sessionStorage.getItem("imported-script");
@@ -139,7 +140,7 @@ const Workspace = () => {
   const isAnalyzingRef = useRef(false);
   const [skipStoryboard, setSkipStoryboard] = useState(false);
   const [videoModel, setVideoModelState] = useState<VideoModel>(() => {
-    try { return (localStorage.getItem("workspace-video-model") as VideoModel) || "seedance-1.5-pro"; } catch { return "seedance-1.5-pro"; }
+    try { return (localStorage.getItem("workspace-video-model") as VideoModel) || "jimeng-1.5-pro"; } catch { return "jimeng-1.5-pro"; }
   });
   const setVideoModel = (m: VideoModel) => {
     setVideoModelState(m);
@@ -284,6 +285,7 @@ const Workspace = () => {
       toast({ title: "无法重试", description: "缺少拆解上下文信息", variant: "destructive" });
       return;
     }
+
     setRetryingChunk(chunkIndex);
     setDecomposeChunks(prev => prev.map(c => c.index === chunkIndex ? { ...c, status: "processing" as const, error: undefined } : c));
 
@@ -294,9 +296,24 @@ const Workspace = () => {
         videoPace: meta.videoPace,
       });
 
-      // Re-number and merge into existing scenes
-      // Find the insertion point: after all scenes from previous chunks, before scenes from later chunks
-      const epPrefix = meta.isRealEpisodes && meta.episodes.length > 1 ? `${chunkIndex + 1}-` : "";
+      // Re-number and merge into existing scenes.
+      // IMPORTANT: previous implementation appended retry results to the end,
+      // which could make "episode N" scenes appear under a later episode section.
+      const targetEpisodeNum =
+        meta.isRealEpisodes && meta.episodes.length > 1 ? chunkIndex + 1 : null;
+      const normalizeSegLabel = (label?: string) => {
+        const s = (label ?? "").replace(/^片段\s*/u, "").trim();
+        return s;
+      };
+      const parseSegNums = (label?: string): number[] => {
+        const raw = normalizeSegLabel(label);
+        if (!raw) return [];
+        return raw
+          .split("-")
+          .map((p) => parseInt(p, 10))
+          .filter((n) => Number.isFinite(n));
+      };
+
       const mappedScenes: Scene[] = newScenes.map((s: any, i: number) => ({
         id: crypto.randomUUID(),
         sceneNumber: i + 1,
@@ -309,14 +326,41 @@ const Workspace = () => {
         duration: s.duration ?? 5,
       }));
 
-      // Insert new scenes into position (replace any existing scenes for this chunk prefix, or append)
       setScenes(prev => {
-        const withoutThisChunk = epPrefix
-          ? prev.filter(s => !s.segmentLabel?.startsWith(epPrefix))
-          : prev;
+        const withoutThisChunk =
+          targetEpisodeNum != null
+            ? prev.filter((s) => {
+                const nums = parseSegNums(s.segmentLabel);
+                // If we can't parse, keep it.
+                if (nums.length === 0) return true;
+                // Episode index is the first numeric part in segmentLabel.
+                return nums[0] !== targetEpisodeNum;
+              })
+            : prev;
+
         const allScenes = [...withoutThisChunk, ...mappedScenes];
-        // Re-number all scenes
-        return allScenes.map((s, i) => ({ ...s, sceneNumber: i + 1 }));
+
+        // Sort scenes deterministically by segmentLabel numeric parts.
+        // segmentLabel examples:
+        // - "片段 2-1"
+        // - "片段 2-1-5"
+        // - "2-1-5"
+        const sorted = allScenes.slice().sort((a, b) => {
+          const na = parseSegNums(a.segmentLabel);
+          const nb = parseSegNums(b.segmentLabel);
+
+          const maxParts = 3;
+          for (let i = 0; i < maxParts; i++) {
+            const av = na[i] ?? 0;
+            const bv = nb[i] ?? 0;
+            if (av !== bv) return av - bv;
+          }
+
+          // Fallback: keep stable-ish order
+          return (a.sceneNumber ?? 0) - (b.sceneNumber ?? 0);
+        });
+
+        return sorted.map((s, i) => ({ ...s, sceneNumber: i + 1 }));
       });
 
       setDecomposeChunks(prev => prev.map(c => c.index === chunkIndex ? { ...c, status: "done" as const } : c));
@@ -1020,7 +1064,7 @@ const Workspace = () => {
       if (error) throw error;
 
       const taskId = data.task_id;
-      const provider = data.provider; // "vidu" or "seedance" or "kling"
+      const provider = data.provider; // "vidu" or "jimeng" or "kling"
       const klingTaskType = data.klingTaskType; // "text2video" or "image2video" for kling
       if (!taskId) throw new Error("未返回 task_id");
 
@@ -1323,6 +1367,7 @@ const Workspace = () => {
         return (
           <VideoGeneration
             scenes={scenes}
+            characters={characters}
             videoModel={videoModel}
             onVideoModelChange={setVideoModel}
             onGenerateAll={handleGenerateVideos}
@@ -1332,7 +1377,7 @@ const Workspace = () => {
             isAborting={isAbortingVideo}
             onNext={() => safeGoToStep(5)}
             onScenesChange={setScenes}
-            useImg2Video={!skipStoryboard}
+            onVideoModeChange={setVideoMode}
           />
         );
       case 5:

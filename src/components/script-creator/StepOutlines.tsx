@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { ArrowRight, Loader2, RefreshCw, Square, FileText, CheckCircle2, XCircle, RotateCw, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowRight, Loader2, RefreshCw, FileText, CheckCircle2, XCircle, RotateCw, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildOutlinePrompt } from "@/lib/drama-prompts";
@@ -90,6 +90,7 @@ function useAnimatedProgress(ceilPercent: number, floorPercent: number, hasProce
 }
 
 const BATCH_SIZE = 30;
+const OUTLINE_TIMEOUT_MS = 120000;
 
 const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw, onUpdate, onNext }: StepOutlinesProps) => {
   const [outlineBatches, setOutlineBatches] = useState<OutlineBatchStatus[]>([]);
@@ -120,6 +121,41 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
     return batches;
   }, [directory]);
 
+  const callGeminiStreamWithTimeout = async (
+    model: string,
+    prompt: string,
+    outerSignal?: AbortSignal,
+    maxOutputTokens = 8192,
+  ) => {
+    const timeoutAbort = new AbortController();
+    let didTimeout = false;
+    const timer = window.setTimeout(() => {
+      didTimeout = true;
+      timeoutAbort.abort();
+    }, OUTLINE_TIMEOUT_MS);
+    const onOuterAbort = () => timeoutAbort.abort();
+    outerSignal?.addEventListener("abort", onOuterAbort, { once: true });
+    if (outerSignal?.aborted) timeoutAbort.abort();
+
+    try {
+      return await callGeminiStream(
+        model,
+        [{ role: "user", parts: [{ text: prompt }] }],
+        () => {},
+        { maxOutputTokens },
+        timeoutAbort.signal,
+      );
+    } catch (e: any) {
+      if (didTimeout) {
+        throw new Error(`请求超时（>${Math.round(OUTLINE_TIMEOUT_MS / 1000)}秒）`);
+      }
+      throw e;
+    } finally {
+      window.clearTimeout(timer);
+      outerSignal?.removeEventListener("abort", onOuterAbort);
+    }
+  };
+
   const handleGenerateOutlines = async () => {
     if (directory.length === 0) return;
     setIsGeneratingOutlines(true);
@@ -138,6 +174,7 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
       setOutlineBatches(prev => prev.map((b, i) => i === bIdx ? { ...b, status: "processing" } : b));
 
       const batchEpisodes = directory.filter(ep => ep.number >= batch.startEp && ep.number <= batch.endEp);
+      const expectedNums = batchEpisodes.map((ep) => ep.number);
       const prompt = buildOutlinePrompt(
         setup, creativePlan, characters,
         batchEpisodes.map(ep => ({ number: ep.number, title: ep.title, summary: ep.summary, hookType: ep.hookType })),
@@ -145,25 +182,69 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
       );
 
       try {
-        const result = await callGeminiStream(
+        const result = await callGeminiStreamWithTimeout(
           model,
-          [{ role: "user", parts: [{ text: prompt }] }],
-          () => {},
-          { maxOutputTokens: 8192 },
+          prompt,
           outlineAbortRef.current!.signal,
+          8192,
         );
 
         const outlines = parseOutlines(result);
+        const receivedNums = Array.from(outlines.keys()).sort((a, b) => a - b);
+        const missingNums = expectedNums.filter((n) => !outlines.has(n));
         for (const [num, outline] of outlines) {
           const idx = updatedDirectory.findIndex(ep => ep.number === num);
           if (idx >= 0) {
             updatedDirectory[idx] = { ...updatedDirectory[idx], outline };
           }
         }
+
+        // 补偿：若该批仍有缺失细纲，逐集再补一次，避免“中间集拆不出来”
+        const missingEpisodes = batchEpisodes.filter((ep) => {
+          const row = updatedDirectory.find((u) => u.number === ep.number);
+          return !row?.outline?.trim();
+        });
+        for (const ep of missingEpisodes) {
+          if (outlineAbortRef.current?.signal.aborted) break;
+          const singlePrompt = buildOutlinePrompt(
+            setup,
+            creativePlan,
+            characters,
+            [{ number: ep.number, title: ep.title, summary: ep.summary, hookType: ep.hookType }],
+            directoryRaw,
+          );
+          try {
+            const singleResult = await callGeminiStreamWithTimeout(
+              model,
+              singlePrompt,
+              outlineAbortRef.current!.signal,
+              4096,
+            );
+            const one = parseOutlines(singleResult).get(ep.number);
+            if (one?.trim()) {
+              const idx = updatedDirectory.findIndex((u) => u.number === ep.number);
+              if (idx >= 0) updatedDirectory[idx] = { ...updatedDirectory[idx], outline: one };
+            }
+          } catch {
+            // keep missing and let batch status reflect failure below
+          }
+        }
+
         onUpdate([...updatedDirectory], directoryRaw);
-        setOutlineBatches(prev => prev.map((b, i) => i === bIdx ? { ...b, status: "done" } : b));
+        const stillMissing = batchEpisodes
+          .map((ep) => ep.number)
+          .filter((n) => !updatedDirectory.find((u) => u.number === n)?.outline?.trim());
+        setOutlineBatches((prev) =>
+          prev.map((b, i) =>
+            i === bIdx
+              ? stillMissing.length === 0
+                ? { ...b, status: "done" }
+                : { ...b, status: "failed", error: `缺失细纲：第 ${stillMissing.join(", ")} 集` }
+              : b,
+          ),
+        );
       } catch (e: any) {
-        if (e?.message?.includes("取消")) {
+        if (e?.message?.includes("取消") || e?.name === "AbortError") {
           setOutlineBatches(prev => prev.map((b, i) => i === bIdx ? { ...b, status: "failed", error: "已取消" } : b));
           break;
         }
@@ -193,12 +274,11 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
     );
 
     try {
-      const result = await callGeminiStream(
+      const result = await callGeminiStreamWithTimeout(
         model,
-        [{ role: "user", parts: [{ text: prompt }] }],
-        () => {},
-        { maxOutputTokens: 8192 },
+        prompt,
         outlineAbortRef.current!.signal,
+        8192,
       );
 
       const outlines = parseOutlines(result);
@@ -246,12 +326,11 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
     }
 
     try {
-      const result = await callGeminiStream(
+      const result = await callGeminiStreamWithTimeout(
         model,
-        [{ role: "user", parts: [{ text: prompt }] }],
-        () => {},
-        { maxOutputTokens: 4096 },
+        prompt,
         singleAbortRef.current!.signal,
+        4096,
       );
 
       const outlines = parseOutlines(result);
@@ -354,7 +433,7 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
             )}
             {isGeneratingOutlines ? (
               <Button variant="destructive" size="sm" onClick={handleStopOutlines} className="gap-1.5">
-                <Square className="h-3.5 w-3.5" />
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 停止
               </Button>
             ) : (
@@ -550,7 +629,7 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
                               className="h-7 text-xs text-destructive shrink-0"
                               onClick={() => singleAbortRef.current?.abort()}
                             >
-                              <Square className="h-3 w-3 mr-1" />
+                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                               停止
                             </Button>
                           )}

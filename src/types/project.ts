@@ -106,16 +106,16 @@ export const ART_STYLE_LABELS: Record<ArtStyle, string> = {
   'custom': '自定义',
 };
 
-export type VideoModel = 'seedance-1.5-pro' | 'vidu-q3' | 'kling-v3';
+export type VideoModel = 'jimeng-1.5-pro' | 'vidu-q3' | 'kling-v3';
 
 export const VIDEO_MODEL_LABELS: Record<VideoModel, string> = {
-  'seedance-1.5-pro': 'Seedance 1.5 Pro',
+  'jimeng-1.5-pro': '即梦 1.5 Pro',
   'vidu-q3': 'Vidu Q3',
   'kling-v3': '可灵 V3',
 };
 
 export const VIDEO_MODEL_API_MAP: Record<VideoModel, string> = {
-  'seedance-1.5-pro': 'doubao-seedance-1-5-pro_1080p',
+  'jimeng-1.5-pro': 'doubao-seedance-1-5-pro_1080p',
   'vidu-q3': 'viduq3-pro',
   'kling-v3': 'kling-v3',
 };

@@ -3,7 +3,7 @@ import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, RefreshCw, Pencil, Eye, Square, ShieldCheck } from "lucide-react";
+import { ArrowRight, RefreshCw, Pencil, Eye, Loader2, ShieldCheck } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildCompliancePrompt } from "@/lib/drama-prompts";
@@ -120,7 +120,7 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
             )}
             {isGenerating ? (
               <Button variant="destructive" size="sm" onClick={handleStop} className="gap-1.5">
-                <Square className="h-3.5 w-3.5" />
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 停止
               </Button>
             ) : (

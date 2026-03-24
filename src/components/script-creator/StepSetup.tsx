@@ -1,12 +1,13 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowRight, Sparkles, Globe, Upload, FileText, X } from "lucide-react";
+import { ArrowRight, Sparkles, Globe, Upload, FileText, X, ChevronDown, Check } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { GENRES, AUDIENCES, TONES, ENDINGS, EPISODE_COUNTS, TARGET_MARKETS, type DramaSetup, type SetupMode } from "@/types/drama";
 
@@ -30,6 +31,29 @@ const StepSetup = ({ setup, onComplete, setupMode }: StepSetupProps) => {
   const [uploadedFileName, setUploadedFileName] = useState("");
   const [isParsing, setIsParsing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const groupedGenres = useMemo(() => {
+    const groups = new Map<string, Array<(typeof GENRES)[number]>>();
+    const visibleGenres = GENRES.filter((genre) => {
+      if (!("markets" in genre) || !Array.isArray(genre.markets)) return true;
+      return genre.markets.includes(targetMarket);
+    });
+    for (const genre of visibleGenres) {
+      const category = "category" in genre ? genre.category : "其他";
+      const list = groups.get(category) ?? [];
+      list.push(genre);
+      groups.set(category, list);
+    }
+    return Array.from(groups.entries());
+  }, [targetMarket]);
+  const [activeGenreCategory, setActiveGenreCategory] = useState<string | null>(null);
+
+  useEffect(() => {
+    const allowed = new Set(
+      GENRES.filter((genre) => !("markets" in genre) || genre.markets.includes(targetMarket)).map((g) => g.value),
+    );
+    setSelectedGenres((prev) => prev.filter((g) => allowed.has(g)));
+  }, [targetMarket]);
 
   const toggleGenre = (genre: string) => {
     setSelectedGenres((prev) => {
@@ -98,6 +122,33 @@ const StepSetup = ({ setup, onComplete, setupMode }: StepSetupProps) => {
 
   return (
     <div className="space-y-6">
+      {/* 目标市场 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Globe className="h-5 w-5 text-primary" />
+            目标市场
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {TARGET_MARKETS.map((m) => (
+              <button
+                key={m.value}
+                onClick={() => setTargetMarket(m.value)}
+                className={`p-4 rounded-lg border text-left transition-all ${
+                  targetMarket === m.value
+                    ? "border-primary bg-primary/10 ring-1 ring-primary"
+                    : "border-border hover:border-primary/50"
+                }`}
+              >
+                <div className="font-medium text-sm">{m.label}</div>
+                <div className="text-xs text-muted-foreground mt-1">{m.desc}</div>
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {setupMode === "topic" ? (
         <>
@@ -110,23 +161,74 @@ const StepSetup = ({ setup, onComplete, setupMode }: StepSetupProps) => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                {GENRES.map((g) => (
-                  <button
-                    key={g.value}
-                    onClick={() => toggleGenre(g.value)}
-                    className={`p-3 rounded-lg border text-left transition-all text-sm ${
-                      selectedGenres.includes(g.value)
-                        ? "border-primary bg-primary/10 ring-1 ring-primary"
-                        : "border-border hover:border-primary/50"
-                    }`}
+              <div className="space-y-4">
+                {selectedGenres.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedGenres.map((g) => (
+                      <Badge key={g} variant="secondary" className="text-xs">
+                        {g}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                {groupedGenres.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                    当前目标市场暂无可选题材，请切换目标市场后重试。
+                  </div>
+                )}
+                {groupedGenres.map(([category, genres]) => (
+                  <Popover
+                    key={category}
+                    open={activeGenreCategory === category}
+                    onOpenChange={(open) => setActiveGenreCategory(open ? category : null)}
                   >
-                    <div className="font-medium">{g.label}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">{g.desc}</div>
-                    <Badge variant="outline" className="mt-1 text-[10px]">
-                      {g.audience}
-                    </Badge>
-                  </button>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-10 w-full justify-between px-3 text-sm font-medium"
+                      >
+                        <span>{category}</span>
+                        <ChevronDown
+                          className={`h-4 w-4 text-muted-foreground transition-transform ${
+                            activeGenreCategory === category ? "rotate-180" : ""
+                          }`}
+                        />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      align="start"
+                      className="w-[min(900px,calc(100vw-2rem))] max-w-[min(900px,calc(100vw-2rem))] p-3"
+                    >
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-[420px] overflow-auto">
+                        {genres.map((g) => {
+                          const isSelected = selectedGenres.includes(g.value);
+                          return (
+                            <button
+                              key={g.value}
+                              onClick={() => toggleGenre(g.value)}
+                              className={`relative p-3 rounded-lg border text-left transition-all text-sm ${
+                                isSelected
+                                  ? "border-primary bg-primary/10 ring-1 ring-primary"
+                                  : "border-border hover:border-primary/50"
+                              }`}
+                            >
+                              {isSelected && (
+                                <span className="absolute right-2 top-2 inline-flex h-4 w-4 items-center justify-center rounded bg-primary text-primary-foreground">
+                                  <Check className="h-3 w-3" />
+                                </span>
+                              )}
+                              <div className="font-medium pr-5">{g.label}</div>
+                              <div className="text-xs text-muted-foreground mt-0.5">{g.desc}</div>
+                              <Badge variant="outline" className="mt-1 text-[10px]">
+                                {g.audience}
+                              </Badge>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 ))}
               </div>
             </CardContent>
@@ -186,34 +288,6 @@ const StepSetup = ({ setup, onComplete, setupMode }: StepSetupProps) => {
           </CardContent>
         </Card>
       )}
-
-      {/* 目标市场 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Globe className="h-5 w-5 text-primary" />
-            目标市场
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {TARGET_MARKETS.map((m) => (
-              <button
-                key={m.value}
-                onClick={() => setTargetMarket(m.value)}
-                className={`p-4 rounded-lg border text-left transition-all ${
-                  targetMarket === m.value
-                    ? "border-primary bg-primary/10 ring-1 ring-primary"
-                    : "border-border hover:border-primary/50"
-                }`}
-              >
-                <div className="font-medium text-sm">{m.label}</div>
-                <div className="text-xs text-muted-foreground mt-1">{m.desc}</div>
-              </button>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
 
       {/* 配置项 */}
       <Card>

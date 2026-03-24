@@ -1265,11 +1265,13 @@ async function localGenerateVideo(body: any) {
     if (!taskId) throw new Error("缺少 taskId");
     if (provider === "kling") {
       const { apiKey, endpoint } = getKlingConfig();
-      if (!apiKey) throw new Error("可灵 API Key 未配置");
+      const config = getApiConfig();
+      // FC 模式下跳过本地 key 检查（由 FC 注入）
+      if (config.proxyMode !== "fc" && !apiKey) throw new Error("可灵 API Key 未配置");
       // Query uses the same path type as creation; we store the type in body
       const queryType = body.klingTaskType || "text2video";
       const res = await proxiedFetch(`${endpoint}/v1/videos/${queryType}/${taskId}`, {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey || "placeholder"}`,
         "Content-Type": "application/json",
       });
       if (!res.ok) throw new Error(`查询可灵状态失败 (${res.status})`);
@@ -1283,9 +1285,10 @@ async function localGenerateVideo(body: any) {
       return { status, video_url: videoUrl, state: taskStatus };
     } else if (provider === "vidu") {
       const { apiKey, endpoint } = getViduConfig();
-      if (!apiKey) throw new Error("Vidu API Key 未配置");
+      const config = getApiConfig();
+      if (config.proxyMode !== "fc" && !apiKey) throw new Error("Vidu API Key 未配置");
       const res = await proxiedFetch(`${endpoint}/tasks/${taskId}/creations`, {
-        Authorization: `Token ${apiKey}`,
+        Authorization: `Token ${apiKey || "placeholder"}`,
       });
       if (!res.ok) throw new Error(`查询 Vidu 状态失败 (${res.status})`);
       const data = await res.json();
@@ -1294,9 +1297,10 @@ async function localGenerateVideo(body: any) {
       return { status, video_url: videoUrl, state: data.state };
     } else {
       const { apiKey, endpoint } = getSeedanceConfig();
-      if (!apiKey) throw new Error("Seedance API Key 未配置");
+      const config = getApiConfig();
+      if (config.proxyMode !== "fc" && !apiKey) throw new Error("Seedance API Key 未配置");
       const res = await proxiedFetch(`${endpoint}/videos/${taskId}`, {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey || "placeholder"}`,
       });
       if (!res.ok) throw new Error(`查询视频状态失败 (${res.status})`);
       return await res.json();
@@ -1305,9 +1309,10 @@ async function localGenerateVideo(body: any) {
 
   if (action === "models") {
     const { apiKey, endpoint } = getSeedanceConfig();
-    if (!apiKey) throw new Error("Seedance API Key 未配置");
+    const config = getApiConfig();
+    if (config.proxyMode !== "fc" && !apiKey) throw new Error("Seedance API Key 未配置");
     const res = await proxiedFetch(`${endpoint}/models`, {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${apiKey || "placeholder"}`,
     });
     if (!res.ok) throw new Error(`查询模型列表失败 (${res.status})`);
     return await res.json();
@@ -1318,7 +1323,8 @@ async function localGenerateVideo(body: any) {
 
   if (isVidu) {
     const { apiKey, endpoint } = getViduConfig();
-    if (!apiKey) throw new Error("Vidu API Key 未配置，请在设置中配置");
+    const config = getApiConfig();
+    if (config.proxyMode !== "fc" && !apiKey) throw new Error("Vidu API Key 未配置，请在设置中配置");
     const viduUrl = body.imageUrl ? `${endpoint}/img2video` : `${endpoint}/text2video`;
     const truncatedPrompt = (body.prompt || "").length > 4900 ? body.prompt.substring(0, 4900) : body.prompt;
     const payload: any = {
@@ -1352,7 +1358,8 @@ async function localGenerateVideo(body: any) {
     return { task_id: data.task_id, status: data.state || "created", provider: "vidu" };
   } else if (isKling) {
     const { apiKey, endpoint } = getKlingConfig();
-    if (!apiKey) throw new Error("可灵 API Key 未配置，请在设置中配置");
+    const config = getApiConfig();
+    if (config.proxyMode !== "fc" && !apiKey) throw new Error("可灵 API Key 未配置，请在设置中配置");
     const truncatedPrompt = (body.prompt || "").length > 2500 ? body.prompt.substring(0, 2500) : body.prompt;
     const hasImage = body.imageUrl && typeof body.imageUrl === "string";
     const klingTaskType = hasImage ? "image2video" : "text2video";
@@ -1396,7 +1403,8 @@ async function localGenerateVideo(body: any) {
     return { task_id: taskId2, status: data.data?.task_status || "submitted", provider: "kling", klingTaskType };
   } else {
     const { apiKey, endpoint } = getSeedanceConfig();
-    if (!apiKey) throw new Error("Seedance API Key 未配置，请在设置中配置");
+    const config = getApiConfig();
+    if (config.proxyMode !== "fc" && !apiKey) throw new Error("Seedance API Key 未配置，请在设置中配置");
 
     // Build multipart/form-data as the API requires
     const textFields: Record<string, string> = {
@@ -1423,8 +1431,8 @@ async function localGenerateVideo(body: any) {
       if (imageDataUri) {
         // Compress using configurable parameters from settings
         const cfg = getApiConfig();
-        const maxBytes = (cfg.firstFrameMaxKB || 800) * 1024;
-        const maxDim = cfg.firstFrameMaxDim || 720;
+        const maxBytes = (cfg.firstFrameMaxKB || 1024) * 1024;
+        const maxDim = cfg.firstFrameMaxDim || 2048;
         try {
           imageDataUri = await compressImage(imageDataUri, maxBytes, { maxDim, minQuality: 0.3 });
         } catch (e) {
@@ -1452,24 +1460,57 @@ async function localGenerateVideo(body: any) {
       formData.append("first_frame_image", imageBlob, `frame.${ext}`);
     }
 
-    const config = getApiConfig();
     const targetUrl = `${endpoint}/videos`;
     const targetHeaders: Record<string, string> = {
       Authorization: `Bearer ${apiKey}`,
     };
-    const proxyUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api-proxy`;
+
+    // 获取代理 URL
+    const getProxyUrl = () => {
+      if (config.proxyMode === "fc" && config.fcProxyUrl) {
+        return config.fcProxyUrl.replace(/\/$/, "") + "/proxy";
+      }
+      return `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api-proxy`;
+    };
 
     // Helper: send FormData through proxy by forwarding binary body directly
     const sendViaProxy = async (fd: FormData): Promise<Response> => {
-      return fetch(proxyUrl, {
-        method: "POST",
-        headers: {
-          "x-target-url": targetUrl,
-          "x-target-headers": JSON.stringify(targetHeaders),
-          // Don't set Content-Type — browser sets multipart boundary automatically for FormData
-        },
-        body: fd,
-      });
+      if (config.proxyMode === "fc" && config.fcProxyUrl) {
+        // FC 代理：使用 JSON 格式发送
+        // 将 FormData 转换为可序列化的格式
+        const entries: Record<string, any> = {};
+        for (const [key, value] of fd.entries()) {
+          if (value instanceof Blob) {
+            const arrayBuffer = await value.arrayBuffer();
+            const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+            entries[key] = { _type: "blob", data: base64, mimeType: value.type || "application/octet-stream" };
+          } else {
+            entries[key] = value;
+          }
+        }
+        return fetch(getProxyUrl(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: targetUrl,
+            options: {
+              method: "POST",
+              headers: targetHeaders,
+              body: entries,
+            },
+          }),
+        });
+      } else {
+        // Supabase Edge Function 代理
+        return fetch(getProxyUrl(), {
+          method: "POST",
+          headers: {
+            "x-target-url": targetUrl,
+            "x-target-headers": JSON.stringify(targetHeaders),
+          },
+          body: fd,
+        });
+      }
     };
 
     let res: Response;
@@ -1499,7 +1540,7 @@ async function localGenerateVideo(body: any) {
       throw new Error(`视频生成任务创建失败 (${res.status}): ${errText}`);
     }
     const data = await res.json();
-    return { task_id: data.id, status: data.status, progress: data.progress, provider: "seedance" };
+    return { task_id: data.id, status: data.status, progress: data.progress, provider: "jimeng" };
   }
 }
 
@@ -1508,7 +1549,7 @@ async function localEnhancePrompt(body: any) {
   if (!description) throw new Error("缺少分镜描述");
 
   const config = getApiConfig();
-  if (!config.zhanhuKey) return { enhanced: description, fallback: true };
+  if (config.proxyMode !== "fc" && !config.zhanhuKey) return { enhanced: description, fallback: true };
 
   const promptParts: string[] = [];
   if (sceneName) promptParts.push(`【场景】${sceneName}`);

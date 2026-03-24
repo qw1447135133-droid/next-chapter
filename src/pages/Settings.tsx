@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
-import { ArrowLeft, Key, Save, Database, HardDrive, Cloud, Globe, RotateCcw, Trash2, Wifi, WifiOff, Loader2, Moon, Sun } from "lucide-react";
+import { ArrowLeft, Key, Save, Database, HardDrive, FolderOpen, Globe, Server, RotateCcw, Trash2, Wifi, WifiOff, Loader2, Moon, Sun } from "lucide-react";
 import { proxiedFetch } from "@/lib/gemini-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,28 +9,31 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 
-export type StorageMode = "local" | "cloud";
+export type ProxyMode = "supabase" | "fc";
 
 export interface ApiConfig {
-  // 存储模式
-  storageMode: StorageMode;
-  // 直连模式（绕过 Edge Function 代理）
-  directMode: boolean;
+  // 存储路径（本地文件存储）
+  localPath: string;
+  // 代理模式：supabase(默认)、fc(阿里云FC)
+  proxyMode: ProxyMode;
+  // 阿里云FC代理地址（当 proxyMode 为 fc 时使用）
+  fcProxyUrl: string;
   // Supabase 配置
   supabaseUrl: string;
   supabaseKey: string;
   // AI API Keys
   zhanhuKey: string;
-  seedance: string;
+  jimeng: string;
   viduKey: string;
   klingKey: string;
   // API 端点
   zhanhuEndpoint: string;
-  seedanceEndpoint: string;
+  jimengEndpoint: string;
   viduEndpoint: string;
   klingEndpoint: string;
+  // 即梦逆向自动化 API 端点（auto_jimeng Python 服务）
+  autoJimengEndpoint: string;
   // 视频首帧图片压缩参数
   firstFrameMaxDim: number;
   firstFrameMaxKB: number;
@@ -59,23 +62,25 @@ function deobfuscate(value: string): string {
 }
 
 // Keys that should be obfuscated in storage
-const SENSITIVE_KEYS: (keyof ApiConfig)[] = ["zhanhuKey", "seedance", "viduKey", "klingKey", "supabaseKey"];
+const SENSITIVE_KEYS: (keyof ApiConfig)[] = ["zhanhuKey", "jimeng", "viduKey", "klingKey", "supabaseKey"];
 
 const DEFAULT_CONFIG: ApiConfig = {
-  storageMode: "local",
-  directMode: false,
+  localPath: "",
+  proxyMode: "supabase",
+  fcProxyUrl: "",
   supabaseUrl: "",
   supabaseKey: "",
   zhanhuKey: "",
-  seedance: "",
+  jimeng: "",
   viduKey: "",
   klingKey: "",
   zhanhuEndpoint: "http://202.90.21.53:13003/v1beta",
-  seedanceEndpoint: "http://202.90.21.53:13003/v1",
+  jimengEndpoint: "http://202.90.21.53:13003/v1",
   viduEndpoint: "https://api.vidu.cn/ent/v2",
   klingEndpoint: "",
-  firstFrameMaxDim: 720,
-  firstFrameMaxKB: 800,
+  autoJimengEndpoint: "http://localhost:8000",
+  firstFrameMaxDim: 2048,
+  firstFrameMaxKB: 1024,
   retryCount: 2,
   retryDelayMs: 3000
 };
@@ -118,8 +123,7 @@ const Settings = () => {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const [config, setConfig] = useState<ApiConfig>(getApiConfig);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{success: boolean;message: string;} | null>(null);
+  const [defaultPath, setDefaultPath] = useState<string>("");
 
   // API connectivity test state
   const [endpointTesting, setEndpointTesting] = useState<Record<string, boolean>>({});
@@ -137,45 +141,20 @@ const Settings = () => {
     }
   }, []);
 
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.electronAPI?.storage) {
+      window.electronAPI.storage.getDefaultPath().then((paths) => {
+        setDefaultPath(paths.files);
+        if (!config.localPath) {
+          setConfig((p) => ({ ...p, localPath: paths.files }));
+        }
+      });
+    }
+  }, []);
+
   const handleSave = () => {
     saveApiConfig(config);
     toast({ title: "已保存", description: "API 配置已保存到本地" });
-  };
-
-  const handleTestSupabase = async () => {
-    if (!config.supabaseUrl || !config.supabaseKey) {
-      setTestResult({ success: false, message: "请填写 Supabase URL 和 Key" });
-      return;
-    }
-
-    setTesting(true);
-    setTestResult(null);
-
-    try {
-      const originalUrl = (window as any).__SUPABASE_URL__;
-      const originalKey = (window as any).__SUPABASE_KEY__;
-
-      (window as any).__SUPABASE_URL__ = config.supabaseUrl;
-      (window as any).__SUPABASE_KEY__ = config.supabaseKey;
-
-      const { createClient } = await import('@supabase/supabase-js');
-      const testClient = createClient(config.supabaseUrl, config.supabaseKey);
-
-      const { data, error } = await testClient.from('projects').select('id').limit(1);
-
-      if (originalUrl) (window as any).__SUPABASE_URL__ = originalUrl;
-      if (originalKey) (window as any).__SUPABASE_KEY__ = originalKey;
-
-      if (error) {
-        setTestResult({ success: false, message: `连接失败: ${error.message}` });
-      } else {
-        setTestResult({ success: true, message: "Supabase 连接成功!" });
-      }
-    } catch (err: any) {
-      setTestResult({ success: false, message: `连接失败: ${err.message}` });
-    } finally {
-      setTesting(false);
-    }
   };
 
   const handleTestEndpoint = async (name: string, endpoint: string, apiKey: string) => {
@@ -196,8 +175,8 @@ const Settings = () => {
       // Only test connectivity — hit the base URL. Any response (even 4xx) means the server is reachable.
       if (name === "gemini") {
         testUrl = endpoint || DEFAULT_CONFIG.zhanhuEndpoint;
-      } else if (name === "seedance") {
-        testUrl = endpoint || DEFAULT_CONFIG.seedanceEndpoint;
+      } else if (name === "jimeng") {
+        testUrl = endpoint || DEFAULT_CONFIG.jimengEndpoint;
       } else {
         testUrl = endpoint || DEFAULT_CONFIG.viduEndpoint;
       }
@@ -223,17 +202,9 @@ const Settings = () => {
 
   const keyFields = [
   { key: "zhanhuKey", label: "Google API Key", desc: "用于剧本拆解与分镜图 AI 生成" },
-  { key: "seedance", label: "即梦 API Key", desc: "用于视频片段生成" },
+  { key: "jimeng", label: "即梦 API Key", desc: "用于视频片段生成" },
   { key: "viduKey", label: "Vidu API Key", desc: "用于 Vidu 视频生成" },
   { key: "klingKey", label: "可灵 API Key", desc: "用于可灵视频生成" }];
-
-
-  const supabaseFields = [
-  { key: "supabaseUrl", label: "Supabase URL", placeholder: "https://xxxxx.supabase.co", desc: "你的 Supabase 项目地址" },
-  { key: "supabaseKey", label: "Supabase Anon Key", placeholder: "eyJ...", desc: "Supabase Anon Key (公开)" }];
-
-
-  const storageMode = config.storageMode || "local";
 
   return (
     <div className="min-h-screen bg-background">
@@ -272,137 +243,98 @@ const Settings = () => {
           配置你的 API 密钥。所有配置仅保存在本地浏览器中。
         </p>
 
-        {/* 存储模式选择 */}
+        {/* 数据存储位置 */}
         <div className="space-y-4">
           <h2 className="text-sm font-medium flex items-center gap-2">
             <Database className="h-4 w-4" />
-            数据存储方式
+            数据存储位置
           </h2>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => setConfig((p) => ({ ...p, storageMode: "local" as StorageMode }))}
-              className={`flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-all ${
-              storageMode === "local" ?
-              "border-primary bg-primary/5 shadow-sm" :
-              "border-border hover:border-muted-foreground/30"}`
-              }>
-              
-              <HardDrive className={`h-6 w-6 ${storageMode === "local" ? "text-primary" : "text-muted-foreground"}`} />
-              <span className={`text-sm font-medium ${storageMode === "local" ? "text-primary" : "text-foreground"}`}>
-                本地存储
-              </span>
-              <span className="text-xs text-muted-foreground text-center">
-                数据保存在浏览器中，无需配置
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfig((p) => ({ ...p, storageMode: "cloud" as StorageMode }))}
-              className={`flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-all ${
-              storageMode === "cloud" ?
-              "border-primary bg-primary/5 shadow-sm" :
-              "border-border hover:border-muted-foreground/30"}`
-              }>
-              
-              <Cloud className={`h-6 w-6 ${storageMode === "cloud" ? "text-primary" : "text-muted-foreground"}`} />
-              <span className={`text-sm font-medium ${storageMode === "cloud" ? "text-primary" : "text-foreground"}`}>
-                云端存储
-              </span>
-              <span className="text-xs text-muted-foreground text-center">
-                通过 Supabase 同步到云端
-              </span>
-            </button>
-          </div>
+          <Card>
+            <CardContent className="pt-6 space-y-4">
+              <div>
+                <Label className="text-sm">本地存储路径</Label>
+                <div className="flex gap-2 mt-1">
+                  <Input
+                    value={config.localPath || defaultPath || ""}
+                    onChange={(e) => setConfig((p) => ({ ...p, localPath: e.target.value }))}
+                    placeholder={defaultPath || "选择或输入存储文件夹路径"}
+                    className="font-mono text-sm flex-1"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      if (window.electronAPI?.storage) {
+                        const folder = await window.electronAPI.storage.selectFolder();
+                        if (folder) setConfig((p) => ({ ...p, localPath: folder }));
+                      }
+                    }}>
+                    <FolderOpen className="h-4 w-4 mr-1" />
+                    选择
+                  </Button>
+                  {(config.localPath || defaultPath) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => window.electronAPI?.storage?.openFolder(config.localPath || defaultPath)}>
+                      打开
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  默认：应用文件夹下的 files 文件夹
+                  {defaultPath && !config.localPath && `（${defaultPath}）`}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
-        {/* Supabase 配置 - 仅在云端模式下显示 */}
-        {storageMode === "cloud" &&
-        <div className="space-y-4">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">数据库配置</CardTitle>
-                <CardDescription>连接你的 Supabase 项目以存储项目数据</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {supabaseFields.map((f) => {
-                const isSensitive = SENSITIVE_KEYS.includes(f.key as keyof ApiConfig);
-                const hasValue = !!config[f.key as keyof ApiConfig];
-                const isEditing = editingField === f.key;
-                return (
-                  <div key={f.key}>
-                      <Label className="text-sm">{f.label}</Label>
-                      <div className="relative mt-1">
-                        <Input
-                        type="password"
-                        value={isEditing || !isSensitive ? String(config[f.key as keyof ApiConfig] || "") : hasValue ? "••••••••" : ""}
-                        onChange={(e) => setConfig((p) => ({ ...p, [f.key]: e.target.value }))}
-                        onFocus={() => {if (isSensitive) {setEditingField(f.key);setConfig((p) => ({ ...p, [f.key]: "" }));}}}
-                        onBlur={() => setEditingField(null)}
-                        placeholder={hasValue && isSensitive ? "已配置，点击可重新输入" : f.placeholder}
-                        className="font-mono text-sm"
-                        autoComplete="off"
-                        onCopy={(e) => e.preventDefault()}
-                        onCut={(e) => e.preventDefault()}
-                        onDrag={(e) => e.preventDefault()} />
-                      
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">{f.desc}</p>
-                    </div>);
-
-              })}
-                
-                <div className="flex gap-2 items-center">
-                  <Button
-                  variant="outline"
-                  onClick={handleTestSupabase}
-                  disabled={testing || !config.supabaseUrl || !config.supabaseKey}>
-                  
-                    {testing ? "测试中..." : "测试连接"}
-                  </Button>
-                  {testResult &&
-                <span className={`text-sm ${testResult.success ? 'text-green-500' : 'text-red-500'}`}>
-                      {testResult.message}
-                    </span>
-                }
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        }
-
-        {/* 直连模式 */}
+        {/* 网络模式选择 */}
         <div className="space-y-4">
           <h2 className="text-sm font-medium flex items-center gap-2">
             <Globe className="h-4 w-4" />
             网络模式
           </h2>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                  <Label className="text-sm font-medium">直连模式</Label>
-                  <p className="text-xs text-muted-foreground">
-                    绕过 Edge Function 代理，从浏览器直接调用 API。适用于端点为 HTTPS 且支持 CORS 的情况，或使用内网 HTTP 端点时。
-                  </p>
-                </div>
-                <Switch
-                  checked={config.directMode ?? false}
-                  onCheckedChange={(checked) => setConfig((p) => ({ ...p, directMode: checked }))} />
-                
-              </div>
-              {config.directMode &&
-              <div className="mt-3 p-3 rounded-md bg-yellow-500/10 border border-yellow-500/30">
-                  <p className="text-xs text-yellow-600 dark:text-yellow-400">
-                    ⚠️ 直连模式下，浏览器直接调用 API 端点。请确保端点支持 CORS 且网络可达。HTTP 端点仅在本地开发时可用（HTTPS 页面会阻止混合内容）。
-                  </p>
-                </div>
-              }
-            </CardContent>
-          </Card>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setConfig((p) => ({ ...p, proxyMode: "supabase" as ProxyMode }))}
+              className={`flex flex-col items-center gap-2 rounded-lg border-2 p-3 transition-all ${
+              config.proxyMode === "supabase" ?
+              "border-primary bg-primary/5 shadow-sm" :
+              "border-border hover:border-muted-foreground/30"}`
+              }>
+              <Server className={`h-5 w-5 ${config.proxyMode === "supabase" ? "text-primary" : "text-muted-foreground"}`} />
+              <span className={`text-xs font-medium ${config.proxyMode === "supabase" ? "text-primary" : "text-foreground"}`}>
+                Supabase
+              </span>
+              <span className="text-[10px] text-muted-foreground text-center">
+                Edge Function 代理
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfig((p) => ({ ...p, proxyMode: "fc" as ProxyMode }))}
+              className={`flex flex-col items-center gap-2 rounded-lg border-2 p-3 transition-all ${
+              config.proxyMode === "fc" ?
+              "border-primary bg-primary/5 shadow-sm" :
+              "border-border hover:border-muted-foreground/30"}`
+              }>
+              <Server className={`h-5 w-5 ${config.proxyMode === "fc" ? "text-primary" : "text-muted-foreground"}`} />
+              <span className={`text-xs font-medium ${config.proxyMode === "fc" ? "text-primary" : "text-foreground"}`}>
+                阿里云 FC
+              </span>
+              <span className="text-[10px] text-muted-foreground text-center">
+                轻量代理
+              </span>
+            </button>
+          </div>
+
         </div>
 
-        {/* API 端点配置 */}
+        {/* API 端点配置 - 仅在非 FC 模式下显示 */}
+        {config.proxyMode !== "fc" && (
         <div className="space-y-4">
           <h2 className="text-sm font-medium flex items-center gap-2">
             <Globe className="h-4 w-4" />
@@ -418,8 +350,8 @@ const Settings = () => {
                   onClick={() => setConfig((p) => ({
                     ...p,
                     zhanhuEndpoint: DEFAULT_CONFIG.zhanhuEndpoint,
-                    seedanceEndpoint: DEFAULT_CONFIG.seedanceEndpoint,
-                    viduEndpoint: DEFAULT_CONFIG.viduEndpoint
+                    jimengEndpoint: DEFAULT_CONFIG.jimengEndpoint,
+                    autoJimengEndpoint: DEFAULT_CONFIG.autoJimengEndpoint,
                   }))}>
                   
                   <RotateCcw className="h-3.5 w-3.5 mr-1" />
@@ -431,9 +363,10 @@ const Settings = () => {
             <CardContent className="space-y-4">
               {[
               { name: "gemini", label: "Google API 端点", configKey: "zhanhuEndpoint" as const, apiKeyField: "zhanhuKey" as const, placeholder: "http://202.90.21.53:13003/v1beta", hint: "只需填写 Base URL，路径会自动拼接" },
-              { name: "seedance", label: "即梦 API 端点", configKey: "seedanceEndpoint" as const, apiKeyField: "seedance" as const, placeholder: "http://202.90.21.53:13003/v1", hint: "只需填写 Base URL，如 {base}/videos 会自动拼接" },
+              { name: "jimeng", label: "即梦 API 端点", configKey: "jimengEndpoint" as const, apiKeyField: "jimeng" as const, placeholder: "http://202.90.21.53:13003/v1", hint: "只需填写 Base URL，如 {base}/videos 会自动拼接" },
               { name: "vidu", label: "Vidu API 端点", configKey: "viduEndpoint" as const, apiKeyField: "viduKey" as const, placeholder: "https://api.vidu.cn/ent/v2", hint: "只需填写 Base URL，路径会自动拼接" },
-              { name: "kling", label: "可灵 API 端点", configKey: "klingEndpoint" as const, apiKeyField: "klingKey" as const, placeholder: "https://api.klingai.com", hint: "只需填写 Base URL，路径会自动拼接" }].
+              { name: "kling", label: "可灵 API 端点", configKey: "klingEndpoint" as const, apiKeyField: "klingKey" as const, placeholder: "https://api.klingai.com", hint: "只需填写 Base URL，路径会自动拼接" },
+              { name: "autoJimeng", label: "即梦逆向自动化端点", configKey: "autoJimengEndpoint" as const, apiKeyField: "" as const, placeholder: "http://localhost:8000", hint: "auto_jimeng Python 服务的地址，需先启动服务" }].
               map((ep) => {
                 const isTesting = endpointTesting[ep.name];
                 const result = endpointResults[ep.name];
@@ -478,8 +411,10 @@ const Settings = () => {
             </CardContent>
           </Card>
         </div>
+        )}
 
-        {/* AI API Keys */}
+        {/* AI API 密钥 — FC 模式下完全隐藏（端点与密钥由 FC 环境变量管理） */}
+        {config.proxyMode !== "fc" && (
         <div className="space-y-4">
           <h2 className="text-sm font-medium flex items-center gap-2">
             <Key className="h-4 w-4" />
@@ -509,14 +444,14 @@ const Settings = () => {
                       onCopy={(e) => e.preventDefault()}
                       onCut={(e) => e.preventDefault()}
                       onDrag={(e) => e.preventDefault()} />
-                    
+
                     <p className="text-xs text-muted-foreground mt-1">{f.desc}</p>
                   </div>);
-
               })}
             </CardContent>
           </Card>
         </div>
+        )}
 
         {/* 视频首帧压缩参数 */}
         <div className="space-y-4">
@@ -529,32 +464,30 @@ const Settings = () => {
               <CardTitle className="text-base">压缩参数</CardTitle>
               <CardDescription>控制发送给视频生成 API 的首帧图片质量与大小</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
+            <CardContent className="grid grid-cols-2 gap-x-6 gap-y-3">
+              <div className="min-w-0 space-y-1">
                 <Label className="text-sm">最大分辨率（像素）</Label>
                 <Input
                   type="number"
                   min={256}
                   max={2048}
                   step={64}
-                  value={config.firstFrameMaxDim ?? 720}
-                  onChange={(e) => setConfig((p) => ({ ...p, firstFrameMaxDim: Number(e.target.value) || 720 }))}
-                  className="mt-1 w-40 font-mono text-sm" />
-                
-                <p className="text-xs text-muted-foreground mt-1">图片最长边不超过此值，范围 256–2048</p>
+                  value={config.firstFrameMaxDim ?? 2048}
+                  onChange={(e) => setConfig((p) => ({ ...p, firstFrameMaxDim: Number(e.target.value) || 2048 }))}
+                  className="font-mono text-sm w-full max-w-[200px]" />
+                <p className="text-xs text-muted-foreground">图片最长边不超过此值，范围 256–2048</p>
               </div>
-              <div>
+              <div className="min-w-0 space-y-1">
                 <Label className="text-sm">最大文件大小（KB）</Label>
                 <Input
                   type="number"
                   min={100}
                   max={5000}
                   step={100}
-                  value={config.firstFrameMaxKB ?? 800}
-                  onChange={(e) => setConfig((p) => ({ ...p, firstFrameMaxKB: Number(e.target.value) || 800 }))}
-                  className="mt-1 w-40 font-mono text-sm" />
-                
-                <p className="text-xs text-muted-foreground mt-1">压缩后图片不超过此大小，范围 100–5000 KB</p>
+                  value={config.firstFrameMaxKB ?? 1024}
+                  onChange={(e) => setConfig((p) => ({ ...p, firstFrameMaxKB: Number(e.target.value) || 1024 }))}
+                  className="font-mono text-sm w-full max-w-[200px]" />
+                <p className="text-xs text-muted-foreground">压缩后图片不超过此大小，范围 100–5000 KB</p>
               </div>
             </CardContent>
           </Card>
@@ -565,8 +498,8 @@ const Settings = () => {
               <CardTitle className="text-base">网络重试</CardTitle>
               <CardDescription>代理请求失败时的自动重试策略</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
+            <CardContent className="grid grid-cols-2 gap-x-6 gap-y-3">
+              <div className="min-w-0 space-y-1">
                 <Label className="text-sm">最大重试次数</Label>
                 <Input
                   type="number"
@@ -575,11 +508,10 @@ const Settings = () => {
                   step={1}
                   value={config.retryCount ?? 2}
                   onChange={(e) => setConfig((p) => ({ ...p, retryCount: Number(e.target.value) || 0 }))}
-                  className="mt-1 w-40 font-mono text-sm" />
-                
-                <p className="text-xs text-muted-foreground mt-1">0 表示不重试，最大 5 次</p>
+                  className="font-mono text-sm w-full max-w-[200px]" />
+                <p className="text-xs text-muted-foreground">0 表示不重试，最大 5 次</p>
               </div>
-              <div>
+              <div className="min-w-0 space-y-1">
                 <Label className="text-sm">重试间隔（毫秒）</Label>
                 <Input
                   type="number"
@@ -588,9 +520,8 @@ const Settings = () => {
                   step={500}
                   value={config.retryDelayMs ?? 3000}
                   onChange={(e) => setConfig((p) => ({ ...p, retryDelayMs: Number(e.target.value) || 3000 }))}
-                  className="mt-1 w-40 font-mono text-sm" />
-                
-                <p className="text-xs text-muted-foreground mt-1">每次重试前等待的时间，范围 500–30000ms</p>
+                  className="font-mono text-sm w-full max-w-[200px]" />
+                <p className="text-xs text-muted-foreground">每次重试前等待的时间，范围 500–30000ms</p>
               </div>
             </CardContent>
           </Card>
@@ -601,11 +532,9 @@ const Settings = () => {
           <CardContent className="pt-6">
             <h3 className="font-medium mb-2">配置说明</h3>
             <ul className="text-sm text-muted-foreground space-y-1">
-              <li>• <strong>本地存储</strong>: 数据保存在浏览器 localStorage 中，无需额外配置</li>
-              <li>• <strong>云端存储</strong>: 通过 Supabase 将项目数据同步到云端，支持多设备访问</li>
-              
-              <li>• <strong>站狐 API (Seedance)</strong>: 用于视频生成</li>
-              
+              <li>• <strong>本地存储</strong>: 项目文件保存在本地指定路径，默认位于应用文件夹的 files 文件夹</li>
+              <li>• <strong>Supabase</strong>: 通过 Edge Function 代理转发 API 请求</li>
+              <li>• <strong>阿里云 FC</strong>: 通过函数计算代理转发 API 请求，适合生产环境部署</li>
             </ul>
           </CardContent>
         </Card>

@@ -1,22 +1,48 @@
 /**
- * 本地 Gemini API 客户端 - 通过轻量级代理 Edge Function 调用外部 API
- * 代理仅做请求转发，所有提示词逻辑在前端完成
+ * 本地 Gemini API 客户端
+ *
+ * 支持三种网络模式：
+ *   1. supabase: 通过 Supabase Edge Function 代理（密钥在本地）
+ *   2. fc: 通过阿里云 FC API 网关（密钥在 FC 环境变量）
+ *   3. direct: 直连（浏览器直接调用）
+ *
+ * 业务逻辑在本地，API 密钥通过 FC 获取或本地存储
  */
 import { getApiConfig } from "@/pages/Settings";
 import { supabase } from "@/integrations/supabase/client";
 
 export const DEFAULT_GEMINI_BASE_URL = "http://202.90.21.53:13003/v1beta";
-export const DEFAULT_SEEDANCE_BASE_URL = "http://202.90.21.53:13003/v1";
+export const DEFAULT_JIMENG_BASE_URL = "http://202.90.21.53:13003/v1";
 export const DEFAULT_VIDU_BASE_URL = "https://api.vidu.cn/ent/v2";
 
-const PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api-proxy`;
+const SUPABASE_PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api-proxy`;
+
+/** 获取当前激活的代理 URL */
+function getProxyUrl(): string {
+  const config = getApiConfig();
+  if (config.proxyMode === "fc" && config.fcProxyUrl) {
+    return config.fcProxyUrl.replace(/\/$/, "") + "/proxy";
+  }
+  return SUPABASE_PROXY_URL;
+}
+
+// ===== 服务名称映射 =====
+export type AiService = "gemini" | "jimeng" | "vidu" | "kling";
+
+/** 从 URL 推断服务名称 */
+export function inferServiceFromUrl(url: string): AiService | null {
+  if (url.includes("generativelanguage.googleapis.com")) return "gemini";
+  if (url.includes("ark.cn-beijing.volces.com")) return "jimeng";
+  if (url.includes("vidu")) return "vidu";
+  if (url.includes("klingai.com")) return "kling";
+  return null;
+}
 
 // ===== Proxied / Direct Fetch =====
 
 /**
- * Smart fetch: uses direct fetch or proxy Edge Function based on directMode setting.
- * When direct mode is enabled but the request fails (e.g. mixed content, CORS),
- * automatically falls back to the proxy.
+ * Smart fetch: 根据配置选择直连、Supabase代理或FC代理
+ * FC 模式下自动带上 service 参数，让 FC 注入对应的 API 密钥
  */
 export async function proxiedFetch(
   targetUrl: string,
@@ -40,46 +66,79 @@ export async function proxiedFetch(
       });
       return resp;
     } catch (directErr) {
-      // Direct mode failed (mixed content, network error, CORS) — fall back to proxy
       console.warn("[proxiedFetch] 直连失败，自动回退到代理模式:", (directErr as Error).message);
     }
   }
 
-  // Proxy mode: route through Edge Function with retry on transient network errors
+  // 代理模式（Supabase Edge Function 或 阿里云 FC）
+  const proxyUrl = getProxyUrl();
+  const proxyType = config.proxyMode === "fc" ? "FC" : "Supabase";
+  const isFcMode = config.proxyMode === "fc";
+
+  // 推断服务名称（用于 FC 自动注入密钥）
+  const service = inferServiceFromUrl(targetUrl);
+
   const MAX_RETRIES = config.retryCount ?? 2;
   const RETRY_DELAY_MS = config.retryDelayMs ?? 3000;
 
   const doProxyFetch = () => {
-    const proxyHeaders: Record<string, string> = {
-      "Content-Type": "application/json",
-      "x-target-url": targetUrl,
-      "x-target-headers": JSON.stringify(targetHeaders),
-    };
-    return fetch(PROXY_URL, {
-      method: body ? "POST" : "GET",
-      headers: proxyHeaders,
-      body,
-      signal,
-    });
+    if (isFcMode && config.fcProxyUrl) {
+      // FC API 网关模式：只传 service + path + body
+      // 从 targetUrl 提取 path（FC 内部配置端点）
+      let apiPath = targetUrl;
+      try {
+        const urlObj = new URL(targetUrl);
+        apiPath = urlObj.pathname + urlObj.search;
+      } catch {
+        const match = targetUrl.match(/https?:\/\/[^\/]+(\/.*)/);
+        if (match) apiPath = match[1];
+      }
+
+      return fetch(proxyUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(service ? { "x-service": service } : {}),
+        },
+        body: JSON.stringify({
+          service,
+          path: apiPath,
+          body: body ? JSON.parse(body) : undefined,
+        }),
+        signal,
+      });
+    } else {
+      // Supabase Edge Function 代理
+      const proxyHeaders: Record<string, string> = {
+        "Content-Type": "application/json",
+        "x-target-url": targetUrl,
+        "x-target-headers": JSON.stringify(targetHeaders),
+      };
+      return fetch(proxyUrl, {
+        method: body ? "POST" : "GET",
+        headers: proxyHeaders,
+        body,
+        signal,
+      });
+    }
   };
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
+    try
+ {
       if (signal?.aborted) throw new Error("请求已取消");
       const resp = await doProxyFetch();
-      // Retry on 502 (proxy connection failure) but not other errors
       if (resp.status === 502 && attempt < MAX_RETRIES) {
         const errBody = await resp.text().catch(() => "");
-        console.warn(`[proxiedFetch] 代理返回502，第${attempt + 1}次重试 (${RETRY_DELAY_MS}ms后)...`, errBody.slice(0, 150));
+        console.warn(`[proxiedFetch] ${proxyType}代理返回502，第${attempt + 1}次重试 (${RETRY_DELAY_MS}ms后)...`, errBody.slice(0, 150));
         await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
         continue;
       }
       return resp;
     } catch (fetchErr) {
-      // Network-level failure (Failed to fetch, timeout, etc.)
       if (signal?.aborted) throw fetchErr;
       if (attempt < MAX_RETRIES) {
-        console.warn(`[proxiedFetch] 网络错误，第${attempt + 1}次重试 (${RETRY_DELAY_MS}ms后):`, (fetchErr as Error).message);
+        console.warn(`[proxiedFetch] 网络错误(${proxyType}代理)，第${attempt + 1}次重试 (${RETRY_DELAY_MS}ms后):`, (fetchErr as Error).message);
         await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
         continue;
       }
@@ -87,7 +146,6 @@ export async function proxiedFetch(
     }
   }
 
-  // Should not reach here, but TypeScript needs it
   return doProxyFetch();
 }
 
@@ -119,11 +177,11 @@ export function getGeminiEndpoint() {
   };
 }
 
-export function getSeedanceConfig() {
+export function getJimengConfig() {
   const config = getApiConfig();
   return {
-    apiKey: config.seedance,
-    endpoint: config.seedanceEndpoint || DEFAULT_SEEDANCE_BASE_URL,
+    apiKey: config.jimeng,
+    endpoint: config.jimengEndpoint || DEFAULT_JIMENG_BASE_URL,
   };
 }
 
@@ -143,6 +201,14 @@ export function getKlingConfig() {
   };
 }
 
+export function getSeedanceConfig() {
+  const config = getApiConfig();
+  return {
+    apiKey: config.zhanhuKey,
+    endpoint: config.zhanhuEndpoint || DEFAULT_GEMINI_BASE_URL,
+  };
+}
+
 // ===== Core API Call =====
 
 export async function callGemini(
@@ -152,7 +218,10 @@ export async function callGemini(
   signal?: AbortSignal,
 ): Promise<any> {
   const { apiKey, baseUrl } = getGeminiEndpoint();
-  if (!apiKey) throw new Error("请先在设置中配置 Gemini API Key");
+  const config = getApiConfig();
+
+  // FC 模式下不检查本地 key（由 FC 注入）
+  if (config.proxyMode !== "fc" && !apiKey) throw new Error("请先在设置中配置 Gemini API Key");
 
   const { url, headers } = buildGeminiRequest(baseUrl, `/models/${model}:generateContent`, apiKey);
   const body: any = { contents };
@@ -167,11 +236,59 @@ export async function callGemini(
   const response = await proxiedFetch(url, headers, jsonBody, signal);
 
   if (response.ok) {
-    return response.json();
+    const data = await response.json();
+    // 部分网关仍返回 200 但 body 内含 error
+    const errMsg = data?.error?.message ?? (typeof data?.error === "string" ? data.error : null);
+    if (errMsg) {
+      throw new Error(String(errMsg));
+    }
+    return data;
   }
 
   const text = await response.text().catch(() => "");
   throw new Error(`模型 ${model} 调用失败 (${response.status}): ${text.slice(0, 200)}`);
+}
+
+/** 当 extractText 为空时，从原始响应推断原因（安全拦截、仅 thought 等） */
+export function explainGeminiNoText(data: unknown): string | null {
+  const d = data as Record<string, unknown> | null;
+  if (!d || typeof d !== "object") return null;
+
+  const err = d.error as { message?: string } | string | undefined;
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object" && err.message) return String(err.message);
+
+  const pf = d.promptFeedback as { blockReason?: string; blockReasonMessage?: string } | undefined;
+  if (pf?.blockReason) {
+    const extra = pf.blockReasonMessage ? `（${pf.blockReasonMessage}）` : "";
+    return `请求未生成正文：内容审核 ${pf.blockReason}${extra}`;
+  }
+
+  const cand = (d.candidates as unknown[] | undefined)?.[0] as Record<string, unknown> | undefined;
+  if (!cand) {
+    return "模型未返回候选结果，可能被安全策略拦截或网关截断了响应。";
+  }
+
+  const fr = cand.finishReason as string | undefined;
+  if (fr && fr !== "STOP" && fr !== "FINISH_REASON_STOP") {
+    const frMap: Record<string, string> = {
+      SAFETY: "因安全策略未输出文本，请换一张参考图或简化画面内容后重试。",
+      RECITATION: "因模型版权引用限制未输出文本。",
+      MAX_TOKENS: "输出被长度限制截断，请重试。",
+      OTHER: "模型提前结束（OTHER），请稍后重试。",
+    };
+    return frMap[fr] ?? `模型结束原因：${fr}`;
+  }
+
+  const parts = (cand.content as { parts?: unknown[] } | undefined)?.parts;
+  if (Array.isArray(parts) && parts.length > 0) {
+    const onlyThought = parts.every((p: unknown) => (p as { thought?: boolean }).thought === true);
+    if (onlyThought) {
+      return "模型只返回了内部推理，没有可见文本。请稍后重试，或检查网关是否支持当前模型。";
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -187,7 +304,10 @@ export async function callGeminiStream(
   signal?: AbortSignal,
 ): Promise<string> {
   const { apiKey, baseUrl } = getGeminiEndpoint();
-  if (!apiKey) throw new Error("请先在设置中配置 Gemini API Key");
+  const config = getApiConfig();
+
+  // FC 模式下不检查本地 key（由 FC 注入）
+  if (config.proxyMode !== "fc" && !apiKey) throw new Error("请先在设置中配置 Gemini API Key");
 
   const { url, headers } = buildGeminiRequest(
     baseUrl,
@@ -373,7 +493,11 @@ export async function callSeedreamImage(
   options: { model?: string; size?: string; image?: string[]; signal?: AbortSignal } = {},
 ): Promise<{ base64: string; mimeType: string }> {
   const { apiKey, endpoint } = getSeedanceConfig();
-  if (!apiKey) throw new Error("Seedance API Key 未配置，请在设置中配置");
+  const config = getApiConfig();
+
+  // FC 模式下不检查本地 key（由 FC 注入）
+  const needsLocalKey = config.proxyMode !== "fc";
+  if (needsLocalKey && !apiKey) throw new Error("Seedance API Key 未配置，请在设置中配置");
 
   const baseUrl = endpoint.replace("/v1beta", "").replace(/\/v1\/?$/, "");
   const payload: any = {
