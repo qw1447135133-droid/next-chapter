@@ -1,14 +1,64 @@
 /**
- * 本地函数调用 - 直接调用 AI API，不经过 Supabase Edge Functions
+ * 函数调用封装
+ * 直接调用各服务 API，使用设置中配置的 API Key
  */
 import { getApiConfig } from "@/pages/Settings";
+import { getNetworkRetrySettings } from "@/lib/network-retry-settings";
 import {
-  callGemini, callGeminiStream, extractText, extractImageBase64, getInlineData, fetchImageAsBase64,
-  uploadImageToStorage, callSeedreamImage, rewriteToFirstFrame, proxiedFetch,
-  CHAR_STYLE_MAP, SCENE_STYLE_MAP, STORYBOARD_STYLE_MAP,
-  getSeedanceConfig, getViduConfig, getKlingConfig,
+  callGemini,
+  callGeminiStream,
+  extractText,
+  extractImageBase64,
+  getInlineData,
+  fetchImageAsBase64,
+  uploadImageToStorage,
+  callSeedreamImage,
+  rewriteToFirstFrame,
+  directFetch,
+  resolveDirectApiKey,
+  CHAR_STYLE_MAP,
+  SCENE_STYLE_MAP,
+  STORYBOARD_STYLE_MAP,
+  DEFAULT_GEMINI_BASE_URL,
 } from "@/lib/gemini-client";
 import { compressImage } from "@/lib/image-compress";
+
+const KLINE_BASE_URL = "https://api.klingai.com";
+const VIDU_BASE_URL = "https://api.vidu.cn/ent/v2";
+
+/** 剧本识别（阶段一）单次请求上限 */
+const SCRIPT_EXTRACT_TIMEOUT_MS = 20 * 60_000;
+/** 剧本拆解（阶段二）每块 / 整本单次请求上限 */
+const SCRIPT_DECOMPOSE_TIMEOUT_MS = 20 * 60_000;
+
+function trimApiBase(raw: string | undefined, fallback: string): string {
+  const t = (raw || "").trim().replace(/\/$/, "");
+  return t || fallback;
+}
+
+function getKlingBaseUrl(): string {
+  return trimApiBase(getApiConfig().klingEndpoint, KLINE_BASE_URL);
+}
+
+function getViduBaseUrl(): string {
+  return trimApiBase(getApiConfig().viduEndpoint, VIDU_BASE_URL);
+}
+
+function getSeedanceBaseUrl(): string {
+  const c = getApiConfig();
+  const raw = (c.jimengEndpoint || c.geminiEndpoint || "").trim();
+  return raw.replace(/\/$/, "") || DEFAULT_GEMINI_BASE_URL;
+}
+
+function videoHttp(
+  url: string,
+  headers: Record<string, string>,
+  body?: string,
+  signal?: AbortSignal,
+  service: "kling" | "vidu" | "jimeng" = "jimeng",
+) {
+  return directFetch(url, headers, body, signal, service);
+}
 
 // ===== PROMPTS =====
 
@@ -109,22 +159,30 @@ const DECOMPOSE_PROMPT_BASE = `你是专业电影分镜师。将剧本拆解为A
 
 直接输出JSON，无思考过程。`;
 
-const PACE_CONFIG: Record<string, {
-  shots: string;
-  chars1: [number, number]; // 1 dialogue: [min, max]
-  chars2: [number, number]; // 2 dialogues: per-line [min, max]
-  chars3: [number, number]; // 3 dialogues: per-line [min, max]
-}> = {
-  slow:   { shots: "2~4", chars1: [15, 22], chars2: [11, 18], chars3: [7, 14] },
+const PACE_CONFIG: Record<
+  string,
+  {
+    shots: string;
+    chars1: [number, number]; // 1 dialogue: [min, max]
+    chars2: [number, number]; // 2 dialogues: per-line [min, max]
+    chars3: [number, number]; // 3 dialogues: per-line [min, max]
+  }
+> = {
+  slow: { shots: "2~4", chars1: [15, 22], chars2: [11, 18], chars3: [7, 14] },
   medium: { shots: "3~5", chars1: [15, 27], chars2: [11, 22], chars3: [7, 17] },
-  fast:   { shots: "4~6", chars1: [15, 32], chars2: [11, 26], chars3: [7, 20] },
+  fast: { shots: "4~6", chars1: [15, 32], chars2: [11, 26], chars3: [7, 20] },
 };
 
-function buildDecomposePrompt(pace?: string, segmentsPerEpisode?: number | null): string {
+function buildDecomposePrompt(
+  pace?: string,
+  segmentsPerEpisode?: number | null,
+): string {
   const cfg = PACE_CONFIG[pace || "medium"] || PACE_CONFIG.medium;
   const segments = segmentsPerEpisode || 5;
-  return DECOMPOSE_PROMPT_BASE
-    .replace(/\{SEGMENTS_PER_EPISODE\}/g, String(segments))
+  return DECOMPOSE_PROMPT_BASE.replace(
+    /\{SEGMENTS_PER_EPISODE\}/g,
+    String(segments),
+  )
     .replace(/\{SHOTS_PER_SEGMENT\}/g, cfg.shots)
     .replace(/\{CHARS_1_DIAL_MIN\}/g, String(cfg.chars1[0]))
     .replace(/\{CHARS_1_DIAL_MAX\}/g, String(cfg.chars1[1]))
@@ -227,33 +285,42 @@ export async function retryDecomposeChunk(
   costumeContext: string,
   model: string,
   prompt: string,
-  options?: { chunkSegments?: number; isRealEpisodes?: boolean; videoPace?: string },
+  options?: {
+    chunkSegments?: number;
+    isRealEpisodes?: boolean;
+    videoPace?: string;
+  },
 ): Promise<any[]> {
   const ep = episodes[chunkIndex];
   if (!ep) throw new Error(`无效的分块索引: ${chunkIndex}`);
-  
+
   // Use chunk-specific prompt if segment count is provided
   const actualPrompt = options?.chunkSegments
     ? buildDecomposePrompt(options.videoPace, options.chunkSegments)
     : prompt;
-  
-  const epPrefix = options?.isRealEpisodes && episodes.length > 1 ? `${chunkIndex + 1}-` : "";
+
+  const epPrefix =
+    options?.isRealEpisodes && episodes.length > 1 ? `${chunkIndex + 1}-` : "";
   const chunkLabel = options?.isRealEpisodes
     ? `以下是第${chunkIndex + 1}集剧本`
-    : `以下是剧本的第${chunkIndex + 1}部分（共${episodes.length}部分，属于同一集，本部分需要恰好${options?.chunkSegments || '?'}个片段）`;
+    : `以下是剧本的第${chunkIndex + 1}部分（共${episodes.length}部分，属于同一集，本部分需要恰好${options?.chunkSegments || "?"}个片段）`;
   const userText = `${actualPrompt}\n\n---\n\n${chunkLabel}：\n\n${ep}${costumeContext}`;
-  const chunkSignal = AbortSignal.timeout(5 * 60_000);
-  const data = await callGemini(model,
+  const chunkSignal = AbortSignal.timeout(SCRIPT_DECOMPOSE_TIMEOUT_MS);
+  const data = await callGemini(
+    model,
     [{ role: "user", parts: [{ text: userText }] }],
-    { temperature: 0.3, maxOutputTokens: 65536 },
+    { temperature: 0.3, maxOutputTokens: 16384 },
     chunkSignal,
   );
   const resultText = extractText(data);
-  if (!resultText) throw new Error(`第${chunkIndex + 1}${options?.isRealEpisodes ? '集' : '段'}重试失败：AI 未返回内容`);
+  if (!resultText)
+    throw new Error(
+      `第${chunkIndex + 1}${options?.isRealEpisodes ? "集" : "段"}重试失败：AI 未返回内容`,
+    );
   const epScenes = parseDecomposeResult(resultText);
   for (const scene of epScenes) {
     if (epPrefix) {
-      scene.segmentLabel = `${epPrefix}${scene.segmentLabel || ''}`;
+      scene.segmentLabel = `${epPrefix}${scene.segmentLabel || ""}`;
     }
   }
   return epScenes;
@@ -266,18 +333,37 @@ export function buildFetchBodyWithKeys(body: Record<string, unknown>) {
 
 // ===== ROUTER =====
 
-async function routeFunction(functionName: string, body: any, options?: InvokeOptions): Promise<any> {
+async function routeFunction(
+  functionName: string,
+  body: any,
+  options?: InvokeOptions,
+): Promise<any> {
   switch (functionName) {
-    case "extract-characters-scenes": return localExtract(body, options?.onStreamText);
-    case "script-decompose": return localDecompose(body, options?.onProgress, options?.abortSignal, options?.onStreamText);
-    case "generate-character": return localGenerateCharacter(body);
-    case "generate-scene": return localGenerateScene(body);
-    case "generate-storyboard": return localGenerateStoryboard(body);
-    case "generate-video": return localGenerateVideo(body);
-    case "enhance-video-prompt": return localEnhancePrompt(body);
-    case "generate-character-description": return localCharDesc(body, options?.onStreamText);
-    case "generate-scene-description": return localSceneDesc(body, options?.onStreamText);
-    default: throw new Error(`未知函数: ${functionName}`);
+    case "extract-characters-scenes":
+      return localExtract(body, options?.onStreamText);
+    case "script-decompose":
+      return localDecompose(
+        body,
+        options?.onProgress,
+        options?.abortSignal,
+        options?.onStreamText,
+      );
+    case "generate-character":
+      return localGenerateCharacter(body);
+    case "generate-scene":
+      return localGenerateScene(body);
+    case "generate-storyboard":
+      return localGenerateStoryboard(body);
+    case "generate-video":
+      return localGenerateVideo(body);
+    case "enhance-video-prompt":
+      return localEnhancePrompt(body);
+    case "generate-character-description":
+      return localCharDesc(body, options?.onStreamText);
+    case "generate-scene-description":
+      return localSceneDesc(body, options?.onStreamText);
+    default:
+      throw new Error(`未知函数: ${functionName}`);
   }
 }
 
@@ -315,10 +401,15 @@ async function localExtract(body: any, onStreamText?: (text: string) => void) {
   for (const n of confirmedNames) hintNames.delete(n);
 
   // Filter out obvious locations from hints
-  const locationSuffixes = /(办公室|实验室|会议室|休息室|控制室|大厅|走廊|基地|总部|废墟|遗迹|空间站|飞船|星球|广场|码头|港口|机场|车站|公寓|医院|学校|教堂|监狱|工厂|仓库|酒吧|餐厅|咖啡馆|修车厂|拍卖[会行]|博物馆|图书馆|甲板|沙滩|海滩|丛林|悬崖|深潭|岩壁|巷道?|街道|特写|游艇|海中|海上)[\s\-/]*[\u4e00-\u9fff]*$/;
+  const locationSuffixes =
+    /(办公室|实验室|会议室|休息室|控制室|大厅|走廊|基地|总部|废墟|遗迹|空间站|飞船|星球|广场|码头|港口|机场|车站|公寓|医院|学校|教堂|监狱|工厂|仓库|酒吧|餐厅|咖啡馆|修车厂|拍卖[会行]|博物馆|图书馆|甲板|沙滩|海滩|丛林|悬崖|深潭|岩壁|巷道?|街道|特写|游艇|海中|海上)[\s\-/]*[\u4e00-\u9fff]*$/;
   const locationPrefixes = /^(第.+集|EP\s*\d|场景|分镜|片段)/i;
   for (const name of hintNames) {
-    if (locationSuffixes.test(name) || locationPrefixes.test(name) || name.includes('/')) {
+    if (
+      locationSuffixes.test(name) ||
+      locationPrefixes.test(name) ||
+      name.includes("/")
+    ) {
       hintNames.delete(name);
     }
   }
@@ -329,17 +420,18 @@ async function localExtract(body: any, onStreamText?: (text: string) => void) {
   // Build pre-scan hints
   let preScanHint = "";
   if (allHintNames.size > 0) {
-    preScanHint = `\n\n---\n\n【系统预扫描提示】以下名称在剧本中被检测到可能是角色名，请核实后将真正的角色包含在输出中（注意区分角色与场景/物品）：\n${[...allHintNames].join('、')}\n`;
+    preScanHint = `\n\n---\n\n【系统预扫描提示】以下名称在剧本中被检测到可能是角色名，请核实后将真正的角色包含在输出中（注意区分角色与场景/物品）：\n${[...allHintNames].join("、")}\n`;
   }
 
   const promptText = `${EXTRACTION_PROMPT}\n\n---\n\n以下是用户的剧本：\n\n${script}${preScanHint}`;
 
-  const extractSignal = AbortSignal.timeout(3 * 60_000); // 3 min timeout for extraction
-  
+  const extractSignal = AbortSignal.timeout(SCRIPT_EXTRACT_TIMEOUT_MS);
+
   let textContent: string;
   if (onStreamText) {
     // Use streaming for real-time feedback
-    const finalText = await callGeminiStream(model,
+    const finalText = await callGeminiStream(
+      model,
       [{ role: "user", parts: [{ text: promptText }] }],
       (accumulated) => onStreamText(accumulated),
       { temperature: 0.1, maxOutputTokens: 16384 },
@@ -347,9 +439,14 @@ async function localExtract(body: any, onStreamText?: (text: string) => void) {
     );
     textContent = finalText;
   } else {
-    const data = await callGemini(model,
+    const data = await callGemini(
+      model,
       [{ role: "user", parts: [{ text: promptText }] }],
-      { temperature: 0.1, maxOutputTokens: 16384, responseMimeType: "application/json" },
+      {
+        temperature: 0.1,
+        maxOutputTokens: 16384,
+        responseMimeType: "application/json",
+      },
       extractSignal,
     );
     textContent = extractText(data);
@@ -359,7 +456,9 @@ async function localExtract(body: any, onStreamText?: (text: string) => void) {
 
   let cleanedText = textContent;
   if (cleanedText.startsWith("```")) {
-    cleanedText = cleanedText.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+    cleanedText = cleanedText
+      .replace(/^```(?:json)?\s*\n?/, "")
+      .replace(/\n?```\s*$/, "");
   }
 
   let parsed;
@@ -372,58 +471,80 @@ async function localExtract(body: any, onStreamText?: (text: string) => void) {
   }
 
   // === Post-filter: remove scene/location entries misclassified as characters ===
-  const sceneNames = new Set((parsed.sceneSettings || []).map((s: any) => s.name?.trim().toLowerCase()));
+  const sceneNames = new Set(
+    (parsed.sceneSettings || []).map((s: any) => s.name?.trim().toLowerCase()),
+  );
   if (parsed.characters) {
     const before = parsed.characters.length;
     parsed.characters = parsed.characters.filter((c: any) => {
       const name = c.name?.trim() || "";
       if (sceneNames.has(name.toLowerCase())) {
-        console.warn(`[localExtract] 过滤掉被误归为角色的场景: "${name}"`);
         return false;
       }
-      const isLikelyLocation = locationSuffixes.test(name) || locationPrefixes.test(name) || name.includes('/');
+      const isLikelyLocation =
+        locationSuffixes.test(name) ||
+        locationPrefixes.test(name) ||
+        name.includes("/");
       if (isLikelyLocation) {
-        console.warn(`[localExtract] 过滤掉疑似场景名的角色: "${name}"`);
         if (!parsed.sceneSettings) parsed.sceneSettings = [];
         parsed.sceneSettings.push({ name, description: c.description || "" });
         return false;
       }
       return true;
     });
-    if (parsed.characters.length < before) {
-      console.log(`[localExtract] 已过滤 ${before - parsed.characters.length} 个被误归为角色的条目`);
-    }
   }
 
   // === Post-verification: only for CONFIRMED names (from · brackets), not dialogue hints ===
-  const extractedNames = new Set((parsed.characters || []).map((c: any) => c.name?.trim()));
-  const missingConfirmed = [...confirmedNames].filter(n => !extractedNames.has(n));
-  
+  const extractedNames = new Set(
+    (parsed.characters || []).map((c: any) => c.name?.trim()),
+  );
+  const missingConfirmed = [...confirmedNames].filter(
+    (n) => !extractedNames.has(n),
+  );
+
   if (missingConfirmed.length > 0) {
-    console.warn(`[localExtract] AI 遗漏了 ${missingConfirmed.length} 个确认角色，正在补充:`, missingConfirmed);
     for (const name of missingConfirmed) {
-      parsed.characters.push({ name, description: `（AI 未提取到该角色的详细描述，请根据剧本手动补充）` });
+      parsed.characters.push({
+        name,
+        description: `（AI 未提取到该角色的详细描述，请根据剧本手动补充）`,
+      });
     }
   }
 
   // Remove any costume data that AI might have returned (we don't want it in this phase)
-  for (const char of (parsed.characters || [])) {
+  for (const char of parsed.characters || []) {
     delete char.costumes;
   }
 
-  return { characters: parsed.characters || [], sceneSettings: parsed.sceneSettings || [] };
+  return {
+    characters: parsed.characters || [],
+    sceneSettings: parsed.sceneSettings || [],
+  };
 }
 
-async function localDecompose(body: any, onProgress?: (partialData: any) => void, abortSignal?: AbortSignal, onStreamText?: (text: string) => void) {
-  const { script, systemPrompt, model: requestedModel, costumeInfo, videoPace, segmentsPerEpisode } = body;
+async function localDecompose(
+  body: any,
+  onProgress?: (partialData: any) => void,
+  abortSignal?: AbortSignal,
+  onStreamText?: (text: string) => void,
+) {
+  const {
+    script,
+    systemPrompt,
+    model: requestedModel,
+    costumeInfo,
+    videoPace,
+    segmentsPerEpisode,
+  } = body;
   if (!script) throw new Error("缺少剧本内容");
 
   const model = requestedModel || "gemini-3.1-pro-preview";
-  
+
   // Build costume context if available
   let costumeContext = "";
   if (costumeInfo && Array.isArray(costumeInfo) && costumeInfo.length > 0) {
-    costumeContext = "\n\n---\n\n以下是阶段一识别到的角色服装变体信息（仅列出有多套服装的角色）：\n\n";
+    costumeContext =
+      "\n\n---\n\n以下是阶段一识别到的角色服装变体信息（仅列出有多套服装的角色）：\n\n";
     for (const char of costumeInfo) {
       costumeContext += `【${char.name}】的服装变体：\n`;
       for (const cos of char.costumes) {
@@ -431,15 +552,17 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
       }
       costumeContext += "\n";
     }
-    costumeContext += "请在每个分镜的 characterCostumes 字段中，为上述角色指定当前穿着的服装label。务必根据剧本上下文精确判断。\n";
+    costumeContext +=
+      "请在每个分镜的 characterCostumes 字段中，为上述角色指定当前穿着的服装label。务必根据剧本上下文精确判断。\n";
   }
 
   // Split by episodes if script is large to reduce per-request payload
   const splitResult = splitScriptByEpisodes(script);
   const episodes = splitResult.chunks;
-  
+
   if (episodes.length > 1) {
-    console.log(`[localDecompose] 检测到 ${episodes.length} ${splitResult.isRealEpisodes ? '集' : '段'}剧本，将分${splitResult.isRealEpisodes ? '集' : '段'}拆解`);
+    const { maxRetries: maxChunkRetries, delayMs: chunkRetryDelayMs } =
+      getNetworkRetrySettings();
     const allScenes: any[] = [];
     const failedChunks: number[] = [];
     let globalSceneNumber = 1;
@@ -454,9 +577,11 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
     } else {
       // Distribute segments proportionally by chunk text length
       const totalChars = episodes.reduce((sum, ep) => sum + ep.length, 0);
-      const rawCounts = episodes.map(ep => (ep.length / totalChars) * totalSegments);
+      const rawCounts = episodes.map(
+        (ep) => (ep.length / totalChars) * totalSegments,
+      );
       // Round while preserving total
-      chunkSegmentCounts = rawCounts.map(c => Math.max(1, Math.round(c)));
+      chunkSegmentCounts = rawCounts.map((c) => Math.max(1, Math.round(c)));
       // Adjust to match exact total
       let diff = totalSegments - chunkSegmentCounts.reduce((a, b) => a + b, 0);
       while (diff !== 0) {
@@ -488,66 +613,111 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
           diff++;
         }
       }
-      console.log(`[localDecompose] 片段分配: 总${totalSegments}个片段，按长度比例分配为`, chunkSegmentCounts);
     }
 
     // Notify frontend of chunk count immediately (include meta for early retry support)
     if (onProgress) {
       onProgress({
-        scenes: allScenes, chunkIndex: -1, totalChunks: episodes.length, status: "init", failedChunks,
-        chunkSegmentCounts, isRealEpisodes: true, originallyEpisodes: splitResult.originallyEpisodes,
+        scenes: allScenes,
+        chunkIndex: -1,
+        totalChunks: episodes.length,
+        status: "init",
+        failedChunks,
+        chunkSegmentCounts,
+        isRealEpisodes: true,
+        originallyEpisodes: splitResult.originallyEpisodes,
         // Early meta so frontend can support retry before full completion
-        episodes, costumeContext, model, prompt: buildDecomposePrompt(videoPace, segmentsPerEpisode), videoPace,
+        episodes,
+        costumeContext,
+        model,
+        prompt: buildDecomposePrompt(videoPace, segmentsPerEpisode),
+        videoPace,
       });
     }
 
     // Results array indexed by episode
-    const episodeResults: (any[] | null)[] = new Array(episodes.length).fill(null);
+    const episodeResults: (any[] | null)[] = new Array(episodes.length).fill(
+      null,
+    );
 
     // Parallel decomposition with max 3 concurrent episodes
     const MAX_PARALLEL = 3;
     const sem = { current: 0, queue: [] as (() => void)[] };
-    const acquire = () => new Promise<void>(resolve => {
-      if (sem.current < MAX_PARALLEL) { sem.current++; resolve(); }
-      else sem.queue.push(() => { sem.current++; resolve(); });
-    });
-    const release = () => { sem.current--; if (sem.queue.length > 0) sem.queue.shift()!(); };
+    const acquire = () =>
+      new Promise<void>((resolve) => {
+        if (sem.current < MAX_PARALLEL) {
+          sem.current++;
+          resolve();
+        } else
+          sem.queue.push(() => {
+            sem.current++;
+            resolve();
+          });
+      });
+    const release = () => {
+      sem.current--;
+      if (sem.queue.length > 0) sem.queue.shift()!();
+    };
 
     const processEpisode = async (epIdx: number) => {
       if (abortSignal?.aborted) {
-        if (onProgress) onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length, status: "cancelled", failedChunks });
+        if (onProgress)
+          onProgress({
+            scenes: allScenes,
+            chunkIndex: epIdx,
+            totalChunks: episodes.length,
+            status: "cancelled",
+            failedChunks,
+          });
         return;
       }
 
       await acquire();
       if (abortSignal?.aborted) {
         release();
-        if (onProgress) onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length, status: "cancelled", failedChunks });
+        if (onProgress)
+          onProgress({
+            scenes: allScenes,
+            chunkIndex: epIdx,
+            totalChunks: episodes.length,
+            status: "cancelled",
+            failedChunks,
+          });
         return;
       }
 
       const ep = episodes[epIdx];
       const chunkSegments = chunkSegmentCounts[epIdx];
-      console.log(`[localDecompose] 正在拆解第 ${epIdx + 1}/${episodes.length} ${splitResult.isRealEpisodes ? '集' : '段'}（需要${chunkSegments}个片段）...`);
       const epPrefix = episodes.length > 1 ? `${epIdx + 1}-` : "";
 
       const chunkPrompt = buildDecomposePrompt(videoPace, chunkSegments);
 
       if (onProgress) {
-        onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length, status: "processing", failedChunks });
+        onProgress({
+          scenes: allScenes,
+          chunkIndex: epIdx,
+          totalChunks: episodes.length,
+          status: "processing",
+          failedChunks,
+        });
       }
 
-      const MAX_CHUNK_RETRIES = 1;
       let chunkAttempt = 0;
       let lastChunkError: any = null;
 
-      while (chunkAttempt <= MAX_CHUNK_RETRIES) {
+      while (chunkAttempt <= maxChunkRetries) {
         if (chunkAttempt > 0) {
-          console.log(`[localDecompose] 第${epIdx + 1}集自动重试（第${chunkAttempt}次），1秒后开始...`);
-          await new Promise(r => setTimeout(r, 1000));
+          await new Promise((r) => setTimeout(r, chunkRetryDelayMs));
           if (abortSignal?.aborted) break;
           if (onProgress) {
-            onProgress({ scenes: allScenes, chunkIndex: epIdx, totalChunks: episodes.length, status: "processing", failedChunks, retryAttempt: chunkAttempt });
+            onProgress({
+              scenes: allScenes,
+              chunkIndex: epIdx,
+              totalChunks: episodes.length,
+              status: "processing",
+              failedChunks,
+              retryAttempt: chunkAttempt,
+            });
           }
         }
 
@@ -556,42 +726,64 @@ async function localDecompose(body: any, onProgress?: (partialData: any) => void
           let crossEpContext = "";
           const completedOther: { idx: number; scenes: any[] }[] = [];
           for (let i = 0; i < episodes.length; i++) {
-            if (i !== epIdx && episodeResults[i]) completedOther.push({ idx: i, scenes: episodeResults[i]! });
+            if (i !== epIdx && episodeResults[i])
+              completedOther.push({ idx: i, scenes: episodeResults[i]! });
           }
           if (completedOther.length > 0) {
-            const allOtherScenes = completedOther.flatMap(e => e.scenes);
-            const otherCharacters = [...new Set(allOtherScenes.flatMap((s: any) => s.characters || []))];
-            const otherSceneNames = [...new Set(allOtherScenes.map((s: any) => s.sceneName).filter(Boolean))];
+            const allOtherScenes = completedOther.flatMap((e) => e.scenes);
+            const otherCharacters = [
+              ...new Set(
+                allOtherScenes.flatMap((s: any) => s.characters || []),
+              ),
+            ];
+            const otherSceneNames = [
+              ...new Set(
+                allOtherScenes.map((s: any) => s.sceneName).filter(Boolean),
+              ),
+            ];
 
             // Get nearby scenes for narrative continuity
-            const prevEp = completedOther.filter(e => e.idx < epIdx).sort((a, b) => b.idx - a.idx)[0];
-            const nextEp = completedOther.filter(e => e.idx > epIdx).sort((a, b) => a.idx - b.idx)[0];
+            const prevEp = completedOther
+              .filter((e) => e.idx < epIdx)
+              .sort((a, b) => b.idx - a.idx)[0];
+            const nextEp = completedOther
+              .filter((e) => e.idx > epIdx)
+              .sort((a, b) => a.idx - b.idx)[0];
             let contextScenesDesc = "";
             if (prevEp) {
               const lastScenes = prevEp.scenes.slice(-3);
-              contextScenesDesc += `前一集（第${prevEp.idx + 1}集）最后几个分镜：\n` +
-                lastScenes.map((s: any) =>
-                  `[分镜${s.sceneNumber}] 片段${s.segmentLabel} | 场景：${s.sceneName} | 角色：${(s.characters || []).join('、')} | ${s.description}`
-                ).join('\n') + '\n';
+              contextScenesDesc +=
+                `前一集（第${prevEp.idx + 1}集）最后几个分镜：\n` +
+                lastScenes
+                  .map(
+                    (s: any) =>
+                      `[分镜${s.sceneNumber}] 片段${s.segmentLabel} | 场景：${s.sceneName} | 角色：${(s.characters || []).join("、")} | ${s.description}`,
+                  )
+                  .join("\n") +
+                "\n";
             }
             if (nextEp) {
               const firstScenes = nextEp.scenes.slice(0, 3);
-              contextScenesDesc += `后一集（第${nextEp.idx + 1}集）开头几个分镜：\n` +
-                firstScenes.map((s: any) =>
-                  `[分镜${s.sceneNumber}] 片段${s.segmentLabel} | 场景：${s.sceneName} | 角色：${(s.characters || []).join('、')} | ${s.description}`
-                ).join('\n') + '\n';
+              contextScenesDesc +=
+                `后一集（第${nextEp.idx + 1}集）开头几个分镜：\n` +
+                firstScenes
+                  .map(
+                    (s: any) =>
+                      `[分镜${s.sceneNumber}] 片段${s.segmentLabel} | 场景：${s.sceneName} | 角色：${(s.characters || []).join("、")} | ${s.description}`,
+                  )
+                  .join("\n") +
+                "\n";
             }
 
             crossEpContext = `\n\n---\n\n【跨集上下文（必须保持一致性）】
-已完成的其他集数中出现的角色：${otherCharacters.join('、') || '无'}
-已完成的其他集数中出现的场景：${otherSceneNames.join('、') || '无'}
+已完成的其他集数中出现的角色：${otherCharacters.join("、") || "无"}
+已完成的其他集数中出现的场景：${otherSceneNames.join("、") || "无"}
 
 ${contextScenesDesc}
 重要：
 - 角色名必须与其他集数保持完全一致，不要改变拼写或格式
 - 场景名如果是同一地点，必须使用相同名称
 - segmentLabel 编号请使用"${epIdx + 1}-N"格式`;
-            console.log(`[localDecompose] 第${epIdx + 1}集获得了${completedOther.length}集的跨集上下文（${otherCharacters.length}个角色, ${otherSceneNames.length}个场景）`);
           }
 
           const chunkLabel = splitResult.isRealEpisodes
@@ -599,33 +791,38 @@ ${contextScenesDesc}
             : `以下是剧本的第${epIdx + 1}集（共${episodes.length}集，本集需要恰好${chunkSegments}个片段）。segmentLabel请使用"${epIdx + 1}-N"格式（如"${epIdx + 1}-1","${epIdx + 1}-2"等）`;
           const userText = `${chunkPrompt}\n\n---\n\n${chunkLabel}：\n\n${ep}${costumeContext}${crossEpContext}`;
 
-          const chunkTimeout = AbortSignal.timeout(5 * 60_000);
+          const chunkTimeout = AbortSignal.timeout(SCRIPT_DECOMPOSE_TIMEOUT_MS);
           const combinedSignal = abortSignal
             ? AbortSignal.any([abortSignal, chunkTimeout])
             : chunkTimeout;
 
           let resultText: string;
           if (onStreamText) {
-            resultText = await callGeminiStream(model,
+            resultText = await callGeminiStream(
+              model,
               [{ role: "user", parts: [{ text: userText }] }],
               (accumulated) => onStreamText(accumulated),
-              { temperature: 0.3, maxOutputTokens: 65536 },
+              { temperature: 0.3, maxOutputTokens: 16384 },
               combinedSignal,
             );
           } else {
-            const data = await callGemini(model,
+            const data = await callGemini(
+              model,
               [{ role: "user", parts: [{ text: userText }] }],
-              { temperature: 0.3, maxOutputTokens: 65536 },
+              { temperature: 0.3, maxOutputTokens: 16384 },
               combinedSignal,
             );
             resultText = extractText(data);
           }
-          if (!resultText) throw new Error(`第${epIdx + 1}${splitResult.isRealEpisodes ? '集' : '段'}拆解失败：AI 未返回内容`);
+          if (!resultText)
+            throw new Error(
+              `第${epIdx + 1}${splitResult.isRealEpisodes ? "集" : "段"}拆解失败：AI 未返回内容`,
+            );
 
           const epScenes = parseDecomposeResult(resultText);
           for (const scene of epScenes) {
             if (epPrefix) {
-              scene.segmentLabel = `${epPrefix}${scene.segmentLabel || ''}`;
+              scene.segmentLabel = `${epPrefix}${scene.segmentLabel || ""}`;
             }
           }
 
@@ -646,18 +843,30 @@ ${contextScenesDesc}
           allScenes.push(...mergedScenes);
 
           if (onProgress) {
-            onProgress({ scenes: [...allScenes], chunkIndex: epIdx, totalChunks: episodes.length, status: "done", failedChunks });
+            onProgress({
+              scenes: [...allScenes],
+              chunkIndex: epIdx,
+              totalChunks: episodes.length,
+              status: "done",
+              failedChunks,
+            });
           }
           lastChunkError = null;
           break; // success, exit retry loop
         } catch (err: any) {
           lastChunkError = err;
           chunkAttempt++;
-          if (chunkAttempt > MAX_CHUNK_RETRIES) {
-            console.error(`[localDecompose] 第${epIdx + 1}${splitResult.isRealEpisodes ? '集' : '段'}拆解失败（已重试${MAX_CHUNK_RETRIES}次）:`, err);
+          if (chunkAttempt > maxChunkRetries) {
             failedChunks.push(epIdx);
             if (onProgress) {
-              onProgress({ scenes: [...allScenes], chunkIndex: epIdx, totalChunks: episodes.length, status: "failed", failedChunks, error: err?.message });
+              onProgress({
+                scenes: [...allScenes],
+                chunkIndex: epIdx,
+                totalChunks: episodes.length,
+                status: "failed",
+                failedChunks,
+                error: err?.message,
+              });
             }
           }
         }
@@ -682,26 +891,39 @@ ${contextScenesDesc}
     allScenes.length = 0;
     allScenes.push(...finalScenes);
 
-    return { scenes: allScenes, failedChunks, episodes, costumeContext, model, prompt: buildDecomposePrompt(videoPace, segmentsPerEpisode), chunkSegmentCounts, isRealEpisodes: splitResult.isRealEpisodes, originallyEpisodes: splitResult.originallyEpisodes, videoPace };
+    return {
+      scenes: allScenes,
+      failedChunks,
+      episodes,
+      costumeContext,
+      model,
+      prompt: buildDecomposePrompt(videoPace, segmentsPerEpisode),
+      chunkSegmentCounts,
+      isRealEpisodes: splitResult.isRealEpisodes,
+      originallyEpisodes: splitResult.originallyEpisodes,
+      videoPace,
+    };
   }
 
   // Single episode or couldn't split - send as one request
   const prompt = buildDecomposePrompt(videoPace, segmentsPerEpisode);
   const userText = `${prompt}\n\n---\n\n以下是用户的剧本：\n\n${script}${costumeContext}`;
 
-  const decomposeSignal = AbortSignal.timeout(5 * 60_000);
+  const decomposeSignal = AbortSignal.timeout(SCRIPT_DECOMPOSE_TIMEOUT_MS);
   let resultText: string;
   if (onStreamText) {
-    resultText = await callGeminiStream(model,
+    resultText = await callGeminiStream(
+      model,
       [{ role: "user", parts: [{ text: userText }] }],
       (accumulated) => onStreamText(accumulated),
-      { temperature: 0.3, maxOutputTokens: 65536 },
+      { temperature: 0.3, maxOutputTokens: 16384 },
       decomposeSignal,
     );
   } else {
-    const data = await callGemini(model,
+    const data = await callGemini(
+      model,
       [{ role: "user", parts: [{ text: userText }] }],
-      { temperature: 0.3, maxOutputTokens: 65536 },
+      { temperature: 0.3, maxOutputTokens: 16384 },
       decomposeSignal,
     );
     resultText = extractText(data);
@@ -715,7 +937,11 @@ ${contextScenesDesc}
 /** Detect if text is primarily logographic (Chinese/Japanese/Korean) */
 function isLogographicText(text: string): boolean {
   const sample = text.slice(0, 2000);
-  const cjkChars = (sample.match(/[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g) || []).length;
+  const cjkChars = (
+    sample.match(
+      /[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g,
+    ) || []
+  ).length;
   return cjkChars / sample.length > 0.15;
 }
 
@@ -733,11 +959,37 @@ interface SplitResult {
   originallyEpisodes: boolean;
 }
 
-
 /** Convert Chinese numeral string to number */
 function chineseToNumber(s: string): number {
-  const digitMap: Record<string, number> = { '零':0,'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10,'百':100,'千':1000,'壹':1,'贰':2,'叁':3,'肆':4,'伍':5,'陆':6,'柒':7,'捌':8,'玖':9,'拾':10,'佰':100,'仟':1000 };
-  let result = 0, current = 0;
+  const digitMap: Record<string, number> = {
+    零: 0,
+    一: 1,
+    二: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+    十: 10,
+    百: 100,
+    千: 1000,
+    壹: 1,
+    贰: 2,
+    叁: 3,
+    肆: 4,
+    伍: 5,
+    陆: 6,
+    柒: 7,
+    捌: 8,
+    玖: 9,
+    拾: 10,
+    佰: 100,
+    仟: 1000,
+  };
+  let result = 0,
+    current = 0;
   for (const ch of s) {
     const val = digitMap[ch];
     if (val === undefined) continue;
@@ -756,15 +1008,17 @@ function splitScriptByEpisodes(script: string): SplitResult {
   const { max: MAX_CHUNK_CHARS, min: MIN_CHUNK_CHARS } = getChunkLimits(script);
 
   // First try to split by episode markers (supports Arabic digits and Chinese numerals)
-  const epPattern = /(?:^|\n)[\s\r]*(?:EP\s*(\d+)|第\s*([零一二三四五六七八九十百千万\d]+)\s*[集话期章]|Episode\s+(\d+))/gim;
+  const epPattern =
+    /(?:^|\n)[\s\r]*(?:EP\s*(\d+)|第\s*([零一二三四五六七八九十百千万\d]+)\s*[集话期章]|Episode\s+(\d+))/gim;
   const markers: { index: number; num: number }[] = [];
   let m: RegExpExecArray | null;
   while ((m = epPattern.exec(script)) !== null) {
-    const numStr = m[1] || m[2] || m[3] || '0';
-    const num = /^\d+$/.test(numStr) ? parseInt(numStr) : chineseToNumber(numStr);
+    const numStr = m[1] || m[2] || m[3] || "0";
+    const num = /^\d+$/.test(numStr)
+      ? parseInt(numStr)
+      : chineseToNumber(numStr);
     markers.push({ index: m.index, num });
   }
-  console.log(`[splitScriptByEpisodes] 检测到 ${markers.length} 个集数标记, 分块上限=${MAX_CHUNK_CHARS}`, markers.slice(0, 5).map(m => ({ index: m.index, num: m.num, preview: script.slice(m.index, m.index + 30) })));
 
   let rawChunks: string[] = [];
   let isRealEpisodes = false;
@@ -780,11 +1034,21 @@ function splitScriptByEpisodes(script: string): SplitResult {
       isRealEpisodes = true;
       detectedEpisodes = true;
     } else {
-      if (script.length <= MAX_CHUNK_CHARS) return { chunks: [script], isRealEpisodes: false, originallyEpisodes: false };
+      if (script.length <= MAX_CHUNK_CHARS)
+        return {
+          chunks: [script],
+          isRealEpisodes: false,
+          originallyEpisodes: false,
+        };
       rawChunks = [script];
     }
   } else {
-    if (script.length <= MAX_CHUNK_CHARS) return { chunks: [script], isRealEpisodes: false, originallyEpisodes: false };
+    if (script.length <= MAX_CHUNK_CHARS)
+      return {
+        chunks: [script],
+        isRealEpisodes: false,
+        originallyEpisodes: false,
+      };
     rawChunks = [script];
   }
 
@@ -800,7 +1064,8 @@ function splitScriptByEpisodes(script: string): SplitResult {
     if (paragraphs.length < 3) {
       paragraphs = chunk.split(/\n/);
     }
-    const sep = paragraphs.length === chunk.split(/\n{2,}/).length ? "\n\n" : "\n";
+    const sep =
+      paragraphs.length === chunk.split(/\n{2,}/).length ? "\n\n" : "\n";
     let current = "";
     for (let i = 0; i < paragraphs.length; i++) {
       const para = paragraphs[i];
@@ -826,7 +1091,11 @@ function splitScriptByEpisodes(script: string): SplitResult {
   if (hadSubSplit && isRealEpisodes) isRealEpisodes = false;
 
   return finalChunks.length > 1
-    ? { chunks: finalChunks, isRealEpisodes, originallyEpisodes: detectedEpisodes }
+    ? {
+        chunks: finalChunks,
+        isRealEpisodes,
+        originallyEpisodes: detectedEpisodes,
+      }
     : { chunks: [script], isRealEpisodes: false, originallyEpisodes: false };
 }
 
@@ -834,7 +1103,9 @@ function splitScriptByEpisodes(script: string): SplitResult {
 function parseDecomposeResult(resultText: string): any[] {
   let cleanedText = resultText.trim();
   if (cleanedText.startsWith("```")) {
-    cleanedText = cleanedText.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+    cleanedText = cleanedText
+      .replace(/^```(?:json)?\s*\n?/, "")
+      .replace(/\n?```\s*$/, "");
   }
 
   let parsed;
@@ -844,16 +1115,19 @@ function parseDecomposeResult(resultText: string): any[] {
     // Try to extract JSON object or array from text with trailing content
     const objMatch = cleanedText.match(/\{[\s\S]*\}/);
     const arrMatch = cleanedText.match(/\[[\s\S]*\]/);
-    const candidate = objMatch && arrMatch
-      ? (objMatch.index! <= arrMatch.index! ? objMatch[0] : arrMatch[0])
-      : (arrMatch?.[0] || objMatch?.[0]);
+    const candidate =
+      objMatch && arrMatch
+        ? objMatch.index! <= arrMatch.index!
+          ? objMatch[0]
+          : arrMatch[0]
+        : arrMatch?.[0] || objMatch?.[0];
     if (candidate) {
       try {
         parsed = JSON.parse(candidate);
       } catch {
         // Last resort: try truncating at last valid closing bracket
-        const lastBrace = candidate.lastIndexOf('}');
-        const lastBracket = candidate.lastIndexOf(']');
+        const lastBrace = candidate.lastIndexOf("}");
+        const lastBracket = candidate.lastIndexOf("]");
         const cutAt = Math.max(lastBrace, lastBracket);
         if (cutAt > 0) {
           const truncated = candidate.slice(0, cutAt + 1);
@@ -867,7 +1141,7 @@ function parseDecomposeResult(resultText: string): any[] {
     }
   }
 
-  return Array.isArray(parsed) ? parsed : (parsed?.scenes || []);
+  return Array.isArray(parsed) ? parsed : parsed?.scenes || [];
 }
 
 async function localGenerateCharacter(body: any) {
@@ -875,51 +1149,57 @@ async function localGenerateCharacter(body: any) {
   if (!name) throw new Error("缺少角色名称");
 
   const characterDesc = description || name;
-  const styleDesc = style?.startsWith("custom:") ? style.slice(7) : (CHAR_STYLE_MAP[style] || CHAR_STYLE_MAP["live-action"]);
+  const styleDesc = style?.startsWith("custom:")
+    ? style.slice(7)
+    : CHAR_STYLE_MAP[style] || CHAR_STYLE_MAP["live-action"];
   const isSingleMode = viewMode === "single";
+  const isCostumeVariation = !!referenceImageUrl;
 
-  const refImageNote = referenceImageUrl
-    ? `\n\n⚠️ ABSOLUTE IDENTITY LOCK — HIGHEST PRIORITY ⚠️
-The attached reference image shows the EXACT SAME character. You MUST produce an image of the SAME PERSON — this is non-negotiable.
+  // 首套服装：完整角色描述；后续服装：以修改为主，简洁指令
+  let prompt: string;
+  if (isCostumeVariation) {
+    // 后续服装变体：以参考图为基准，只修改服装，保持人物面部特征一致
+    // 提示词极简：换装指令 + 面部一致性
+    prompt = `基于图1角色图，生成同一角色的新服装版本。
 
-MANDATORY IDENTITY CONSTRAINTS:
-- FACE: Preserve the EXACT same facial structure, bone structure, eye shape, eye color, nose shape, lip shape, jawline, cheekbones, brow ridge, ear shape. The face MUST be recognizable as the same individual.
-- SKIN: Same skin tone, complexion, and any visible marks/freckles.
-- HAIR: Same hair color, texture, length, and style (unless the description explicitly states a hair change).
-- BODY: Same height, build, body proportions, shoulder width, and physique.
-- AGE: Same apparent age (unless the costume description explicitly indicates an age change like "老年" or "少年时期").
+【面部特征】与图1保持完全一致（脸型、眉形、眼睛、鼻梁、嘴唇等），确保是同一个角色。
 
-ONLY CHANGE: The clothing/outfit as described. Everything else about the person MUST remain pixel-level identical.
-If in doubt, prioritize facial identity over any other element.`
-    : "";
+【服装】${characterDesc}
 
-  const whiteBackgroundRule = `The background MUST be a plain, pure white background (#FFFFFF). No gradients, no shadows on the background, no environment elements. Clean white only.`;
-
-  const prompt = isSingleMode
-    ? `Create a professional full-body character design portrait for: "${name}" - ${characterDesc}.
+Art style: ${styleDesc}.
+${isSingleMode ? "9:16 vertical portrait, front view, pure white background." : "16:9 horizontal, 4-view character sheet (front/side/back/face closeup), pure white background."}`;
+  } else {
+    // 首套服装：完整角色描述
+    const whiteBackgroundRule = `The background MUST be a plain, pure white background (#FFFFFF). No gradients, no shadows on the background, no environment elements. Clean white only.`;
+    const fullBodyRule = `CRITICAL: The character MUST be FULL BODY visible from head to toe — feet MUST be inside the frame, not cut off. Standing straight, complete figure in view.`;
+    prompt = isSingleMode
+      ? `Create a professional full-body character design portrait for: "${name}" - ${characterDesc}.
 
 Art style: ${styleDesc}.
 
 ${whiteBackgroundRule}
+${fullBodyRule}
 
 The image should be a single full-body FRONT VIEW portrait of the character standing in a neutral, upright pose on a plain white background. The character should face the camera directly. Show the character from head to toe with clear details of face, clothing, and accessories. Professional character design sheet quality — NO text labels, clean composition. The entire image MUST be in ${styleDesc} style.
 
-CRITICAL: The character's clothing, armor, and accessories MUST match the era and setting described above. If the description mentions medieval, fantasy, ancient, or any specific historical period, ALL clothing must be era-appropriate. NEVER use modern clothing (suits, t-shirts, jeans, sneakers) for historical/fantasy characters.${refImageNote}`
-    : `Create a professional character design reference sheet for an animated character: "${name}" - ${characterDesc}.
+CRITICAL: The character's clothing, armor, and accessories MUST match the era and setting described above. If the description mentions medieval, fantasy, ancient, or any specific historical period, ALL clothing must be era-appropriate. NEVER use modern clothing (suits, t-shirts, jeans, sneakers) for historical/fantasy characters.`
+      : `Create a professional character design reference sheet for an animated character: "${name}" - ${characterDesc}.
 
 Art style: ${styleDesc}.
 
-The image should be a clean character turnaround sheet with 4 views arranged in a 2x2 grid on a plain white background:
-- Top-left: FRONT VIEW (full body, facing camera)
-- Top-right: SIDE VIEW (full body, profile view from the right)
-- Bottom-left: BACK VIEW (full body, facing away)
-- Bottom-right: FACE CLOSE-UP (detailed head/face portrait)
-
 ${whiteBackgroundRule}
+${fullBodyRule}
+
+The image should be a clean character turnaround sheet with 4 views arranged in a 2x2 grid on a plain white background:
+- Top-left: FRONT VIEW (full body from head to toe, facing camera)
+- Top-right: SIDE VIEW (full body from head to toe, profile view from the right)
+- Bottom-left: BACK VIEW (full body from head to toe, facing away)
+- Bottom-right: FACE CLOSE-UP (detailed head/face portrait)
 
 Each view should be labeled clearly. The character design must be consistent across all 4 views. The entire image MUST be in ${styleDesc} style.
 
-CRITICAL: The character's clothing, armor, and accessories MUST match the era and setting described above. If the description mentions medieval, fantasy, ancient, or any specific historical period, ALL clothing must be era-appropriate. NEVER use modern clothing (suits, t-shirts, jeans, sneakers) for historical/fantasy characters.${refImageNote}`;
+CRITICAL: The character's clothing, armor, and accessories MUST match the era and setting described above. If the description mentions medieval, fantasy, ancient, or any specific historical period, ALL clothing must be era-appropriate. NEVER use modern clothing (suits, t-shirts, jeans, sneakers) for historical/fantasy characters.`;
+  }
 
   const selectedModel = model || "gemini-3-pro-image-preview";
   const isSeedream = selectedModel.startsWith("doubao-seedream");
@@ -931,25 +1211,48 @@ CRITICAL: The character's clothing, armor, and accessories MUST match the era an
   let mimeType: string;
 
   if (isSeedream) {
-    const result = await callSeedreamImage(prompt, { model: selectedModel, size: seedreamSize });
+    const result = await callSeedreamImage(prompt, {
+      model: selectedModel,
+      size: seedreamSize,
+    });
     imageBase64 = result.base64;
     mimeType = result.mimeType;
   } else {
     // Build multimodal parts
     const parts: any[] = [{ text: prompt }];
 
-    // Add reference image if provided
+    // Add reference image if provided (for costume variations)
     if (referenceImageUrl) {
       const inlineData = await getInlineData(referenceImageUrl);
-      if (inlineData && inlineData.data.length < 2 * 1024 * 1024) {
-        parts.unshift({ inlineData: { mimeType: inlineData.mimeType, data: inlineData.data } });
+      if (inlineData) {
+        // 如果图片太大（>2MB），先压缩
+        if (inlineData.data.length >= 2 * 1024 * 1024) {
+          const compressed = await compressImage(
+            `data:${inlineData.mimeType};base64,${inlineData.data}`,
+            1.5 * 1024 * 1024, // 压缩到 1.5MB 以内
+            { maxDim: 1024, minQuality: 0.3 },
+          );
+          const match = compressed.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            parts.unshift({
+              inlineData: { mimeType: match[1], data: match[2] },
+            });
+          }
+        } else {
+          parts.unshift({
+            inlineData: {
+              mimeType: inlineData.mimeType,
+              data: inlineData.data,
+            },
+          });
+        }
       }
     }
 
-    const data = await callGemini(selectedModel,
-      [{ role: "user", parts }],
-      { responseModalities: ["IMAGE", "TEXT"], imageConfig: { aspectRatio, imageSize: "2K" } },
-    );
+    const data = await callGemini(selectedModel, [{ role: "user", parts }], {
+      responseModalities: ["IMAGE", "TEXT"],
+      imageConfig: { aspectRatio, imageSize: "2K" },
+    });
 
     const img = await extractImageBase64(data);
     if (!img) throw new Error("AI 未返回角色图");
@@ -957,7 +1260,11 @@ CRITICAL: The character's clothing, armor, and accessories MUST match the era an
     mimeType = img.mimeType;
   }
 
-  const imageUrl = await uploadImageToStorage(imageBase64, mimeType, "characters");
+  const imageUrl = await uploadImageToStorage(
+    imageBase64,
+    mimeType,
+    "characters",
+  );
   return { imageUrl };
 }
 
@@ -966,7 +1273,9 @@ async function localGenerateScene(body: any) {
   if (!name) throw new Error("缺少场景名称");
 
   const sceneDesc = description || name;
-  const styleDesc = style?.startsWith("custom:") ? style.slice(7) : (SCENE_STYLE_MAP[style] || SCENE_STYLE_MAP["live-action"]);
+  const styleDesc = style?.startsWith("custom:")
+    ? style.slice(7)
+    : SCENE_STYLE_MAP[style] || SCENE_STYLE_MAP["live-action"];
 
   const staticSceneRule = `\n\n⚠️ STATIC ENVIRONMENT ONLY — CRITICAL RULE ⚠️
 This image must depict ONLY the permanent, static environment — the architecture, landscape, terrain, vegetation, bodies of water, sky, and fixed structures.
@@ -1017,7 +1326,10 @@ This is a wide establishing shot showing the full environment. Focus on atmosphe
   let mimeType: string;
 
   if (isSeedream) {
-    const result = await callSeedreamImage(prompt, { model: selectedModel, size: "2560x1440" });
+    const result = await callSeedreamImage(prompt, {
+      model: selectedModel,
+      size: "2560x1440",
+    });
     imageBase64 = result.base64;
     mimeType = result.mimeType;
   } else {
@@ -1027,15 +1339,35 @@ This is a wide establishing shot showing the full environment. Focus on atmosphe
     // Add reference image if provided (for time variants)
     if (referenceImageUrl) {
       const inlineData = await getInlineData(referenceImageUrl);
-      if (inlineData && inlineData.data.length < 2 * 1024 * 1024) {
-        parts.unshift({ inlineData: { mimeType: inlineData.mimeType, data: inlineData.data } });
+      if (inlineData) {
+        // 如果图片太大（>2MB），先压缩
+        if (inlineData.data.length >= 2 * 1024 * 1024) {
+          const compressed = await compressImage(
+            `data:${inlineData.mimeType};base64,${inlineData.data}`,
+            1.5 * 1024 * 1024,
+            { maxDim: 1024, minQuality: 0.3 },
+          );
+          const match = compressed.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            parts.unshift({
+              inlineData: { mimeType: match[1], data: match[2] },
+            });
+          }
+        } else {
+          parts.unshift({
+            inlineData: {
+              mimeType: inlineData.mimeType,
+              data: inlineData.data,
+            },
+          });
+        }
       }
     }
 
-    const data = await callGemini(selectedModel,
-      [{ role: "user", parts }],
-      { responseModalities: ["IMAGE", "TEXT"], imageConfig: { aspectRatio: "16:9", imageSize: "2K" } },
-    );
+    const data = await callGemini(selectedModel, [{ role: "user", parts }], {
+      responseModalities: ["IMAGE", "TEXT"],
+      imageConfig: { aspectRatio: "16:9", imageSize: "2K" },
+    });
 
     const img = await extractImageBase64(data);
     if (!img) throw new Error("AI 未返回场景图");
@@ -1049,21 +1381,37 @@ This is a wide establishing shot showing the full environment. Focus on atmosphe
 
 async function localGenerateStoryboard(body: any) {
   const {
-    description, characters, cameraDirection, sceneName, dialogue, style,
-    characterDescriptions, sceneDescription, mode, characterImages, sceneImageUrl,
-    prevStoryboardUrl, scriptExcerpt, neighborContext, aspectRatio, model,
+    description,
+    characters,
+    cameraDirection,
+    sceneName,
+    dialogue,
+    style,
+    characterDescriptions,
+    sceneDescription,
+    mode,
+    characterImages,
+    sceneImageUrl,
+    prevStoryboardUrl,
+    scriptExcerpt,
+    neighborContext,
+    aspectRatio,
+    model,
   } = body;
 
   const isPanorama = mode === "panorama";
   if (!description && !isPanorama) throw new Error("缺少分镜描述");
 
-  const styleDesc = style?.startsWith("custom:") ? style.slice(7) : (STORYBOARD_STYLE_MAP[style] || STORYBOARD_STYLE_MAP["live-action"]);
+  const styleDesc = style?.startsWith("custom:")
+    ? style.slice(7)
+    : STORYBOARD_STYLE_MAP[style] || STORYBOARD_STYLE_MAP["live-action"];
   let prompt: string;
 
   if (isPanorama) {
     const charList = (characters || []).join("、");
     const charDescList = (characterDescriptions || [])
-      .map((c: any) => `${c.name}: ${c.description}`).join("\n");
+      .map((c: any) => `${c.name}: ${c.description}`)
+      .join("\n");
 
     prompt = `Create a wide panoramic establishing shot showing character positions in a scene.
 
@@ -1088,7 +1436,8 @@ IMPORTANT REQUIREMENTS:
   } else {
     const charList = (characters || []).join("、");
     const charDescList = (characterDescriptions || [])
-      .map((c: any) => `${c.name}: ${c.description}`).join("\n");
+      .map((c: any) => `${c.name}: ${c.description}`)
+      .join("\n");
 
     let narrativeContext = "";
     if (scriptExcerpt) {
@@ -1097,8 +1446,10 @@ IMPORTANT REQUIREMENTS:
     if (neighborContext) {
       const nc = neighborContext;
       narrativeContext += `\n[SCENE CONTINUITY — Shot ${nc.currentShotIndex} of ${nc.totalShotsInScene}]`;
-      if (nc.prevDescription) narrativeContext += `\nPrevious shot: ${nc.prevDescription}`;
-      if (nc.nextDescription) narrativeContext += `\nNext shot: ${nc.nextDescription}`;
+      if (nc.prevDescription)
+        narrativeContext += `\nPrevious shot: ${nc.prevDescription}`;
+      if (nc.nextDescription)
+        narrativeContext += `\nNext shot: ${nc.nextDescription}`;
       narrativeContext += "\n";
     }
 
@@ -1135,7 +1486,10 @@ ${narrativeContext}
   }
 
   // Build multimodal parts
-  const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
+  const parts: Array<{
+    text?: string;
+    inlineData?: { mimeType: string; data: string };
+  }> = [];
   parts.push({ text: prompt });
 
   const curProtagonistName = (characters || [])[0] || "";
@@ -1145,7 +1499,9 @@ ${narrativeContext}
     const inlineData = await getInlineData(sceneImageUrl);
     if (inlineData) {
       parts.push({ inlineData });
-      parts.push({ text: `[SCENE ENVIRONMENT REFERENCE IMAGE]\nUse for environment style, color palette, architecture, props, and lighting.` });
+      parts.push({
+        text: `[SCENE ENVIRONMENT REFERENCE IMAGE]\nUse for environment style, color palette, architecture, props, and lighting.`,
+      });
     }
   }
 
@@ -1153,7 +1509,10 @@ ${narrativeContext}
   let charRefCount = 0;
   if (Array.isArray(characterImages)) {
     const sorted = [...characterImages].sort((a: any, b: any) => {
-      return (a.name === curProtagonistName ? 1 : 0) - (b.name === curProtagonistName ? 1 : 0);
+      return (
+        (a.name === curProtagonistName ? 1 : 0) -
+        (b.name === curProtagonistName ? 1 : 0)
+      );
     });
     for (const charImg of sorted) {
       if (charImg.imageUrl && typeof charImg.imageUrl === "string") {
@@ -1163,9 +1522,13 @@ ${narrativeContext}
           const isProtagonist = charImg.name === curProtagonistName;
           parts.push({ inlineData });
           if (isProtagonist) {
-            parts.push({ text: `[★★★ VISUAL PROTAGONIST — ${charImg.name} ★★★]\nThis character's face, hair, clothing MUST be an EXACT clone of this reference.` });
+            parts.push({
+              text: `[★★★ VISUAL PROTAGONIST — ${charImg.name} ★★★]\nThis character's face, hair, clothing MUST be an EXACT clone of this reference.`,
+            });
           } else {
-            parts.push({ text: `[CHARACTER REFERENCE — ${charImg.name}]\nReproduce their appearance faithfully.` });
+            parts.push({
+              text: `[CHARACTER REFERENCE — ${charImg.name}]\nReproduce their appearance faithfully.`,
+            });
           }
         }
       }
@@ -1173,7 +1536,9 @@ ${narrativeContext}
   }
 
   if (charRefCount > 0) {
-    parts.push({ text: `[ART STYLE ENFORCEMENT]\nALL characters and environments MUST be rendered in: ${styleDesc}` });
+    parts.push({
+      text: `[ART STYLE ENFORCEMENT]\nALL characters and environments MUST be rendered in: ${styleDesc}`,
+    });
   }
 
   // Previous storyboard for continuity
@@ -1181,25 +1546,34 @@ ${narrativeContext}
     const prevChars: string[] = neighborContext?.prevCharacters || [];
     const curChars = characters || [];
     const prevProtagonist = prevChars[0] || "";
-    const sameProtagonist = curProtagonistName && prevProtagonist && curProtagonistName === prevProtagonist;
+    const sameProtagonist =
+      curProtagonistName &&
+      prevProtagonist &&
+      curProtagonistName === prevProtagonist;
 
     if (sameProtagonist) {
       const inlineData = await getInlineData(prevStoryboardUrl);
       if (inlineData) {
         parts.push({ inlineData });
-        parts.push({ text: `[PREVIOUS SHOT — ENVIRONMENT & SPATIAL CONTINUITY]\nMaintain environment consistency. Character "${curProtagonistName}" appears in both shots.` });
+        parts.push({
+          text: `[PREVIOUS SHOT — ENVIRONMENT & SPATIAL CONTINUITY]\nMaintain environment consistency. Character "${curProtagonistName}" appears in both shots.`,
+        });
       }
     }
   }
 
   // Double anchor: re-send protagonist reference
   if (curProtagonistName && Array.isArray(characterImages)) {
-    const protagonistImg = characterImages.find((c: any) => c.name === curProtagonistName);
+    const protagonistImg = characterImages.find(
+      (c: any) => c.name === curProtagonistName,
+    );
     if (protagonistImg?.imageUrl) {
       const anchorData = await getInlineData(protagonistImg.imageUrl);
       if (anchorData) {
         parts.push({ inlineData: anchorData });
-        parts.push({ text: `[★ FINAL ANCHOR — ${curProtagonistName} ★]\nFINAL REMINDER: protagonist MUST have THIS EXACT face, hair, and clothing.` });
+        parts.push({
+          text: `[★ FINAL ANCHOR — ${curProtagonistName} ★]\nFINAL REMINDER: protagonist MUST have THIS EXACT face, hair, and clothing.`,
+        });
       }
     }
   }
@@ -1216,22 +1590,37 @@ ${narrativeContext}
     let imageDescriptions = "";
     if (Array.isArray(characterImages)) {
       for (const charImg of characterImages) {
-        if (charImg.imageUrl && typeof charImg.imageUrl === "string" && !charImg.imageUrl.startsWith("data:")) {
+        if (
+          charImg.imageUrl &&
+          typeof charImg.imageUrl === "string" &&
+          !charImg.imageUrl.startsWith("data:")
+        ) {
           refImages.push(charImg.imageUrl);
           imageDescriptions += `\n图${refImages.length} 是角色「${charImg.name}」的外观设计参考图。`;
         }
       }
     }
-    if (sceneImageUrl && typeof sceneImageUrl === "string" && !sceneImageUrl.startsWith("data:")) {
+    if (
+      sceneImageUrl &&
+      typeof sceneImageUrl === "string" &&
+      !sceneImageUrl.startsWith("data:")
+    ) {
       refImages.push(sceneImageUrl);
       imageDescriptions += `\n图${refImages.length} 是场景环境参考图。`;
     }
-    if (prevStoryboardUrl && typeof prevStoryboardUrl === "string" && !prevStoryboardUrl.startsWith("data:")) {
+    if (
+      prevStoryboardUrl &&
+      typeof prevStoryboardUrl === "string" &&
+      !prevStoryboardUrl.startsWith("data:")
+    ) {
       refImages.push(prevStoryboardUrl);
       imageDescriptions += `\n图${refImages.length} 是上一个镜头的分镜图，仅用于保持环境连续性。`;
     }
 
-    const fullPrompt = refImages.length > 0 ? `${prompt}\n\n参考图说明：${imageDescriptions}` : prompt;
+    const fullPrompt =
+      refImages.length > 0
+        ? `${prompt}\n\n参考图说明：${imageDescriptions}`
+        : prompt;
     const result = await callSeedreamImage(fullPrompt, {
       model: selectedModel,
       size: "2K",
@@ -1240,10 +1629,10 @@ ${narrativeContext}
     imageBase64 = result.base64;
     mimeType = result.mimeType;
   } else {
-    const data = await callGemini(selectedModel,
-      [{ role: "user", parts }],
-      { responseModalities: ["IMAGE", "TEXT"], imageSize: "2K" },
-    );
+    const data = await callGemini(selectedModel, [{ role: "user", parts }], {
+      responseModalities: ["IMAGE", "TEXT"],
+      imageSize: "2K",
+    });
 
     const img = await extractImageBase64(data);
     if (!img) throw new Error("AI 未返回分镜图");
@@ -1260,60 +1649,80 @@ async function localGenerateVideo(body: any) {
   const { action, model, taskId, provider } = body;
   const isVidu = model?.startsWith("viduq") || model?.startsWith("vidu2");
   const isKling = model?.startsWith("kling-") || provider === "kling";
+  const seedanceBaseUrl = getSeedanceBaseUrl();
+  const klingBase = getKlingBaseUrl();
+  const viduBase = getViduBaseUrl();
 
   if (action === "status") {
     if (!taskId) throw new Error("缺少 taskId");
     if (provider === "kling") {
-      const { apiKey, endpoint } = getKlingConfig();
-      const config = getApiConfig();
-      // FC 模式下跳过本地 key 检查（由 FC 注入）
-      if (config.proxyMode !== "fc" && !apiKey) throw new Error("可灵 API Key 未配置");
-      // Query uses the same path type as creation; we store the type in body
       const queryType = body.klingTaskType || "text2video";
-      const res = await proxiedFetch(`${endpoint}/v1/videos/${queryType}/${taskId}`, {
-        Authorization: `Bearer ${apiKey || "placeholder"}`,
-        "Content-Type": "application/json",
-      });
+      const res = await videoHttp(
+        `${klingBase}/v1/videos/${queryType}/${taskId}`,
+        {
+          "Content-Type": "application/json",
+        },
+        undefined,
+        undefined,
+        "kling",
+      );
       if (!res.ok) throw new Error(`查询可灵状态失败 (${res.status})`);
       const data = await res.json();
       const taskData = data.data || data;
       const taskStatus = taskData.task_status;
-      let status = taskStatus === "succeed" ? "succeeded" : taskStatus === "failed" ? "failed" : "processing";
-      let videoUrl = taskStatus === "succeed" && taskData.task_result?.videos?.length > 0
-        ? taskData.task_result.videos[0].url
-        : undefined;
+      let status =
+        taskStatus === "succeed"
+          ? "succeeded"
+          : taskStatus === "failed"
+            ? "failed"
+            : "processing";
+      let videoUrl =
+        taskStatus === "succeed" && taskData.task_result?.videos?.length > 0
+          ? taskData.task_result.videos[0].url
+          : undefined;
       return { status, video_url: videoUrl, state: taskStatus };
     } else if (provider === "vidu") {
-      const { apiKey, endpoint } = getViduConfig();
-      const config = getApiConfig();
-      if (config.proxyMode !== "fc" && !apiKey) throw new Error("Vidu API Key 未配置");
-      const res = await proxiedFetch(`${endpoint}/tasks/${taskId}/creations`, {
-        Authorization: `Token ${apiKey || "placeholder"}`,
-      });
+      const res = await videoHttp(
+        `${viduBase}/tasks/${taskId}/creations`,
+        {},
+        undefined,
+        undefined,
+        "vidu",
+      );
       if (!res.ok) throw new Error(`查询 Vidu 状态失败 (${res.status})`);
       const data = await res.json();
-      let status = data.state === "success" ? "succeeded" : data.state === "failed" ? "failed" : "processing";
-      let videoUrl = data.state === "success" && data.creations?.length > 0 ? data.creations[0]?.url : undefined;
+      let status =
+        data.state === "success"
+          ? "succeeded"
+          : data.state === "failed"
+            ? "failed"
+            : "processing";
+      let videoUrl =
+        data.state === "success" && data.creations?.length > 0
+          ? data.creations[0]?.url
+          : undefined;
       return { status, video_url: videoUrl, state: data.state };
     } else {
-      const { apiKey, endpoint } = getSeedanceConfig();
-      const config = getApiConfig();
-      if (config.proxyMode !== "fc" && !apiKey) throw new Error("Seedance API Key 未配置");
-      const res = await proxiedFetch(`${endpoint}/videos/${taskId}`, {
-        Authorization: `Bearer ${apiKey || "placeholder"}`,
-      });
+      const res = await videoHttp(
+        `${seedanceBaseUrl}/videos/${taskId}`,
+        {},
+        undefined,
+        undefined,
+        "jimeng",
+      );
       if (!res.ok) throw new Error(`查询视频状态失败 (${res.status})`);
       return await res.json();
     }
   }
 
   if (action === "models") {
-    const { apiKey, endpoint } = getSeedanceConfig();
-    const config = getApiConfig();
-    if (config.proxyMode !== "fc" && !apiKey) throw new Error("Seedance API Key 未配置");
-    const res = await proxiedFetch(`${endpoint}/models`, {
-      Authorization: `Bearer ${apiKey || "placeholder"}`,
-    });
+    const res = await videoHttp(
+      `${seedanceBaseUrl}/models`,
+      {},
+      undefined,
+      undefined,
+      "jimeng",
+    );
     if (!res.ok) throw new Error(`查询模型列表失败 (${res.status})`);
     return await res.json();
   }
@@ -1322,11 +1731,13 @@ async function localGenerateVideo(body: any) {
   if (!body.prompt) throw new Error("缺少视频描述 (prompt)");
 
   if (isVidu) {
-    const { apiKey, endpoint } = getViduConfig();
-    const config = getApiConfig();
-    if (config.proxyMode !== "fc" && !apiKey) throw new Error("Vidu API Key 未配置，请在设置中配置");
-    const viduUrl = body.imageUrl ? `${endpoint}/img2video` : `${endpoint}/text2video`;
-    const truncatedPrompt = (body.prompt || "").length > 4900 ? body.prompt.substring(0, 4900) : body.prompt;
+    const viduUrl = body.imageUrl
+      ? `${viduBase}/img2video`
+      : `${viduBase}/text2video`;
+    const truncatedPrompt =
+      (body.prompt || "").length > 4900
+        ? body.prompt.substring(0, 4900)
+        : body.prompt;
     const payload: any = {
       model: model || "viduq3-pro",
       prompt: truncatedPrompt,
@@ -1335,35 +1746,47 @@ async function localGenerateVideo(body: any) {
       audio: true,
     };
     if (body.imageUrl) {
-      // Vidu requires a real URL, not a data URI
       let imageUrl = body.imageUrl as string;
       if (imageUrl.startsWith("data:")) {
         const match = imageUrl.match(/^data:(image\/\w+);base64,(.+)$/);
         if (match) {
-          imageUrl = await uploadImageToStorage(match[2], match[1], "video-frames");
+          imageUrl = await uploadImageToStorage(
+            match[2],
+            match[1],
+            "video-frames",
+          );
         }
       }
       payload.images = [imageUrl];
     }
 
-    const res = await proxiedFetch(viduUrl, {
-      Authorization: `Token ${apiKey}`,
-      "Content-Type": "application/json",
-    }, JSON.stringify(payload));
+    const res = await videoHttp(
+      viduUrl,
+      {
+        "Content-Type": "application/json",
+      },
+      JSON.stringify(payload),
+      undefined,
+      "vidu",
+    );
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(`Vidu 视频生成任务创建失败 (${res.status}): ${errText}`);
     }
     const data = await res.json();
-    return { task_id: data.task_id, status: data.state || "created", provider: "vidu" };
+    return {
+      task_id: data.task_id,
+      status: data.state || "created",
+      provider: "vidu",
+    };
   } else if (isKling) {
-    const { apiKey, endpoint } = getKlingConfig();
-    const config = getApiConfig();
-    if (config.proxyMode !== "fc" && !apiKey) throw new Error("可灵 API Key 未配置，请在设置中配置");
-    const truncatedPrompt = (body.prompt || "").length > 2500 ? body.prompt.substring(0, 2500) : body.prompt;
+    const truncatedPrompt =
+      (body.prompt || "").length > 2500
+        ? body.prompt.substring(0, 2500)
+        : body.prompt;
     const hasImage = body.imageUrl && typeof body.imageUrl === "string";
     const klingTaskType = hasImage ? "image2video" : "text2video";
-    const klingUrl = `${endpoint}/v1/videos/${klingTaskType}`;
+    const klingUrl = `${klingBase}/v1/videos/${klingTaskType}`;
 
     const payload: any = {
       model_name: model || "kling-v3",
@@ -1390,22 +1813,28 @@ async function localGenerateVideo(body: any) {
       }
     }
 
-    const res = await proxiedFetch(klingUrl, {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    }, JSON.stringify(payload));
+    const res = await videoHttp(
+      klingUrl,
+      {
+        "Content-Type": "application/json",
+      },
+      JSON.stringify(payload),
+      undefined,
+      "kling",
+    );
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(`可灵视频生成任务创建失败 (${res.status}): ${errText}`);
     }
     const data = await res.json();
     const taskId2 = data.data?.task_id || data.task_id;
-    return { task_id: taskId2, status: data.data?.task_status || "submitted", provider: "kling", klingTaskType };
+    return {
+      task_id: taskId2,
+      status: data.data?.task_status || "submitted",
+      provider: "kling",
+      klingTaskType,
+    };
   } else {
-    const { apiKey, endpoint } = getSeedanceConfig();
-    const config = getApiConfig();
-    if (config.proxyMode !== "fc" && !apiKey) throw new Error("Seedance API Key 未配置，请在设置中配置");
-
     // Build multipart/form-data as the API requires
     const textFields: Record<string, string> = {
       model: model || "doubao-seedance-1-5-pro_1080p",
@@ -1434,9 +1863,12 @@ async function localGenerateVideo(body: any) {
         const maxBytes = (cfg.firstFrameMaxKB || 1024) * 1024;
         const maxDim = cfg.firstFrameMaxDim || 2048;
         try {
-          imageDataUri = await compressImage(imageDataUri, maxBytes, { maxDim, minQuality: 0.3 });
+          imageDataUri = await compressImage(imageDataUri, maxBytes, {
+            maxDim,
+            minQuality: 0.3,
+          });
         } catch (e) {
-          console.warn("图片压缩失败，使用原图:", e);
+          // 图片压缩失败，使用原图
         }
         // Convert data URI to binary Blob
         const match = imageDataUri.match(/^data:(image\/\w+);base64,(.+)$/);
@@ -1444,7 +1876,8 @@ async function localGenerateVideo(body: any) {
           imageMimeType = match[1];
           const binaryStr = atob(match[2]);
           const bytes = new Uint8Array(binaryStr.length);
-          for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+          for (let i = 0; i < binaryStr.length; i++)
+            bytes[i] = binaryStr.charCodeAt(i);
           imageBlob = new Blob([bytes], { type: imageMimeType });
         }
       }
@@ -1460,111 +1893,60 @@ async function localGenerateVideo(body: any) {
       formData.append("first_frame_image", imageBlob, `frame.${ext}`);
     }
 
-    const targetUrl = `${endpoint}/videos`;
-    const targetHeaders: Record<string, string> = {
-      Authorization: `Bearer ${apiKey}`,
-    };
+    const targetUrl = `${seedanceBaseUrl}/videos`;
 
-    // 获取代理 URL
-    const getProxyUrl = () => {
-      if (config.proxyMode === "fc" && config.fcProxyUrl) {
-        return config.fcProxyUrl.replace(/\/$/, "") + "/proxy";
-      }
-      return `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api-proxy`;
-    };
-
-    // Helper: send FormData through proxy by forwarding binary body directly
-    const sendViaProxy = async (fd: FormData): Promise<Response> => {
-      if (config.proxyMode === "fc" && config.fcProxyUrl) {
-        // FC 代理：使用 JSON 格式发送
-        // 将 FormData 转换为可序列化的格式
-        const entries: Record<string, any> = {};
-        for (const [key, value] of fd.entries()) {
-          if (value instanceof Blob) {
-            const arrayBuffer = await value.arrayBuffer();
-            const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-            entries[key] = { _type: "blob", data: base64, mimeType: value.type || "application/octet-stream" };
-          } else {
-            entries[key] = value;
-          }
-        }
-        return fetch(getProxyUrl(), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            url: targetUrl,
-            options: {
-              method: "POST",
-              headers: targetHeaders,
-              body: entries,
-            },
-          }),
-        });
-      } else {
-        // Supabase Edge Function 代理
-        return fetch(getProxyUrl(), {
-          method: "POST",
-          headers: {
-            "x-target-url": targetUrl,
-            "x-target-headers": JSON.stringify(targetHeaders),
-          },
-          body: fd,
-        });
-      }
-    };
-
-    let res: Response;
-    if (config.directMode) {
-      try {
-        res = await fetch(targetUrl, {
-          method: "POST",
-          headers: targetHeaders,
-          body: formData,
-        });
-      } catch {
-        console.warn("直连失败，通过代理重试（含首帧图片）");
-        res = await sendViaProxy(formData);
-      }
-    } else {
-      // Proxy mode: send FormData directly to proxy (proxy reads arrayBuffer, supports binary)
-      try {
-        res = await sendViaProxy(formData);
-      } catch (e) {
-        console.error("代理发送失败:", e);
-        throw new Error("视频生成请求发送失败");
-      }
-    }
+    const res = await fetch(targetUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${resolveDirectApiKey("jimeng")}`,
+      },
+      body: formData,
+    });
 
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(`视频生成任务创建失败 (${res.status}): ${errText}`);
     }
     const data = await res.json();
-    return { task_id: data.id, status: data.status, progress: data.progress, provider: "jimeng" };
+    return {
+      task_id: data.id,
+      status: data.status,
+      progress: data.progress,
+      provider: "jimeng",
+    };
   }
 }
 
 async function localEnhancePrompt(body: any) {
-  const { description, sceneName, characters, dialogue, prevDescription, nextDescription, hasRefImage } = body;
+  const {
+    description,
+    sceneName,
+    characters,
+    dialogue,
+    prevDescription,
+    nextDescription,
+    hasRefImage,
+  } = body;
   if (!description) throw new Error("缺少分镜描述");
-
-  const config = getApiConfig();
-  if (config.proxyMode !== "fc" && !config.zhanhuKey) return { enhanced: description, fallback: true };
 
   const promptParts: string[] = [];
   if (sceneName) promptParts.push(`【场景】${sceneName}`);
-  if (characters?.length) promptParts.push(`【人物】${characters.join("、")}（共${characters.length}人）`);
+  if (characters?.length)
+    promptParts.push(
+      `【人物】${characters.join("、")}（共${characters.length}人）`,
+    );
   if (prevDescription) promptParts.push(`【上一个分镜】${prevDescription}`);
   promptParts.push(`【当前分镜描述】${description}`);
   if (nextDescription) promptParts.push(`【下一个分镜】${nextDescription}`);
   if (dialogue) promptParts.push(`【对白】${dialogue}（${dialogue.length}字）`);
-  if (hasRefImage) promptParts.push(`（注意：此分镜已有参考图，重点描述动态变化和运动过程）`);
+  if (hasRefImage)
+    promptParts.push(`（注意：此分镜已有参考图，重点描述动态变化和运动过程）`);
 
   const userPrompt = promptParts.join("\n");
 
-  const data = await callGemini("gemini-3-flash-preview",
-    [{ role: "user", parts: [{ text: `${ENHANCE_PROMPT}\n\n${userPrompt}` }] }],
-  );
+  const data = await callGemini("gemini-3-flash-preview", [
+    { role: "user", parts: [{ text: `${ENHANCE_PROMPT}\n\n${userPrompt}` }] },
+  ]);
 
   const rawText = extractText(data);
   let enhanced = description;
@@ -1572,21 +1954,37 @@ async function localEnhancePrompt(body: any) {
   let durationReason = "";
 
   try {
-    const cleaned = rawText.replace(/^```json?\s*/i, "").replace(/\s*```$/i, "").trim();
+    const cleaned = rawText
+      .replace(/^```json?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
     const parsed = JSON.parse(cleaned);
     if (parsed.enhanced) enhanced = parsed.enhanced;
-    if (typeof parsed.duration === "number" && parsed.duration >= 4 && parsed.duration <= 8) duration = Math.round(parsed.duration);
+    if (
+      typeof parsed.duration === "number" &&
+      parsed.duration >= 4 &&
+      parsed.duration <= 8
+    )
+      duration = Math.round(parsed.duration);
     if (parsed.durationReason) durationReason = parsed.durationReason;
   } catch {
     enhanced = rawText || description;
   }
 
-  const finalPrompt = enhanced.length > 2500 ? enhanced.substring(0, 2500) : enhanced;
+  const finalPrompt =
+    enhanced.length > 2500 ? enhanced.substring(0, 2500) : enhanced;
   return { enhanced: finalPrompt, duration, durationReason };
 }
 
 async function localCharDesc(body: any, onStreamText?: (text: string) => void) {
-  const { characterName, script, costumes, discoverCostumes, model: requestedModel } = body;
+  const {
+    characterName,
+    script,
+    costumes,
+    discoverCostumes,
+    segmentLabels,
+    model: requestedModel,
+  } = body;
   if (!characterName || !script) throw new Error("缺少角色名称或剧本内容");
 
   const hasCostumes = Array.isArray(costumes) && costumes.length > 0;
@@ -1600,6 +1998,10 @@ async function localCharDesc(body: any, onStreamText?: (text: string) => void) {
    - Only include variants if the character clearly has 2 or more distinct outfits/looks in the script.
    - Each variant needs a short label (e.g. "校服", "晚礼服", "休闲装") and a detailed description.
    - If the character only has one outfit or no clear outfit changes, return an empty array for discoveredCostumes.
+3. If segmentLabels are provided, assign the correct costume label to each listed segment where this character appears.
+   - Use ONLY the provided segment labels.
+   - Return segmentCostumeAssignments with {segmentLabel, costumeLabel}.
+   - Omit uncertain segments rather than guessing.
 
 ${ETHNICITY_RULE}
 
@@ -1608,12 +2010,16 @@ ${ETHNICITY_RULE}
 - NO text labels. Pure white background. Neutral expression, upright standing pose.
 
 ### Output Format
-Return JSON: {"description": "base description", "discoveredCostumes": [{"label": "outfit name", "description": "detailed outfit description"}]}
+Return JSON: {"description": "base description", "discoveredCostumes": [{"label": "outfit name", "description": "detailed outfit description"}], "segmentCostumeAssignments": [{"segmentLabel": "1-1-1", "costumeLabel": "outfit name"}]}
 Return ONLY valid JSON.`
     : hasCostumes
-    ? `You are a professional film character designer. Based on the script and character name, produce:
+      ? `You are a professional film character designer. Based on the script and character name, produce:
 1. A brief base character description (gender, age, build, facial features, hairstyle, skin tone — NO clothing).
 2. For EACH costume variant, produce a detailed AI-ready appearance description for a character design sheet.
+3. If segmentLabels are provided, assign the correct costume label to each listed segment where this character appears.
+   - Use ONLY labels from the provided Costumes list.
+   - Return segmentCostumeAssignments with {segmentLabel, costumeLabel}.
+   - Omit uncertain segments rather than guessing.
 
 ${ETHNICITY_RULE}
 
@@ -1622,9 +2028,9 @@ ${ETHNICITY_RULE}
 - NO text labels. Pure white background. Neutral expression, upright standing pose.
 
 ### Output Format
-Return JSON: {"description": "base description", "costumeDescriptions": [{"label": "...", "description": "..."}]}
+Return JSON: {"description": "base description", "costumeDescriptions": [{"label": "...", "description": "..."}], "segmentCostumeAssignments": [{"segmentLabel": "1-1-1", "costumeLabel": "..."}]}
 Return ONLY valid JSON.`
-    : `You are a professional film character designer. Based on the script and character name, produce a detailed AI-ready appearance description for a character design sheet.
+      : `You are a professional film character designer. Based on the script and character name, produce a detailed AI-ready appearance description for a character design sheet.
 
 ${ETHNICITY_RULE}
 
@@ -1636,28 +2042,42 @@ ${ETHNICITY_RULE}
 Return ONLY plain text character description. NO JSON, NO code blocks.`;
 
   const userContent = hasCostumes
-    ? `Script:\n${script}\n\nCharacter: "${characterName}"\nCostumes: ${JSON.stringify(costumes)}`
+    ? `Script:\n${script}\n\nCharacter: "${characterName}"\nCostumes: ${JSON.stringify(costumes)}${Array.isArray(segmentLabels) && segmentLabels.length > 0 ? `\nSegments: ${JSON.stringify(segmentLabels)}` : ""}`
     : shouldDiscover
-    ? `Script:\n${script}\n\nCharacter: "${characterName}"\nAnalyze the script and discover all distinct costume/outfit variants for this character.`
-    : `Script:\n${script}\n\nGenerate appearance description for "${characterName}".`;
+      ? `Script:\n${script}\n\nCharacter: "${characterName}"\nAnalyze the script and discover all distinct costume/outfit variants for this character.${Array.isArray(segmentLabels) && segmentLabels.length > 0 ? `\nSegments: ${JSON.stringify(segmentLabels)}` : ""}`
+      : `Script:\n${script}\n\nGenerate appearance description for "${characterName}".`;
 
   const useModel = requestedModel || "gemini-3-pro-preview";
   const isThinking = useModel.toLowerCase().includes("thinking");
   const generationConfig: any = {
-    ...((hasCostumes || shouldDiscover) ? { responseMimeType: "application/json" } : {}),
+    ...(hasCostumes || shouldDiscover
+      ? { responseMimeType: "application/json" }
+      : {}),
     ...(isThinking ? { thinkingConfig: { thinkingBudget: 2048 } } : {}),
   };
 
   let rawText: string;
   if (onStreamText) {
-    rawText = await callGeminiStream(useModel,
-      [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
+    rawText = await callGeminiStream(
+      useModel,
+      [
+        {
+          role: "user",
+          parts: [{ text: `${systemPrompt}\n\n${userContent}` }],
+        },
+      ],
       onStreamText,
       generationConfig,
     );
   } else {
-    const data = await callGemini(useModel,
-      [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
+    const data = await callGemini(
+      useModel,
+      [
+        {
+          role: "user",
+          parts: [{ text: `${systemPrompt}\n\n${userContent}` }],
+        },
+      ],
       generationConfig,
     );
     rawText = extractText(data);
@@ -1670,6 +2090,7 @@ Return ONLY plain text character description. NO JSON, NO code blocks.`;
         description: parsed.description || "",
         costumeDescriptions: parsed.costumeDescriptions || [],
         discoveredCostumes: parsed.discoveredCostumes || [],
+        segmentCostumeAssignments: parsed.segmentCostumeAssignments || [],
       };
     } catch {
       return { description: rawText };
@@ -1678,8 +2099,17 @@ Return ONLY plain text character description. NO JSON, NO code blocks.`;
   return { description: rawText };
 }
 
-async function localSceneDesc(body: any, onStreamText?: (text: string) => void) {
-  const { sceneName, script, discoverTimeVariants, model: requestedModel } = body;
+async function localSceneDesc(
+  body: any,
+  onStreamText?: (text: string) => void,
+) {
+  const {
+    sceneName,
+    script,
+    discoverTimeVariants,
+    segmentLabels,
+    model: requestedModel,
+  } = body;
   if (!sceneName || !script) throw new Error("缺少场景名称或剧本内容");
 
   const shouldDiscover = !!discoverTimeVariants;
@@ -1691,6 +2121,10 @@ async function localSceneDesc(body: any, onStreamText?: (text: string) => void) 
    - Only include variants if the scene clearly appears in 2 or more distinct time/weather conditions in the script.
    - Each variant needs a short label and a description of how the environment changes.
    - If the scene only appears in one condition, return an empty array for discoveredTimeVariants.
+3. If segmentLabels are provided, assign the correct time/environment variant label to each listed segment where this scene appears.
+   - Use ONLY the provided segment labels.
+   - Return segmentTimeAssignments with {segmentLabel, timeVariantLabel}.
+   - Omit uncertain segments rather than guessing.
 
 ### Core Principles
 1. Panoramic perspective with depth and grandeur.
@@ -1703,7 +2137,7 @@ async function localSceneDesc(body: any, onStreamText?: (text: string) => void) 
 - Key props, ground/surface materials
 
 ### Output Format
-Return JSON: {"description": "base environment description", "discoveredTimeVariants": [{"label": "variant name", "description": "how environment changes"}]}
+Return JSON: {"description": "base environment description", "discoveredTimeVariants": [{"label": "variant name", "description": "how environment changes"}], "segmentTimeAssignments": [{"segmentLabel": "1-1-1", "timeVariantLabel": "variant name"}]}
 Return ONLY valid JSON.`
     : `You are a professional film production designer. Based on the script and scene name, produce a detailed environment description for AI image generation — a grand Panoramic View scene concept.
 
@@ -1721,7 +2155,7 @@ Return ONLY valid JSON.`
 Return ONLY plain text description in English. NO JSON.`;
 
   const userContent = shouldDiscover
-    ? `Script:\n${script}\n\nScene: "${sceneName}"\nAnalyze the script and discover all distinct time/environment variants for this scene.`
+    ? `Script:\n${script}\n\nScene: "${sceneName}"\nAnalyze the script and discover all distinct time/environment variants for this scene.${Array.isArray(segmentLabels) && segmentLabels.length > 0 ? `\nSegments: ${JSON.stringify(segmentLabels)}` : ""}`
     : `Script:\n${script}\n\nGenerate environment description for scene "${sceneName}".`;
 
   const useModel = requestedModel || "gemini-3-pro-preview";
@@ -1733,14 +2167,26 @@ Return ONLY plain text description in English. NO JSON.`;
 
   let rawText: string;
   if (onStreamText) {
-    rawText = await callGeminiStream(useModel,
-      [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
+    rawText = await callGeminiStream(
+      useModel,
+      [
+        {
+          role: "user",
+          parts: [{ text: `${systemPrompt}\n\n${userContent}` }],
+        },
+      ],
       onStreamText,
       generationConfig,
     );
   } else {
-    const data = await callGemini(useModel,
-      [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
+    const data = await callGemini(
+      useModel,
+      [
+        {
+          role: "user",
+          parts: [{ text: `${systemPrompt}\n\n${userContent}` }],
+        },
+      ],
       generationConfig,
     );
     rawText = extractText(data);
@@ -1752,6 +2198,7 @@ Return ONLY plain text description in English. NO JSON.`;
       return {
         description: parsed.description || "",
         discoveredTimeVariants: parsed.discoveredTimeVariants || [],
+        segmentTimeAssignments: parsed.segmentTimeAssignments || [],
       };
     } catch {
       return { description: rawText };

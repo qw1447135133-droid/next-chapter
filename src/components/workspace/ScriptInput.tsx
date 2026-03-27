@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Sparkles, Loader2, Upload, ChevronDown } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { parseDocument } from "@/lib/document-parser";
 import { toast } from "@/hooks/use-toast";
 import { VideoPace, VIDEO_PACE_OPTIONS, EpisodeDuration, EPISODE_DURATION_OPTIONS } from "@/types/project";
 import { Input } from "@/components/ui/input";
@@ -89,14 +89,8 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
     toast({ title: "正在解析文档...", description: "PDF/Word 解析可能需要几秒钟" });
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const { data, error } = await supabase.functions.invoke("parse-document", { body: formData });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error || "解析失败");
-
-      onScriptChange(data.text);
+      const text = await parseDocument(file);
+      onScriptChange(text);
       toast({ title: "导入成功", description: `已导入 ${file.name}` });
     } catch (err: any) {
       console.error("Document parse error:", err);

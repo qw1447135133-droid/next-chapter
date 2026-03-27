@@ -1,0 +1,56 @@
+# serverless devs 部署配置
+# 部署命令: cd fc && s deploy
+
+edition: 3.0.0
+name: infinio-api-gateway
+
+providers:
+  aliyun:
+    account:
+      id: "1407772812531010"  # 阿里云控制台右上角可见
+      key: LTAI5tHRrN6nf2v1MKoHDNaS
+      secret: xcKouUgb5ddUjoeuJF1QYbyeBLhpfo
+
+vars:
+  region: cn-hangzhou
+  serviceName: infinio-api-gateway
+
+resources:
+  ${vars.serviceName}:
+    component: fc
+    props:
+      region: ${vars.region}
+      service:
+        name: ${vars.serviceName}
+        description: Infinio API 网关
+        internetAccess: true
+      function:
+        name: api-handler
+        description: API 网关处理器
+        runtime: nodejs20
+        code: ./
+        handler: index.handler
+        memorySize: 256
+        timeout: 300
+        initializationTimeout: 60
+        initializer: index.initializer
+        environmentVariables:
+          # Gemini (站狐代理)
+          GEMINI_API_KEY: "YOUR_GEMINI_API_KEY"
+          GEMINI_ENDPOINT: "http://202.90.21.53:13003/v1beta"
+          # Seedance (即梦)
+          JIMENG_API_KEY: "YOUR_JIMENG_API_KEY"
+          JIMENG_ENDPOINT: "http://202.90.21.53:13003/v1"
+          # Vidu
+          VIDU_API_KEY: "YOUR_VIDU_API_KEY"
+          VIDU_ENDPOINT: "https://api.vidu.cn/ent/v2"
+          # Kling (可灵)
+          KLING_API_KEY: "YOUR_KLING_API_KEY"
+          KLING_ENDPOINT: "https://api.klingai.com"
+      triggers:
+        - name: http-trigger
+          type: http
+          config:
+            methods: [GET, POST, OPTIONS]
+            invocationType: Sync
+            authType: anonymous

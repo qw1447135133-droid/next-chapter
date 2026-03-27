@@ -1,16 +1,11 @@
 /**
  * API Client - 使用本地配置的端点和密钥
- * 替代 Supabase Edge Functions 直接调用 AI API
  */
 
 import { getApiConfig } from "@/pages/Settings";
+import { smartDirectOrProxyFetch } from "@/lib/gemini-client";
 
 const DEFAULT_TIMEOUT = 300_000;
-
-interface ApiResponse<T> {
-  data?: T;
-  error?: string;
-}
 
 /**
  * 调用 AI 模型 API
@@ -21,30 +16,33 @@ export async function callAiApi<T = any>(
     endpoint?: string;
     path?: string;
     timeout?: number;
-  } = {}
+  } = {},
 ): Promise<T> {
   const config = getApiConfig();
-  const endpoint = options.endpoint || "https://api.zhanhu.ai/v1";
+  const endpoint =
+    options.endpoint ||
+    config.geminiEndpoint ||
+    "https://api.zhanhu.ai/v1";
   const path = options.path || "/chat/completions";
   const timeout = options.timeout || DEFAULT_TIMEOUT;
 
-  if (!config.zhanhuKey) {
-    throw new Error("请先在设置中配置站狐 API Key");
+  if (!config.geminiKey?.trim()) {
+    throw new Error("请先在设置中配置 Gemini API Key");
   }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const response = await fetch(`${endpoint}${path}`, {
-      method: "POST",
-      headers: {
+    const response = await smartDirectOrProxyFetch(
+      `${endpoint}${path}`,
+      {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.zhanhuKey}`,
       },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+      JSON.stringify(body),
+      controller.signal,
+      "gemini",
+    );
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
@@ -64,30 +62,35 @@ export async function callAiApi<T = any>(
 export async function callVideoApi<T = any>(
   body: Record<string, unknown>,
   options: {
+    endpoint?: string;
     timeout?: number;
-  } = {}
+  } = {},
 ): Promise<T> {
   const config = getApiConfig();
-  const endpoint = "https://api.zhanhu.ai/v1";
-  const timeout = options.timeout || 600_000; // 视频生成可能需要更长时间
+  const endpoint =
+    options.endpoint || config.jimengEndpoint || config.geminiEndpoint || "https://api.zhanhu.ai/v1";
+  const timeout = options.timeout || 600_000;
 
-  if (!config.jimeng) {
-    throw new Error("请先在设置中配置 Jimeng API Key");
+  if (
+    !config.jimengKey?.trim() &&
+    !config.geminiKey?.trim()
+  ) {
+    throw new Error("请先在设置中配置即梦视频或 Gemini API Key");
   }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const response = await fetch(`${endpoint}/video/generate`, {
-      method: "POST",
-      headers: {
+    const response = await smartDirectOrProxyFetch(
+      `${endpoint.replace(/\/$/, "")}/v1/video/generate`,
+      {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.jimeng}`,
       },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+      JSON.stringify(body),
+      controller.signal,
+      "jimeng",
+    );
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
@@ -110,30 +113,33 @@ export async function* callAiStreamingApi(
     endpoint?: string;
     path?: string;
     timeout?: number;
-  } = {}
+  } = {},
 ): AsyncGenerator<string> {
   const config = getApiConfig();
-  const endpoint = options.endpoint || "https://api.zhanhu.ai/v1";
+  const endpoint =
+    options.endpoint ||
+    config.geminiEndpoint ||
+    "https://api.zhanhu.ai/v1";
   const path = options.path || "/chat/completions";
   const timeout = options.timeout || DEFAULT_TIMEOUT;
 
-  if (!config.zhanhuKey) {
-    throw new Error("请先在设置中配置站狐 API Key");
+  if (!config.geminiKey?.trim()) {
+    throw new Error("请先在设置中配置 Gemini API Key");
   }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const response = await fetch(`${endpoint}${path}`, {
-      method: "POST",
-      headers: {
+    const response = await smartDirectOrProxyFetch(
+      `${endpoint}${path}`,
+      {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.zhanhuKey}`,
       },
-      body: JSON.stringify({ ...body, stream: true }),
-      signal: controller.signal,
-    });
+      JSON.stringify({ ...body, stream: true }),
+      controller.signal,
+      "gemini",
+    );
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
@@ -149,13 +155,12 @@ export async function* callAiStreamingApi(
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      
+
       buffer += decoder.decode(value, { stream: true });
-      
-      // Yield complete lines
+
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
-      
+
       for (const line of lines) {
         if (line.trim()) {
           yield line;

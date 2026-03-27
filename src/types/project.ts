@@ -18,6 +18,7 @@ export interface Scene {
   recommendedDuration?: number;
   isManualDuration?: boolean; // true when user manually set duration
   characterCostumes?: Record<string, string>; // { characterName: costumeId }
+  sceneTimeVariantId?: string; // explicit time variant chosen for this shot
 }
 
 export interface VideoHistoryEntry {

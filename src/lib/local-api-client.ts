@@ -1,9 +1,9 @@
 /**
- * 本地 AI API 客户端
- * 直接调用外部 AI API，不依赖 Supabase Edge Functions
+ * 本地 AI API 客户端（Gemini / 即梦视频网关）
  */
 
 import { getApiConfig } from "@/pages/Settings";
+import { smartDirectOrProxyFetch } from "@/lib/gemini-client";
 
 const DEFAULT_TIMEOUT = 300_000;
 
@@ -16,32 +16,33 @@ export async function callLocalAiApi<T = any>(
     endpoint?: string;
     path?: string;
     timeout?: number;
-  } = {}
+  } = {},
 ): Promise<T> {
   const config = getApiConfig();
-  
-  // 使用站狐 API 端点
-  const endpoint = config.zhanhuEndpoint || "http://202.90.21.53:13003/v1beta";
+  const baseUrl =
+    options.endpoint ||
+    config.geminiEndpoint ||
+    "http://202.90.21.53:13003/v1beta";
   const path = options.path || "/chat/completions";
   const timeout = options.timeout || DEFAULT_TIMEOUT;
 
-  if (!config.zhanhuKey) {
-    throw new Error("请先在设置中配置 API Key");
+  if (!config.geminiKey?.trim()) {
+    throw new Error("请先在设置中配置 Gemini API Key");
   }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const response = await fetch(`${endpoint}${path}`, {
-      method: "POST",
-      headers: {
+    const response = await smartDirectOrProxyFetch(
+      `${baseUrl.replace(/\/$/, "")}${path.startsWith("/") ? path : `/${path}`}`,
+      {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.zhanhuKey}`,
       },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+      JSON.stringify(body),
+      controller.signal,
+      "gemini",
+    );
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
@@ -61,30 +62,35 @@ export async function callLocalAiApi<T = any>(
 export async function callLocalVideoApi<T = any>(
   body: Record<string, unknown>,
   options: {
+    endpoint?: string;
     timeout?: number;
-  } = {}
+  } = {},
 ): Promise<T> {
   const config = getApiConfig();
-  const endpoint = config.jimengEndpoint || "http://202.90.21.53:13003/v1";
+  const base =
+    options.endpoint ||
+    config.jimengEndpoint ||
+    config.geminiEndpoint ||
+    "http://202.90.21.53:13003/v1beta";
   const timeout = options.timeout || 600_000;
 
-  if (!config.jimeng) {
-    throw new Error("请先在设置中配置 Jimeng API Key");
+  if (!config.jimengKey?.trim() && !config.geminiKey?.trim()) {
+    throw new Error("请先在设置中配置即梦视频或 Gemini API Key");
   }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const response = await fetch(`${endpoint}/video/generate`, {
-      method: "POST",
-      headers: {
+    const response = await smartDirectOrProxyFetch(
+      `${base.replace(/\/$/, "")}/v1/video/generate`,
+      {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.jimeng}`,
       },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+      JSON.stringify(body),
+      controller.signal,
+      "jimeng",
+    );
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");

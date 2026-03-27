@@ -28,12 +28,13 @@ for (const f of electronFiles) {
   await esbuild.build({
     entryPoints: [f.entry],
     outfile: f.outfile,
-    bundle: false,
+    bundle: true,
     platform: "node",
     format: f.format,
     target: "node18",
     sourcemap: false,
     minify: false,
+    external: ["electron", "node:*"],
   });
   console.log(`✅ Compiled: ${path.basename(f.entry)} → ${path.basename(f.outfile)}`);
 }

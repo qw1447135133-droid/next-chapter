@@ -10,7 +10,7 @@ import { ArrowRight, FileText, Upload, Sparkles, Loader2, CheckCircle2, PlayCirc
 import { motion, AnimatePresence } from "framer-motion";
 import { callGemini, callGeminiStream, extractText } from "@/lib/gemini-client";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { parseDocument } from "@/lib/document-parser";
 import { TARGET_MARKETS, EPISODE_COUNTS, AUDIENCES, TONES, ENDINGS } from "@/types/drama";
 import type { DramaSetup } from "@/types/drama";
 
@@ -193,12 +193,8 @@ const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferen
     toast({ title: "正在解析文档...", description: "PDF/Word 解析可能需要几秒钟" });
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const { data, error } = await supabase.functions.invoke("parse-document", { body: formData });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error || "解析失败");
-      setScript(data.text);
+      const text = await parseDocument(file);
+      setScript(text);
       setAnalyzed(false);
       setExtractedStructure("");
       toast({ title: "导入成功", description: `已导入 ${file.name}` });
@@ -404,10 +400,12 @@ ${structureParts.join("\n\n---\n\n")}
       }
       // Save resume state on error (not abort)
       if (!(e?.message?.includes("取消") || e?.name === "AbortError")) {
-        const completedChunks = structureParts!.length;
-        if (configDone! && completedChunks < chunks!.length) {
-          resumeRef.current = { chunks: chunks!, structureParts: [...structureParts!], startChunkIdx: completedChunks, totalSteps: totalSteps!, configDone: true };
-          setProgress({ done: 1 + completedChunks, total: totalSteps!, processing: false, phase: `识别中断（已完成 ${completedChunks}/${chunks!.length} 段）`, failed: true });
+        if (structureParts != null && chunks != null && totalSteps != null && configDone) {
+          const completedChunks = structureParts.length;
+          if (completedChunks < chunks.length) {
+            resumeRef.current = { chunks, structureParts: [...structureParts], startChunkIdx: completedChunks, totalSteps, configDone: true };
+            setProgress({ done: 1 + completedChunks, total: totalSteps, processing: false, phase: `识别中断（已完成 ${completedChunks}/${chunks.length} 段）`, failed: true });
+          }
         }
       }
     } finally {

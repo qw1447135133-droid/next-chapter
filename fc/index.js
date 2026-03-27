@@ -4,11 +4,12 @@
 
 const PORT = 8080;
 
+// CORS 头（去掉旧的 x-service/x-path 等多余字段）
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-service, x-path",
+  "Access-Control-Allow-Headers": "authorization, content-type, x-api-key",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Max-Age": "3600",
 };
 
 const SERVICE_CONFIG = {
@@ -28,7 +29,7 @@ const SERVICE_CONFIG = {
     keyEnv: "VIDU_API_KEY",
     endpointEnv: "VIDU_ENDPOINT",
     defaultEndpoint: "https://api.vidu.cn/ent/v2",
-    authPrefix: "Token ",
+    authPrefix: "Bearer ",
   },
   kling: {
     keyEnv: "KLING_API_KEY",
@@ -39,94 +40,66 @@ const SERVICE_CONFIG = {
 };
 
 function getServiceConfig(service) {
-  const cfg = SERVICE_CONFIG[service] || {
-    keyEnv: "GENERAL_API_KEY",
-    endpointEnv: "GENERAL_ENDPOINT",
-    defaultEndpoint: "",
-    authPrefix: "Bearer ",
-  };
-  return {
-    apiKey: process.env[cfg.keyEnv] || process.env["GENERAL_API_KEY"] || "",
-    endpoint: process.env[cfg.endpointEnv] || cfg.defaultEndpoint || "",
-    authPrefix: cfg.authPrefix,
-  };
+  const cfg = SERVICE_CONFIG[service];
+  if (!cfg) throw new Error(`Unknown service: ${service}`);
+  const key = process.env[cfg.keyEnv] || "";
+  const endpoint = process.env[cfg.endpointEnv] || cfg.defaultEndpoint;
+  if (!key) throw new Error(`API key not configured for service: ${service}`);
+  return { apiKey: key, endpoint, authPrefix: cfg.authPrefix };
 }
 
 function getServiceStatus() {
   const status = {};
   for (const [name, cfg] of Object.entries(SERVICE_CONFIG)) {
-    status[name] = {
-      configured: !!process.env[cfg.keyEnv],
-      endpoint: process.env[cfg.endpointEnv] || cfg.defaultEndpoint,
-    };
+    const key = process.env[cfg.keyEnv] || "";
+    status[name] = key ? "configured" : "missing_key";
   }
   return status;
 }
 
-async function fetchWithRetry(url, options, maxRetries = 3) {
-  let lastError;
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 300000);
-      try {
-        const resp = await fetch(url, { ...options, signal: controller.signal });
-        clearTimeout(timeoutId);
-        if (resp.status >= 500 && i < maxRetries - 1) {
-          console.log(`Request failed ${resp.status}, retrying (${i + 1}/${maxRetries})`);
-          await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
-          lastError = new Error(`HTTP ${resp.status}`);
-          continue;
-        }
-        return resp;
-      } finally {
-        clearTimeout(timeoutId);
-      }
-    } catch (err) {
-      lastError = err;
-      if (i < maxRetries - 1) {
-        await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
-      }
-    }
-  }
-  throw lastError || new Error("Max retries exceeded");
-}
-
-function buildResponse(statusCode, data, contentType) {
+function buildResponse(statusCode, body) {
+  const bodyStr = typeof body === "string" ? body : JSON.stringify(body);
   return {
     statusCode,
-    headers: { ...corsHeaders, "Content-Type": contentType || "application/json" },
-    body: typeof data === "string" ? data : JSON.stringify(data),
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    body: Buffer.from(bodyStr).toString("base64"),
+    isBase64Encoded: true,
   };
 }
 
 async function parseBody(rawBody, isBase64Encoded) {
   if (!rawBody) return {};
+  let str = isBase64Encoded
+    ? Buffer.from(rawBody, "base64").toString()
+    : String(rawBody);
   try {
-    const decoded = isBase64Encoded
-      ? Buffer.from(rawBody, "base64").toString()
-      : Buffer.from(rawBody).toString();
-    return JSON.parse(decoded);
+    return JSON.parse(str);
   } catch {
     return {};
   }
 }
 
 async function handleProxy(event) {
-  const body = await parseBody(event.body, event.isBase64Encoded);
+  const reqMethod = event.httpMethod || event.method || "";
+  const reqPath = event.path || "";
+  const body = event.body != null ? await parseBody(event.body, event.isBase64Encoded) : {};
 
-  let service = body.service || event.headers?.["x-service"] || "gemini";
-  let apiPath = body.path || body.apiPath || event.headers?.["x-path"] || "";
-  let requestBody = body.body || body.requestBody || undefined;
+  let service = body?.service || "gemini";
+  let apiPath = body?.path || body?.apiPath || "";
+  // FC HTTP 触发器：body.body 是 JSON 字符串，需要额外解析
+  let requestBody = body?.body;
+  if (typeof requestBody === "string") {
+    try { requestBody = JSON.parse(requestBody); } catch { requestBody = undefined; }
+  }
 
-  // 兼容旧格式：直接传 url
-  if (body.url) {
-    if (body.url.includes("generativelanguage.googleapis.com")) service = "gemini";
-    else if (body.url.includes("ark.cn-beijing.volces.com")) service = "jimeng";
-    else if (body.url.includes("vidu")) service = "vidu";
-    else if (body.url.includes("klingai.com")) service = "kling";
-    const urlMatch = body.url.match(/https?:\/\/[^\/]+(\/.*)/);
-    if (urlMatch) apiPath = urlMatch[1];
+  // OPTIONS 预检
+  if (reqMethod === "OPTIONS") {
+    return {
+      statusCode: 204,
+      headers: { ...corsHeaders, "Content-Type": "text/plain" },
+      body: "",
+      isBase64Encoded: false,
+    };
   }
 
   if (!apiPath) {
@@ -135,23 +108,19 @@ async function handleProxy(event) {
 
   const svcCfg = getServiceConfig(service);
 
-  if (!svcCfg.apiKey) {
-    return buildResponse(500, { error: `API Key not configured for service: ${service}` });
-  }
-
   if (!svcCfg.endpoint) {
     return buildResponse(500, { error: `Endpoint not configured for service: ${service}` });
   }
 
   const targetUrl = svcCfg.endpoint.replace(/\/$/, "") + apiPath;
-  const method = body.options?.method || body.method || "POST";
+  const method = body?.options?.method || body?.method || "POST";
 
   const targetHeaders = {
     "Content-Type": "application/json",
     "Authorization": svcCfg.authPrefix + svcCfg.apiKey,
   };
 
-  if (body.options?.headers) {
+  if (body?.options?.headers) {
     Object.assign(targetHeaders, body.options.headers);
   }
 
@@ -161,7 +130,7 @@ async function handleProxy(event) {
       serializedBody = JSON.stringify(requestBody);
     } else if (requestBody && typeof requestBody === "string") {
       serializedBody = requestBody;
-    } else if (body.options?.body && typeof body.options.body === "object") {
+    } else if (body?.options?.body && typeof body.options.body === "object") {
       serializedBody = JSON.stringify(body.options.body);
     } else if (typeof body === "object" && !body.url && !body.service && !body.path) {
       serializedBody = JSON.stringify(body);
@@ -186,10 +155,10 @@ async function handleProxy(event) {
   };
 }
 
-// HTTP 触发器的请求事件格式
+// HTTP 触发器的请求事件格式（兼容 API 网关和 HTTP 触发器）
 function parseHttpRequest(event) {
   return {
-    method: event.method || "GET",
+    method: event.httpMethod || event.method || "GET",
     path: (event.path || event.url || "/").split("?")[0],
     headers: event.headers || {},
     query: event.query || {},
@@ -200,41 +169,30 @@ function parseHttpRequest(event) {
 
 // 事件函数入口
 module.exports.handler = async function (req, context) {
-  // 解析 HTTP 请求
+  // HTTP 触发器传入 Uint8Array：转换为 Buffer → JSON → event 对象
+  if (req && typeof req[0] === "number" && req.length > 0) {
+    const buf = Buffer.from(req);
+    const bodyStr = buf.toString("utf8");
+    const parsed = JSON.parse(bodyStr);
+    const innerBody = parsed.body || "";
+    // innerBody 可能是 JSON 字符串，保持原样传给 handleProxy
+    return await handleProxy({
+      httpMethod: parsed.http?.method || "POST",
+      path: parsed.rawPath || parsed.requestContext?.http?.path || "/",
+      headers: parsed.headers || {},
+      body: innerBody,
+      isBase64Encoded: parsed.isBase64Encoded || false,
+    });
+  }
+
+  // 标准 HTTP 事件格式（CLI 调用或 API 网关）
+  if (req && req.httpMethod !== undefined) {
+    return await handleProxy(req);
+  }
+
+  // 标准 event 函数格式
   const httpReq = parseHttpRequest(req);
-  const { method, path } = httpReq;
-
-  // CORS 预检
-  if (method === "OPTIONS") {
-    return {
-      statusCode: 204,
-      headers: corsHeaders,
-      body: "",
-    };
-  }
-
-  try {
-    if (path === "/health" || path === "/healthz") {
-      return {
-        statusCode: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status: "ok",
-          services: getServiceStatus(),
-          timestamp: new Date().toISOString(),
-        }),
-      };
-    }
-
-    if (path === "/proxy" || path === "/") {
-      return await handleProxy(httpReq);
-    }
-
-    return buildResponse(404, { error: "Not found" });
-  } catch (e) {
-    console.error("Handler error:", e.message);
-    return buildResponse(500, { error: e.message });
-  }
+  return await handleProxy(httpReq);
 };
 
 // HTTP 服务器保活（健康检查用，customRuntime 下必须）
@@ -261,3 +219,25 @@ module.exports.initializer = async function (context) {
   console.log("Initializing Infinio API Gateway...");
   return;
 };
+
+// ===== 上游请求重试逻辑 =====
+
+async function fetchWithRetry(url, options, retries = 2, delay = 3000) {
+  let lastError;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const resp = await fetch(url, {
+        ...options,
+        signal: options.signal,
+      });
+      return resp;
+    } catch (err) {
+      lastError = err;
+      if (i < retries) {
+        console.warn(`[FC] fetch error, retry ${i + 1}/${retries} in ${delay}ms: ${err.message}`);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+  }
+  throw lastError;
+}

@@ -2,18 +2,60 @@ import { useState, useRef, useMemo } from "react";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowRight, Loader2, Play, Check, RefreshCw, History, ChevronDown, ChevronUp, Trash2, ClipboardCheck, X, Wrench, BarChart3 } from "lucide-react";
+import {
+  ArrowRight,
+  Loader2,
+  Play,
+  Check,
+  RefreshCw,
+  History,
+  ChevronDown,
+  ChevronUp,
+  Trash2,
+  ClipboardCheck,
+  X,
+  Wrench,
+  BarChart3,
+} from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
-import { buildEpisodePrompt, buildSceneRegenPrompt, buildReviewPrompt, getDurationConstraints } from "@/lib/drama-prompts";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { getNetworkRetrySettings } from "@/lib/network-retry-settings";
+import {
+  buildEpisodePrompt,
+  buildSceneRegenPrompt,
+  buildReviewPrompt,
+  getDurationConstraints,
+} from "@/lib/drama-prompts";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
-import type { DramaSetup, EpisodeEntry, EpisodeScript, EpisodeVersion } from "@/types/drama";
-import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "./TranslateButton";
+import type {
+  DramaSetup,
+  EpisodeEntry,
+  EpisodeScript,
+  EpisodeVersion,
+} from "@/types/drama";
+import {
+  useTranslation,
+  InterleavedText,
+  TranslateToggle,
+  TranslationProgress,
+  isNonChineseText,
+} from "./TranslateButton";
 
 interface ReviewScore {
   score: number;
@@ -67,7 +109,8 @@ function parseScenes(content: string): { header: string; body: string }[] {
 
 /** Get the content before the first scene (metadata/header) */
 function getEpisodePreamble(content: string): string {
-  const firstScene = content.match(/^#\s*\d+-\d+\s+/m) || content.match(/^##\s*场次/m);
+  const firstScene =
+    content.match(/^#\s*\d+-\d+\s+/m) || content.match(/^##\s*场次/m);
   if (!firstScene || firstScene.index === undefined) return content;
   return content.slice(0, firstScene.index).trim();
 }
@@ -119,7 +162,14 @@ function sanitizeEpisodeFormat(raw: string): string {
     .join("\n");
 }
 
-const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext }: StepEpisodeProps) => {
+const StepEpisode = ({
+  setup,
+  characters,
+  directory,
+  episodes,
+  onUpdate,
+  onNext,
+}: StepEpisodeProps) => {
   // Fallback: if directory is empty (e.g. adaptation mode), generate placeholder entries from totalEpisodes
   const displayDirectory: EpisodeEntry[] = useMemo(() => {
     if (directory.length > 0) return directory;
@@ -138,20 +188,26 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const completedNums = new Set(episodes.map((e) => e.number));
   /** Check if an episode is locked (previous episode not yet generated) */
   const isLocked = (num: number) => num > 1 && !completedNums.has(num - 1);
-  const nextUnwritten = displayDirectory.find(d => !completedNums.has(d.number))?.number;
+  const nextUnwritten = displayDirectory.find(
+    (d) => !completedNums.has(d.number),
+  )?.number;
   const [rangeInput, setRangeInput] = useState(String(nextUnwritten || 1));
   const [durationOption, setDurationOption] = useState("90");
   const [customDuration, setCustomDuration] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [genFailureDialogOpen, setGenFailureDialogOpen] = useState(false);
-  const [genFailureReport, setGenFailureReport] = useState<{ epNum: number; error: string }[]>([]);
+  const [genFailureReport, setGenFailureReport] = useState<
+    { epNum: number; error: string }[]
+  >([]);
   const [currentGen, setCurrentGen] = useState<number | null>(null);
   const [streamingText, setStreamingText] = useState("");
   const [selectedEp, setSelectedEp] = useState<number | null>(null);
   const [regenSceneIdx, setRegenSceneIdx] = useState<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [episodeRegenInstruction, setEpisodeRegenInstruction] = useState("");
-  const [sceneRegenInstructions, setSceneRegenInstructions] = useState<Record<number, string>>({});
+  const [sceneRegenInstructions, setSceneRegenInstructions] = useState<
+    Record<number, string>
+  >({});
   const [, setHoverEpisodeRegen] = useState(false);
   const [, setHoverSceneIdx] = useState<number | null>(null);
   const [reviewResult, setReviewResult] = useState<ReviewResult | null>(null);
@@ -159,14 +215,34 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   const [showReviewDialog, setShowReviewDialog] = useState(false);
   const [reviewEpNum, setReviewEpNum] = useState<number | null>(null);
   // Batch review state
-  const [batchReviewResults, setBatchReviewResults] = useState<Map<number, ReviewResult>>(new Map());
+  const [batchReviewResults, setBatchReviewResults] = useState<
+    Map<number, ReviewResult>
+  >(new Map());
   const [isBatchReviewing, setIsBatchReviewing] = useState(false);
-  const [batchReviewProgress, setBatchReviewProgress] = useState<{ current: number; total: number; epNum: number | null }>({ current: 0, total: 0, epNum: null });
+  const [batchReviewProgress, setBatchReviewProgress] = useState<{
+    current: number;
+    total: number;
+    epNum: number | null;
+  }>({ current: 0, total: 0, epNum: null });
   const [showBatchReviewDialog, setShowBatchReviewDialog] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
-  const scrollRef = useAutoScroll<HTMLDivElement>(isGenerating && regenSceneIdx == null, streamingText);
+  const scrollRef = useAutoScroll<HTMLDivElement>(
+    isGenerating && regenSceneIdx == null,
+    streamingText,
+  );
   const batchAbortRef = useRef<AbortController | null>(null);
-  const { isTranslating, showTranslation, translate, stopTranslation, clearTranslation, getTranslation, hasTranslation, progress: transProgress, canResume: transCanResume, resumeTranslation } = useTranslation();
+  const {
+    isTranslating,
+    showTranslation,
+    translate,
+    stopTranslation,
+    clearTranslation,
+    getTranslation,
+    hasTranslation,
+    progress: transProgress,
+    canResume: transCanResume,
+    resumeTranslation,
+  } = useTranslation();
 
   const DIMENSION_LABELS: Record<string, string> = {
     rhythm: "节奏",
@@ -185,7 +261,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
   };
 
   const handleReview = async (epNum: number) => {
-    const ep = episodes.find(e => e.number === epNum);
+    const ep = episodes.find((e) => e.number === epNum);
     if (!ep) return;
 
     setReviewEpNum(epNum);
@@ -194,14 +270,20 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
     setShowReviewDialog(true);
 
     try {
-      const prevEp = episodes.find(e => e.number === epNum - 1);
-      const nextEp = episodes.find(e => e.number === epNum + 1);
+      const prevEp = episodes.find((e) => e.number === epNum - 1);
+      const nextEp = episodes.find((e) => e.number === epNum + 1);
 
       const prompt = buildReviewPrompt(
-        setup, characters, displayDirectory, epNum, ep.content,
-        prevEp?.content, nextEp?.content,
+        setup,
+        characters,
+        displayDirectory,
+        epNum,
+        ep.content,
+        prevEp?.content,
+        nextEp?.content,
       );
-      const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+      const model =
+        localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
       const finalText = await callGeminiStream(
         model,
         [{ role: "user", parts: [{ text: prompt }] }],
@@ -215,7 +297,11 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
       const result: ReviewResult = JSON.parse(jsonMatch[0]);
       setReviewResult(result);
     } catch (e: any) {
-      toast({ title: "质量审查失败", description: e?.message, variant: "destructive" });
+      toast({
+        title: "质量审查失败",
+        description: e?.message,
+        variant: "destructive",
+      });
       setShowReviewDialog(false);
     } finally {
       setIsReviewing(false);
@@ -224,7 +310,9 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
 
   /** Batch review all completed episodes */
   const handleBatchReview = async () => {
-    const completedEps = episodes.filter(e => e.content).sort((a, b) => a.number - b.number);
+    const completedEps = episodes
+      .filter((e) => e.content)
+      .sort((a, b) => a.number - b.number);
     if (completedEps.length === 0) {
       toast({ title: "没有已撰写的集数可审查", variant: "destructive" });
       return;
@@ -232,24 +320,38 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
 
     setIsBatchReviewing(true);
     setBatchReviewResults(new Map());
-    setBatchReviewProgress({ current: 0, total: completedEps.length, epNum: null });
+    setBatchReviewProgress({
+      current: 0,
+      total: completedEps.length,
+      epNum: null,
+    });
     setShowBatchReviewDialog(true);
     batchAbortRef.current = new AbortController();
 
     const results = new Map<number, ReviewResult>();
-    const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+    const model =
+      localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
 
     for (let i = 0; i < completedEps.length; i++) {
       if (batchAbortRef.current?.signal.aborted) break;
       const ep = completedEps[i];
-      setBatchReviewProgress({ current: i + 1, total: completedEps.length, epNum: ep.number });
+      setBatchReviewProgress({
+        current: i + 1,
+        total: completedEps.length,
+        epNum: ep.number,
+      });
 
       try {
-        const prevEp = episodes.find(e => e.number === ep.number - 1);
-        const nextEp = episodes.find(e => e.number === ep.number + 1);
+        const prevEp = episodes.find((e) => e.number === ep.number - 1);
+        const nextEp = episodes.find((e) => e.number === ep.number + 1);
         const prompt = buildReviewPrompt(
-          setup, characters, displayDirectory, ep.number, ep.content,
-          prevEp?.content, nextEp?.content,
+          setup,
+          characters,
+          displayDirectory,
+          ep.number,
+          ep.content,
+          prevEp?.content,
+          nextEp?.content,
         );
         const finalText = await callGeminiStream(
           model,
@@ -304,7 +406,10 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
     return history.slice(-10);
   };
 
-  const handleGenerate = async (overrideRange?: string, overrideInstruction?: string) => {
+  const handleGenerate = async (
+    overrideRange?: string,
+    overrideInstruction?: string,
+  ) => {
     const nums = parseRange(overrideRange || rangeInput);
     const instruction = overrideInstruction ?? episodeRegenInstruction;
     const uniqueNums = [...new Set(nums)].sort((a, b) => a - b);
@@ -315,7 +420,10 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
 
     // Sequential prerequisite check: if a previous episode isn't generated and isn't included, block.
     const currentCompleted = new Set(episodes.map((e) => e.number));
-    const firstBlocked = uniqueNums.find((n) => n > 1 && !currentCompleted.has(n - 1) && !uniqueNums.includes(n - 1));
+    const firstBlocked = uniqueNums.find(
+      (n) =>
+        n > 1 && !currentCompleted.has(n - 1) && !uniqueNums.includes(n - 1),
+    );
     if (firstBlocked) {
       toast({
         title: `无法生成第 ${firstBlocked} 集`,
@@ -336,11 +444,15 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
     const failures: { epNum: number; error: string }[] = [];
 
     const effectiveDuration =
-      durationOption === "custom" ? parseInt(customDuration) || 90 : parseInt(durationOption);
-    const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+      durationOption === "custom"
+        ? parseInt(customDuration) || 90
+        : parseInt(durationOption);
+    const model =
+      localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
     const customInstruction = instruction.trim() || undefined;
 
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const { maxRetries, delayMs } = getNetworkRetrySettings();
 
     const buildPreviousContent = (num: number) => {
       const prev = updatedEpisodes
@@ -357,7 +469,10 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
         .filter((ep) => ep.number > num && ep.content?.trim())
         .sort((a, b) => a.number - b.number)
         .slice(0, 2)
-        .map((ep) => `--- 后续回顾 第${ep.number}集 ---\n${ep.content.slice(0, 800)}`);
+        .map(
+          (ep) =>
+            `--- 后续回顾 第${ep.number}集 ---\n${ep.content.slice(0, 800)}`,
+        );
       return next.join("\n\n");
     };
 
@@ -369,7 +484,7 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
       setCurrentGen(num);
       setStreamingText("");
 
-      for (let attempt = 0; attempt < 2; attempt++) {
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
         if (signal.aborted) return false;
 
         const previousContent = buildPreviousContent(num);
@@ -431,11 +546,17 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
         } catch (e: any) {
           if (signal.aborted) return false;
           const errMsg = e?.message || "未知错误";
-          const displayErrMsg = didTimeout ? `生成超时（>${attemptTimeoutMs / 1000}s）` : errMsg;
+          const displayErrMsg = didTimeout
+            ? `生成超时（>${attemptTimeoutMs / 1000}s）`
+            : errMsg;
 
-          if (attempt === 0) {
-            toast({ title: `第 ${num} 集生成失败，2 秒后重试`, description: displayErrMsg, variant: "destructive" });
-            await sleep(2000);
+          if (attempt < maxRetries) {
+            toast({
+              title: `第 ${num} 集生成失败，${(delayMs / 1000).toFixed(1)} 秒后重试`,
+              description: displayErrMsg,
+              variant: "destructive",
+            });
+            await sleep(delayMs);
             continue;
           }
 
@@ -483,9 +604,16 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
 
     try {
       const prompt = buildSceneRegenPrompt(
-        setup, characters, selectedEp, selectedScript.content, sceneIndex, sceneContent, (sceneRegenInstructions[sceneIndex] || "").trim() || undefined,
+        setup,
+        characters,
+        selectedEp,
+        selectedScript.content,
+        sceneIndex,
+        sceneContent,
+        (sceneRegenInstructions[sceneIndex] || "").trim() || undefined,
       );
-      const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+      const model =
+        localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
       const newSceneText = await callGeminiStream(
         model,
         [{ role: "user", parts: [{ text: prompt }] }],
@@ -498,7 +626,8 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
       const preamble = getEpisodePreamble(selectedScript.content);
       const newScenes = [...scenes];
       // Parse the new scene text
-      const newHeader = newSceneText.match(/^##\s*场次.*/m)?.[0] || scenes[sceneIndex].header;
+      const newHeader =
+        newSceneText.match(/^##\s*场次.*/m)?.[0] || scenes[sceneIndex].header;
       const newBody = newSceneText.replace(/^##\s*场次.*\n?/m, "").trim();
       newScenes[sceneIndex] = { header: newHeader, body: newBody };
 
@@ -509,7 +638,9 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
         ...newScenes.map((s) => `${s.header}\n\n${s.body}`),
         "",
         postamble,
-      ].filter(Boolean).join("\n\n");
+      ]
+        .filter(Boolean)
+        .join("\n\n");
       const rebuiltContent = sanitizeEpisodeFormat(rebuiltContentRaw);
 
       const history = pushHistory(selectedScript, `场次${sceneIndex + 1}重写`);
@@ -529,7 +660,11 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
       if (e?.message?.includes("取消")) {
         toast({ title: "已停止生成" });
       } else {
-        toast({ title: `场次重写失败`, description: e?.message, variant: "destructive" });
+        toast({
+          title: `场次重写失败`,
+          description: e?.message,
+          variant: "destructive",
+        });
       }
     } finally {
       setIsGenerating(false);
@@ -588,7 +723,9 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
         <CardContent className="space-y-4">
           <div className="flex items-end gap-3 flex-wrap">
             <div className="flex-1 min-w-[180px]">
-              <Label className="text-sm mb-1.5 block">生成集数（支持范围如 1-5，或逗号分隔如 1,3,5）</Label>
+              <Label className="text-sm mb-1.5 block">
+                生成集数（支持范围如 1-5，或逗号分隔如 1,3,5）
+              </Label>
               <Input
                 value={rangeInput}
                 onChange={(e) => setRangeInput(e.target.value)}
@@ -599,7 +736,11 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
             <div className="min-w-[140px]">
               <Label className="text-sm mb-1.5 block">单集时长</Label>
               <div className="flex gap-2">
-                <Select value={durationOption} onValueChange={(v) => setDurationOption(v)} disabled={isGenerating}>
+                <Select
+                  value={durationOption}
+                  onValueChange={(v) => setDurationOption(v)}
+                  disabled={isGenerating}
+                >
                   <SelectTrigger className="w-[110px]">
                     <SelectValue />
                   </SelectTrigger>
@@ -624,17 +765,26 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                 )}
               </div>
               {(() => {
-                const dur = durationOption === "custom" ? parseInt(customDuration) || 90 : parseInt(durationOption);
+                const dur =
+                  durationOption === "custom"
+                    ? parseInt(customDuration) || 90
+                    : parseInt(durationOption);
                 const c = getDurationConstraints(dur);
                 return (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      场景 {c.sceneMin}-{c.sceneMax}个 · △ {c.triangleMin}-{c.triangleMax}个 · 台词≤{c.maxDialogues}句 · 约{c.cjkWordsMin}-{c.cjkWordsMax}字
-                    </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    场景 {c.sceneMin}-{c.sceneMax}个 · △ {c.triangleMin}-
+                    {c.triangleMax}个 · 台词≤{c.maxDialogues}句 · 约
+                    {c.cjkWordsMin}-{c.cjkWordsMax}字
+                  </p>
                 );
               })()}
             </div>
             {isGenerating ? (
-              <Button variant="destructive" onClick={handleStop} className="gap-2">
+              <Button
+                variant="destructive"
+                onClick={handleStop}
+                className="gap-2"
+              >
                 <Loader2 className="h-4 w-4 animate-spin" />
                 停止
               </Button>
@@ -673,7 +823,11 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                   key={ep.number}
                   onClick={() => {
                     if (locked) {
-                      toast({ title: `请先生成第 ${ep.number - 1} 集`, description: "需要按顺序生成剧本以保证剧情连贯", variant: "destructive" });
+                      toast({
+                        title: `请先生成第 ${ep.number - 1} 集`,
+                        description: "需要按顺序生成剧本以保证剧情连贯",
+                        variant: "destructive",
+                      });
                       return;
                     }
                     const next = ep.number === selectedEp ? null : ep.number;
@@ -687,16 +841,20 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                     locked
                       ? "border-border bg-muted text-muted-foreground/40 cursor-not-allowed"
                       : generating
-                      ? "border-primary bg-primary/20 animate-pulse cursor-pointer"
-                      : done
-                      ? active
-                        ? "border-primary bg-primary text-primary-foreground cursor-pointer"
-                        : "border-accent bg-accent/10 text-accent-foreground hover:bg-accent/20 cursor-pointer"
-                      : active
-                        ? "border-primary bg-primary/10 text-primary cursor-pointer"
-                        : "border-border text-muted-foreground hover:border-muted-foreground/50 cursor-pointer"
+                        ? "border-primary bg-primary/20 animate-pulse cursor-pointer"
+                        : done
+                          ? active
+                            ? "border-primary bg-primary text-primary-foreground cursor-pointer"
+                            : "border-accent bg-accent/10 text-accent-foreground hover:bg-accent/20 cursor-pointer"
+                          : active
+                            ? "border-primary bg-primary/10 text-primary cursor-pointer"
+                            : "border-border text-muted-foreground hover:border-muted-foreground/50 cursor-pointer"
                   }`}
-                  title={locked ? `需先生成第${ep.number - 1}集` : `第${ep.number}集：${ep.title}`}
+                  title={
+                    locked
+                      ? `需先生成第${ep.number - 1}集`
+                      : `第${ep.number}集：${ep.title}`
+                  }
                 >
                   {generating ? (
                     <Loader2 className="h-3 w-3 animate-spin" />
@@ -739,7 +897,10 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg">
-              第 {selectedEp} 集：{selectedScript?.title || displayDirectory.find(d => d.number === selectedEp)?.title || `第${selectedEp}集`}
+              第 {selectedEp} 集：
+              {selectedScript?.title ||
+                displayDirectory.find((d) => d.number === selectedEp)?.title ||
+                `第${selectedEp}集`}
               {selectedScript && (
                 <span className="text-sm font-normal text-muted-foreground ml-2">
                   {selectedScript.wordCount} 字
@@ -765,7 +926,11 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                   >
                     <History className="h-3.5 w-3.5" />
                     历史 ({selectedScript.history!.length})
-                    {showHistory ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                    {showHistory ? (
+                      <ChevronUp className="h-3 w-3" />
+                    ) : (
+                      <ChevronDown className="h-3 w-3" />
+                    )}
                   </Button>
                 )}
                 <Button
@@ -776,7 +941,9 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                   className="gap-1.5"
                 >
                   <ClipboardCheck className="h-3.5 w-3.5" />
-                  {isReviewing && reviewEpNum === selectedEp ? "审查中…" : "质量自检"}
+                  {isReviewing && reviewEpNum === selectedEp
+                    ? "审查中…"
+                    : "质量自检"}
                 </Button>
                 <Button
                   variant="outline"
@@ -803,63 +970,100 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
           </CardHeader>
           <CardContent className="space-y-3">
             {/* History panel */}
-            {showHistory && selectedScript?.history && selectedScript.history.length > 0 && (
-              <div className="border rounded-lg p-3 bg-muted/30 space-y-2">
-                <p className="text-xs font-medium text-muted-foreground">历史版本</p>
-                {[...selectedScript.history].reverse().map((ver, idx) => {
-                  const realIdx = selectedScript.history!.length - 1 - idx;
-                  return (
-                    <div key={idx} className="flex items-center justify-between text-sm border-b last:border-0 pb-2 last:pb-0">
-                      <div className="flex-1">
-                        <span className="text-muted-foreground text-xs">
-                          {new Date(ver.timestamp).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                        </span>
-                        <span className="ml-2 text-xs">{ver.label || "版本"}</span>
-                        <span className="ml-2 text-xs text-muted-foreground">{ver.wordCount}字</span>
+            {showHistory &&
+              selectedScript?.history &&
+              selectedScript.history.length > 0 && (
+                <div className="border rounded-lg p-3 bg-muted/30 space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    历史版本
+                  </p>
+                  {[...selectedScript.history].reverse().map((ver, idx) => {
+                    const realIdx = selectedScript.history!.length - 1 - idx;
+                    return (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between text-sm border-b last:border-0 pb-2 last:pb-0"
+                      >
+                        <div className="flex-1">
+                          <span className="text-muted-foreground text-xs">
+                            {new Date(ver.timestamp).toLocaleString("zh-CN", {
+                              month: "2-digit",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                          <span className="ml-2 text-xs">
+                            {ver.label || "版本"}
+                          </span>
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {ver.wordCount}字
+                          </span>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRestoreVersion(realIdx)}
+                            className="h-7 text-xs"
+                          >
+                            恢复
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const newHistory = selectedScript.history!.filter(
+                                (_, i) => i !== realIdx,
+                              );
+                              const updatedEp = {
+                                ...selectedScript,
+                                history: newHistory,
+                              };
+                              onUpdate(
+                                episodes.map((e) =>
+                                  e.number === selectedEp ? updatedEp : e,
+                                ),
+                              );
+                              if (newHistory.length === 0)
+                                setShowHistory(false);
+                            }}
+                            className="h-7 text-xs text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleRestoreVersion(realIdx)}
-                          className="h-7 text-xs"
-                        >
-                          恢复
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            const newHistory = selectedScript.history!.filter((_, i) => i !== realIdx);
-                            const updatedEp = { ...selectedScript, history: newHistory };
-                            onUpdate(episodes.map(e => e.number === selectedEp ? updatedEp : e));
-                            if (newHistory.length === 0) setShowHistory(false);
-                          }}
-                          className="h-7 text-xs text-destructive hover:text-destructive"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
+
+            {(isTranslating || transCanResume) && (
+              <TranslationProgress
+                progress={transProgress}
+                canResume={transCanResume}
+                onResume={resumeTranslation}
+              />
             )}
 
-            {(isTranslating || transCanResume) && <TranslationProgress progress={transProgress} canResume={transCanResume} onResume={resumeTranslation} />}
-
             {selectedScript ? (
-            <>
-              {/* Translation interleaved view */}
-              {showTranslation && hasTranslation(selectedScript.content) ? (
-                <div className="max-h-[600px] overflow-auto">
-                  <InterleavedText text={selectedScript.content} translatedLines={getTranslation(selectedScript.content)!} />
-                </div>
-              ) : scenes.length > 0 ? (
+              <>
+                {/* Translation interleaved view */}
+                {showTranslation && hasTranslation(selectedScript.content) ? (
+                  <div className="max-h-[600px] overflow-auto">
+                    <InterleavedText
+                      text={selectedScript.content}
+                      translatedLines={getTranslation(selectedScript.content)!}
+                    />
+                  </div>
+                ) : scenes.length > 0 ? (
                   <div className="space-y-4">
                     {/* Preamble */}
                     {(() => {
-                      const preamble = getEpisodePreamble(selectedScript.content);
+                      const preamble = getEpisodePreamble(
+                        selectedScript.content,
+                      );
                       return preamble ? (
                         <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
                           {preamble}
@@ -869,9 +1073,14 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
 
                     {/* Scenes */}
                     {scenes.map((scene, idx) => (
-                      <div key={idx} className="group relative border rounded-lg p-4 hover:border-primary/30 transition-colors">
+                      <div
+                        key={idx}
+                        className="group relative border rounded-lg p-4 hover:border-primary/30 transition-colors"
+                      >
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-semibold text-foreground">{scene.header.replace(/^##\s*/, "")}</span>
+                          <span className="text-sm font-semibold text-foreground">
+                            {scene.header.replace(/^##\s*/, "")}
+                          </span>
                           {regenSceneIdx === idx ? (
                             <span className="flex items-center gap-1 text-xs text-muted-foreground">
                               <Loader2 className="h-3 w-3 animate-spin" />
@@ -891,7 +1100,12 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                               </Button>
                               <Input
                                 value={sceneRegenInstructions[idx] || ""}
-                                onChange={(e) => setSceneRegenInstructions(prev => ({ ...prev, [idx]: e.target.value }))}
+                                onChange={(e) =>
+                                  setSceneRegenInstructions((prev) => ({
+                                    ...prev,
+                                    [idx]: e.target.value,
+                                  }))
+                                }
                                 placeholder="重写指令…"
                                 className="text-xs h-7 w-48 opacity-0 group-hover:opacity-100 transition-opacity"
                                 onClick={(e) => e.stopPropagation()}
@@ -919,24 +1133,40 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                             value={scene.body}
                             onChange={(e) => {
                               // Rebuild content with edited scene body
-                              const preamble = getEpisodePreamble(selectedScript.content);
+                              const preamble = getEpisodePreamble(
+                                selectedScript.content,
+                              );
                               const newScenes = [...scenes];
-                              newScenes[idx] = { ...newScenes[idx], body: e.target.value };
-                              const postamble = getEpisodePostamble(selectedScript.content);
+                              newScenes[idx] = {
+                                ...newScenes[idx],
+                                body: e.target.value,
+                              };
+                              const postamble = getEpisodePostamble(
+                                selectedScript.content,
+                              );
                               const rebuiltContentRaw = [
                                 preamble,
                                 "",
-                                ...newScenes.map((s) => `${s.header}\n\n${s.body}`),
+                                ...newScenes.map(
+                                  (s) => `${s.header}\n\n${s.body}`,
+                                ),
                                 "",
                                 postamble,
-                              ].filter(Boolean).join("\n\n");
-                              const rebuiltContent = sanitizeEpisodeFormat(rebuiltContentRaw);
+                              ]
+                                .filter(Boolean)
+                                .join("\n\n");
+                              const rebuiltContent =
+                                sanitizeEpisodeFormat(rebuiltContentRaw);
                               const updatedEp: EpisodeScript = {
                                 ...selectedScript,
                                 content: rebuiltContent,
                                 wordCount: rebuiltContent.length,
                               };
-                              onUpdate(episodes.map((e) => e.number === selectedEp ? updatedEp : e));
+                              onUpdate(
+                                episodes.map((e) =>
+                                  e.number === selectedEp ? updatedEp : e,
+                                ),
+                              );
                             }}
                             rows={Math.max(3, scene.body.split("\n").length)}
                           />
@@ -946,7 +1176,9 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
 
                     {/* Postamble (hooks etc.) */}
                     {(() => {
-                      const postamble = getEpisodePostamble(selectedScript.content);
+                      const postamble = getEpisodePostamble(
+                        selectedScript.content,
+                      );
                       return postamble ? (
                         <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/90">
                           {postamble}
@@ -996,15 +1228,17 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ClipboardCheck className="h-5 w-5" />
-              第 {reviewEpNum} 集 · 质量审查
+              <ClipboardCheck className="h-5 w-5" />第 {reviewEpNum} 集 ·
+              质量审查
             </DialogTitle>
           </DialogHeader>
 
           {isReviewing && !reviewResult && (
             <div className="flex flex-col items-center gap-4 py-8">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <p className="text-sm text-muted-foreground">正在审查中，请稍候…</p>
+              <p className="text-sm text-muted-foreground">
+                正在审查中，请稍候…
+              </p>
             </div>
           )}
 
@@ -1013,10 +1247,14 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
               {/* 总分 */}
               <div className="text-center space-y-2">
                 <div className="text-4xl font-bold">
-                  <span className={getGradeColor(reviewResult.grade)}>{reviewResult.total}</span>
+                  <span className={getGradeColor(reviewResult.grade)}>
+                    {reviewResult.total}
+                  </span>
                   <span className="text-lg text-muted-foreground">/50</span>
                 </div>
-                <span className={`text-lg font-semibold ${getGradeColor(reviewResult.grade)}`}>
+                <span
+                  className={`text-lg font-semibold ${getGradeColor(reviewResult.grade)}`}
+                >
                   {reviewResult.grade}
                 </span>
               </div>
@@ -1026,11 +1264,17 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                 {Object.entries(reviewResult.scores).map(([key, val]) => (
                   <div key={key} className="space-y-1">
                     <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium">{DIMENSION_LABELS[key] || key}</span>
-                      <span className="font-mono text-muted-foreground">{val.score}/10</span>
+                      <span className="font-medium">
+                        {DIMENSION_LABELS[key] || key}
+                      </span>
+                      <span className="font-mono text-muted-foreground">
+                        {val.score}/10
+                      </span>
                     </div>
                     <Progress value={val.score * 10} className="h-2" />
-                    <p className="text-xs text-muted-foreground">{val.comment}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {val.comment}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -1041,7 +1285,10 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                   <p className="text-sm font-semibold">✨ 亮点</p>
                   <ul className="text-sm text-muted-foreground space-y-1">
                     {reviewResult.highlights.map((h, i) => (
-                      <li key={i} className="flex gap-2"><span>•</span><span>{h}</span></li>
+                      <li key={i} className="flex gap-2">
+                        <span>•</span>
+                        <span>{h}</span>
+                      </li>
                     ))}
                   </ul>
                 </div>
@@ -1055,7 +1302,9 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                     {reviewResult.issues.map((issue, i) => (
                       <li key={i} className="flex gap-2">
                         <span>{issue.level}</span>
-                        <span className="text-muted-foreground">{issue.description}</span>
+                        <span className="text-muted-foreground">
+                          {issue.description}
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -1075,7 +1324,8 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
               )}
 
               {/* 一键修复 */}
-              {(reviewResult.issues.length > 0 || reviewResult.suggestions.length > 0) && (
+              {(reviewResult.issues.length > 0 ||
+                reviewResult.suggestions.length > 0) && (
                 <Button
                   className="w-full gap-2"
                   onClick={() => {
@@ -1096,7 +1346,10 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                     // Also include low-score dimensions
                     const lowScores = Object.entries(reviewResult.scores)
                       .filter(([, val]) => val.score <= 6)
-                      .map(([key, val]) => `${DIMENSION_LABELS[key] || key}（${val.score}/10）：${val.comment}`);
+                      .map(
+                        ([key, val]) =>
+                          `${DIMENSION_LABELS[key] || key}（${val.score}/10）：${val.comment}`,
+                      );
                     if (lowScores.length > 0) {
                       parts.push("【需重点提升的维度】");
                       parts.push(...lowScores);
@@ -1122,12 +1375,15 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
       </Dialog>
 
       {/* 批量质量审查对话框 */}
-      <Dialog open={showBatchReviewDialog} onOpenChange={(open) => {
-        if (!open && isBatchReviewing) {
-          batchAbortRef.current?.abort();
-        }
-        setShowBatchReviewDialog(open);
-      }}>
+      <Dialog
+        open={showBatchReviewDialog}
+        onOpenChange={(open) => {
+          if (!open && isBatchReviewing) {
+            batchAbortRef.current?.abort();
+          }
+          setShowBatchReviewDialog(open);
+        }}
+      >
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1135,7 +1391,8 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
               批量质量审查报告
               {isBatchReviewing && (
                 <span className="text-sm font-normal text-muted-foreground">
-                  （{batchReviewProgress.current}/{batchReviewProgress.total}）正在审查第 {batchReviewProgress.epNum} 集…
+                  （{batchReviewProgress.current}/{batchReviewProgress.total}
+                  ）正在审查第 {batchReviewProgress.epNum} 集…
                 </span>
               )}
             </DialogTitle>
@@ -1144,12 +1401,24 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
           {/* Progress bar */}
           {isBatchReviewing && (
             <div className="space-y-2">
-              <Progress value={(batchReviewProgress.current / Math.max(batchReviewProgress.total, 1)) * 100} className="h-2" />
+              <Progress
+                value={
+                  (batchReviewProgress.current /
+                    Math.max(batchReviewProgress.total, 1)) *
+                  100
+                }
+                className="h-2"
+              />
               <div className="flex justify-between">
                 <p className="text-xs text-muted-foreground">
                   正在审查第 {batchReviewProgress.epNum} 集…
                 </p>
-                <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={() => batchAbortRef.current?.abort()}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs gap-1"
+                  onClick={() => batchAbortRef.current?.abort()}
+                >
                   <Loader2 className="h-3 w-3 animate-spin" />
                   停止
                 </Button>
@@ -1161,16 +1430,45 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
             <div className="space-y-4">
               {/* 汇总统计 */}
               {(() => {
-                const entries = [...batchReviewResults.entries()].sort(([a], [b]) => a - b);
-                const avgTotal = entries.reduce((sum, [, r]) => sum + r.total, 0) / entries.length;
+                const entries = [...batchReviewResults.entries()].sort(
+                  ([a], [b]) => a - b,
+                );
+                const avgTotal =
+                  entries.reduce((sum, [, r]) => sum + r.total, 0) /
+                  entries.length;
                 const dimAvg: Record<string, number> = {};
-                const dims = ["rhythm", "satisfaction", "dialogue", "format", "continuity"];
-                dims.forEach(d => {
-                  dimAvg[d] = entries.reduce((sum, [, r]) => sum + (r.scores[d as keyof typeof r.scores]?.score || 0), 0) / entries.length;
+                const dims = [
+                  "rhythm",
+                  "satisfaction",
+                  "dialogue",
+                  "format",
+                  "continuity",
+                ];
+                dims.forEach((d) => {
+                  dimAvg[d] =
+                    entries.reduce(
+                      (sum, [, r]) =>
+                        sum +
+                        (r.scores[d as keyof typeof r.scores]?.score || 0),
+                      0,
+                    ) / entries.length;
                 });
-                const lowestEp = entries.reduce((min, curr) => curr[1].total < min[1].total ? curr : min);
-                const highestEp = entries.reduce((max, curr) => curr[1].total > max[1].total ? curr : max);
-                const avgGrade = avgTotal >= 45 ? "卓越" : avgTotal >= 38 ? "优良" : avgTotal >= 30 ? "合格" : avgTotal >= 25 ? "需改进" : "需重写";
+                const lowestEp = entries.reduce((min, curr) =>
+                  curr[1].total < min[1].total ? curr : min,
+                );
+                const highestEp = entries.reduce((max, curr) =>
+                  curr[1].total > max[1].total ? curr : max,
+                );
+                const avgGrade =
+                  avgTotal >= 45
+                    ? "卓越"
+                    : avgTotal >= 38
+                      ? "优良"
+                      : avgTotal >= 30
+                        ? "合格"
+                        : avgTotal >= 25
+                          ? "需改进"
+                          : "需重写";
 
                 return (
                   <>
@@ -1178,20 +1476,38 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                     <div className="grid grid-cols-3 gap-3 text-center">
                       <div className="border rounded-lg p-3">
                         <div className="text-2xl font-bold">
-                          <span className={getGradeColor(avgGrade)}>{avgTotal.toFixed(1)}</span>
-                          <span className="text-xs text-muted-foreground">/50</span>
+                          <span className={getGradeColor(avgGrade)}>
+                            {avgTotal.toFixed(1)}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            /50
+                          </span>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-1">平均分</p>
-                        <p className={`text-xs font-semibold ${getGradeColor(avgGrade)}`}>{avgGrade}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          平均分
+                        </p>
+                        <p
+                          className={`text-xs font-semibold ${getGradeColor(avgGrade)}`}
+                        >
+                          {avgGrade}
+                        </p>
                       </div>
                       <div className="border rounded-lg p-3">
-                        <div className="text-2xl font-bold text-green-500">{highestEp[1].total}</div>
-                        <p className="text-xs text-muted-foreground mt-1">最高分</p>
+                        <div className="text-2xl font-bold text-green-500">
+                          {highestEp[1].total}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          最高分
+                        </p>
                         <p className="text-xs">第 {highestEp[0]} 集</p>
                       </div>
                       <div className="border rounded-lg p-3">
-                        <div className="text-2xl font-bold text-orange-500">{lowestEp[1].total}</div>
-                        <p className="text-xs text-muted-foreground mt-1">最低分</p>
+                        <div className="text-2xl font-bold text-orange-500">
+                          {lowestEp[1].total}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          最低分
+                        </p>
                         <p className="text-xs">第 {lowestEp[0]} 集</p>
                       </div>
                     </div>
@@ -1199,11 +1515,13 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                     {/* 五维平均 */}
                     <div className="space-y-2">
                       <p className="text-sm font-semibold">五维平均评分</p>
-                      {dims.map(d => (
+                      {dims.map((d) => (
                         <div key={d} className="space-y-0.5">
                           <div className="flex items-center justify-between text-xs">
                             <span>{DIMENSION_LABELS[d]}</span>
-                            <span className="font-mono text-muted-foreground">{dimAvg[d].toFixed(1)}/10</span>
+                            <span className="font-mono text-muted-foreground">
+                              {dimAvg[d].toFixed(1)}/10
+                            </span>
                           </div>
                           <Progress value={dimAvg[d] * 10} className="h-1.5" />
                         </div>
@@ -1229,15 +1547,34 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                           </thead>
                           <tbody>
                             {entries.map(([epNum, r]) => (
-                              <tr key={epNum} className="border-t hover:bg-muted/20">
+                              <tr
+                                key={epNum}
+                                className="border-t hover:bg-muted/20"
+                              >
                                 <td className="p-2 font-medium">第{epNum}集</td>
-                                <td className="p-2 text-center">{r.scores.rhythm.score}</td>
-                                <td className="p-2 text-center">{r.scores.satisfaction.score}</td>
-                                <td className="p-2 text-center">{r.scores.dialogue.score}</td>
-                                <td className="p-2 text-center">{r.scores.format.score}</td>
-                                <td className="p-2 text-center">{r.scores.continuity.score}</td>
-                                <td className="p-2 text-center font-semibold">{r.total}</td>
-                                <td className={`p-2 text-center font-semibold ${getGradeColor(r.grade)}`}>{r.grade}</td>
+                                <td className="p-2 text-center">
+                                  {r.scores.rhythm.score}
+                                </td>
+                                <td className="p-2 text-center">
+                                  {r.scores.satisfaction.score}
+                                </td>
+                                <td className="p-2 text-center">
+                                  {r.scores.dialogue.score}
+                                </td>
+                                <td className="p-2 text-center">
+                                  {r.scores.format.score}
+                                </td>
+                                <td className="p-2 text-center">
+                                  {r.scores.continuity.score}
+                                </td>
+                                <td className="p-2 text-center font-semibold">
+                                  {r.total}
+                                </td>
+                                <td
+                                  className={`p-2 text-center font-semibold ${getGradeColor(r.grade)}`}
+                                >
+                                  {r.grade}
+                                </td>
                               </tr>
                             ))}
                           </tbody>
@@ -1247,7 +1584,9 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
 
                     {/* 问题汇总 — 只列出有问题的集 */}
                     {(() => {
-                      const epsWithIssues = entries.filter(([, r]) => r.issues.length > 0);
+                      const epsWithIssues = entries.filter(
+                        ([, r]) => r.issues.length > 0,
+                      );
                       if (epsWithIssues.length === 0) return null;
                       return (
                         <div className="space-y-2">
@@ -1261,27 +1600,47 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                               onClick={() => {
                                 // Find lowest scoring episodes and fix them
                                 const toFix = entries
-                                  .filter(([, r]) => r.total < 38 || r.issues.some(i => i.level === "⛔"))
+                                  .filter(
+                                    ([, r]) =>
+                                      r.total < 38 ||
+                                      r.issues.some((i) => i.level === "⛔"),
+                                  )
                                   .slice(0, 3);
                                 if (toFix.length === 0) {
-                                  toast({ title: "所有集数质量达标，无需修复" });
+                                  toast({
+                                    title: "所有集数质量达标，无需修复",
+                                  });
                                   return;
                                 }
                                 setShowBatchReviewDialog(false);
                                 // Fix the first problematic episode
                                 const [epNum, result] = toFix[0];
-                                const parts: string[] = ["【批量审查发现的问题】"];
-                                result.issues.forEach(issue => parts.push(`${issue.level} ${issue.description}`));
-                                result.suggestions.forEach((s, i) => parts.push(`${i + 1}. ${s}`));
+                                const parts: string[] = [
+                                  "【批量审查发现的问题】",
+                                ];
+                                result.issues.forEach((issue) =>
+                                  parts.push(
+                                    `${issue.level} ${issue.description}`,
+                                  ),
+                                );
+                                result.suggestions.forEach((s, i) =>
+                                  parts.push(`${i + 1}. ${s}`),
+                                );
                                 const lowScores = Object.entries(result.scores)
                                   .filter(([, val]) => val.score <= 6)
-                                  .map(([key, val]) => `${DIMENSION_LABELS[key] || key}（${val.score}/10）：${val.comment}`);
-                                if (lowScores.length > 0) parts.push("【需重点提升】", ...lowScores);
+                                  .map(
+                                    ([key, val]) =>
+                                      `${DIMENSION_LABELS[key] || key}（${val.score}/10）：${val.comment}`,
+                                  );
+                                if (lowScores.length > 0)
+                                  parts.push("【需重点提升】", ...lowScores);
                                 const instruction = parts.join("\n");
                                 setEpisodeRegenInstruction(instruction);
                                 setRangeInput(String(epNum));
                                 handleGenerate(String(epNum), instruction);
-                                toast({ title: `开始修复第 ${epNum} 集（共 ${toFix.length} 集需修复）` });
+                                toast({
+                                  title: `开始修复第 ${epNum} 集（共 ${toFix.length} 集需修复）`,
+                                });
                               }}
                             >
                               <Wrench className="h-3 w-3" />
@@ -1289,9 +1648,14 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                             </Button>
                           </div>
                           {epsWithIssues.map(([epNum, r]) => (
-                            <div key={epNum} className="border rounded-lg p-2 space-y-1">
+                            <div
+                              key={epNum}
+                              className="border rounded-lg p-2 space-y-1"
+                            >
                               <div className="flex items-center justify-between">
-                                <p className="text-xs font-medium">第 {epNum} 集（{r.grade} · {r.total}分）</p>
+                                <p className="text-xs font-medium">
+                                  第 {epNum} 集（{r.grade} · {r.total}分）
+                                </p>
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -1299,9 +1663,17 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                                   disabled={isGenerating}
                                   onClick={() => {
                                     setShowBatchReviewDialog(false);
-                                    const parts: string[] = ["【质量审查发现的问题】"];
-                                    r.issues.forEach(issue => parts.push(`${issue.level} ${issue.description}`));
-                                    r.suggestions.forEach((s, i) => parts.push(`${i + 1}. ${s}`));
+                                    const parts: string[] = [
+                                      "【质量审查发现的问题】",
+                                    ];
+                                    r.issues.forEach((issue) =>
+                                      parts.push(
+                                        `${issue.level} ${issue.description}`,
+                                      ),
+                                    );
+                                    r.suggestions.forEach((s, i) =>
+                                      parts.push(`${i + 1}. ${s}`),
+                                    );
                                     const instruction = parts.join("\n");
                                     setEpisodeRegenInstruction(instruction);
                                     setRangeInput(String(epNum));
@@ -1316,7 +1688,9 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
                                 {r.issues.map((issue, i) => (
                                   <li key={i} className="flex gap-1.5">
                                     <span>{issue.level}</span>
-                                    <span className="text-muted-foreground">{issue.description}</span>
+                                    <span className="text-muted-foreground">
+                                      {issue.description}
+                                    </span>
                                   </li>
                                 ))}
                               </ul>
@@ -1341,36 +1715,48 @@ const StepEpisode = ({ setup, characters, directory, episodes, onUpdate, onNext 
       </Dialog>
 
       {/* 分集生成失败报告（重试后仍失败） */}
-      <Dialog open={genFailureDialogOpen} onOpenChange={setGenFailureDialogOpen}>
+      <Dialog
+        open={genFailureDialogOpen}
+        onOpenChange={setGenFailureDialogOpen}
+      >
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>分集撰写失败报告</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              以下集数在生成失败后已重试 1 次（延迟 2 秒），仍未成功。你可以重新调整范围后再次开始撰写。
+              以下集数在撰写失败时，已按
+              <strong className="text-foreground">设置 → 网络重试</strong>
+              中的「最大重试次数」与「重试间隔」自动重试后仍未成功。你可以重新调整范围后再次开始撰写。
             </p>
             <div className="space-y-2">
               {genFailureReport.length === 0 ? (
                 <p className="text-sm text-muted-foreground">无失败记录</p>
               ) : (
                 genFailureReport.map((r) => (
-                  <div key={r.epNum} className="rounded-md border border-border/60 bg-muted/20 p-3">
+                  <div
+                    key={r.epNum}
+                    className="rounded-md border border-border/60 bg-muted/20 p-3"
+                  >
                     <div className="text-sm font-semibold">第 {r.epNum} 集</div>
-                    <pre className="mt-2 whitespace-pre-wrap break-words text-xs text-muted-foreground">{r.error}</pre>
+                    <pre className="mt-2 whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                      {r.error}
+                    </pre>
                   </div>
                 ))
               )}
             </div>
             <div className="flex justify-end">
-              <Button onClick={() => setGenFailureDialogOpen(false)} variant="outline">
+              <Button
+                onClick={() => setGenFailureDialogOpen(false)}
+                variant="outline"
+              >
                 关闭
               </Button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 };

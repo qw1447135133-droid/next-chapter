@@ -11,10 +11,12 @@ var __copyProps = (to, from, except, desc) => {
   return to;
 };
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// electron/preload.ts
 var preload_exports = {};
 module.exports = __toCommonJS(preload_exports);
 var import_electron = require("electron");
-const jimengAPI = {
+var jimengAPI = {
   start: () => import_electron.ipcRenderer.invoke("jimeng:start"),
   stop: () => import_electron.ipcRenderer.invoke("jimeng:stop"),
   status: () => import_electron.ipcRenderer.invoke("jimeng:status"),
@@ -31,4 +33,32 @@ const jimengAPI = {
     };
   }
 };
-import_electron.contextBridge.exposeInMainWorld("electronAPI", { jimeng: jimengAPI });
+var browserViewAPI = {
+  create: (params) => import_electron.ipcRenderer.invoke("browserView:create", params),
+  navigate: (url) => import_electron.ipcRenderer.invoke("browserView:navigate", { url }),
+  setBounds: (bounds) => import_electron.ipcRenderer.invoke("browserView:setBounds", bounds),
+  show: () => import_electron.ipcRenderer.invoke("browserView:show"),
+  hide: () => import_electron.ipcRenderer.invoke("browserView:hide"),
+  getState: () => import_electron.ipcRenderer.invoke("browserView:getState"),
+  execute: (params) => import_electron.ipcRenderer.invoke("browserView:execute", params),
+  capture: () => import_electron.ipcRenderer.invoke("browserView:capture"),
+  setFileInputFiles: (params) => import_electron.ipcRenderer.invoke("browserView:setFileInputFiles", params),
+  close: () => import_electron.ipcRenderer.invoke("browserView:close"),
+  setIgnoreMouseEvents: (ignore) => import_electron.ipcRenderer.invoke("browserView:setIgnoreMouseEvents", ignore),
+  onStateChange: (callback) => {
+    const handler = (_, state) => callback(state);
+    import_electron.ipcRenderer.on("browserView:state", handler);
+    return () => {
+      import_electron.ipcRenderer.removeListener("browserView:state", handler);
+    };
+  }
+};
+import_electron.contextBridge.exposeInMainWorld("electronAPI", {
+  jimeng: jimengAPI,
+  storage: {
+    getDefaultPath: () => import_electron.ipcRenderer.invoke("storage:getDefaultPath"),
+    selectFolder: () => import_electron.ipcRenderer.invoke("storage:selectFolder"),
+    openFolder: (folderPath) => import_electron.ipcRenderer.invoke("storage:openFolder", folderPath)
+  },
+  browserView: browserViewAPI
+});

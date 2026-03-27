@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Scene, CharacterSetting, VideoModel, VIDEO_MODEL_LABELS, VideoHistoryEntry } from "@/types/project";
+import { Scene, CharacterSetting, SceneSetting, VideoModel, VIDEO_MODEL_LABELS, VideoHistoryEntry } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -7,7 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Slider } from "@/components/ui/slider";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Play, RefreshCw, Loader2, ArrowRight, CheckCircle, XCircle, ChevronDown, History, RotateCcw, Clock, RectangleHorizontal, RectangleVertical, ScanSearch } from "lucide-react";
-import JimengVideoPanel from "./JimengVideoPanel";
+import MultimodalAgentPanel from "./MultimodalAgentPanel";
 import { Badge } from "@/components/ui/badge";
 import ImageThumbnail from "@/components/workspace/ImageThumbnail";
 import type { StoryboardAspectRatio } from "./StoryboardPreview";
@@ -22,6 +22,7 @@ const ASPECT_RATIO_OPTIONS: { value: StoryboardAspectRatio; label: string; icon:
 interface VideoGenerationProps {
   scenes: Scene[];
   characters: CharacterSetting[];
+  sceneSettings: SceneSetting[];
   videoModel: VideoModel;
   onVideoModelChange: (model: VideoModel) => void;
   onGenerateAll: () => void;
@@ -49,6 +50,7 @@ const statusLabel: Record<string, { text: string; variant: "default" | "secondar
 const VideoGeneration = ({
   scenes,
   characters,
+  sceneSettings,
   videoModel,
   onVideoModelChange,
   onGenerateAll,
@@ -69,6 +71,9 @@ const VideoGeneration = ({
   const setVideoMode = (mode: "api" | "reverse") => {
     setInternalVideoMode(mode);
     onControlledVideoModeChange?.(mode);
+    if (mode === "reverse") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   };
   const [modelOpen, setModelOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState<string | null>(null);
@@ -238,7 +243,7 @@ const VideoGeneration = ({
 
       {/* 主体内容 */}
       {videoMode === "reverse"
-        ? <JimengVideoPanel scenes={scenes} characters={characters} aspectRatio={aspectRatio} />
+        ? <MultimodalAgentPanel scenes={scenes} characters={characters} sceneSettings={sceneSettings} />
         : <div className={gridClass}>
             {scenes.map((scene) => {
               const isSceneProcessing = scene.videoStatus === "preparing" || scene.videoStatus === "queued" || scene.videoStatus === "processing";

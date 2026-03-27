@@ -1,6 +1,8 @@
 /**
  * 全局任务历史（localStorage），供合规审核等长任务记录进度与结果。
  */
+import { generateId } from "@/lib/generate-id";
+
 const STORAGE_KEY = "storyforge_task_history";
 /** 合规任务历史最多保留条数 */
 export const MAX_COMPLIANCE_TASK_HISTORY = 10;
@@ -104,7 +106,7 @@ function saveTaskHistory(entries: TaskHistoryEntry[]) {
 }
 
 export function addComplianceTask(entry: Omit<ComplianceTaskHistoryEntry, "id" | "startedAt" | "updatedAt" | "kind">): string {
-  const id = crypto.randomUUID();
+  const id = generateId();
   const now = new Date().toISOString();
   const row: ComplianceTaskHistoryEntry = {
     ...entry,

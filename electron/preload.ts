@@ -7,6 +7,21 @@
 
 import { contextBridge, ipcRenderer } from "electron";
 
+export interface BrowserViewBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface BrowserViewState {
+  visible: boolean;
+  url?: string;
+  title?: string;
+  loading: boolean;
+  error?: string;
+}
+
 export interface JimengStatus {
   status: "stopped" | "starting" | "running" | "error";
   apiBase?: string;
@@ -16,7 +31,12 @@ export interface JimengStatus {
 
 export interface JimengAPI {
   /** 启动即梦 Python 服务 */
-  start: () => Promise<{ ok: boolean; status: string; apiBase?: string; logs: string[] }>;
+  start: () => Promise<{
+    ok: boolean;
+    status: string;
+    apiBase?: string;
+    logs: string[];
+  }>;
   /** 停止服务 */
   stop: () => Promise<{ ok: boolean }>;
   /** 查询当前状态 */
@@ -28,10 +48,24 @@ export interface JimengAPI {
   /** 打开浏览器数据目录 */
   openBrowserData: () => Promise<void>;
   /** 写入文件到系统目录（content 为 base64 字符串） */
-  writeFile: (filePath: string, content: string) => Promise<{ ok: boolean; error?: string }>;
+  writeFile: (
+    filePath: string,
+    content: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
   /** 写入 xlsx 并准备即梦目录结构，返回 workDir / episodeDir / xlsxFile */
-  prepareXlsx: (params: { episodeLabel: string; base64Content: string; xlsxName: string }) =>
-    Promise<{ ok: boolean; workDir?: string; episodeDir?: string; xlsxFile?: string; error?: string }>;
+  prepareXlsx: (params: {
+    episodeLabel: string;
+    base64Content: string;
+    xlsxName: string;
+    /** 缓存根目录（与设置中「缓存文件存储位置」一致）；不传则使用默认 program/files */
+    storageRoot?: string;
+  }) => Promise<{
+    ok: boolean;
+    workDir?: string;
+    episodeDir?: string;
+    xlsxFile?: string;
+    error?: string;
+  }>;
   /** 监听服务状态变化 */
   onStatusChange: (callback: (status: JimengStatus) => void) => () => void;
 }
@@ -45,6 +79,44 @@ export interface StorageAPI {
   openFolder: (folderPath: string) => Promise<void>;
 }
 
+export interface BrowserViewAPI {
+  create: (params: { url?: string; bounds?: BrowserViewBounds }) => Promise<{
+    ok: boolean;
+    id: string;
+    state: BrowserViewState;
+  }>;
+  navigate: (url: string) => Promise<{ ok: boolean; state: BrowserViewState }>;
+  setBounds: (bounds: BrowserViewBounds) => Promise<{ ok: boolean }>;
+  show: () => Promise<{ ok: boolean; state: BrowserViewState }>;
+  hide: () => Promise<{ ok: boolean; state: BrowserViewState }>;
+  getState: () => Promise<BrowserViewState>;
+  execute: <T>(params: { script: string; args?: unknown[] }) => Promise<{
+    ok: boolean;
+    result?: T;
+    error?: string;
+  }>;
+  capture: () => Promise<{
+    ok: boolean;
+    base64?: string;
+    mimeType?: string;
+    error?: string;
+  }>;
+  setFileInputFiles: (params: {
+    selector?: string;
+    index?: number;
+    files: Array<{ fileName: string; dataUrl: string }>;
+  }) => Promise<{
+    ok: boolean;
+    count?: number;
+    selector?: string;
+    index?: number;
+    error?: string;
+  }>;
+  close: () => Promise<{ ok: boolean }>;
+  setIgnoreMouseEvents: (ignore: boolean) => Promise<{ ok: boolean }>;
+  onStateChange: (callback: (state: BrowserViewState) => void) => () => void;
+}
+
 const jimengAPI: JimengAPI = {
   start: () => ipcRenderer.invoke("jimeng:start"),
   stop: () => ipcRenderer.invoke("jimeng:stop"),
@@ -52,12 +124,39 @@ const jimengAPI: JimengAPI = {
   getApiBase: () => ipcRenderer.invoke("jimeng:getApiBase"),
   openSetup: () => ipcRenderer.invoke("jimeng:openSetup"),
   openBrowserData: () => ipcRenderer.invoke("jimeng:openBrowserData"),
-  writeFile: (filePath, content) => ipcRenderer.invoke("jimeng:writeFile", { filePath, content }),
+  writeFile: (filePath, content) =>
+    ipcRenderer.invoke("jimeng:writeFile", { filePath, content }),
   prepareXlsx: (params) => ipcRenderer.invoke("jimeng:prepareXlsx", params),
   onStatusChange: (callback) => {
-    const handler = (_: Electron.IpcRendererEvent, status: JimengStatus) => callback(status);
+    const handler = (_: Electron.IpcRendererEvent, status: JimengStatus) =>
+      callback(status);
     ipcRenderer.on("jimeng:status", handler);
-    return () => { ipcRenderer.removeListener("jimeng:status", handler); };
+    return () => {
+      ipcRenderer.removeListener("jimeng:status", handler);
+    };
+  },
+};
+
+const browserViewAPI: BrowserViewAPI = {
+  create: (params) => ipcRenderer.invoke("browserView:create", params),
+  navigate: (url) => ipcRenderer.invoke("browserView:navigate", { url }),
+  setBounds: (bounds) => ipcRenderer.invoke("browserView:setBounds", bounds),
+  show: () => ipcRenderer.invoke("browserView:show"),
+  hide: () => ipcRenderer.invoke("browserView:hide"),
+  getState: () => ipcRenderer.invoke("browserView:getState"),
+  execute: (params) => ipcRenderer.invoke("browserView:execute", params),
+  capture: () => ipcRenderer.invoke("browserView:capture"),
+  setFileInputFiles: (params) =>
+    ipcRenderer.invoke("browserView:setFileInputFiles", params),
+  close: () => ipcRenderer.invoke("browserView:close"),
+  setIgnoreMouseEvents: (ignore: boolean) => ipcRenderer.invoke("browserView:setIgnoreMouseEvents", ignore),
+  onStateChange: (callback) => {
+    const handler = (_: Electron.IpcRendererEvent, state: BrowserViewState) =>
+      callback(state);
+    ipcRenderer.on("browserView:state", handler);
+    return () => {
+      ipcRenderer.removeListener("browserView:state", handler);
+    };
   },
 };
 
@@ -66,6 +165,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   storage: {
     getDefaultPath: () => ipcRenderer.invoke("storage:getDefaultPath"),
     selectFolder: () => ipcRenderer.invoke("storage:selectFolder"),
-    openFolder: (folderPath: string) => ipcRenderer.invoke("storage:openFolder", folderPath),
+    openFolder: (folderPath: string) =>
+      ipcRenderer.invoke("storage:openFolder", folderPath),
   } as StorageAPI,
+  browserView: browserViewAPI,
 });

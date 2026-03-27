@@ -1,6 +1,5 @@
 /**
- * 本地流式函数调用 — 直接调用 Gemini API
- * 替代 Supabase Edge Functions 的流式调用
+ * 流式函数调用
  */
 import { invokeFunction } from "@/lib/invoke-with-key";
 

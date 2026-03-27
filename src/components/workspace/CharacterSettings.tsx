@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { CharacterSetting, SceneSetting, ArtStyle, ART_STYLE_LABELS, ImageHistoryEntry, CostumeSetting, TimeVariantSetting } from "@/types/project";
+import { CharacterSetting, SceneSetting, ArtStyle, ART_STYLE_LABELS, ImageHistoryEntry, CostumeSetting, TimeVariantSetting, Scene } from "@/types/project";
+import { generateId } from "@/lib/generate-id";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,7 +20,7 @@ const CHAR_IMAGE_MODEL_OPTIONS: { value: CharImageModel; label: string }[] = [
   { value: "doubao-seedream-5-0-260128", label: "Seedream 5.0" },
 ];
 import ImageHistoryDialog from "./ImageHistoryDialog";
-import { supabase } from "@/integrations/supabase/client";
+
 import { invokeFunction } from "@/lib/invoke-with-key";
 import { toast } from "@/hooks/use-toast";
 import { friendlyError } from "@/lib/friendly-error";
@@ -45,6 +46,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label = "图像生成")
 }
 
 interface CharacterSettingsProps {
+  scenes: Scene[];
   characters: CharacterSetting[];
   sceneSettings: SceneSetting[];
   artStyle: ArtStyle;
@@ -53,6 +55,7 @@ interface CharacterSettingsProps {
   onCustomArtStylePromptChange?: (prompt: string) => void;
   onCharactersChange: (c: CharacterSetting[]) => void;
   onSceneSettingsChange: (s: SceneSetting[]) => void;
+  onScenesChange: (scenes: Scene[]) => void;
   onNext: () => void;
   script?: string;
   decomposeModel?: string;
@@ -64,6 +67,7 @@ interface CharacterSettingsProps {
 }
 
 const CharacterSettings = ({
+  scenes,
   characters,
   sceneSettings,
   artStyle,
@@ -72,6 +76,7 @@ const CharacterSettings = ({
   onCustomArtStylePromptChange,
   onCharactersChange,
   onSceneSettingsChange,
+  onScenesChange,
   onNext,
   script,
   decomposeModel,
@@ -94,11 +99,13 @@ const CharacterSettings = ({
   const [expandedTimeVariantSceneIds, setExpandedTimeVariantSceneIds] = useState<Set<string>>(new Set());
 
   // Auto-expand costume panel for characters that have multiple costumes (e.g. from script decomposition)
-  const prevCharIdsRef = useRef<string>("");
+  const prevCharSignatureRef = useRef<string>("");
   useEffect(() => {
-    const currentIds = characters.map(c => c.id).join(",");
-    if (currentIds === prevCharIdsRef.current) return; // only trigger on character list change
-    prevCharIdsRef.current = currentIds;
+    const currentSignature = characters
+      .map(c => `${c.id}:${c.costumes?.length || 0}`)
+      .join(",");
+    if (currentSignature === prevCharSignatureRef.current) return;
+    prevCharSignatureRef.current = currentSignature;
     const charsWithCostumes = characters.filter(c => c.costumes && c.costumes.length > 1);
     if (charsWithCostumes.length > 0) {
       setExpandedCostumeCharIds(prev => {
@@ -110,11 +117,13 @@ const CharacterSettings = ({
   }, [characters]);
 
   // Auto-expand time variant panel for scenes that have multiple time variants
-  const prevSceneIdsRef = useRef<string>("");
+  const prevSceneSignatureRef = useRef<string>("");
   useEffect(() => {
-    const currentIds = sceneSettings.map(s => s.id).join(",");
-    if (currentIds === prevSceneIdsRef.current) return;
-    prevSceneIdsRef.current = currentIds;
+    const currentSignature = sceneSettings
+      .map(s => `${s.id}:${s.timeVariants?.length || 0}`)
+      .join(",");
+    if (currentSignature === prevSceneSignatureRef.current) return;
+    prevSceneSignatureRef.current = currentSignature;
     const scenesWithTimeVariants = sceneSettings.filter(s => s.timeVariants && s.timeVariants.length > 1);
     if (scenesWithTimeVariants.length > 0) {
       setExpandedTimeVariantSceneIds(prev => {
@@ -179,7 +188,7 @@ const CharacterSettings = ({
   const addCharacter = () => {
     onCharactersChange([
       ...characters,
-      { id: crypto.randomUUID(), name: "", description: "", isAIGenerated: false, source: "manual" },
+      { id: generateId(), name: "", description: "", isAIGenerated: false, source: "manual" },
     ]);
   };
 
@@ -200,15 +209,17 @@ const CharacterSettings = ({
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const ext = file.name.split(".").pop() || "png";
-      const fileName = `characters/${crypto.randomUUID()}.${ext}`;
-      const { error } = await supabase.storage.from("generated-images").upload(fileName, file, { contentType: file.type, upsert: false });
-      if (error) throw error;
-      const { data: urlData } = supabase.storage.from("generated-images").getPublicUrl(fileName);
-      updateCharacter(id, { imageUrl: urlData.publicUrl, isAIGenerated: false });
+      const dataUrl = await (async () => {
+        return new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(new Error("文件读取失败"));
+          reader.readAsDataURL(file);
+        });
+      })();
+      updateCharacter(id, { imageUrl: dataUrl, isAIGenerated: false });
     } catch (err: any) {
-      const fe = friendlyError(err);
-      toast({ title: fe.title, description: fe.description, variant: "destructive" });
+      toast({ title: "图片上传失败", description: err.message, variant: "destructive" });
     }
   };
 
@@ -483,7 +494,7 @@ const CharacterSettings = ({
   const addSceneSetting = () => {
     onSceneSettingsChange([
       ...sceneSettings,
-      { id: crypto.randomUUID(), name: "", description: "", isAIGenerated: false, source: "manual" },
+      { id: generateId(), name: "", description: "", isAIGenerated: false, source: "manual" },
     ]);
   };
 
@@ -499,20 +510,110 @@ const CharacterSettings = ({
     onSceneSettingsChange(updated);
   };
 
+  const applyCharacterSegmentAssignments = useCallback(
+    (
+      characterName: string,
+      assignments: Array<{ segmentLabel: string; costumeLabel: string }>,
+      costumes: CostumeSetting[],
+    ) => {
+      if (!assignments.length || !costumes.length) return;
+      const labelToCostumeId = new Map(
+        costumes
+          .filter((item) => item.label?.trim())
+          .map((item) => [item.label.trim(), item.id]),
+      );
+
+      const targetSegments = new Set(assignments.map((item) => item.segmentLabel).filter(Boolean));
+      const assignedBySegment = new Map<string, string>();
+      for (const item of assignments) {
+        const costumeId = labelToCostumeId.get((item.costumeLabel || "").trim());
+        if (costumeId && item.segmentLabel) {
+          assignedBySegment.set(item.segmentLabel, costumeId);
+        }
+      }
+
+      if (assignedBySegment.size === 0) return;
+
+      onScenesChange(
+        scenes.map((scene) => {
+          if (!scene.characters.includes(characterName)) return scene;
+          if (!targetSegments.has(scene.segmentLabel || "")) return scene;
+
+          const costumeId = assignedBySegment.get(scene.segmentLabel || "");
+          const nextCharacterCostumes = { ...(scene.characterCostumes || {}) };
+          if (costumeId) {
+            nextCharacterCostumes[characterName] = costumeId;
+          } else {
+            delete nextCharacterCostumes[characterName];
+          }
+
+          return {
+            ...scene,
+            characterCostumes:
+              Object.keys(nextCharacterCostumes).length > 0
+                ? nextCharacterCostumes
+                : undefined,
+          };
+        }),
+      );
+    },
+    [onScenesChange, scenes],
+  );
+
+  const applySceneSegmentAssignments = useCallback(
+    (
+      sceneName: string,
+      assignments: Array<{ segmentLabel: string; timeVariantLabel: string }>,
+      variants: TimeVariantSetting[],
+    ) => {
+      if (!assignments.length || !variants.length) return;
+      const labelToVariantId = new Map(
+        variants
+          .filter((item) => item.label?.trim())
+          .map((item) => [item.label.trim(), item.id]),
+      );
+
+      const assignedBySegment = new Map<string, string>();
+      for (const item of assignments) {
+        const variantId = labelToVariantId.get((item.timeVariantLabel || "").trim());
+        if (variantId && item.segmentLabel) {
+          assignedBySegment.set(item.segmentLabel, variantId);
+        }
+      }
+
+      if (assignedBySegment.size === 0) return;
+
+      onScenesChange(
+        scenes.map((scene) => {
+          if ((scene.sceneName || "").trim() !== sceneName.trim()) return scene;
+          const variantId = assignedBySegment.get(scene.segmentLabel || "");
+          if (!variantId) return scene;
+          return {
+            ...scene,
+            sceneTimeVariantId: variantId,
+          };
+        }),
+      );
+    },
+    [onScenesChange, scenes],
+  );
+
   const handleUploadSceneImage = (id: string) => sceneFileInputRefs.current[id]?.click();
   const handleSceneFileChange = async (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const ext = file.name.split(".").pop() || "png";
-      const fileName = `scenes/${crypto.randomUUID()}.${ext}`;
-      const { error } = await supabase.storage.from("generated-images").upload(fileName, file, { contentType: file.type, upsert: false });
-      if (error) throw error;
-      const { data: urlData } = supabase.storage.from("generated-images").getPublicUrl(fileName);
-      updateScene(id, { imageUrl: urlData.publicUrl, isAIGenerated: false });
+      const dataUrl = await (async () => {
+        return new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(new Error("文件读取失败"));
+          reader.readAsDataURL(file);
+        });
+      })();
+      updateScene(id, { imageUrl: dataUrl, isAIGenerated: false });
     } catch (err: any) {
-      const fe = friendlyError(err);
-      toast({ title: fe.title, description: fe.description, variant: "destructive" });
+      toast({ title: "图片上传失败", description: err.message, variant: "destructive" });
     }
   };
 
@@ -525,6 +626,14 @@ const CharacterSettings = ({
     }
 
     const hasTimeVariants = scene.timeVariants && scene.timeVariants.length > 0;
+    const sceneSegmentLabels = [
+      ...new Set(
+        scenes
+          .filter((item) => (item.sceneName || "").trim() === scene.name.trim())
+          .map((item) => item.segmentLabel)
+          .filter(Boolean),
+      ),
+    ] as string[];
 
     if (hasTimeVariants) {
       // Generate all time variant images sequentially with anchor logic
@@ -761,6 +870,14 @@ const CharacterSettings = ({
       return;
     }
     const hasCostumesToDescribe = character.costumes && character.costumes.length > 0;
+    const characterSegmentLabels = [
+      ...new Set(
+        scenes
+          .filter((scene) => scene.characters.includes(character.name))
+          .map((scene) => scene.segmentLabel)
+          .filter(Boolean),
+      ),
+    ] as string[];
     addTask(id, "charDesc");
     setGeneratingCharDescIds(prev => new Set(prev).add(id));
     setStreamingDescTexts(prev => ({ ...prev, [id]: "" }));
@@ -774,6 +891,7 @@ const CharacterSettings = ({
           script,
           costumes: character.costumes!.map(cos => cos.label || "未命名"),
           model: decomposeModel,
+          segmentLabels: characterSegmentLabels,
         }, { onStreamText });
         if (error) throw error;
         if (data.costumeDescriptions && Array.isArray(data.costumeDescriptions)) {
@@ -785,6 +903,9 @@ const CharacterSettings = ({
             description: data.description || character.description,
             costumes: updatedCostumes,
           });
+          if (Array.isArray(data.segmentCostumeAssignments)) {
+            applyCharacterSegmentAssignments(character.name, data.segmentCostumeAssignments, updatedCostumes);
+          }
         } else {
           updateCharacterAsync(id, { description: data.description || "" });
         }
@@ -793,17 +914,21 @@ const CharacterSettings = ({
         const { data, error } = await invokeFunction("generate-character-description", {
           characterName: character.name, script, model: decomposeModel,
           discoverCostumes: true,
+          segmentLabels: characterSegmentLabels,
         }, { onStreamText });
         if (error) throw error;
         const desc = data.description || "";
         if (data.discoveredCostumes && Array.isArray(data.discoveredCostumes) && data.discoveredCostumes.length >= 2) {
           const newCostumes: CostumeSetting[] = data.discoveredCostumes.map((dc: any) => ({
-            id: crypto.randomUUID(),
+            id: generateId(),
             label: dc.label || "未命名",
             description: dc.description || "",
             isAIGenerated: false,
           }));
           updateCharacterAsync(id, { description: desc, costumes: newCostumes, activeCostumeId: newCostumes[0]?.id });
+          if (Array.isArray(data.segmentCostumeAssignments)) {
+            applyCharacterSegmentAssignments(character.name, data.segmentCostumeAssignments, newCostumes);
+          }
           setExpandedCostumeCharIds(prev => { const next = new Set(prev); next.add(id); return next; });
           toast({ title: "识别成功", description: `已为「${character.name}」生成描述，并发现 ${newCostumes.length} 套服装变体` });
         } else {
@@ -843,21 +968,28 @@ const CharacterSettings = ({
       const { data, error } = await invokeFunction("generate-scene-description", {
         sceneName: scene.name, script, model: decomposeModel,
         discoverTimeVariants: !hasTimeVariants,
+        segmentLabels: sceneSegmentLabels,
       }, { onStreamText });
       if (error) throw error;
       const desc = data.description || "";
       if (!hasTimeVariants && data.discoveredTimeVariants && Array.isArray(data.discoveredTimeVariants) && data.discoveredTimeVariants.length >= 2) {
         const newVariants: TimeVariantSetting[] = data.discoveredTimeVariants.map((tv: any) => ({
-          id: crypto.randomUUID(),
+          id: generateId(),
           label: tv.label || "未命名",
           description: tv.description || "",
           isAIGenerated: false,
         }));
         updateSceneAsync(id, { description: desc, timeVariants: newVariants, activeTimeVariantId: newVariants[0]?.id });
+        if (Array.isArray(data.segmentTimeAssignments)) {
+          applySceneSegmentAssignments(scene.name, data.segmentTimeAssignments, newVariants);
+        }
         setExpandedTimeVariantSceneIds(prev => { const next = new Set(prev); next.add(id); return next; });
         toast({ title: "识别成功", description: `已为「${scene.name}」生成描述，并发现 ${newVariants.length} 个时间变体` });
       } else {
         updateSceneAsync(id, { description: desc });
+        if (Array.isArray(data.segmentTimeAssignments) && scene.timeVariants) {
+          applySceneSegmentAssignments(scene.name, data.segmentTimeAssignments, scene.timeVariants);
+        }
         toast({ title: "识别成功", description: `已为「${scene.name}」生成场景描述` });
       }
     } catch (e: any) {
@@ -936,6 +1068,14 @@ const CharacterSettings = ({
       if (!String(c.name || "").trim()) return;
 
       const hasCostumesToDescribe = c.costumes && c.costumes.length > 0;
+      const characterSegmentLabels = [
+        ...new Set(
+          scenes
+            .filter((scene) => scene.characters.includes(c.name))
+            .map((scene) => scene.segmentLabel)
+            .filter(Boolean),
+        ),
+      ] as string[];
 
       // --- Description phase (skip if imagesOnly) ---
       let desc = c.description || "";
@@ -969,10 +1109,30 @@ const CharacterSettings = ({
           } else {
             const { data, error } = await invokeFunction("generate-character-description", {
               characterName: c.name, script, model: decomposeModel,
+              discoverCostumes: true,
             }, { onStreamText });
             if (error) throw error;
             desc = data.description || "";
-            updateCharacterAsync(c.id, { description: desc });
+            if (data.discoveredCostumes && Array.isArray(data.discoveredCostumes) && data.discoveredCostumes.length >= 2) {
+              const newCostumes: CostumeSetting[] = data.discoveredCostumes.map((dc: any) => ({
+                id: generateId(),
+                label: dc.label || "未命名",
+                description: dc.description || "",
+                isAIGenerated: false,
+              }));
+              updateCharacterAsync(c.id, {
+                description: desc,
+                costumes: newCostumes,
+                activeCostumeId: newCostumes[0]?.id,
+              });
+              setExpandedCostumeCharIds(prev => {
+                const next = new Set(prev);
+                next.add(c.id);
+                return next;
+              });
+            } else {
+              updateCharacterAsync(c.id, { description: desc });
+            }
           }
           descOk = true;
         } catch (e) {
@@ -1143,10 +1303,30 @@ const CharacterSettings = ({
         try {
           const { data, error } = await invokeFunction("generate-scene-description", {
             sceneName: s.name, script, model: decomposeModel,
+            discoverTimeVariants: !s.timeVariants || s.timeVariants.length === 0,
           }, { onStreamText });
           if (error) throw error;
           desc = data.description || "";
-          updateSceneAsync(s.id, { description: desc });
+          if ((!s.timeVariants || s.timeVariants.length === 0) && data.discoveredTimeVariants && Array.isArray(data.discoveredTimeVariants) && data.discoveredTimeVariants.length >= 2) {
+            const newVariants: TimeVariantSetting[] = data.discoveredTimeVariants.map((tv: any) => ({
+              id: generateId(),
+              label: tv.label || "未命名",
+              description: tv.description || "",
+              isAIGenerated: false,
+            }));
+            updateSceneAsync(s.id, {
+              description: desc,
+              timeVariants: newVariants,
+              activeTimeVariantId: newVariants[0]?.id,
+            });
+            setExpandedTimeVariantSceneIds(prev => {
+              const next = new Set(prev);
+              next.add(s.id);
+              return next;
+            });
+          } else {
+            updateSceneAsync(s.id, { description: desc });
+          }
           descOk = true;
         } catch (e) {
           console.error(`Scene desc "${s.name}" failed:`, e);
@@ -1622,7 +1802,7 @@ const CharacterSettings = ({
 
           const addCostume = () => {
             const newCostume: CostumeSetting = {
-              id: crypto.randomUUID(),
+              id: generateId(),
               label: "",
               description: "",
               isAIGenerated: false,
@@ -1657,15 +1837,17 @@ const CharacterSettings = ({
             const file = e.target.files?.[0];
             if (!file) return;
             try {
-              const ext = file.name.split(".").pop() || "png";
-              const fileName = `costumes/${crypto.randomUUID()}.${ext}`;
-              const { error } = await supabase.storage.from("generated-images").upload(fileName, file, { contentType: file.type, upsert: false });
-              if (error) throw error;
-              const { data: urlData } = supabase.storage.from("generated-images").getPublicUrl(fileName);
-              updateCostume(costumeId, { imageUrl: urlData.publicUrl, isAIGenerated: false });
+              const dataUrl = await (async () => {
+                return new Promise<string>((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onload = () => resolve(reader.result as string);
+                  reader.onerror = () => reject(new Error("文件读取失败"));
+                  reader.readAsDataURL(file);
+                });
+              })();
+              updateCostume(costumeId, { imageUrl: dataUrl, isAIGenerated: false });
             } catch (err: any) {
-              const fe = friendlyError(err);
-              toast({ title: fe.title, description: fe.description, variant: "destructive" });
+              toast({ title: "图片上传失败", description: err.message, variant: "destructive" });
             }
           };
 
@@ -1974,7 +2156,7 @@ const CharacterSettings = ({
                       }}
                     />
                   </div>
-                  <div className="rounded-lg overflow-hidden border border-border/40 bg-background">
+                  <div className="rounded-lg overflow-hidden border border-border/40">
                     <ImageThumbnail src={c.imageUrl} alt={`${c.name} 人设图`} className="w-full max-h-[400px] object-contain" maxDim={800} />
                   </div>
                 </div>
@@ -2015,7 +2197,7 @@ const CharacterSettings = ({
 
           const addTimeVariant = () => {
             const newTv: TimeVariantSetting = {
-              id: crypto.randomUUID(),
+              id: generateId(),
               label: "",
               description: "",
               isAIGenerated: false,
@@ -2050,15 +2232,17 @@ const CharacterSettings = ({
             const file = e.target.files?.[0];
             if (!file) return;
             try {
-              const ext = file.name.split(".").pop() || "png";
-              const fileName = `scenes/${crypto.randomUUID()}.${ext}`;
-              const { error } = await supabase.storage.from("generated-images").upload(fileName, file, { contentType: file.type, upsert: false });
-              if (error) throw error;
-              const { data: urlData } = supabase.storage.from("generated-images").getPublicUrl(fileName);
-              updateTimeVariant(tvId, { imageUrl: urlData.publicUrl, isAIGenerated: false });
+              const dataUrl = await (async () => {
+                return new Promise<string>((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onload = () => resolve(reader.result as string);
+                  reader.onerror = () => reject(new Error("文件读取失败"));
+                  reader.readAsDataURL(file);
+                });
+              })();
+              updateTimeVariant(tvId, { imageUrl: dataUrl, isAIGenerated: false });
             } catch (err: any) {
-              const fe = friendlyError(err);
-              toast({ title: fe.title, description: fe.description, variant: "destructive" });
+              toast({ title: "图片上传失败", description: err.message, variant: "destructive" });
             }
           };
 
@@ -2365,8 +2549,8 @@ const CharacterSettings = ({
                       }}
                     />
                   </div>
-                  <div className="rounded-lg overflow-hidden border border-border/40 bg-background">
-                    <ImageThumbnail src={s.imageUrl} alt={`${s.name} 场景图`} className="w-full max-h-[300px] object-cover rounded-lg" maxDim={800} />
+                  <div className="rounded-lg overflow-hidden border border-border/40">
+                    <ImageThumbnail src={s.imageUrl} alt={`${s.name} 场景图`} className="w-full max-h-[400px] object-contain" maxDim={800} />
                   </div>
                 </div>
               )}

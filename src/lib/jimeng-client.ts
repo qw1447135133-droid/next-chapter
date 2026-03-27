@@ -16,6 +16,7 @@
  */
 
 import { getApiConfig } from "@/pages/Settings";
+import { getResolvedFilesStoragePath } from "@/lib/storage-path";
 
 export type JimengTaskStatus = "pending" | "running" | "success" | "failed";
 export type JimengTaskType = "generate" | "download" | "setup";
@@ -63,13 +64,30 @@ export interface GenerateParams {
 // =========================== Electron IPC 桥接 ===========================
 
 interface JimengElectronAPI {
-  start: () => Promise<{ ok: boolean; status: string; apiBase?: string; logs: string[] }>;
+  start: () => Promise<{
+    ok: boolean;
+    status: string;
+    apiBase?: string;
+    logs: string[];
+  }>;
   stop: () => Promise<{ ok: boolean }>;
-  status: () => Promise<{ status: string; apiBase?: string; message?: string; logs?: string[] }>;
+  status: () => Promise<{
+    status: string;
+    apiBase?: string;
+    message?: string;
+    logs?: string[];
+  }>;
   getApiBase: () => Promise<string | null>;
   openSetup: () => Promise<{ ok: boolean }>;
   openBrowserData: () => Promise<void>;
-  onStatusChange: (callback: (status: { status: string; apiBase?: string; message?: string; logs?: string[] }) => void) => () => void;
+  onStatusChange: (
+    callback: (status: {
+      status: string;
+      apiBase?: string;
+      message?: string;
+      logs?: string[];
+    }) => void,
+  ) => () => void;
 }
 
 interface StorageAPI {
@@ -95,13 +113,16 @@ function isElectron(): boolean {
 
 function getWebBaseUrl(): string {
   const config = getApiConfig();
-  return (config.jimengEndpoint || "http://localhost:8000").replace(/\/$/, "");
+  return (config.autoJimengApiBase || "http://localhost:8000").replace(
+    /\/$/,
+    "",
+  );
 }
 
 async function request<T>(
   base: string,
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
 ): Promise<T> {
   const url = `${base}${path}`;
   const resp = await fetch(url, {
@@ -165,7 +186,7 @@ export async function jimengEnsureStarted(): Promise<string> {
       return base;
     } catch {
       throw new Error(
-        `无法连接到即梦服务 (${base})，请确保 Python 服务已启动：\nuv run python start_api.py`
+        `无法连接到即梦服务 (${base})，请确保 Python 服务已启动：\nuv run python start_api.py`,
       );
     }
   }
@@ -176,7 +197,7 @@ export async function jimengEnsureStarted(): Promise<string> {
 
 /** 提交视频生成任务 */
 export async function jimengSubmitGenerate(
-  params: GenerateParams
+  params: GenerateParams,
 ): Promise<{ task_id: string; status: string; message: string }> {
   const base = await jimengEnsureStarted();
   return request(base, "/api/generate", {
@@ -197,7 +218,7 @@ export async function jimengSubmitGenerate(
 
 /** 提交浏览器登录设置任务 */
 export async function jimengSubmitSetup(
-  workDir?: string
+  workDir?: string,
 ): Promise<{ task_id: string; status: string; message: string }> {
   const base = await jimengEnsureStarted();
   return request(base, "/api/setup", {
@@ -209,7 +230,7 @@ export async function jimengSubmitSetup(
 /** 提交视频下载任务 */
 export async function jimengSubmitDownload(
   workDir?: string,
-  maxCount?: number
+  maxCount?: number,
 ): Promise<{ task_id: string; status: string; message: string }> {
   const base = await jimengEnsureStarted();
   return request(base, "/api/download", {
@@ -222,9 +243,7 @@ export async function jimengSubmitDownload(
 }
 
 /** 查询任务状态 */
-export async function jimengGetTask(
-  taskId: string
-): Promise<JimengTask> {
+export async function jimengGetTask(taskId: string): Promise<JimengTask> {
   const base = await jimengEnsureStarted();
   return request<JimengTask>(base, `/api/task/${taskId}`);
 }
@@ -232,7 +251,7 @@ export async function jimengGetTask(
 /** 列出所有任务（可选按类型/状态筛选） */
 export async function jimengListTasks(
   taskType?: JimengTaskType,
-  status?: JimengTaskStatus
+  status?: JimengTaskStatus,
 ): Promise<{ total: number; tasks: JimengTask[] }> {
   const base = await jimengEnsureStarted();
   const params = new URLSearchParams();
@@ -243,7 +262,9 @@ export async function jimengListTasks(
 }
 
 /** 删除已完成任务 */
-export async function jimengDeleteTask(taskId: string): Promise<{ message: string }> {
+export async function jimengDeleteTask(
+  taskId: string,
+): Promise<{ message: string }> {
   const base = await jimengEnsureStarted();
   return request(base, `/api/task/${taskId}`, { method: "DELETE" });
 }
@@ -253,7 +274,7 @@ export async function jimengPollUntilDone(
   taskId: string,
   onUpdate?: (task: JimengTask) => void,
   intervalMs = 3000,
-  timeoutMs?: number
+  timeoutMs?: number,
 ): Promise<JimengTask> {
   const deadline = timeoutMs ? Date.now() + timeoutMs : Infinity;
 
@@ -291,7 +312,12 @@ export async function jimengGetStatus(): Promise<{
 
 /** 监听服务状态变化（Electron IPC） */
 export function jimengOnStatusChange(
-  callback: (status: { status: string; apiBase?: string; message?: string; logs?: string[] }) => void
+  callback: (status: {
+    status: string;
+    apiBase?: string;
+    message?: string;
+    logs?: string[];
+  }) => void,
 ): () => void {
   if (!isElectron()) return () => {};
   return window.electronAPI!.jimeng.onStatusChange(callback);
@@ -323,42 +349,64 @@ async function prepareXlsxFile(params: {
   episodeLabel: string;
   base64Content: string;
   xlsxName: string;
-}): Promise<{ ok: boolean; workDir?: string; episodeDir?: string; xlsxFile?: string; error?: string }> {
+}): Promise<{
+  ok: boolean;
+  workDir?: string;
+  episodeDir?: string;
+  xlsxFile?: string;
+  error?: string;
+}> {
   if (!isElectronBridge()) {
     return { ok: false, error: "Web 模式请手动下载 xlsx 文件" };
   }
-  return window.electronAPI!.jimeng.prepareXlsx(params);
+  const storageRoot = await getResolvedFilesStoragePath();
+  return window.electronAPI!.jimeng.prepareXlsx({
+    ...params,
+    ...(storageRoot ? { storageRoot } : {}),
+  });
 }
 
 /** 生成即梦 xlsx ArrayBuffer */
-async function buildJimengXlsxBuffer(rows: Array<{
-  镜号: number;
-  景别: string;
-  镜头运动: string;
-  场景时间: string;
-  画面内容: string;
-  人物动作神态: string;
-  对白: string;
-  角色Characters: string;
-  音效备注: string;
-}>): Promise<ArrayBuffer> {
+async function buildJimengXlsxBuffer(
+  rows: Array<{
+    镜号: number;
+    景别: string;
+    镜头运动: string;
+    场景时间: string;
+    画面内容: string;
+    人物动作神态: string;
+    对白: string;
+    角色Characters: string;
+    音效备注: string;
+  }>,
+): Promise<ArrayBuffer> {
   const ExcelJS = (await import("exceljs")).default;
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("分镜");
 
   const headers = [
-    "镜号", "景别", "镜头运动",
-    "场景/时间", "画面内容",
-    "人物动作/神态", "对白（美式口语）",
-    "角色/Characters", "音效/备注",
+    "镜号",
+    "景别",
+    "镜头运动",
+    "场景/时间",
+    "画面内容",
+    "人物动作/神态",
+    "对白（美式口语）",
+    "角色/Characters",
+    "音效/备注",
   ];
   ws.addRow(headers);
   for (const r of rows) {
     ws.addRow([
-      r.镜号, r.景别, r.镜头运动,
-      r.场景时间, r.画面内容,
-      r.人物动作神态, r.对白,
-      r.角色Characters, r.音效备注,
+      r.镜号,
+      r.景别,
+      r.镜头运动,
+      r.场景时间,
+      r.画面内容,
+      r.人物动作神态,
+      r.对白,
+      r.角色Characters,
+      r.音效备注,
     ]);
   }
   ws.columns.forEach((col) => {
@@ -395,8 +443,14 @@ export async function jimengSubmitGenerateFromScenes(params: {
   skipExisting?: boolean;
   /** 集数编号，用于文件命名 */
   episodeNumber?: number;
-}): Promise<{ task_id: string; status: string; message: string; workDir?: string }> {
-  const episodeLabel = params.episodeNumber != null ? String(params.episodeNumber) : "auto";
+}): Promise<{
+  task_id: string;
+  status: string;
+  message: string;
+  workDir?: string;
+}> {
+  const episodeLabel =
+    params.episodeNumber != null ? String(params.episodeNumber) : "auto";
   const xlsxName = `scene_${episodeLabel}.xlsx`;
 
   // 生成 xlsx
@@ -416,22 +470,31 @@ export async function jimengSubmitGenerateFromScenes(params: {
   const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
 
   // Electron 模式：写入即梦临时目录
-  const prepResult = await prepareXlsxFile({ episodeLabel, base64Content: base64, xlsxName });
+  const prepResult = await prepareXlsxFile({
+    episodeLabel,
+    base64Content: base64,
+    xlsxName,
+  });
 
   if (!prepResult.ok || !prepResult.workDir) {
     if (!isElectronBridge()) {
       // Web 模式：触发下载
       const binaryStr = atob(base64);
       const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-      const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      for (let i = 0; i < binaryStr.length; i++)
+        bytes[i] = binaryStr.charCodeAt(i);
+      const blob = new Blob([bytes], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = xlsxName;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 10000);
-      throw new Error("Web 模式：已将 xlsx 下载到本地，请放入即梦项目目录的 test/<集数>/ 后手动运行服务。");
+      throw new Error(
+        "Web 模式：已将 xlsx 下载到本地，请放入即梦项目目录的 test/<集数>/ 后手动运行服务。",
+      );
     }
     throw new Error(`写入 xlsx 失败：${prepResult.error}`);
   }

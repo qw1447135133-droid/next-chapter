@@ -1,4 +1,5 @@
 // 短剧创作项目类型定义
+import { generateId } from "@/lib/generate-id";
 
 /** 题材顶层分类（合并展示，避免过细） */
 export type GenreCategory =
@@ -342,7 +343,7 @@ export interface DramaProject {
 
 export function createEmptyDramaProject(mode: DramaMode = "traditional"): DramaProject {
   return {
-    id: crypto.randomUUID(),
+    id: generateId(),
     mode,
     setup: null,
     creativePlan: "",

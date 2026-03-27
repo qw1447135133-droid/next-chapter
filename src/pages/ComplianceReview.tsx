@@ -12,7 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { ArrowLeft, RefreshCw, Pencil, Eye, Loader2, ShieldCheck, Upload, Film, FileText, ChevronDown, ChevronUp, Palette, Wand2, Download, FileSpreadsheet, Undo2, Redo2, MessageSquare, AlertTriangle, Info, CheckCircle2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
-import { supabase } from "@/integrations/supabase/client";
+import { parseDocument } from "@/lib/document-parser";
 import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "@/components/script-creator/TranslateButton";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
 import { saveAs } from "file-saver";
@@ -1911,15 +1911,10 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
         setScriptText(textContent);
         toast({ title: "表格已加载", description: `${file.name} - ${sheetName} (${rows.length} 行数据)` });
       } else if (["pdf", "docx", "doc"].includes(ext)) {
-        const formData = new FormData();
-        formData.append("file", file);
-        const { data, error } = await supabase.functions.invoke("parse-document", { body: formData });
-        if (error) throw error;
-        if (data?.text) {
-          setScriptText((prev) => normalizeEpisodeClapperLineBreaks((prev ? prev + "\n\n" : "") + data.text));
-          setTableData(null);
-          toast({ title: "文档解析完成" });
-        }
+        const text = await parseDocument(file);
+        setScriptText((prev) => normalizeEpisodeClapperLineBreaks((prev ? prev + "\n\n" : "") + text));
+        setTableData(null);
+        toast({ title: "文档解析完成" });
       } else {
         toast({ title: "不支持的格式", description: "支持 TXT、PDF、DOCX、XLSX、XLS、CSV 文件", variant: "destructive" });
       }

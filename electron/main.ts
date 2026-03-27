@@ -10,7 +10,16 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("node:path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  BrowserView,
+  ipcMain,
+  Tray,
+  Menu,
+  nativeImage,
+  shell,
+} = require("electron");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { spawn } = require("node:child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -24,15 +33,18 @@ const fs = require("node:fs");
 
 /** 获取资源目录：开发时指向 electron/../auto_jimeng，打包后指向 resources/auto_jimeng */
 function getJimengSourceDir(): string {
-  const isDev = !app.isPackaged;
-  if (isDev) {
+  try {
+    const isDev = !app.isPackaged;
+    if (isDev) {
+      return path.join(__dirname, "..", "auto_jimeng");
+    }
+    return path.join(process.resourcesPath, "auto_jimeng");
+  } catch {
+    // app.isPackaged 在模块加载时可能不可用，默认用开发模式
     return path.join(__dirname, "..", "auto_jimeng");
   }
-  return path.join(process.resourcesPath, "auto_jimeng");
 }
 
-/** 打包后 auto_jimeng 源码所在目录 */
-const JIMENG_SOURCE_DIR = getJimengSourceDir();
 /** Python API 服务监听端口 */
 const API_PORT = 8000;
 /** API 地址 */
@@ -45,6 +57,132 @@ let tray: Tray | null = null;
 let pythonProcess: ChildProcess | null = null;
 let pythonStatus: "stopped" | "starting" | "running" | "error" = "stopped";
 let pythonLogs: string[] = [];
+let embeddedBrowserView: BrowserView | null = null;
+let embeddedBrowserState = {
+  visible: false,
+  url: "",
+  title: "",
+  loading: false,
+  error: "",
+};
+let embeddedBrowserBounds = { x: 0, y: 0, width: 0, height: 0 };
+
+function emitEmbeddedBrowserState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("browserView:state", {
+    ...embeddedBrowserState,
+  });
+}
+
+function attachEmbeddedBrowserEvents(view: typeof embeddedBrowserView) {
+  if (!view) return;
+
+  view.webContents.on("page-title-updated", (_event: unknown, title: string) => {
+    embeddedBrowserState.title = title;
+    emitEmbeddedBrowserState();
+  });
+
+  view.webContents.on("did-start-loading", () => {
+    embeddedBrowserState.loading = true;
+    embeddedBrowserState.error = "";
+    emitEmbeddedBrowserState();
+  });
+
+  view.webContents.on("did-stop-loading", () => {
+    embeddedBrowserState.loading = false;
+    embeddedBrowserState.url = view.webContents.getURL();
+    emitEmbeddedBrowserState();
+  });
+
+  view.webContents.on("did-fail-load", (_event: unknown, code: number, description: string) => {
+    if (code === -3) {
+      log("warn", `BrowserView 导航被中断: ${description}`);
+      return;
+    }
+    embeddedBrowserState.loading = false;
+    embeddedBrowserState.error = description;
+    emitEmbeddedBrowserState();
+  });
+
+  view.webContents.setWindowOpenHandler(({ url }: { url: string }) => {
+    if (url.startsWith("https://jimeng.jianying.com/")) {
+      view.webContents.loadURL(url);
+    } else {
+      shell.openExternal(url);
+    }
+    return { action: "deny" };
+  });
+}
+
+async function loadURLWithAbortTolerance(view: BrowserView, url: string) {
+  try {
+    await view.webContents.loadURL(url);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const currentUrl = view.webContents.getURL();
+    if (message.includes("ERR_ABORTED") || message.includes("(-3)")) {
+      log("warn", `BrowserView loadURL 被中断，按可恢复处理: ${message}`);
+      if (currentUrl) {
+        embeddedBrowserState.url = currentUrl;
+        embeddedBrowserState.loading = false;
+        embeddedBrowserState.error = "";
+        emitEmbeddedBrowserState();
+        return;
+      }
+    }
+    throw error;
+  }
+}
+
+async function ensureEmbeddedBrowserView(url?: string) {
+  if (!mainWindow) throw new Error("主窗口尚未创建");
+  if (!embeddedBrowserView) {
+    log("info", "创建内嵌 BrowserView");
+    embeddedBrowserView = new BrowserView({
+      webPreferences: {
+        contextIsolation: true,
+        sandbox: true,
+        nodeIntegration: false,
+      },
+    });
+    mainWindow.setBrowserView(embeddedBrowserView);
+    attachEmbeddedBrowserEvents(embeddedBrowserView);
+  }
+
+  if (embeddedBrowserBounds.width > 0 && embeddedBrowserBounds.height > 0) {
+    log("info", `设置 BrowserView bounds: ${JSON.stringify(embeddedBrowserBounds)}`);
+    embeddedBrowserView.setBounds(embeddedBrowserBounds);
+    embeddedBrowserView.setAutoResize({ width: true, height: true });
+  } else {
+    log("warn", `BrowserView bounds 无效，跳过设置: ${JSON.stringify(embeddedBrowserBounds)}`);
+  }
+
+  embeddedBrowserState.visible = true;
+  if (url) {
+    embeddedBrowserState.url = url;
+    log("info", `BrowserView 导航到: ${url}`);
+    await loadURLWithAbortTolerance(embeddedBrowserView, url);
+  }
+  emitEmbeddedBrowserState();
+  return embeddedBrowserView;
+}
+
+function hideEmbeddedBrowserView() {
+  if (!embeddedBrowserView || !mainWindow) return;
+  embeddedBrowserView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+  embeddedBrowserState.visible = false;
+  emitEmbeddedBrowserState();
+}
+
+function closeEmbeddedBrowserView() {
+  if (!embeddedBrowserView || !mainWindow) return;
+  mainWindow.removeBrowserView(embeddedBrowserView);
+  (embeddedBrowserView.webContents as any).destroy?.();
+  embeddedBrowserView = null;
+  embeddedBrowserState = { visible: false, url: "", title: "", loading: false, error: "" };
+  embeddedBrowserBounds = { x: 0, y: 0, width: 0, height: 0 };
+  emitEmbeddedBrowserState();
+}
 
 function getUserDataPath(): string {
   return app.getPath("userData");
@@ -53,6 +191,18 @@ function getUserDataPath(): string {
 function getBrowserDataPath(): string {
   // 即梦浏览器数据放在用户目录，避免打包 exe 内部
   return path.join(getUserDataPath(), "jimeng_browser_data");
+}
+
+/**
+ * 默认缓存目录：与程序同级的 files/
+ * - 开发：项目根目录/files（main 在 electron/，上一级为仓库根）
+ * - 打包：可执行文件所在目录/files
+ */
+function getDefaultFilesDir(): string {
+  if (app.isPackaged) {
+    return path.join(path.dirname(process.execPath), "files");
+  }
+  return path.join(__dirname, "..", "files");
 }
 
 // =========================== 日志 ===========================
@@ -68,7 +218,11 @@ function log(level: string, msg: string) {
 // =========================== Python 服务管理 ===========================
 
 /** 查找可用的 Python/uv 解释器 */
-async function findPython(): Promise<{ cmd: string; args: string[]; useUv: boolean } | null> {
+async function findPython(): Promise<{
+  cmd: string;
+  args: string[];
+  useUv: boolean;
+} | null> {
   // 策略1: uv（auto_jimeng 用 uv 管理依赖）
   for (const name of ["uv"]) {
     try {
@@ -77,11 +231,18 @@ async function findPython(): Promise<{ cmd: string; args: string[]; useUv: boole
         log("info", `找到 uv 包管理器，将使用 "uv run python"`);
         return { cmd: name, args: ["run", "python"], useUv: true };
       }
-    } catch { /* try next */ }
+    } catch {
+      /* try next */
+    }
   }
 
   // 策略2: 直接用 venv 中的 Python（已包含所有依赖）
-  const venvPython = path.join(JIMENG_SOURCE_DIR, ".venv", "Scripts", "python.exe");
+  const venvPython = path.join(
+    getJimengSourceDir(),
+    ".venv",
+    "Scripts",
+    "python.exe",
+  );
   if (fs.existsSync(venvPython)) {
     log("info", `使用 venv Python: ${venvPython}`);
     return { cmd: venvPython, args: [], useUv: false };
@@ -95,7 +256,9 @@ async function findPython(): Promise<{ cmd: string; args: string[]; useUv: boole
         log("info", `找到 Python: ${name}`);
         return { cmd: name, args: [], useUv: false };
       }
-    } catch { /* try next */ }
+    } catch {
+      /* try next */
+    }
   }
 
   return null;
@@ -110,15 +273,18 @@ async function startPythonServer(): Promise<boolean> {
   pythonStatus = "starting";
   pythonLogs = [];
   log("info", "========== 启动即梦自动化服务 ==========");
-  mainWindow?.webContents.send("jimeng:status", { status: "starting", logs: pythonLogs });
+  mainWindow?.webContents.send("jimeng:status", {
+    status: "starting",
+    logs: pythonLogs,
+  });
 
   // 检查源码目录
-  if (!fs.existsSync(JIMENG_SOURCE_DIR)) {
-    log("error", `auto_jimeng 源码目录不存在: ${JIMENG_SOURCE_DIR}`);
+  if (!fs.existsSync(getJimengSourceDir())) {
+    log("error", `auto_jimeng 源码目录不存在: ${getJimengSourceDir()}`);
     pythonStatus = "error";
     mainWindow?.webContents.send("jimeng:status", {
       status: "error",
-      message: `auto_jimeng 源码未找到，请联系开发者。\n期望路径: ${JIMENG_SOURCE_DIR}`,
+      message: `auto_jimeng 源码未找到，请联系开发者。\n期望路径: ${getJimengSourceDir()}`,
     });
     return false;
   }
@@ -129,7 +295,8 @@ async function startPythonServer(): Promise<boolean> {
     pythonStatus = "error";
     mainWindow?.webContents.send("jimeng:status", {
       status: "error",
-      message: "未找到 Python 或 uv，请安装 Python 3.10+：\nhttps://www.python.org/downloads/",
+      message:
+        "未找到 Python 或 uv，请安装 Python 3.10+：\nhttps://www.python.org/downloads/",
     });
     return false;
   }
@@ -138,11 +305,14 @@ async function startPythonServer(): Promise<boolean> {
   log("info", `启动方式: ${useUv ? "uv run python" : "venv python"}`);
 
   // 启动 FastAPI 服务
-  const apiScript = path.join(JIMENG_SOURCE_DIR, "start_api.py");
+  const apiScript = path.join(getJimengSourceDir(), "start_api.py");
   if (!fs.existsSync(apiScript)) {
     log("error", `API 入口脚本不存在: ${apiScript}`);
     pythonStatus = "error";
-    mainWindow?.webContents.send("jimeng:status", { status: "error", message: "API 入口脚本缺失" });
+    mainWindow?.webContents.send("jimeng:status", {
+      status: "error",
+      message: "API 入口脚本缺失",
+    });
     return false;
   }
 
@@ -164,7 +334,7 @@ async function startPythonServer(): Promise<boolean> {
   log("info", `浏览器数据目录: ${browserData}`);
 
   pythonProcess = spawn(pythonCmd, spawnArgs, {
-    cwd: JIMENG_SOURCE_DIR,
+    cwd: getJimengSourceDir(),
     env,
     stdio: ["ignore", "pipe", "pipe"],
     detached: false,
@@ -174,7 +344,10 @@ async function startPythonServer(): Promise<boolean> {
     const lines = chunk.toString().split("\n").filter(Boolean);
     for (const l of lines) {
       log("python", l);
-      mainWindow?.webContents.send("jimeng:status", { status: pythonStatus, logs: [...pythonLogs] });
+      mainWindow?.webContents.send("jimeng:status", {
+        status: pythonStatus,
+        logs: [...pythonLogs],
+      });
     }
   });
 
@@ -186,7 +359,10 @@ async function startPythonServer(): Promise<boolean> {
   pythonProcess.on("error", (err) => {
     log("error", `Python 子进程启动失败: ${err.message}`);
     pythonStatus = "error";
-    mainWindow?.webContents.send("jimeng:status", { status: "error", message: err.message });
+    mainWindow?.webContents.send("jimeng:status", {
+      status: "error",
+      message: err.message,
+    });
   });
 
   pythonProcess.on("exit", (code) => {
@@ -202,12 +378,18 @@ async function startPythonServer(): Promise<boolean> {
   if (ready) {
     pythonStatus = "running";
     log("info", "✅ Python API 服务已就绪");
-    mainWindow?.webContents.send("jimeng:status", { status: "running", apiBase: API_BASE });
+    mainWindow?.webContents.send("jimeng:status", {
+      status: "running",
+      apiBase: API_BASE,
+    });
     return true;
   } else {
     log("error", "Python API 服务启动超时");
     pythonStatus = "error";
-    mainWindow?.webContents.send("jimeng:status", { status: "error", message: "服务启动超时，请查看日志" });
+    mainWindow?.webContents.send("jimeng:status", {
+      status: "error",
+      message: "服务启动超时，请查看日志",
+    });
     return false;
   }
 }
@@ -232,9 +414,13 @@ async function waitForServer(url: string, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const resp = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(3000) });
+      const resp = await fetch(`${url}/api/health`, {
+        signal: AbortSignal.timeout(3000),
+      });
       if (resp.ok) return true;
-    } catch { /* 还没启动 */ }
+    } catch {
+      /* 还没启动 */
+    }
     await sleep(2000);
   }
   return false;
@@ -244,19 +430,34 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function runCommand(cmd: string, args: string[], timeoutMs: number): Promise<{ stdout: string; stderr: string }> {
+function runCommand(
+  cmd: string,
+  args: string[],
+  timeoutMs: number,
+): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const proc = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
-    const timer = setTimeout(() => { proc.kill(); reject(new Error("超时")); }, timeoutMs);
-    let stdout = "", stderr = "";
-    proc.stdout?.on("data", (c: Buffer) => { stdout += c.toString(); });
-    proc.stderr?.on("data", (c: Buffer) => { stderr += c.toString(); });
+    const timer = setTimeout(() => {
+      proc.kill();
+      reject(new Error("超时"));
+    }, timeoutMs);
+    let stdout = "",
+      stderr = "";
+    proc.stdout?.on("data", (c: Buffer) => {
+      stdout += c.toString();
+    });
+    proc.stderr?.on("data", (c: Buffer) => {
+      stderr += c.toString();
+    });
     proc.on("close", (code) => {
       clearTimeout(timer);
       if (code === 0) resolve({ stdout, stderr });
       else reject(new Error(stderr || `exit ${code}`));
     });
-    proc.on("error", (e) => { clearTimeout(timer); reject(e); });
+    proc.on("error", (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
   });
 }
 
@@ -266,7 +467,12 @@ function setupIPC() {
   ipcMain.handle("jimeng:start", async () => {
     log("info", "收到启动请求");
     const ok = await startPythonServer();
-    return { ok, status: pythonStatus, apiBase: ok ? API_BASE : undefined, logs: pythonLogs };
+    return {
+      ok,
+      status: pythonStatus,
+      apiBase: ok ? API_BASE : undefined,
+      logs: pythonLogs,
+    };
   });
 
   ipcMain.handle("jimeng:stop", () => {
@@ -285,12 +491,237 @@ function setupIPC() {
     return API_BASE;
   });
 
+  ipcMain.handle("browserView:create", async (_event, params?: {
+    url?: string;
+    bounds?: { x: number; y: number; width: number; height: number };
+  }) => {
+    if (params?.bounds) {
+      embeddedBrowserBounds = params.bounds;
+    }
+    const view = await ensureEmbeddedBrowserView(params?.url);
+    return {
+      ok: true,
+      id: "embedded-browser-view",
+      state: {
+        ...embeddedBrowserState,
+        url: view.webContents.getURL() || embeddedBrowserState.url,
+      },
+    };
+  });
+
+  ipcMain.handle("browserView:navigate", async (_event, { url }: { url: string }) => {
+    const view = await ensureEmbeddedBrowserView();
+    await loadURLWithAbortTolerance(view, url);
+    embeddedBrowserState.url = view.webContents.getURL();
+    emitEmbeddedBrowserState();
+    return { ok: true, state: { ...embeddedBrowserState } };
+  });
+
+  ipcMain.handle("browserView:setBounds", (_event, bounds) => {
+    embeddedBrowserBounds = bounds;
+    log("info", `收到 BrowserView bounds: ${JSON.stringify(bounds)}`);
+    if (embeddedBrowserView) {
+      embeddedBrowserView.setBounds(bounds);
+      embeddedBrowserView.setAutoResize({ width: true, height: true });
+    }
+    return { ok: true };
+  });
+
+  ipcMain.handle("browserView:show", async () => {
+    await ensureEmbeddedBrowserView();
+    if (embeddedBrowserView && embeddedBrowserBounds.width > 0 && embeddedBrowserBounds.height > 0) {
+      embeddedBrowserView.setBounds(embeddedBrowserBounds);
+    }
+    embeddedBrowserState.visible = true;
+    emitEmbeddedBrowserState();
+    return { ok: true, state: { ...embeddedBrowserState } };
+  });
+
+  ipcMain.handle("browserView:hide", () => {
+    hideEmbeddedBrowserView();
+    return { ok: true, state: { ...embeddedBrowserState } };
+  });
+
+  ipcMain.handle("browserView:getState", () => ({ ...embeddedBrowserState }));
+
+  ipcMain.handle("browserView:execute", async (_event, { script }: { script: string; args?: unknown[] }) => {
+    if (!embeddedBrowserView) {
+      return { ok: false, error: "浏览器视图尚未创建" };
+    }
+    try {
+      const result = await embeddedBrowserView.webContents.executeJavaScript(script, true);
+      return { ok: true, result };
+    } catch (error) {
+      log("error", `browserView:execute 失败: ${error instanceof Error ? error.message : String(error)}`);
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle("browserView:capture", async () => {
+    if (!embeddedBrowserView) {
+      return { ok: false, error: "浏览器视图尚未创建" };
+    }
+    try {
+      const image = await embeddedBrowserView.webContents.capturePage();
+      const png = image.toPNG();
+      return { ok: true, base64: png.toString("base64"), mimeType: "image/png" };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(
+    "browserView:setFileInputFiles",
+    async (
+      _event,
+      {
+        selector = "input[type=\"file\"]",
+        index = 0,
+        files,
+      }: {
+        selector?: string;
+        index?: number;
+        files: Array<{ fileName: string; dataUrl: string }>;
+      },
+    ) => {
+      if (!embeddedBrowserView) {
+        return { ok: false, error: "浏览器视图尚未创建" };
+      }
+      if (!Array.isArray(files) || files.length === 0) {
+        return { ok: false, error: "没有可上传的文件" };
+      }
+
+      const tempDir = path.join(
+        app.getPath("temp"),
+        "next-chapter-browserview-files",
+      );
+      fs.mkdirSync(tempDir, { recursive: true });
+
+      const writtenFiles = files.map((file, fileIndex) => {
+        const match = String(file.dataUrl || "").match(
+          /^data:([^;]+);base64,(.+)$/i,
+        );
+        if (!match) {
+          throw new Error(`无效 dataUrl: ${file.fileName || fileIndex}`);
+        }
+        const mime = match[1];
+        const ext =
+          path.extname(file.fileName || "") ||
+          (mime.includes("png")
+            ? ".png"
+            : mime.includes("webp")
+              ? ".webp"
+              : ".jpg");
+        const safeBase = path
+          .basename(file.fileName || `upload-${fileIndex}${ext}`, ext)
+          .replace(/[^\w.-]+/g, "_");
+        const targetPath = path.join(
+          tempDir,
+          `${Date.now()}-${fileIndex}-${safeBase}${ext}`,
+        );
+        fs.writeFileSync(targetPath, Buffer.from(match[2], "base64"));
+        return targetPath;
+      });
+
+      const debuggerClient = embeddedBrowserView.webContents.debugger;
+      const attachedByHandler = !debuggerClient.isAttached();
+
+      try {
+        if (attachedByHandler) debuggerClient.attach("1.3");
+        const { root } = await debuggerClient.sendCommand("DOM.getDocument", {
+          depth: -1,
+          pierce: true,
+        });
+        const { nodeIds } = await debuggerClient.sendCommand(
+          "DOM.querySelectorAll",
+          {
+            nodeId: root.nodeId,
+            selector,
+          },
+        );
+        if (!Array.isArray(nodeIds) || nodeIds.length === 0) {
+          throw new Error(`未找到文件输入框: ${selector}`);
+        }
+        const safeIndex = Math.max(0, Math.min(index, nodeIds.length - 1));
+        await debuggerClient.sendCommand("DOM.setFileInputFiles", {
+          nodeId: nodeIds[safeIndex],
+          files: writtenFiles,
+        });
+        return {
+          ok: true,
+          count: writtenFiles.length,
+          selector,
+          index: safeIndex,
+        };
+      } catch (error) {
+        log(
+          "error",
+          `browserView:setFileInputFiles 失败: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      } finally {
+        if (attachedByHandler && debuggerClient.isAttached()) {
+          try {
+            debuggerClient.detach();
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    },
+  );
+
+  ipcMain.handle("browserView:close", () => {
+    closeEmbeddedBrowserView();
+    return { ok: true };
+  });
+
+  ipcMain.handle("browserView:setIgnoreMouseEvents", (_event, ignore: boolean) => {
+    if (embeddedBrowserView) {
+      embeddedBrowserView.webContents.executeJavaScript(`
+        (() => {
+          const OVERLAY_ID = '__jimeng_browser_lock_overlay__';
+          const existing = document.getElementById(OVERLAY_ID);
+          if (${ignore ? "true" : "false"}) {
+            if (!existing) {
+              const overlay = document.createElement('div');
+              overlay.id = OVERLAY_ID;
+              overlay.style.position = 'fixed';
+              overlay.style.inset = '0';
+              overlay.style.zIndex = '2147483647';
+              overlay.style.background = 'transparent';
+              overlay.style.cursor = 'not-allowed';
+              overlay.addEventListener('wheel', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }, { passive: false });
+              overlay.addEventListener('mousedown', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }, true);
+              overlay.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }, true);
+              document.body.appendChild(overlay);
+            }
+          } else if (existing) {
+            existing.remove();
+          }
+        })();
+      `, true).catch(() => {});
+    }
+    return { ok: true };
+  });
+
   // 打开即梦登录页面（用于首次授权）
   ipcMain.handle("jimeng:openSetup", async () => {
-    if (pythonStatus !== "running") {
-      await startPythonServer();
-    }
-    shell.openExternal("https://jimeng.jianying.com/ai-tool/home");
+    await ensureEmbeddedBrowserView("https://jimeng.jianying.com/ai-tool/home");
     return { ok: true };
   });
 
@@ -300,30 +731,58 @@ function setupIPC() {
   });
 
   // 写入 xlsx 文件并返回即梦可用的 workDir/episodeDir/xlsxFile
-  ipcMain.handle("jimeng:prepareXlsx", async (_event, {
-    episodeLabel,
-    base64Content,
-    xlsxName,
-  }: { episodeLabel: string; base64Content: string; xlsxName: string }) => {
-    try {
-      const tempDir = path.join(app.getPath("userData"), "jimeng_temp");
-      const episodeDir = path.join(tempDir, "test", String(episodeLabel));
-      if (!fs.existsSync(episodeDir)) fs.mkdirSync(episodeDir, { recursive: true });
-      const filePath = path.join(episodeDir, xlsxName);
-      const buffer = Buffer.from(base64Content, "base64");
-      fs.writeFileSync(filePath, buffer);
-      return { ok: true, workDir: tempDir, episodeDir: String(episodeLabel), xlsxFile: xlsxName };
-    } catch (err) {
-      return { ok: false, error: String(err) };
-    }
-  });
+  ipcMain.handle(
+    "jimeng:prepareXlsx",
+    async (
+      _event,
+      {
+        episodeLabel,
+        base64Content,
+        xlsxName,
+        storageRoot,
+      }: {
+        episodeLabel: string;
+        base64Content: string;
+        xlsxName: string;
+        storageRoot?: string;
+      },
+    ) => {
+      try {
+        const baseRoot =
+          typeof storageRoot === "string" && storageRoot.trim().length > 0
+            ? path.normalize(storageRoot.trim())
+            : getDefaultFilesDir();
+        const tempDir = path.join(baseRoot, "jimeng_temp");
+        const episodeDir = path.join(tempDir, "test", String(episodeLabel));
+        if (!fs.existsSync(episodeDir))
+          fs.mkdirSync(episodeDir, { recursive: true });
+        const filePath = path.join(episodeDir, xlsxName);
+        const buffer = Buffer.from(base64Content, "base64");
+        fs.writeFileSync(filePath, buffer);
+        return {
+          ok: true,
+          workDir: tempDir,
+          episodeDir: String(episodeLabel),
+          xlsxFile: xlsxName,
+        };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+  );
 
   // ===== 存储路径 ============================
 
   ipcMain.handle("storage:getDefaultPath", () => {
+    const filesDir = getDefaultFilesDir();
+    try {
+      fs.mkdirSync(filesDir, { recursive: true });
+    } catch {
+      /* ignore */
+    }
     const userData = app.getPath("userData");
     return {
-      files: path.join(userData, "files"),
+      files: filesDir,
       db: path.join(userData, "db"),
     };
   });
@@ -364,6 +823,12 @@ function createWindow() {
     mainWindow?.show();
     // 自动启动 Python 服务（静默后台，不阻塞 UI）
     startPythonServer().catch((e) => log("error", `自动启动失败: ${e}`));
+  });
+
+  mainWindow.on("resize", () => {
+    if (embeddedBrowserView && embeddedBrowserState.visible && embeddedBrowserBounds.width > 0 && embeddedBrowserBounds.height > 0) {
+      embeddedBrowserView.setBounds(embeddedBrowserBounds);
+    }
   });
 
   mainWindow.on("close", (e) => {
