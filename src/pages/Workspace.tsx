@@ -46,6 +46,7 @@ import {
 import { persistAssetToProjectCache, safeCacheName } from "@/lib/upload-base64-to-storage";
 import {
   findSceneSetting,
+  matchCharacterCostume,
   matchCharacterCostumeForSegment,
   matchSceneTimeVariant,
   matchSceneTimeVariantForSegment,
@@ -161,46 +162,67 @@ const Workspace = () => {
 
       for (const segmentKey of orderedSegmentKeys) {
         const segmentScenes = segmentMap.get(segmentKey)!;
-        const segmentCharacterCostumes: Record<string, string> = {};
-
-        for (const rawName of new Set(
-          segmentScenes.flatMap((scene) =>
-            (scene.characters || []).map((name) => String(name || "").trim()),
-          ),
-        )) {
-          const characterName = normalizeCharacterName(String(rawName || "").trim());
-          if (!characterName) continue;
-
-          const character = nextCharacters.find(
-            (item) => normalizeCharacterName(item.name) === characterName,
-          );
-          if (!character?.costumes?.length) continue;
-
-          const matchedCostumeLabel = matchCharacterCostumeForSegment(
-            character,
-            segmentScenes,
-          );
-          if (!matchedCostumeLabel) continue;
-
-          const matchedCostume = character.costumes.find(
-            (item) => item.label?.trim() === matchedCostumeLabel,
-          );
-          if (matchedCostume) {
-            segmentCharacterCostumes[normalizeCharacterName(character.name)] = matchedCostume.id;
-          }
-        }
-
         const segmentTimeVariantId =
           matchSceneTimeVariantForSegment(segmentScenes, nextSceneSettings)?.id;
 
+        const resolveSceneCostumeId = (
+          scene: Scene,
+          characterName: string,
+        ): string | undefined => {
+          const normalizedName = normalizeCharacterName(characterName);
+          const character = nextCharacters.find(
+            (item) => normalizeCharacterName(item.name) === normalizedName,
+          );
+          if (!character?.costumes?.length) return undefined;
+
+          const existingAssignments = scene.characterCostumes || {};
+          const existingAssignment =
+            existingAssignments[normalizedName] ||
+            existingAssignments[character.name] ||
+            existingAssignments[characterName];
+          if (existingAssignment) {
+            const explicit =
+              character.costumes.find((item) => item.id === existingAssignment) ||
+              character.costumes.find(
+                (item) =>
+                  item.label?.trim().toLowerCase() === existingAssignment.trim().toLowerCase(),
+              ) ||
+              character.costumes.find(
+                (item) =>
+                  item.label?.trim() &&
+                  (existingAssignment.includes(item.label.trim()) ||
+                    item.label.trim().includes(existingAssignment.trim())),
+              );
+            if (explicit?.id) return explicit.id;
+          }
+
+          const sceneMatchedLabel =
+            matchCharacterCostume(character, scene) ||
+            matchCharacterCostumeForSegment(character, segmentScenes);
+          const sceneMatchedCostume = character.costumes.find(
+            (item) => item.label?.trim() === sceneMatchedLabel,
+          );
+          return sceneMatchedCostume?.id;
+        };
+
         for (const scene of segmentScenes) {
+          const nextCharacterCostumes: Record<string, string> = {};
+          for (const rawName of scene.characters || []) {
+            const normalizedName = normalizeCharacterName(String(rawName || "").trim());
+            if (!normalizedName) continue;
+            const costumeId = resolveSceneCostumeId(scene, normalizedName);
+            if (costumeId) {
+              nextCharacterCostumes[normalizedName] = costumeId;
+            }
+          }
+
           syncedScenes.push({
             ...scene,
             characterCostumes:
-              Object.keys(segmentCharacterCostumes).length > 0
-                ? { ...segmentCharacterCostumes }
+              Object.keys(nextCharacterCostumes).length > 0
+                ? nextCharacterCostumes
                 : undefined,
-            sceneTimeVariantId: segmentTimeVariantId,
+            sceneTimeVariantId: scene.sceneTimeVariantId || segmentTimeVariantId,
           });
         }
       }

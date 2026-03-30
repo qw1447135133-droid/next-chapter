@@ -72,6 +72,61 @@ function getCharacterCostumeAssignment(
   return undefined;
 }
 
+function resolveCostumeLabelFromAssignment(
+  character: CharacterSetting,
+  assignment: string | undefined,
+): string | null {
+  if (!assignment || !character.costumes?.length) return null;
+
+  const normalizedAssignment = assignment.trim().toLowerCase();
+  const byId = character.costumes.find((item) => item.id === assignment);
+  if (byId?.label?.trim()) return byId.label.trim();
+
+  const byLabel = character.costumes.find(
+    (item) => item.label?.trim().toLowerCase() === normalizedAssignment,
+  );
+  if (byLabel?.label?.trim()) return byLabel.label.trim();
+
+  const byPartial = character.costumes.find(
+    (item) =>
+      item.label?.trim() &&
+      (normalizedAssignment.includes(item.label.trim().toLowerCase()) ||
+        item.label.trim().toLowerCase().includes(normalizedAssignment)),
+  );
+  return byPartial?.label?.trim() || null;
+}
+
+function collectExplicitSegmentCostumeLabels(
+  character: CharacterSetting,
+  segmentScenes: Scene[],
+): string[] {
+  return segmentScenes
+    .map((scene) =>
+      resolveCostumeLabelFromAssignment(
+        character,
+        getCharacterCostumeAssignment(scene.characterCostumes, character.name),
+      ),
+    )
+    .filter((value): value is string => !!value);
+}
+
+function pickDominantLabel(labels: string[]): string | null {
+  if (!labels.length) return null;
+  const counts = new Map<string, number>();
+  const firstSeen = new Map<string, number>();
+  labels.forEach((label, index) => {
+    counts.set(label, (counts.get(label) || 0) + 1);
+    if (!firstSeen.has(label)) firstSeen.set(label, index);
+  });
+
+  return [...counts.entries()]
+    .sort((a, b) => {
+      const countDiff = b[1] - a[1];
+      if (countDiff !== 0) return countDiff;
+      return (firstSeen.get(a[0]) || 0) - (firstSeen.get(b[0]) || 0);
+    })[0]?.[0] || null;
+}
+
 function splitLabelParts(label: string): string[] {
   return label
     .split(/[/,，、\s]+/u)
@@ -196,6 +251,11 @@ export function matchCharacterCostumeForSegment(
   character: CharacterSetting,
   segmentScenes: Scene[],
 ): string | null {
+  const explicitLabel = pickDominantLabel(
+    collectExplicitSegmentCostumeLabels(character, segmentScenes),
+  );
+  if (explicitLabel) return explicitLabel;
+
   const explicitCostumeId = segmentScenes
     .map((scene) =>
       getCharacterCostumeAssignment(scene.characterCostumes, character.name),
@@ -364,7 +424,8 @@ export function getSceneDisplayName(
   scene: Scene,
   sceneSettings: SceneSetting[],
 ): string {
-  const baseSceneName = normalizeSceneName(scene.sceneName || "");
+  const matchedScene = findSceneSetting(scene, sceneSettings);
+  const baseSceneName = normalizeSceneName(matchedScene?.name || scene.sceneName || "");
   if (!baseSceneName) return "";
 
   const variant = matchSceneTimeVariant(scene, sceneSettings);
@@ -379,10 +440,15 @@ export function getSegmentSceneDisplayName(
   segmentScenes: Scene[],
   sceneSettings: SceneSetting[],
 ): string {
-  const baseSceneName =
-    segmentScenes
-      .map((scene) => normalizeSceneName(scene.sceneName || ""))
-      .find(Boolean) || "";
+  const firstScene = segmentScenes[0];
+  const matchedScene = firstScene ? findSceneSetting(firstScene, sceneSettings) : null;
+  const baseSceneName = normalizeSceneName(
+    matchedScene?.name ||
+      segmentScenes
+        .map((scene) => normalizeSceneName(scene.sceneName || ""))
+        .find(Boolean) ||
+      "",
+  );
   if (!baseSceneName) return "";
 
   const variant = matchSceneTimeVariantForSegment(segmentScenes, sceneSettings);
