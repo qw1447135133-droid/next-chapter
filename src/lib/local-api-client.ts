@@ -2,7 +2,7 @@
  * 本地 AI API 客户端（Gemini / 即梦视频网关）
  */
 
-import { getApiConfig } from "@/pages/Settings";
+import { getApiConfig } from "@/lib/api-config";
 import { smartDirectOrProxyFetch } from "@/lib/gemini-client";
 
 const DEFAULT_TIMEOUT = 300_000;

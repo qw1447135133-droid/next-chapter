@@ -43,6 +43,8 @@ var browserViewAPI = {
   execute: (params) => import_electron.ipcRenderer.invoke("browserView:execute", params),
   capture: () => import_electron.ipcRenderer.invoke("browserView:capture"),
   setFileInputFiles: (params) => import_electron.ipcRenderer.invoke("browserView:setFileInputFiles", params),
+  sendInputEvents: (events) => import_electron.ipcRenderer.invoke("browserView:sendInputEvents", { events }),
+  download: (params) => import_electron.ipcRenderer.invoke("browserView:download", params),
   close: () => import_electron.ipcRenderer.invoke("browserView:close"),
   setIgnoreMouseEvents: (ignore) => import_electron.ipcRenderer.invoke("browserView:setIgnoreMouseEvents", ignore),
   onStateChange: (callback) => {
@@ -53,12 +55,24 @@ var browserViewAPI = {
     };
   }
 };
+var reversePlaywrightAPI = {
+  runSegments: (params) => import_electron.ipcRenderer.invoke("reversePlaywright:runSegments", params),
+  prepareSegment: (params) => import_electron.ipcRenderer.invoke("reversePlaywright:prepareSegment", params),
+  capture: () => import_electron.ipcRenderer.invoke("reversePlaywright:capture"),
+  close: () => import_electron.ipcRenderer.invoke("reversePlaywright:close")
+};
 import_electron.contextBridge.exposeInMainWorld("electronAPI", {
   jimeng: jimengAPI,
   storage: {
     getDefaultPath: () => import_electron.ipcRenderer.invoke("storage:getDefaultPath"),
     selectFolder: () => import_electron.ipcRenderer.invoke("storage:selectFolder"),
-    openFolder: (folderPath) => import_electron.ipcRenderer.invoke("storage:openFolder", folderPath)
+    openFolder: (folderPath) => import_electron.ipcRenderer.invoke("storage:openFolder", folderPath),
+    writeText: (filePath, content) => import_electron.ipcRenderer.invoke("storage:writeText", { filePath, content }),
+    readText: (filePath) => import_electron.ipcRenderer.invoke("storage:readText", { filePath }),
+    readBase64: (filePath) => import_electron.ipcRenderer.invoke("storage:readBase64", { filePath })
   },
-  browserView: browserViewAPI
+  browserView: browserViewAPI,
+  reversePlaywright: reversePlaywrightAPI,
+  // 🛡️ 崩溃日志 API
+  invoke: (channel, ...args) => import_electron.ipcRenderer.invoke(channel, ...args)
 });

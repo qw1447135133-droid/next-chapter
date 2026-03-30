@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { CharacterSetting, SceneSetting, ArtStyle, ART_STYLE_LABELS, ImageHistoryEntry, CostumeSetting, TimeVariantSetting, Scene } from "@/types/project";
 import { generateId } from "@/lib/generate-id";
+import { safeGetLocalStorage } from "@/lib/safe-storage";
+import { validateCharacters, validateSceneSettings, validateScenes } from "@/lib/validate-data";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -8,7 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import {
-  Plus, Trash2, Upload, Sparkles, ArrowRight, User, MapPin, Loader2, ImageIcon, ChevronDown, Shirt, Square, Clock, LayoutGrid, Image,
+  Plus, Trash2, Upload, Sparkles, ArrowRight, User, MapPin, Loader2, ImageIcon, ChevronDown, Shirt, Square, Clock, LayoutGrid, Image, Music, X,
 } from "lucide-react";
 import ImageThumbnail, { prewarmThumbnail } from "./ImageThumbnail";
 
@@ -86,7 +88,63 @@ const CharacterSettings = ({
   setIsAbortingAutoDetect,
   autoDetectAbortRef,
 }: CharacterSettingsProps) => {
+  // 🛡️ 紧急防御：在组件渲染前清理所有可能损坏的 localStorage
+  try {
+    const dangerousKeys = [
+      'generating-tasks',
+      'generating-storyboard-tasks',
+      'phase1-results',
+      'decompose-meta',
+      'charImg-generating',
+      'sceneImg-generating',
+      'charDesc-generating',
+      'sceneDesc-generating'
+    ];
+
+    dangerousKeys.forEach(key => {
+      try {
+        const value = localStorage.getItem(key);
+        if (value) {
+          JSON.parse(value); // 测试是否能解析
+        }
+      } catch (e) {
+        console.error(`🔥 检测到损坏的 localStorage: ${key}，立即清理`, e);
+        localStorage.removeItem(key);
+      }
+    });
+  } catch (err) {
+    console.error('🔥 localStorage 清理失败:', err);
+  }
+
+  // 验证并清理输入数据,防止损坏的数据导致崩溃
+  const validatedScenes = validateScenes(scenes);
+  const validatedCharacters = validateCharacters(characters);
+  const validatedSceneSettings = validateSceneSettings(sceneSettings);
+
+  // 如果数据被清理过,通知父组件更新
+  useEffect(() => {
+    if (validatedScenes.length !== scenes.length) {
+      console.warn(`Cleaned ${scenes.length - validatedScenes.length} invalid scenes`);
+      onScenesChange(validatedScenes);
+    }
+  }, [scenes.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (validatedCharacters.length !== characters.length) {
+      console.warn(`Cleaned ${characters.length - validatedCharacters.length} invalid characters`);
+      onCharactersChange(validatedCharacters);
+    }
+  }, [characters.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (validatedSceneSettings.length !== sceneSettings.length) {
+      console.warn(`Cleaned ${sceneSettings.length - validatedSceneSettings.length} invalid scene settings`);
+      onSceneSettingsChange(validatedSceneSettings);
+    }
+  }, [sceneSettings.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const audioInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const sceneFileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   // Custom art style: upload image -> extract style prompt
@@ -136,7 +194,7 @@ const CharacterSettings = ({
 
   // Image model selector state (persisted to localStorage)
   const [charImageModel, setCharImageModelState] = useState<CharImageModel>(() => {
-    try { return (localStorage.getItem("char-image-model") as CharImageModel) || "gemini-3-pro-image-preview"; } catch { return "gemini-3-pro-image-preview"; }
+    return safeGetLocalStorage<CharImageModel>("char-image-model", "gemini-3-pro-image-preview");
   });
   const setCharImageModel = (v: CharImageModel) => {
     setCharImageModelState(v);
@@ -148,7 +206,7 @@ const CharacterSettings = ({
   // Character view mode: "tri-view" (16:9 three-view sheet) or "single" (9:16 front portrait)
   type CharViewMode = "tri-view" | "single";
   const [charViewMode, setCharViewModeState] = useState<CharViewMode>(() => {
-    try { return (localStorage.getItem("char-view-mode") as CharViewMode) || "tri-view"; } catch { return "tri-view"; }
+    return safeGetLocalStorage<CharViewMode>("char-view-mode", "tri-view");
   });
   const setCharViewMode = (v: CharViewMode) => {
     setCharViewModeState(v);
@@ -205,6 +263,7 @@ const CharacterSettings = ({
   };
 
   const handleUploadImage = (id: string) => fileInputRefs.current[id]?.click();
+  const handleUploadAudio = (id: string) => audioInputRefs.current[id]?.click();
   const handleFileChange = async (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -220,6 +279,27 @@ const CharacterSettings = ({
       updateCharacter(id, { imageUrl: dataUrl, isAIGenerated: false });
     } catch (err: any) {
       toast({ title: "图片上传失败", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const handleAudioFileChange = async (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error("音频读取失败"));
+        reader.readAsDataURL(file);
+      });
+      updateCharacter(id, {
+        audioUrl: dataUrl,
+        audioFileName: file.name,
+      });
+    } catch (err: any) {
+      toast({ title: "音频上传失败", description: err.message, variant: "destructive" });
+    } finally {
+      if (e.target) e.target.value = "";
     }
   };
 
@@ -398,7 +478,27 @@ const CharacterSettings = ({
           if (error) throw error;
           if (data?.error) throw new Error(data.error);
           const rawUrl = data.imageUrl; // may be base64 or URL
-          prewarmThumbnail(rawUrl);
+
+          // 🛡️ 临时禁用 prewarmThumbnail 测试是否是它导致崩溃
+          try {
+            prewarmThumbnail(rawUrl);
+          } catch (err) {
+            console.error('🔥 prewarmThumbnail 调用失败:', err);
+            // 保存到崩溃日志
+            try {
+              const crashLog = {
+                type: 'prewarmThumbnail-call',
+                timestamp: new Date().toISOString(),
+                message: err instanceof Error ? err.message : String(err),
+                stack: err instanceof Error ? err.stack : undefined
+              };
+              const logs = JSON.parse(localStorage.getItem('crash-logs') || '[]');
+              logs.unshift(crashLog);
+              if (logs.length > 50) logs.length = 50;
+              localStorage.setItem('crash-logs', JSON.stringify(logs, null, 2));
+            } catch {}
+          }
+
           if (isFirstCostume) {
             anchorImageUrl = rawUrl;
           }
@@ -411,7 +511,27 @@ const CharacterSettings = ({
             }
             return { ...cc, imageUrl: rawUrl, isAIGenerated: true, imageHistory: history };
           });
-          updateCharacterAsync(id, { costumes: [...localCostumes] });
+
+          // 🛡️ 包裹状态更新防止崩溃
+          try {
+            updateCharacterAsync(id, { costumes: [...localCostumes] });
+          } catch (err) {
+            console.error('🔥 updateCharacterAsync 失败:', err);
+            // 保存到崩溃日志
+            try {
+              const crashLog = {
+                type: 'updateCharacterAsync',
+                timestamp: new Date().toISOString(),
+                message: err instanceof Error ? err.message : String(err),
+                stack: err instanceof Error ? err.stack : undefined
+              };
+              const logs = JSON.parse(localStorage.getItem('crash-logs') || '[]');
+              logs.unshift(crashLog);
+              if (logs.length > 50) logs.length = 50;
+              localStorage.setItem('crash-logs', JSON.stringify(logs, null, 2));
+            } catch {}
+          }
+
           successCount++;
           succeeded = true;
           toast({ title: "生成成功", description: `${character.name}「${freshCos?.label || cos.label}」服装设定图已生成（${successCount}/${costumes.length}）` });
@@ -773,10 +893,14 @@ const CharacterSettings = ({
   };
 
   const readTasks = useCallback((): TaskEntry[] => {
-    try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); } catch { return []; }
+    return safeGetLocalStorage<TaskEntry[]>(LS_KEY, []);
   }, []);
   const writeTasks = useCallback((tasks: TaskEntry[]) => {
-    localStorage.setItem(LS_KEY, JSON.stringify(tasks));
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify(tasks));
+    } catch (error) {
+      console.error("Failed to write tasks to localStorage:", error);
+    }
   }, []);
   const addTask = useCallback((id: string, type: TaskEntry["type"]) => {
     const tasks = readTasks().filter((t) => !(t.id === id && t.type === type));
@@ -790,11 +914,14 @@ const CharacterSettings = ({
   // Restore generating state from localStorage on mount
   const initSet = (type: TaskEntry["type"]): Set<string> => {
     try {
-      const tasks: TaskEntry[] = JSON.parse(localStorage.getItem("generating-tasks") || "[]");
+      const tasks = safeGetLocalStorage<TaskEntry[]>("generating-tasks", []);
       const now = Date.now();
       const timeout = type === "charImg" ? CHAR_IMAGE_TIMEOUT_MS : type === "sceneImg" ? SCENE_IMAGE_TIMEOUT_MS : 60_000;
       return new Set(tasks.filter((t) => t.type === type && now - t.startedAt < timeout).map((t) => t.id));
-    } catch { return new Set(); }
+    } catch (error) {
+      console.error(`Failed to initialize ${type} generating set:`, error);
+      return new Set();
+    }
   };
 
   const [generatingDescIds, setGeneratingDescIds] = useState<Set<string>>(() => initSet("sceneDesc"));
@@ -958,6 +1085,14 @@ const CharacterSettings = ({
       return;
     }
     const hasTimeVariants = scene.timeVariants && scene.timeVariants.length > 0;
+    const sceneSegmentLabels = [
+      ...new Set(
+        scenes
+          .filter((item) => (item.sceneName || "").trim() === scene.name.trim())
+          .map((item) => item.segmentLabel)
+          .filter(Boolean),
+      ),
+    ] as string[];
     addTask(id, "sceneDesc");
     setGeneratingDescIds(prev => new Set(prev).add(id));
     setStreamingDescTexts(prev => ({ ...prev, [id]: "" }));
@@ -1056,8 +1191,45 @@ const CharacterSettings = ({
       };
     };
 
-    const REQUEST_INTERVAL = 2000; // 2s delay between requests to avoid rate limiting
+    const REQUEST_INTERVAL_SUCCESS = 800;
+    const REQUEST_INTERVAL_FAILURE = 2200;
     const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+    const getErrorMessage = (error: unknown) =>
+      error instanceof Error ? error.message : String(error);
+    const shouldRetryImageGeneration = (error: unknown) => {
+      const message = getErrorMessage(error);
+      return /AI 未返回角色图|AI 未返回场景图|超时|timeout|timed out|429|rate limit|resource_exhausted|overloaded|internal/i.test(
+        message,
+      );
+    };
+    const pauseAfterRequest = async (success: boolean) => {
+      if (!autoDetectAbortRef.current) {
+        await delay(success ? REQUEST_INTERVAL_SUCCESS : REQUEST_INTERVAL_FAILURE);
+      }
+    };
+    const retryImageGeneration = async <T,>(
+      label: string,
+      task: () => Promise<T>,
+      maxAttempts: number,
+    ): Promise<T> => {
+      let lastError: unknown;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          return await task();
+        } catch (error) {
+          lastError = error;
+          const canRetry =
+            attempt < maxAttempts && shouldRetryImageGeneration(error);
+          if (!canRetry) throw error;
+          console.warn(
+            `${label} attempt ${attempt} failed, retrying:`,
+            getErrorMessage(error),
+          );
+          await delay(REQUEST_INTERVAL_FAILURE);
+        }
+      }
+      throw lastError instanceof Error ? lastError : new Error(String(lastError));
+    };
 
     const textSem = createSemaphore(3);
     const imageSem = createSemaphore(2);
@@ -1142,7 +1314,7 @@ const CharacterSettings = ({
           setGeneratingCharDescIds(prev => { const next = new Set(prev); next.delete(c.id); return next; });
           setStreamingDescTexts(prev => { const next = { ...prev }; delete next[c.id]; return next; });
           textSem.release();
-          if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
+          await pauseAfterRequest(descOk);
         }
         bumpDone();
         if (!descOk) { failCountRef.current++; return; }
@@ -1162,9 +1334,20 @@ const CharacterSettings = ({
         setGeneratingCharImgIds((prev) => new Set(prev).add(c.id));
         try {
           const latest = charactersRef.current.find((ch) => ch.id === c.id);
-          const { data, error } = await withTimeout(
-            invokeFunction("generate-character", { name: c.name, description: latest?.description || desc, style: effectiveStyle, model: charImageModel, viewMode: charViewMode }),
-            CHAR_IMAGE_TIMEOUT_MS,
+          const { data, error } = await retryImageGeneration(
+            `Char img "${c.name}"`,
+            () =>
+              withTimeout(
+                invokeFunction("generate-character", {
+                  name: c.name,
+                  description: latest?.description || desc,
+                  style: effectiveStyle,
+                  model: charImageModel,
+                  viewMode: charViewMode,
+                }),
+                CHAR_IMAGE_TIMEOUT_MS,
+              ),
+            3,
           );
           if (error) throw error;
           if (data?.error) throw new Error(data.error);
@@ -1187,7 +1370,7 @@ const CharacterSettings = ({
           removeTask(c.id, "charImg");
           setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(c.id); return next; });
           imageSem.release();
-          if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
+          await pauseAfterRequest(imgOk);
         }
         bumpDone();
         if (imgOk) successCountRef.current++; else failCountRef.current++;
@@ -1218,16 +1401,21 @@ const CharacterSettings = ({
         try {
           const freshCos = localCostumes.find(cc => cc.id === cos.id);
           const combinedDesc = `${c.name}，${freshCos?.label || cos.label}：${freshCos?.description || cos.description || latestChar?.description || desc}`;
-          const { data, error } = await withTimeout(
-            invokeFunction("generate-character", {
-              name: `${c.name} - ${freshCos?.label || cos.label}`,
-              description: combinedDesc,
-              style: effectiveStyle,
-              model: charImageModel,
-              referenceImageUrl: isFirstCostume ? undefined : costumeAnchorUrl,
-              viewMode: charViewMode,
-            }),
-            CHAR_IMAGE_TIMEOUT_MS,
+          const { data, error } = await retryImageGeneration(
+            `Costume img "${c.name} - ${cos.label}"`,
+            () =>
+              withTimeout(
+                invokeFunction("generate-character", {
+                  name: `${c.name} - ${freshCos?.label || cos.label}`,
+                  description: combinedDesc,
+                  style: effectiveStyle,
+                  model: charImageModel,
+                  referenceImageUrl: isFirstCostume ? undefined : costumeAnchorUrl,
+                  viewMode: charViewMode,
+                }),
+                CHAR_IMAGE_TIMEOUT_MS,
+              ),
+            isFirstCostume ? 4 : 2,
           );
           if (error) throw error;
           if (data?.error) throw new Error(data.error);
@@ -1266,7 +1454,7 @@ const CharacterSettings = ({
           removeTask(cosTaskKey, "charImg");
           setGeneratingCharImgIds((prev) => { const next = new Set(prev); next.delete(cosTaskKey); return next; });
           imageSem.release();
-          if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
+          await pauseAfterRequest(cosImgOk);
         }
         bumpDone();
         if (cosImgOk) successCountRef.current++; else failCountRef.current++;
@@ -1335,7 +1523,7 @@ const CharacterSettings = ({
           setGeneratingDescIds(prev => { const next = new Set(prev); next.delete(s.id); return next; });
           setStreamingDescTexts(prev => { const next = { ...prev }; delete next[s.id]; return next; });
           textSem.release();
-          if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
+          await pauseAfterRequest(descOk);
         }
         bumpDone();
         if (!descOk) { failCountRef.current++; return; }
@@ -1355,9 +1543,19 @@ const CharacterSettings = ({
         setGeneratingSceneImgIds((prev) => new Set(prev).add(s.id));
         try {
           const latest = sceneSettingsRef.current.find((sc) => sc.id === s.id);
-          const { data, error } = await withTimeout(
-            invokeFunction("generate-scene", { name: s.name, description: latest?.description || desc, style: effectiveStyle, model: charImageModel }),
-            SCENE_IMAGE_TIMEOUT_MS,
+          const { data, error } = await retryImageGeneration(
+            `Scene img "${s.name}"`,
+            () =>
+              withTimeout(
+                invokeFunction("generate-scene", {
+                  name: s.name,
+                  description: latest?.description || desc,
+                  style: effectiveStyle,
+                  model: charImageModel,
+                }),
+                SCENE_IMAGE_TIMEOUT_MS,
+              ),
+            3,
           );
           if (error) throw error;
           if (data?.error) throw new Error(data.error);
@@ -1375,7 +1573,7 @@ const CharacterSettings = ({
           removeTask(s.id, "sceneImg");
           setGeneratingSceneImgIds((prev) => { const next = new Set(prev); next.delete(s.id); return next; });
           imageSem.release();
-          if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
+          await pauseAfterRequest(imgOk);
         }
         bumpDone();
         if (imgOk) successCountRef.current++; else failCountRef.current++;
@@ -1404,15 +1602,20 @@ const CharacterSettings = ({
         try {
           const freshTv = localVariants.find(v => v.id === tv.id);
           const combinedDesc = `${s.name}，${freshTv?.label || tv.label}：${freshTv?.description || tv.description || latestScene?.description || desc}`;
-          const { data, error } = await withTimeout(
-            invokeFunction("generate-scene", {
-              name: `${s.name} - ${freshTv?.label || tv.label}`,
-              description: combinedDesc,
-              style: effectiveStyle,
-              model: charImageModel,
-              referenceImageUrl: isFirstVariant ? undefined : tvAnchorUrl,
-            }),
-            SCENE_IMAGE_TIMEOUT_MS,
+          const { data, error } = await retryImageGeneration(
+            `Scene time variant img "${s.name} - ${tv.label}"`,
+            () =>
+              withTimeout(
+                invokeFunction("generate-scene", {
+                  name: `${s.name} - ${freshTv?.label || tv.label}`,
+                  description: combinedDesc,
+                  style: effectiveStyle,
+                  model: charImageModel,
+                  referenceImageUrl: isFirstVariant ? undefined : tvAnchorUrl,
+                }),
+                SCENE_IMAGE_TIMEOUT_MS,
+              ),
+            isFirstVariant ? 4 : 2,
           );
           if (error) throw error;
           if (data?.error) throw new Error(data.error);
@@ -1447,7 +1650,7 @@ const CharacterSettings = ({
           removeTask(tvTaskKey, "sceneImg");
           setGeneratingSceneImgIds((prev) => { const next = new Set(prev); next.delete(tvTaskKey); return next; });
           imageSem.release();
-          if (!autoDetectAbortRef.current) await delay(REQUEST_INTERVAL);
+          await pauseAfterRequest(tvImgOk);
         }
         bumpDone();
         if (tvImgOk) successCountRef.current++; else failCountRef.current++;
@@ -1965,8 +2168,12 @@ const CharacterSettings = ({
                   )}
                   <div className="flex gap-2">
                     <input type="file" accept="image/*" className="hidden" ref={(el) => { fileInputRefs.current[c.id] = el; }} onChange={(e) => handleFileChange(c.id, e)} />
+                    <input type="file" accept="audio/*" className="hidden" ref={(el) => { audioInputRefs.current[c.id] = el; }} onChange={(e) => handleAudioFileChange(c.id, e)} />
                     <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => handleUploadImage(c.id)}>
                       <Upload className="h-3 w-3" /> 上传人设图
+                    </Button>
+                    <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => handleUploadAudio(c.id)}>
+                      <Music className="h-3 w-3" /> 上传音频
                     </Button>
                     {hasCostumes && generatingCharImgIds.has(c.id) ? (
                       <Button
@@ -1985,6 +2192,24 @@ const CharacterSettings = ({
                       </Button>
                     )}
                   </div>
+                  {c.audioUrl && (
+                    <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-xs">
+                      <Music className="h-3.5 w-3.5 text-primary" />
+                      <span className="truncate text-muted-foreground">{c.audioFileName || "已上传音频"}</span>
+                      <audio controls className="h-8 max-w-[220px]">
+                        <source src={c.audioUrl} />
+                      </audio>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="ml-auto h-6 w-6 text-muted-foreground hover:text-destructive"
+                        onClick={() => updateCharacter(c.id, { audioUrl: undefined, audioFileName: undefined })}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0" onClick={() => onCharactersChange(characters.filter((ch) => ch.id !== c.id))}>
                   <Trash2 className="h-3.5 w-3.5" />

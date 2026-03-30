@@ -2,12 +2,37 @@ import { useState, useEffect } from "react";
 import { Download, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { readCachedThumbnailDataUrl } from "@/lib/upload-base64-to-storage";
 
 // --- IndexedDB-backed thumbnail cache ---
 const DB_NAME = "thumb-cache";
 const STORE_NAME = "thumbnails";
 const DB_VERSION = 2;
 const MAX_CACHE_ENTRIES = 200;
+const ELECTRON_LARGE_DATA_URL_LIMIT = 1024 * 1024;
+
+// 🛡️ 防止内存溢出：限制同时处理的图片数量
+const MAX_CONCURRENT_COMPRESSIONS = 3;
+let activeCompressions = 0;
+const compressionQueue: Array<() => void> = [];
+
+function queueCompression(fn: () => void) {
+  if (activeCompressions < MAX_CONCURRENT_COMPRESSIONS) {
+    activeCompressions++;
+    fn();
+  } else {
+    compressionQueue.push(fn);
+  }
+}
+
+function finishCompression() {
+  activeCompressions--;
+  const next = compressionQueue.shift();
+  if (next) {
+    activeCompressions++;
+    next();
+  }
+}
 
 interface CacheEntry {
   url: string;
@@ -18,6 +43,10 @@ interface CacheEntry {
 const memCache = new Map<string, string>();
 
 let dbPromise: Promise<IDBDatabase> | null = null;
+
+function getDataUrlByteSize(src: string): number {
+  return Math.ceil((src.length - src.indexOf(",") - 1) * 0.75);
+}
 
 function openDB(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
@@ -100,54 +129,178 @@ export function prewarmThumbnail(src: string, maxDim = 800, maxBytes = 500 * 102
   if (!src) return;
   // Already cached
   if (memCache.has(src)) return;
+  const isElectronRenderer = typeof window !== "undefined" && !!(window as any).electronAPI?.storage;
+  const isLargeElectronDataUrl =
+    isElectronRenderer &&
+    src.startsWith("data:image") &&
+    getDataUrlByteSize(src) > ELECTRON_LARGE_DATA_URL_LIMIT;
+  if (isLargeElectronDataUrl) {
+    return;
+  }
 
-  // Check IDB, then compress if miss
-  idbGet(src).then((cached) => {
-    if (cached) {
-      memCache.set(src, cached);
-      return;
+  // 🛡️ For local file paths, use Electron API then compress the result
+  const isLocalFilePath = !src.startsWith("data:") && !src.startsWith("http://") && !src.startsWith("https://") && !src.startsWith("blob:");
+  if (isLocalFilePath) {
+    const electronStorage = (window as any).electronAPI?.storage;
+    if (electronStorage?.readBase64) {
+      queueCompression(() => {
+        electronStorage.readBase64(src).then((result: any) => {
+          if (!result?.ok || !result?.base64 || !result?.mimeType) {
+            finishCompression();
+            return;
+          }
+          const dataUrl = `data:${result.mimeType};base64,${result.base64}`;
+          const byteSize = getDataUrlByteSize(dataUrl);
+          if (byteSize <= maxBytes) {
+            memCache.set(src, dataUrl);
+            idbSet(src, dataUrl);
+            finishCompression();
+            return;
+          }
+          // Too large — compress via canvas
+          const img = new Image();
+          img.onload = () => {
+            try {
+              const canvas = document.createElement("canvas");
+              let w = img.width, h = img.height;
+              if (w > maxDim || h > maxDim) {
+                const ratio = Math.min(maxDim / w, maxDim / h);
+                w = Math.round(w * ratio); h = Math.round(h * ratio);
+              }
+              canvas.width = w; canvas.height = h;
+              const ctx = canvas.getContext("2d");
+              if (!ctx) { finishCompression(); return; }
+              ctx.drawImage(img, 0, 0, w, h);
+              for (const q of [0.7, 0.5, 0.35, 0.2, 0.1]) {
+                const res = canvas.toDataURL("image/jpeg", q);
+                if (getDataUrlByteSize(res) <= maxBytes) {
+                  memCache.set(src, res); idbSet(src, res);
+                  finishCompression(); return;
+                }
+              }
+              const small = document.createElement("canvas");
+              small.width = Math.round(w * 0.5); small.height = Math.round(h * 0.5);
+              const sCtx = small.getContext("2d");
+              if (sCtx) { sCtx.drawImage(canvas, 0, 0, small.width, small.height); }
+              const res = (sCtx ? small : canvas).toDataURL("image/jpeg", 0.2);
+              memCache.set(src, res); idbSet(src, res);
+              finishCompression();
+            } catch { finishCompression(); }
+          };
+          img.onerror = () => finishCompression();
+          img.src = dataUrl;
+        }).catch(() => finishCompression());
+      });
     }
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      let w = img.width;
-      let h = img.height;
-      if (w > maxDim || h > maxDim) {
-        const ratio = Math.min(maxDim / w, maxDim / h);
-        w = Math.round(w * ratio);
-        h = Math.round(h * ratio);
-      }
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.drawImage(img, 0, 0, w, h);
-      const qualities = [0.7, 0.5, 0.35, 0.2, 0.1];
-      for (const q of qualities) {
-        const result = canvas.toDataURL("image/jpeg", q);
-        const size = Math.ceil((result.length - result.indexOf(",") - 1) * 0.75);
-        if (size <= maxBytes) {
-          memCache.set(src, result);
-          idbSet(src, result);
+    return;
+  }
+
+  // 🛡️ 包裹在 try-catch 中防止崩溃
+  try {
+    // 🛡️ 使用队列防止同时压缩太多图片
+    queueCompression(() => {
+      // Check IDB, then compress if miss
+      idbGet(src).then((cached) => {
+        if (cached) {
+          memCache.set(src, cached);
+          finishCompression();
           return;
         }
-      }
-      const small = document.createElement("canvas");
-      small.width = Math.round(w * 0.5);
-      small.height = Math.round(h * 0.5);
-      const sCtx = small.getContext("2d");
-      if (!sCtx) return;
-      sCtx.drawImage(canvas, 0, 0, small.width, small.height);
-      const result = small.toDataURL("image/jpeg", 0.2);
-      memCache.set(src, result);
-      idbSet(src, result);
-    };
-    img.onerror = () => {
-      memCache.set(src, src);
-    };
-    img.src = src;
-  });
+        const img = new Image();
+
+        // 🛡️ 只对 HTTP/HTTPS URL 设置 crossOrigin，本地文件路径不设置
+        if (src.startsWith('http://') || src.startsWith('https://')) {
+          img.crossOrigin = "anonymous";
+        }
+
+        img.onload = () => {
+          try {
+            const canvas = document.createElement("canvas");
+            let w = img.width;
+            let h = img.height;
+            if (w > maxDim || h > maxDim) {
+              const ratio = Math.min(maxDim / w, maxDim / h);
+              w = Math.round(w * ratio);
+              h = Math.round(h * ratio);
+            }
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) {
+              finishCompression();
+              return;
+            }
+            ctx.drawImage(img, 0, 0, w, h);
+            const qualities = [0.7, 0.5, 0.35, 0.2, 0.1];
+            for (const q of qualities) {
+              const result = canvas.toDataURL("image/jpeg", q);
+              const size = Math.ceil((result.length - result.indexOf(",") - 1) * 0.75);
+              if (size <= maxBytes) {
+                memCache.set(src, result);
+                idbSet(src, result);
+                finishCompression();
+                return;
+              }
+            }
+            const small = document.createElement("canvas");
+            small.width = Math.round(w * 0.5);
+            small.height = Math.round(h * 0.5);
+            const sCtx = small.getContext("2d");
+            if (!sCtx) {
+              finishCompression();
+              return;
+            }
+            sCtx.drawImage(canvas, 0, 0, small.width, small.height);
+            const result = small.toDataURL("image/jpeg", 0.2);
+            memCache.set(src, result);
+            idbSet(src, result);
+            finishCompression();
+          } catch (err) {
+            console.error('🔥 prewarmThumbnail 压缩失败:', err);
+            // 保存错误到崩溃日志
+            try {
+              const crashLog = {
+                type: 'prewarmThumbnail',
+                timestamp: new Date().toISOString(),
+                message: err instanceof Error ? err.message : String(err),
+                stack: err instanceof Error ? err.stack : undefined,
+                src: src.substring(0, 100) // 只保存前100个字符
+              };
+              const logs = JSON.parse(localStorage.getItem('crash-logs') || '[]');
+              logs.unshift(crashLog);
+              if (logs.length > 50) logs.length = 50;
+              localStorage.setItem('crash-logs', JSON.stringify(logs, null, 2));
+            } catch {}
+            finishCompression();
+          }
+        };
+        img.onerror = (err) => {
+          console.error('🔥 prewarmThumbnail 图片加载失败:', err);
+          memCache.set(src, src);
+          finishCompression();
+        };
+        img.src = src;
+      }).catch((err) => {
+        console.error('🔥 prewarmThumbnail idbGet 失败:', err);
+        finishCompression();
+      });
+    });
+  } catch (err) {
+    console.error('🔥 prewarmThumbnail 外层错误:', err);
+    // 保存错误到崩溃日志
+    try {
+      const crashLog = {
+        type: 'prewarmThumbnail-outer',
+        timestamp: new Date().toISOString(),
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined
+      };
+      const logs = JSON.parse(localStorage.getItem('crash-logs') || '[]');
+      logs.unshift(crashLog);
+      if (logs.length > 50) logs.length = 50;
+      localStorage.setItem('crash-logs', JSON.stringify(logs, null, 2));
+    } catch {}
+  }
 }
 
 interface ImageThumbnailProps {
@@ -165,13 +318,21 @@ interface ImageThumbnailProps {
  * Shows a download button on hover to save the original full-size image.
  */
 const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDim = 800 }: ImageThumbnailProps) => {
+  const isElectronRenderer = typeof window !== "undefined" && !!(window as any).electronAPI?.storage;
   // Check mem cache synchronously for instant display; otherwise null (skeleton)
   const initialThumb = src ? memCache.get(src) ?? null : null;
   // For small base64 images, show immediately
   const isSmallBase64 = src?.startsWith("data:image") && 
-    Math.ceil((src.length - src.indexOf(",") - 1) * 0.75) <= maxBytes;
+    getDataUrlByteSize(src) <= maxBytes;
+  const shouldSkipLargeElectronDataUrl =
+    !!src &&
+    isElectronRenderer &&
+    src.startsWith("data:image") &&
+    getDataUrlByteSize(src) > ELECTRON_LARGE_DATA_URL_LIMIT;
   
-  const [thumbUrl, setThumbUrl] = useState<string | null>(initialThumb ?? (isSmallBase64 ? src : null));
+  const [thumbUrl, setThumbUrl] = useState<string | null>(
+    initialThumb ?? (isSmallBase64 && !shouldSkipLargeElectronDataUrl ? src : null),
+  );
   const [hovered, setHovered] = useState(false);
   const [enlarged, setEnlarged] = useState(false);
 
@@ -184,6 +345,34 @@ const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDi
     const mem = memCache.get(src);
     if (mem) {
       setThumbUrl(mem);
+      return;
+    }
+
+    if (shouldSkipLargeElectronDataUrl) {
+      setThumbUrl(null);
+
+      let attempts = 0;
+      const maxAttempts = 8;
+      const retryDelayMs = 350;
+
+      const loadCachedThumb = async () => {
+        const cachedThumb = await readCachedThumbnailDataUrl(src);
+        if (cancelled) return;
+        if (cachedThumb) {
+          memCache.set(src, cachedThumb);
+          setThumbUrl(cachedThumb);
+          return;
+        }
+
+        attempts += 1;
+        if (attempts < maxAttempts) {
+          window.setTimeout(() => {
+            if (!cancelled) void loadCachedThumb();
+          }, retryDelayMs);
+        }
+      };
+
+      void loadCachedThumb();
       return;
     }
 
@@ -203,58 +392,121 @@ const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDi
 
     // Helper: compress via canvas and update thumbUrl
     const compressWithCanvas = (img: HTMLImageElement) => {
-      const canvas = document.createElement("canvas");
-      let w = img.width;
-      let h = img.height;
+      try {
+        const canvas = document.createElement("canvas");
+        let w = img.width;
+        let h = img.height;
 
-      if (w > maxDim || h > maxDim) {
-        const ratio = Math.min(maxDim / w, maxDim / h);
-        w = Math.round(w * ratio);
-        h = Math.round(h * ratio);
-      }
+        if (w > maxDim || h > maxDim) {
+          const ratio = Math.min(maxDim / w, maxDim / h);
+          w = Math.round(w * ratio);
+          h = Math.round(h * ratio);
+        }
 
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.drawImage(img, 0, 0, w, h);
-
-      const qualities = [0.7, 0.5, 0.35, 0.2, 0.1];
-      for (const q of qualities) {
-        const result = canvas.toDataURL("image/jpeg", q);
-        const size = Math.ceil((result.length - result.indexOf(",") - 1) * 0.75);
-        if (size <= maxBytes) {
-          setAndCache(result);
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          finishCompression();
           return;
         }
-      }
+        ctx.drawImage(img, 0, 0, w, h);
 
-      const small = document.createElement("canvas");
-      small.width = Math.round(w * 0.5);
-      small.height = Math.round(h * 0.5);
-      const sCtx = small.getContext("2d");
-      if (!sCtx) return;
-      sCtx.drawImage(canvas, 0, 0, small.width, small.height);
-      setAndCache(small.toDataURL("image/jpeg", 0.2));
+        const qualities = [0.7, 0.5, 0.35, 0.2, 0.1];
+        for (const q of qualities) {
+          const result = canvas.toDataURL("image/jpeg", q);
+          const size = getDataUrlByteSize(result);
+          if (size <= maxBytes) {
+            setAndCache(result);
+            finishCompression();
+            return;
+          }
+        }
+
+        const small = document.createElement("canvas");
+        small.width = Math.round(w * 0.5);
+        small.height = Math.round(h * 0.5);
+        const sCtx = small.getContext("2d");
+        if (!sCtx) {
+          finishCompression();
+          return;
+        }
+        sCtx.drawImage(canvas, 0, 0, small.width, small.height);
+        setAndCache(small.toDataURL("image/jpeg", 0.2));
+        finishCompression();
+      } catch (err) {
+        console.error('Canvas 压缩失败:', err);
+        // 降级：直接使用原图
+        if (!cancelled) setThumbUrl(src);
+        finishCompression();
+      }
     };
 
     const doCompress = () => {
-      if (cancelled) return;
-      if (src.startsWith("data:image")) {
-        const img = new Image();
-        img.onload = () => compressWithCanvas(img);
-        img.src = src;
-      } else {
-        // For storage URLs — fetch via Image element for canvas compression
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.onload = () => compressWithCanvas(img);
-        img.onerror = () => {
-          // Fallback: show original if compression fails
-          if (!cancelled) setThumbUrl(src);
-        };
-        img.src = src;
+      if (cancelled) {
+        return;
       }
+
+      queueCompression(() => {
+        if (cancelled) {
+          finishCompression();
+          return;
+        }
+
+        if (src.startsWith("data:image")) {
+          const img = new Image();
+          img.onload = () => compressWithCanvas(img);
+          img.onerror = (err) => {
+            console.error('🔥 图片加载失败 (data:image):', err);
+            if (!cancelled) setThumbUrl(src);
+            finishCompression();
+          };
+          img.src = src;
+        } else if (src.startsWith('http://') || src.startsWith('https://')) {
+          // HTTP/HTTPS URL — fetch via Image element with CORS
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => compressWithCanvas(img);
+          img.onerror = (err) => {
+            console.error('🔥 图片加载失败:', src, err);
+            if (!cancelled) setThumbUrl(src);
+            finishCompression();
+          };
+          img.src = src;
+        } else {
+          // 🛡️ Local file path — read via Electron API to avoid canvas taint/CORS crash
+          // Then compress the resulting data URL via canvas (same pipeline as data: URLs)
+          const electronStorage = (window as any).electronAPI?.storage;
+          if (electronStorage?.readBase64) {
+            electronStorage.readBase64(src).then((result: any) => {
+              if (cancelled) { finishCompression(); return; }
+              if (result?.ok && result?.base64 && result?.mimeType) {
+                const dataUrl = `data:${result.mimeType};base64,${result.base64}`;
+                // Check if already small enough
+                const byteSize = getDataUrlByteSize(dataUrl);
+                if (byteSize <= maxBytes) {
+                  setAndCache(dataUrl);
+                  finishCompression();
+                  return;
+                }
+                // Too large — compress via canvas
+                const img = new Image();
+                img.onload = () => compressWithCanvas(img);
+                img.onerror = () => { setAndCache(dataUrl); finishCompression(); };
+                img.src = dataUrl;
+              } else {
+                // File not found or error — just skip, don't crash
+                finishCompression();
+              }
+            }).catch(() => {
+              finishCompression();
+            });
+          } else {
+            // No Electron API — skip, can't load local files safely
+            finishCompression();
+          }
+        }
+      });
     };
 
     // Check IndexedDB (async), then compress if miss
@@ -269,7 +521,7 @@ const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDi
     });
 
     return () => { cancelled = true; };
-  }, [src, maxBytes, maxDim]);
+  }, [src, maxBytes, maxDim, isSmallBase64, shouldSkipLargeElectronDataUrl]);
 
   const handleDownload = async () => {
     if (src.startsWith("data:")) {
@@ -303,13 +555,18 @@ const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDi
         className="relative cursor-pointer"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        onClick={() => setEnlarged(true)}
+        onClick={() => {
+          if (shouldSkipLargeElectronDataUrl) return;
+          setEnlarged(true);
+        }}
       >
         {thumbUrl ? (
           <img src={thumbUrl} alt={alt} className={className} />
         ) : (
           <div className={`${className} bg-muted animate-pulse flex items-center justify-center`}>
-            <span className="text-xs text-muted-foreground">加载中...</span>
+            <span className="text-xs text-muted-foreground">
+              {shouldSkipLargeElectronDataUrl ? "大图预览已省略" : "加载中..."}
+            </span>
           </div>
         )}
         {hovered && (
@@ -328,22 +585,30 @@ const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDi
         )}
       </div>
 
-      <Dialog open={enlarged} onOpenChange={setEnlarged}>
-        <DialogContent className="max-w-[95vw] max-h-[95vh] p-1 flex items-center justify-center bg-black/80 border border-border/30">
+      <Dialog open={enlarged && !shouldSkipLargeElectronDataUrl} onOpenChange={setEnlarged}>
+        <DialogContent
+          className="h-screen w-screen max-w-none border-0 bg-black/85 p-0 shadow-none"
+          onClick={() => setEnlarged(false)}
+        >
           <Button
             variant="ghost"
             size="icon"
             className="absolute top-2 right-2 z-50 text-white hover:bg-white/20 h-8 w-8"
-            onClick={() => setEnlarged(false)}
+            onClick={(event) => {
+              event.stopPropagation();
+              setEnlarged(false);
+            }}
           >
             <X className="h-5 w-5" />
           </Button>
-          <img
-            src={src}
-            alt={alt}
-            className="max-w-full max-h-[92vh] object-contain cursor-pointer"
-            onClick={() => setEnlarged(false)}
-          />
+          <div className="flex h-full w-full items-center justify-center p-4">
+            <img
+              src={src}
+              alt={alt}
+              className="max-h-[92vh] max-w-full object-contain"
+              onClick={(event) => event.stopPropagation()}
+            />
+          </div>
         </DialogContent>
       </Dialog>
     </>

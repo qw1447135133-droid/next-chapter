@@ -2,7 +2,7 @@
  * API Client - 使用本地配置的端点和密钥
  */
 
-import { getApiConfig } from "@/pages/Settings";
+import { getApiConfig } from "@/lib/api-config";
 import { smartDirectOrProxyFetch } from "@/lib/gemini-client";
 
 const DEFAULT_TIMEOUT = 300_000;

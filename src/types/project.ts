@@ -46,6 +46,8 @@ export interface CharacterSetting {
   name: string;
   description: string;
   imageUrl?: string;
+  audioUrl?: string;
+  audioFileName?: string;
   threeViewUrls?: {
     front?: string;
     side?: string;

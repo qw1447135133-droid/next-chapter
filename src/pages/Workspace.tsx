@@ -28,6 +28,7 @@ import SceneList from "@/components/workspace/SceneList";
 import CharacterSettings from "@/components/workspace/CharacterSettings";
 import StoryboardPreview from "@/components/workspace/StoryboardPreview";
 import VideoGeneration from "@/components/workspace/VideoGeneration";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import VideoPreview from "@/components/workspace/VideoPreview";
 import DecomposeProgress, {
   type ChunkStatus,
@@ -35,12 +36,20 @@ import DecomposeProgress, {
 import AnalyzeProgress, {
   type AnalyzePhase,
 } from "@/components/workspace/AnalyzeProgress";
+import { getApiConfig } from "@/lib/api-config";
 import { getNetworkRetrySettings } from "@/lib/network-retry-settings";
+import {
+  exportWorkspaceCache,
+  repairWorkspaceTextCachesFromIndex,
+} from "@/lib/workspace-cache-export";
+import { persistAssetToProjectCache, safeCacheName } from "@/lib/upload-base64-to-storage";
 import {
   findSceneSetting,
   matchCharacterCostumeForSegment,
   matchSceneTimeVariant,
   matchSceneTimeVariantForSegment,
+  normalizeCharacterName,
+  normalizeSceneName,
 } from "@/lib/workspace-labels";
 
 // Helper for concurrency control
@@ -158,11 +167,11 @@ const Workspace = () => {
             (scene.characters || []).map((name) => String(name || "").trim()),
           ),
         )) {
-          const characterName = String(rawName || "").trim();
+          const characterName = normalizeCharacterName(String(rawName || "").trim());
           if (!characterName) continue;
 
           const character = nextCharacters.find(
-            (item) => item.name === characterName,
+            (item) => normalizeCharacterName(item.name) === characterName,
           );
           if (!character?.costumes?.length) continue;
 
@@ -176,7 +185,7 @@ const Workspace = () => {
             (item) => item.label?.trim() === matchedCostumeLabel,
           );
           if (matchedCostume) {
-            segmentCharacterCostumes[characterName] = matchedCostume.id;
+            segmentCharacterCostumes[normalizeCharacterName(character.name)] = matchedCostume.id;
           }
         }
 
@@ -202,10 +211,14 @@ const Workspace = () => {
 
   const handleCharactersChange = useCallback(
     (nextCharacters: CharacterSetting[]) => {
-      charactersRef.current = nextCharacters;
-      setCharacters(nextCharacters);
+      const normalizedCharacters = nextCharacters.map((character) => ({
+        ...character,
+        name: normalizeCharacterName(character.name),
+      }));
+      charactersRef.current = normalizedCharacters;
+      setCharacters(normalizedCharacters);
       setScenes((prev) =>
-        syncScenesWithDetectedVariants(prev, nextCharacters, sceneSettingsRef.current),
+        syncScenesWithDetectedVariants(prev, normalizedCharacters, sceneSettingsRef.current),
       );
     },
     [syncScenesWithDetectedVariants],
@@ -213,10 +226,14 @@ const Workspace = () => {
 
   const handleSceneSettingsChange = useCallback(
     (nextSceneSettings: SceneSetting[]) => {
-      sceneSettingsRef.current = nextSceneSettings;
-      setSceneSettings(nextSceneSettings);
+      const normalizedSceneSettings = nextSceneSettings.map((sceneSetting) => ({
+        ...sceneSetting,
+        name: normalizeSceneName(sceneSetting.name),
+      }));
+      sceneSettingsRef.current = normalizedSceneSettings;
+      setSceneSettings(normalizedSceneSettings);
       setScenes((prev) =>
-        syncScenesWithDetectedVariants(prev, charactersRef.current, nextSceneSettings),
+        syncScenesWithDetectedVariants(prev, charactersRef.current, normalizedSceneSettings),
       );
     },
     [syncScenesWithDetectedVariants],
@@ -577,6 +594,95 @@ const Workspace = () => {
     [isLoaded, saveProject, getProjectId, ensureProjectExists],
   );
 
+  const cacheProjectAsset = useCallback(
+    async (source: string | undefined, relativePath: string) => {
+      if (!source) return;
+      const projectId = getProjectId();
+      if (!projectId) return;
+      await persistAssetToProjectCache(source, relativePath, projectId);
+    },
+    [getProjectId],
+  );
+
+  useEffect(() => {
+    const projectId = getProjectId();
+    if (!isLoaded || !projectId || !window.electronAPI?.storage) return;
+    const timer = setTimeout(() => {
+      void exportWorkspaceCache({
+        projectId,
+        title: projectTitle,
+        script,
+        scenes,
+        characters,
+        sceneSettings,
+      });
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [isLoaded, getProjectId, projectTitle, script, scenes, characters, sceneSettings]);
+
+  useEffect(() => {
+    if (!isLoaded || !window.electronAPI?.storage) return;
+    const repairKey = "storyforge_text_cache_repaired_v1";
+    try {
+      if (localStorage.getItem(repairKey) === "done") return;
+    } catch {
+      // ignore
+    }
+
+    const timer = setTimeout(() => {
+      void repairWorkspaceTextCachesFromIndex()
+        .then((count) => {
+          if (count > 0) {
+            try {
+              localStorage.setItem(repairKey, "done");
+            } catch {
+              // ignore
+            }
+          }
+        })
+        .catch(() => {
+          // ignore background repair failures
+        });
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [isLoaded]);
+
+  useEffect(() => {
+    const projectId = getProjectId();
+    const firstSegmentKey =
+      scenes.find((scene) => String(scene.segmentLabel || scene.sceneNumber).trim())
+        ?.segmentLabel ||
+      (scenes[0] ? String(scenes[0].sceneNumber) : "");
+    if (!isLoaded || !projectId || !firstSegmentKey || !window.electronAPI?.storage?.readText) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void (async () => {
+        const root = await window.electronAPI?.storage?.getDefaultPath?.();
+        const configuredRoot = getApiConfig().storagePath?.trim();
+        const storageRoot = configuredRoot || root?.files;
+        if (!storageRoot) return;
+
+        const firstSegmentPath = `${storageRoot.replace(/[\\/]+$/, "")}\\projects\\${projectId}\\texts\\segments\\${String(firstSegmentKey).replace(/[^\w\u4e00-\u9fa5.-]+/g, "_").slice(0, 80) || "item"}.txt`;
+        const result = await window.electronAPI.storage.readText(firstSegmentPath);
+        if (cancelled || !result.ok) return;
+        if (result.exists) return;
+
+        await repairWorkspaceTextCachesFromIndex();
+      })().catch(() => {
+        // ignore background repair failures
+      });
+    }, 800);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [isLoaded, getProjectId, scenes]);
+
   useEffect(() => {
     if (isLoaded) autoSave({ script });
   }, [script]); // eslint-disable-line
@@ -655,9 +761,11 @@ const Workspace = () => {
         id: generateId(),
         sceneNumber: i + 1,
         segmentLabel: s.segmentLabel ?? "",
-        sceneName: s.sceneName ?? "",
+        sceneName: normalizeSceneName(s.sceneName ?? ""),
         description: s.description ?? "",
-        characters: s.characters ?? [],
+        characters: Array.isArray(s.characters)
+          ? s.characters.map((name: string) => normalizeCharacterName(name))
+          : [],
         dialogue: s.dialogue ?? "",
         cameraDirection: s.cameraDirection ?? "",
         duration: s.duration ?? 5,
@@ -833,9 +941,11 @@ const Workspace = () => {
                   id: generateId(),
                   sceneNumber: s.sceneNumber ?? i + 1,
                   segmentLabel: s.segmentLabel ?? "",
-                  sceneName: s.sceneName ?? "",
+                  sceneName: normalizeSceneName(s.sceneName ?? ""),
                   description: s.description ?? "",
-                  characters: s.characters ?? [],
+                  characters: Array.isArray(s.characters)
+                    ? s.characters.map((name: string) => normalizeCharacterName(name))
+                    : [],
                   dialogue: s.dialogue ?? "",
                   cameraDirection: s.cameraDirection ?? "",
                   duration: s.duration ?? 5,
@@ -913,9 +1023,11 @@ const Workspace = () => {
             id: generateId(),
             sceneNumber: s.sceneNumber ?? i + 1,
             segmentLabel: s.segmentLabel ?? "",
-            sceneName: s.sceneName ?? "",
+            sceneName: normalizeSceneName(s.sceneName ?? ""),
             description: s.description ?? "",
-            characters: s.characters ?? [],
+            characters: Array.isArray(s.characters)
+              ? s.characters.map((name: string) => normalizeCharacterName(name))
+              : [],
             dialogue: s.dialogue ?? "",
             cameraDirection: s.cameraDirection ?? "",
             duration: s.duration ?? 5,
@@ -965,7 +1077,7 @@ const Workspace = () => {
         if (aiSceneSettings.length === 0) {
           const sceneNameSet = new Set<string>();
           parsedScenes.forEach((s) => {
-            if (s.sceneName?.trim()) sceneNameSet.add(s.sceneName.trim());
+            if (s.sceneName?.trim()) sceneNameSet.add(normalizeSceneName(s.sceneName));
           });
           handleSceneSettingsChange(
             Array.from(sceneNameSet).map((name) => ({
@@ -1065,11 +1177,14 @@ const Workspace = () => {
       const aiCharacters: Array<{ name: string; description: string }> =
         extractData.characters || [];
       const aiSceneSettings: Array<{ name: string; description: string }> =
-        extractData.sceneSettings || [];
+        (extractData.sceneSettings || []).map((item: { name: string; description: string }) => ({
+          name: normalizeSceneName(item.name || ""),
+          description: item.description || "",
+        }));
 
       const autoCharacters: CharacterSetting[] = aiCharacters.map((aiChar) => ({
         id: generateId(),
-        name: aiChar.name,
+        name: normalizeCharacterName(aiChar.name),
         description: aiChar?.description || "",
         isAIGenerated: false,
         source: "auto" as const,
@@ -1080,7 +1195,7 @@ const Workspace = () => {
         handleSceneSettingsChange(
           aiSceneSettings.map((s) => ({
             id: generateId(),
-            name: s.name,
+            name: normalizeSceneName(s.name),
             description: s.description || "",
             isAIGenerated: false,
             source: "auto" as const,
@@ -1156,7 +1271,7 @@ const Workspace = () => {
         savePhase1Results({
           autoCharacters: characters,
           aiSceneSettings: sceneSettings.map((s) => ({
-            name: s.name,
+            name: normalizeSceneName(s.name),
             description: s.description,
           })),
         });
@@ -1310,7 +1425,7 @@ const Workspace = () => {
 
       // Gather neighboring scenes in the same scene group for spatial continuity
       const sameSceneGroup = scenes.filter(
-        (s) => s.sceneName?.trim() === scene.sceneName?.trim(),
+        (s) => normalizeSceneName(s.sceneName || "") === normalizeSceneName(scene.sceneName || ""),
       );
       const sceneIdx = sameSceneGroup.findIndex((s) => s.id === sceneId);
       const prevScene = sceneIdx > 0 ? sameSceneGroup[sceneIdx - 1] : undefined;
@@ -1349,7 +1464,7 @@ const Workspace = () => {
           sceneImageUrl,
           prevStoryboardUrl,
           cameraDirection: scene.cameraDirection || "",
-          sceneName: scene.sceneName || "",
+          sceneName: normalizeSceneName(scene.sceneName || ""),
           sceneDescription:
             matchedSceneVariant?.description ||
             sceneSetting?.description ||
@@ -1385,6 +1500,10 @@ const Workspace = () => {
             storyboardHistory: history,
           };
         }),
+      );
+      void cacheProjectAsset(
+        data.imageUrl,
+        `images\\storyboards\\${safeCacheName(scene.segmentLabel || String(scene.sceneNumber))}.jpg`,
       );
       toast({
         title: "生成完成",
@@ -1426,7 +1545,7 @@ const Workspace = () => {
     // Group scenes by sceneName for strict sequential generation within same scene
     const sceneGroups = new Map<string, typeof scenes>();
     for (const scene of scenes) {
-      const key = (scene.sceneName || "").trim() || `__solo_${scene.id}`;
+      const key = normalizeSceneName(scene.sceneName || "") || `__solo_${scene.id}`;
       if (!sceneGroups.has(key)) sceneGroups.set(key, []);
       sceneGroups.get(key)!.push(scene);
     }
@@ -1542,7 +1661,7 @@ const Workspace = () => {
         "enhance-video-prompt",
         {
           description: cleanBrackets(scene.description),
-          sceneName: scene.sceneName?.trim(),
+          sceneName: normalizeSceneName(scene.sceneName || ""),
           characters: scene.characters
             .map((c) => String(c || ""))
             .filter(Boolean),
@@ -1574,7 +1693,7 @@ const Workspace = () => {
     const promptParts: string[] = [];
 
     if (hasRefImage) {
-      const sceneName = scene.sceneName?.trim();
+      const sceneName = normalizeSceneName(scene.sceneName || "");
       if (sceneName) promptParts.push(`场景：${sceneName}`);
       const charNames = scene.characters
         .map((c) => String(c || ""))
@@ -1582,10 +1701,10 @@ const Workspace = () => {
       if (charNames.length > 0)
         promptParts.push(`人物：${charNames.join("、")}`);
     } else {
-      const sceneName = scene.sceneName?.trim();
+      const sceneName = normalizeSceneName(scene.sceneName || "");
       if (sceneName) {
         const matchedSetting = sceneSettings.find(
-          (ss) => ss.name === sceneName,
+          (ss) => normalizeSceneName(ss.name || "") === sceneName,
         );
         const settingDesc = matchedSetting?.description
           ? `${matchedSetting.description}的`
@@ -1593,7 +1712,9 @@ const Workspace = () => {
         promptParts.push(`在场景${settingDesc}「${sceneName}」中`);
       }
       const charDescs = scene.characters.map((charName) => {
-        const charSetting = characters.find((c) => c.name === charName);
+        const charSetting = characters.find(
+          (c) => normalizeCharacterName(c.name) === normalizeCharacterName(charName),
+        );
         if (charSetting?.description)
           return `${charName}（${charSetting.description}）`;
         return String(charName || "");
@@ -1748,6 +1869,10 @@ const Workspace = () => {
               };
             }),
           );
+          void cacheProjectAsset(
+            videoUrl,
+            `videos\\${safeCacheName(scene.segmentLabel || String(scene.sceneNumber))}.mp4`,
+          );
           toast({ title: "视频生成完成", description: `分镜视频已就绪` });
           return;
         }
@@ -1860,7 +1985,7 @@ const Workspace = () => {
     // Group scenes by sceneName for strict sequential generation within same scene
     const sceneGroups = new Map<string, typeof scenes>();
     for (const scene of scenes) {
-      const key = (scene.sceneName || "").trim() || `__solo_${scene.id}`;
+      const key = normalizeSceneName(scene.sceneName || "") || `__solo_${scene.id}`;
       if (!sceneGroups.has(key)) sceneGroups.set(key, []);
       sceneGroups.get(key)!.push(scene);
     }
@@ -2036,26 +2161,28 @@ const Workspace = () => {
         );
       case 2:
         return (
-          <CharacterSettings
-            scenes={scenes}
-            characters={characters}
-            sceneSettings={sceneSettings}
-            artStyle={artStyle}
-            customArtStylePrompt={customArtStylePrompt}
-            onArtStyleChange={setArtStyle}
-            onCustomArtStylePromptChange={setCustomArtStylePrompt}
-            onCharactersChange={handleCharactersChange}
-            onSceneSettingsChange={handleSceneSettingsChange}
-            onScenesChange={setScenes}
-            onNext={() => safeGoToStep(skipStoryboard ? 4 : 3)}
-            script={script}
-            decomposeModel={decomposeModel}
-            isAutoDetectingAll={isAutoDetectingAll}
-            setIsAutoDetectingAll={setIsAutoDetectingAll}
-            isAbortingAutoDetect={isAbortingAutoDetect}
-            setIsAbortingAutoDetect={setIsAbortingAutoDetect}
-            autoDetectAbortRef={autoDetectAbortRef}
-          />
+          <ErrorBoundary>
+            <CharacterSettings
+              scenes={scenes}
+              characters={characters}
+              sceneSettings={sceneSettings}
+              artStyle={artStyle}
+              customArtStylePrompt={customArtStylePrompt}
+              onArtStyleChange={setArtStyle}
+              onCustomArtStylePromptChange={setCustomArtStylePrompt}
+              onCharactersChange={handleCharactersChange}
+              onSceneSettingsChange={handleSceneSettingsChange}
+              onScenesChange={setScenes}
+              onNext={() => safeGoToStep(skipStoryboard ? 4 : 3)}
+              script={script}
+              decomposeModel={decomposeModel}
+              isAutoDetectingAll={isAutoDetectingAll}
+              setIsAutoDetectingAll={setIsAutoDetectingAll}
+              isAbortingAutoDetect={isAbortingAutoDetect}
+              setIsAbortingAutoDetect={setIsAbortingAutoDetect}
+              autoDetectAbortRef={autoDetectAbortRef}
+            />
+          </ErrorBoundary>
         );
       case 3:
         return (
@@ -2078,6 +2205,7 @@ const Workspace = () => {
             scenes={scenes}
             characters={characters}
             sceneSettings={sceneSettings}
+            projectId={getProjectId() || undefined}
             videoModel={videoModel}
             onVideoModelChange={setVideoModel}
             onGenerateAll={handleGenerateVideos}

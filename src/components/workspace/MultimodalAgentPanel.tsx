@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+﻿import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   Chrome,
   Play,
@@ -25,14 +25,33 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "@/hooks/use-toast";
 import type { CharacterSetting, Scene, SceneSetting } from "@/types/project";
-import { matchSceneTimeVariant } from "@/lib/workspace-labels";
+import {
+  matchSceneTimeVariant,
+  normalizeCharacterName,
+  normalizeSceneName,
+} from "@/lib/workspace-labels";
 import { compressImage } from "@/lib/image-compress";
+import {
+  buildDismissInterferingOverlaysScript,
+  buildEnterVideoGenerationModeScript,
+  buildFillPromptScript,
+  buildLocatePromptAreaScript,
+  buildReadPromptValueScript,
+  buildReadToolbarStateScript,
+  buildSetDurationScript,
+  buildSetFullReferenceScript,
+  buildSetModelScript,
+  buildSubmitCurrentPromptStrictScript,
+  buildTypePromptScript,
+} from "@/lib/reverse-browserview-scripts";
 import {
   captureJimengAgentObservation,
   decideJimengAgentAction,
   executeJimengAgentAction,
 } from "@/lib/jimeng-browser-agent";
 
+// Legacy compatibility host for reverse-mode script tests.
+// Reverse-mode UI execution now lives exclusively in ReverseBrowserViewPanel.
 interface MultimodalAgentPanelProps {
   scenes: Scene[];
   characters: CharacterSetting[];
@@ -80,16 +99,16 @@ const INSPECT_JIMENG_PAGE_SCRIPT = `
     const hasExactText = (value) => visibleTexts.some((text) => text === value);
     const matchedSignals = [];
 
-    const hasVideoGenerateEntry = includesKeyword(['视频生成', '文生视频']);
-    const hasSeedanceReference = includesKeyword(['Seedance 2.0']) && includesKeyword(['全能参考', 'Full Reference']);
-    const hasReferenceContentEntry = includesKeyword(['参考内容', '@ 图片1', '@图片1']);
+    const hasVideoGenerateEntry = includesKeyword(['瑙嗛鐢熸垚', '鏂囩敓瑙嗛']);
+    const hasSeedanceReference = includesKeyword(['Seedance 2.0']) && includesKeyword(['鍏ㄨ兘鍙傝€?, 'Full Reference']);
+    const hasReferenceContentEntry = includesKeyword(['鍙傝€冨唴瀹?, '@ 鍥剧墖1', '@鍥剧墖1']);
     const hasAspectRatio16x9 = includesKeyword(['16:9']);
     const hasDuration5s = visibleTexts.some((text) => text === '5s' || text.includes(' 5s') || text.endsWith('5s'));
     const hasAtReferenceTrigger = hasExactText('@') || visibleTexts.some((text) => text.startsWith('@'));
     const resolvedSeedanceReference = hasSeedanceReference || (includesKeyword(['Seedance 2.0']) && hasAtReferenceTrigger);
     const resolvedReferenceContentEntry = hasReferenceContentEntry || hasAtReferenceTrigger || includesKeyword(['Reference']);
     const hasSeedanceModel = includesKeyword(['Seedance 2.0']);
-    const hasFullReferenceLabel = includesKeyword(['全能参考', 'Full Reference']);
+    const hasFullReferenceLabel = includesKeyword(['鍏ㄨ兘鍙傝€?, 'Full Reference']);
     const effectiveSeedanceReference = resolvedSeedanceReference || (hasSeedanceModel && hasFullReferenceLabel);
     const effectiveReferenceContentEntry = resolvedReferenceContentEntry || hasFullReferenceLabel;
     const targetMatched =
@@ -156,22 +175,22 @@ const ALIGN_SEEDANCE_REFERENCE_SCRIPT = `
     };
 
     const clicks = [];
-    const videoEntry = clickTarget(['视频生成', '文生视频']);
+    const videoEntry = clickTarget(['瑙嗛鐢熸垚', '鏂囩敓瑙嗛']);
     if (videoEntry) clicks.push('video:' + videoEntry);
 
-    const referenceModeTrigger = clickTarget(['首尾帧', '首帧图', '图片参考']);
+    const referenceModeTrigger = clickTarget(['棣栧熬甯?, '棣栧抚鍥?, '鍥剧墖鍙傝€?]);
     if (referenceModeTrigger) {
       clicks.push('reference-mode:' + referenceModeTrigger);
       await wait(300);
     }
 
-    const fullReference = clickTarget(['全能参考', 'Full Reference']);
+    const fullReference = clickTarget(['鍏ㄨ兘鍙傝€?, 'Full Reference']);
     if (fullReference) {
       clicks.push('reference:' + fullReference);
       await wait(300);
     }
 
-    const fallbackFullReference = !fullReference ? clickTarget(['全能参考', 'Full Reference', '全能']) : '';
+    const fallbackFullReference = !fullReference ? clickTarget(['鍏ㄨ兘鍙傝€?, 'Full Reference', '鍏ㄨ兘']) : '';
     if (fallbackFullReference) {
       clicks.push('reference-fallback:' + fallbackFullReference);
       await wait(300);
@@ -232,13 +251,13 @@ const FORCE_SWITCH_FULL_REFERENCE_SCRIPT = `
     };
 
     const actions = [];
-    const currentMode = clickByText(['首尾帧', '首帧图', '图片参考'], { role: 'combobox' }) || clickByText(['首尾帧', '首帧图', '图片参考']);
+    const currentMode = clickByText(['棣栧熬甯?, '棣栧抚鍥?, '鍥剧墖鍙傝€?], { role: 'combobox' }) || clickByText(['棣栧熬甯?, '棣栧抚鍥?, '鍥剧墖鍙傝€?]);
     if (currentMode) {
       actions.push('open-mode:' + currentMode);
       await humanPause(450, 850);
     }
 
-    const fullReference = clickByText(['全能参考'], { role: 'option', exact: true }) || clickByText(['全能参考', 'Full Reference']);
+    const fullReference = clickByText(['鍏ㄨ兘鍙傝€?], { role: 'option', exact: true }) || clickByText(['鍏ㄨ兘鍙傝€?, 'Full Reference']);
     if (fullReference) {
       actions.push('select-full-reference:' + fullReference);
       await humanPause(550, 950);
@@ -252,8 +271,8 @@ const FORCE_SWITCH_FULL_REFERENCE_SCRIPT = `
 
     const bodyText = normalize(document.body?.innerText || '');
     const success =
-      bodyText.includes('全能参考') &&
-      (bodyText.includes('参考内容') || bodyText.includes('@')) &&
+      bodyText.includes('鍏ㄨ兘鍙傝€?) &&
+      (bodyText.includes('鍙傝€冨唴瀹?) || bodyText.includes('@')) &&
       bodyText.includes('16:9') &&
       bodyText.includes('5s');
 
@@ -281,11 +300,11 @@ export function buildSafeInspectJimengPageScript(targetDuration: string): string
       const hasExactText = (value) => visibleTexts.some((text) => text === value);
       const matchedSignals = [];
 
-      const hasVideoGenerateEntry = location.href.includes('type=video') || includesKeyword(['视频生成', '文生视频']);
+      const hasVideoGenerateEntry = location.href.includes('type=video') || includesKeyword(['瑙嗛鐢熸垚', '鏂囩敓瑙嗛']);
       const hasSeedanceModel = includesKeyword(['Seedance 2.0']);
-      const hasFullReference = includesKeyword(['全能参考', 'Full Reference']);
+      const hasFullReference = includesKeyword(['鍏ㄨ兘鍙傝€?, 'Full Reference']);
       const hasAtReferenceTrigger = hasExactText('@') || visibleTexts.some((text) => text.startsWith('@'));
-      const hasReferenceContentEntry = includesKeyword(['参考内容', '@ 图片1', '@图片1', 'Reference']) || hasAtReferenceTrigger;
+      const hasReferenceContentEntry = includesKeyword(['鍙傝€冨唴瀹?, '@ 鍥剧墖1', '@鍥剧墖1', 'Reference']) || hasAtReferenceTrigger;
       const hasAspectRatio16x9 = includesKeyword(['16:9']);
       const hasTargetDuration = visibleTexts.some((text) => text === ${JSON.stringify(targetDuration)} || text.includes(${JSON.stringify(targetDuration)}));
       const effectiveSeedanceReference = hasFullReference || (hasSeedanceModel && hasAtReferenceTrigger);
@@ -355,16 +374,16 @@ export function buildSafeAlignSeedanceReferenceScript(targetDuration: string): s
       };
 
       const clicks = [];
-      const videoEntry = clickTarget(['视频生成', '文生视频']);
+      const videoEntry = clickTarget(['瑙嗛鐢熸垚', '鏂囩敓瑙嗛']);
       if (videoEntry) clicks.push('video:' + videoEntry);
 
-      const referenceModeTrigger = clickTarget(['首尾帧', '首帧图', '图片参考']);
+      const referenceModeTrigger = clickTarget(['棣栧熬甯?, '棣栧抚鍥?, '鍥剧墖鍙傝€?]);
       if (referenceModeTrigger) {
         clicks.push('reference-mode:' + referenceModeTrigger);
         await wait(300);
       }
 
-      const fullReference = clickTarget(['全能参考', 'Full Reference']);
+      const fullReference = clickTarget(['鍏ㄨ兘鍙傝€?, 'Full Reference']);
       if (fullReference) {
         clicks.push('reference:' + fullReference);
         await wait(300);
@@ -426,13 +445,13 @@ export function buildSafeForceSwitchFullReferenceScript(targetDuration: string):
       };
 
       const actions = [];
-      const currentMode = clickByText(['首尾帧', '首帧图', '图片参考'], { role: 'combobox' }) || clickByText(['首尾帧', '首帧图', '图片参考']);
+      const currentMode = clickByText(['棣栧熬甯?, '棣栧抚鍥?, '鍥剧墖鍙傝€?], { role: 'combobox' }) || clickByText(['棣栧熬甯?, '棣栧抚鍥?, '鍥剧墖鍙傝€?]);
       if (currentMode) {
         actions.push('open-mode:' + currentMode);
         await humanPause(450, 850);
       }
 
-      const fullReference = clickByText(['全能参考'], { role: 'option', exact: true }) || clickByText(['全能参考', 'Full Reference']);
+      const fullReference = clickByText(['鍏ㄨ兘鍙傝€?], { role: 'option', exact: true }) || clickByText(['鍏ㄨ兘鍙傝€?, 'Full Reference']);
       if (fullReference) {
         actions.push('select-full-reference:' + fullReference);
         await humanPause(550, 950);
@@ -458,8 +477,8 @@ export function buildSafeForceSwitchFullReferenceScript(targetDuration: string):
 
       const bodyText = normalize(document.body?.innerText || '');
       const success =
-        bodyText.includes('全能参考') &&
-        (bodyText.includes('参考内容') || bodyText.includes('@')) &&
+        bodyText.includes('鍏ㄨ兘鍙傝€?) &&
+        (bodyText.includes('鍙傝€冨唴瀹?) || bodyText.includes('@')) &&
         bodyText.includes('16:9') &&
         bodyText.includes(${JSON.stringify(targetDuration)});
 
@@ -615,7 +634,7 @@ function buildForceApplySettingsScript(targetModel: string, targetDuration: stri
         actions.push('after-round-' + round + ':model=' + (selections.currentModel || 'none') + ',duration=' + (selections.currentDuration || 'none'));
 
         const bodyAfterRound = normalize(document.body?.innerText || '');
-        if (bodyAfterRound.includes('已为您匹配至最佳模型') && selections.currentModel !== ${JSON.stringify(targetModel)}) {
+        if (bodyAfterRound.includes('宸蹭负鎮ㄥ尮閰嶈嚦鏈€浣虫ā鍨?) && selections.currentModel !== ${JSON.stringify(targetModel)}) {
           actions.push('model-fallback-detected-' + round);
           await humanPause(800, 1400);
           await selectModel('reselect-model-' + round);
@@ -659,7 +678,7 @@ function buildTargetVerificationScript(targetModel: string, targetDuration: stri
         targetDuration: ${JSON.stringify(targetDuration)},
         hasTargetModel: currentModel === ${JSON.stringify(targetModel)},
         hasTargetDuration: currentDuration === ${JSON.stringify(targetDuration)},
-        hasFallbackToast: bodyText.includes('已为您匹配至最佳模型'),
+        hasFallbackToast: bodyText.includes('宸蹭负鎮ㄥ尮閰嶈嚦鏈€浣虫ā鍨?),
       };
     })()
   `;
@@ -695,7 +714,7 @@ export function buildTargetVerificationScriptV2(targetModel: string, targetDurat
         targetDuration: ${JSON.stringify(targetDuration)},
         hasTargetModel: currentModel === ${JSON.stringify(targetModel)},
         hasTargetDuration: currentDuration === ${JSON.stringify(targetDuration)},
-        hasFallbackToast: bodyText.includes('已为您匹配至最佳模型'),
+        hasFallbackToast: bodyText.includes('宸蹭负鎮ㄥ尮閰嶈嚦鏈€浣虫ā鍨?),
       };
     })()
   `;
@@ -835,13 +854,13 @@ export function buildPromptFillScript(
         .filter(isVisible);
       const textbox = textboxes.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0];
       if (!(textbox instanceof HTMLElement)) {
-        return { ok: false, message: '未找到提示词输入框' };
+        return { ok: false, message: '鏈壘鍒版彁绀鸿瘝杈撳叆妗? };
       }
 
       const section = textbox.closest('.section-generator-N3XwXD') || document;
       const fileInput = section.querySelector('input[type="file"]') || document.querySelector('input[type="file"]');
       if (!(fileInput instanceof HTMLInputElement)) {
-        return { ok: false, message: '未找到参考素材上传输入框' };
+        return { ok: false, message: '鏈壘鍒板弬鑰冪礌鏉愪笂浼犺緭鍏ユ' };
       }
 
       const dataUrlToFile = (dataUrl, fileName) => {
@@ -884,7 +903,7 @@ export function buildPromptFillScript(
         uploaded: refs.length,
         filled: true,
         promptLength: promptText.length,
-        message: '已填入整段提示词并上传参考图（未提交）',
+        message: '宸插～鍏ユ暣娈垫彁绀鸿瘝骞朵笂浼犲弬鑰冨浘锛堟湭鎻愪氦锛?,
       };
     })()
   `;
@@ -892,7 +911,7 @@ export function buildPromptFillScript(
 
 const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalAgentPanelProps) => {
   const [agentStatus, setAgentStatus] = useState<'idle' | 'initializing' | 'browsing' | 'operating' | 'generating' | 'completed' | 'error'>('idle');
-  const [currentAction, setCurrentAction] = useState<string>('等待开始...');
+  const [currentAction, setCurrentAction] = useState<string>('绛夊緟寮€濮?..');
   const [progress, setProgress] = useState<number>(0);
   const [showBrowser, setShowBrowser] = useState<boolean>(true);
   const [browserLocked, setBrowserLocked] = useState<boolean>(false);
@@ -900,6 +919,7 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
   const [reverseDuration, setReverseDuration] = useState<(typeof REVERSE_DURATION_OPTIONS)[number]>("5s");
   const [operationLog, setOperationLog] = useState<string[]>([]);
   const [browserUrl, setBrowserUrl] = useState<string>('https://jimeng.jianying.com/ai-tool/home');
+  const [playwrightPreviewDataUrl, setPlaywrightPreviewDataUrl] = useState<string | null>(null);
   const [browserState, setBrowserState] = useState<{ visible: boolean; url?: string; title?: string; loading: boolean; error?: string }>({
     visible: false,
     loading: false,
@@ -908,6 +928,7 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
   const logRef = useRef<HTMLDivElement>(null);
   const browserContainerRef = useRef<HTMLDivElement>(null);
   const browserPlaceholderRef = useRef<HTMLDivElement>(null);
+  const browserViewportRef = useRef<HTMLDivElement>(null);
   const agentActiveRef = useRef<boolean>(false);
 
   // 滚动到日志底部
@@ -917,7 +938,7 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
     }
   }, [operationLog]);
 
-  // 添加日志消息
+  // 娣诲姞鏃ュ織娑堟伅
   const addLogMessage = (message: string) => {
     setOperationLog(prev => [...prev, message]);
   };
@@ -925,18 +946,27 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
   const buildSceneReferences = useCallback((scene: Scene) => {
     const refs: Array<{ kind: "character" | "scene"; label: string; url: string }> = [];
     for (const name of scene.characters) {
-      const character = characters.find((item) => item.name === name);
+      const normalizedName = normalizeCharacterName(name);
+      const character = characters.find(
+        (item) => normalizeCharacterName(item.name) === normalizedName,
+      );
       if (!character) continue;
       let imageUrl = character.imageUrl;
-      const costumeId = scene.characterCostumes?.[name] || character.activeCostumeId;
+      const costumeId =
+        scene.characterCostumes?.[normalizedName] ||
+        scene.characterCostumes?.[name] ||
+        character.activeCostumeId;
       if (costumeId && character.costumes?.length) {
         const costume = character.costumes.find((item) => item.id === costumeId);
         if (costume?.imageUrl) imageUrl = costume.imageUrl;
       }
-      if (imageUrl) refs.push({ kind: "character", label: name, url: imageUrl });
+      if (imageUrl) refs.push({ kind: "character", label: normalizedName, url: imageUrl });
     }
 
-    const matchedScene = sceneSettings.find((item) => item.name === scene.sceneName);
+    const normalizedSceneName = normalizeSceneName(scene.sceneName || "");
+    const matchedScene = sceneSettings.find(
+      (item) => normalizeSceneName(item.name || "") === normalizedSceneName,
+    );
     if (matchedScene) {
       let imageUrl = matchedScene.imageUrl;
       const variantId =
@@ -947,7 +977,7 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
         const variant = matchedScene.timeVariants.find((item) => item.id === variantId);
         if (variant?.imageUrl) imageUrl = variant.imageUrl;
       }
-      if (imageUrl) refs.push({ kind: "scene", label: scene.sceneName || "场景", url: imageUrl });
+      if (imageUrl) refs.push({ kind: "scene", label: normalizedSceneName || "鍦烘櫙", url: imageUrl });
     }
 
     return refs.slice(0, 12);
@@ -957,8 +987,8 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
     const refs = buildSceneReferences(scene);
     const refMentions = refs.map((ref, index) =>
       ref.kind === "character"
-        ? `${ref.label}参考@图片${index + 1}`
-        : `场景${ref.label}参考@图片${index + 1}`,
+        ? `${ref.label}鍙傝€傽鍥剧墖${index + 1}`
+        : `鍦烘櫙${ref.label}鍙傝€傽鍥剧墖${index + 1}`,
     );
     const parts = [
       `${scene.segmentLabel || scene.sceneNumber}`.trim(),
@@ -976,52 +1006,88 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
     };
   }, [buildSceneReferences]);
 
-  const buildCombinedPromptPayload = useCallback((allScenes: Scene[]) => {
+  const buildSegmentPromptPayload = useCallback((segmentScenes: Scene[]) => {
     const refs = [
       ...new Map(
-        allScenes
+        segmentScenes
           .flatMap((scene) => buildSceneReferences(scene))
           .map((ref) => [`${ref.kind}:${ref.label}:${ref.url}`, ref]),
       ).values(),
     ].slice(0, 12);
-    const refMentions = refs.map((ref, index) =>
-      ref.kind === "character"
-        ? `${ref.label}参考@图片${index + 1}`
-        : `场景${ref.label}参考@图片${index + 1}`,
-    );
-    const sceneNames = [
+
+    const sceneTags = [
       ...new Set(
-        allScenes.map((scene) => scene.sceneName?.trim()).filter(Boolean),
+        refs
+          .filter((ref) => ref.kind === "scene")
+          .map((ref) => `【${ref.label}】`),
       ),
     ];
-    const characterNames = [
+    const characterTags = [
       ...new Set(
-        allScenes
-          .flatMap((scene) => scene.characters || [])
-          .map((name) => String(name || "").trim())
-          .filter(Boolean),
+        refs
+          .filter((ref) => ref.kind === "character")
+          .map((ref) => `【${ref.label}】`),
       ),
     ];
-    const shotLines = allScenes.map((scene, index) => {
-      const parts = [
-        `分镜${index + 1}`,
-        scene.description || "",
-        scene.dialogue ? `对白：${scene.dialogue}` : "",
-        scene.cameraDirection ? `要求：${scene.cameraDirection}` : "",
-      ].filter(Boolean);
-      return parts.join("｜");
+
+    const shotLines = segmentScenes.map((scene, index) => {
+      const parts = [`分镜${index + 1}:${scene.description || ""}`];
+      if (scene.dialogue) parts.push(`对白：${scene.dialogue}`);
+      if (scene.cameraDirection) parts.push(scene.cameraDirection);
+      return parts.join(" ");
     });
 
     const parts = [
-      refMentions.length ? `参考素材：${refMentions.join("；")}` : "",
-      sceneNames.length ? `场景：${sceneNames.join("、")}` : "",
-      characterNames.length ? `角色：${characterNames.join("、")}` : "",
-      "完整提示词：",
+      "场景/人物标签:",
+      [...sceneTags, ...characterTags].join(""),
       ...shotLines,
+      "无字幕、无水印、无背景音乐",
     ].filter(Boolean);
 
     return {
       prompt: parts.join("\n"),
+      refs,
+    };
+  }, [buildSceneReferences]);
+
+  const buildStableSegmentPromptPayload = useCallback((segmentScenes: Scene[]) => {
+    const refs = [
+      ...new Map(
+        segmentScenes
+          .flatMap((scene) => buildSceneReferences(scene))
+          .map((ref) => [`${ref.kind}:${ref.label}:${ref.url}`, ref]),
+      ).values(),
+    ].slice(0, 12);
+
+    const sceneTags = [
+      ...new Set(
+        refs
+          .filter((ref) => ref.kind === "scene")
+          .map((ref) => `【${ref.label}】`),
+      ),
+    ];
+    const characterTags = [
+      ...new Set(
+        refs
+          .filter((ref) => ref.kind === "character")
+          .map((ref) => `【${ref.label}】`),
+      ),
+    ];
+
+    const shotLines = segmentScenes.map((scene, index) => {
+      const line = `分镜${index + 1}:${scene.description || ""}`;
+      return scene.dialogue ? `${line} 对白：${scene.dialogue}` : line;
+    });
+
+    return {
+      prompt: [
+        "场景/人物标签:",
+        [...sceneTags, ...characterTags].join(""),
+        ...shotLines,
+        "无字幕、无水印、无背景音乐",
+      ]
+        .filter(Boolean)
+        .join("\n"),
       refs,
     };
   }, [buildSceneReferences]);
@@ -1037,17 +1103,34 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
     });
   }, []);
 
+  const executeNamedInBrowserView = useCallback(
+    async <T,>(label: string, script: string): Promise<T | null> => {
+      try {
+        const api = window.electronAPI?.browserView;
+        if (!api) throw new Error('鍐呭祵娴忚鍣ㄤ笉鍙敤');
+        const result = await api.execute<T>({ script });
+        if (!result.ok) throw new Error(result.error || '鑴氭湰鎵ц澶辫触');
+        return result.result ?? null;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`${label}: ${message}`);
+      }
+    },
+    [],
+  );
+
   const rafRef = useRef<number | null>(null);
 
   const syncBrowserBounds = useCallback(async () => {
     const placeholder = browserPlaceholderRef.current;
     const container = browserContainerRef.current;
+    const viewport = browserViewportRef.current;
     const api = window.electronAPI?.browserView;
     if (!placeholder || !container || !api || !showBrowser) return;
 
-    // Use the placeholder's rect — it's in normal flow so its position reflects
+    // Use the placeholder's rect 鈥?it's in normal flow so its position reflects
     // where the browser area actually is in the viewport right now.
-    const rect = placeholder.getBoundingClientRect();
+    const rect = (viewport || placeholder).getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
 
     // Sync the fixed overlay div to exactly cover the placeholder
@@ -1119,12 +1202,12 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
         await syncBrowserBounds();
         await api.show();
         if (!cancelled) {
-          addLogMessage(`[${new Date().toLocaleTimeString()}] 内嵌浏览器已准备就绪`);
+          addLogMessage(`[${new Date().toLocaleTimeString()}] 鍐呭祵娴忚鍣ㄥ凡鍑嗗灏辩华`);
         }
       } catch (error) {
         if (!cancelled) {
           const msg = error instanceof Error ? error.message : String(error);
-          addLogMessage(`[${new Date().toLocaleTimeString()}] 内嵌浏览器初始化失败: ${msg}`);
+          addLogMessage(`[${new Date().toLocaleTimeString()}] 鍐呭祵娴忚鍣ㄥ垵濮嬪寲澶辫触: ${msg}`);
         }
       }
     };
@@ -1144,9 +1227,9 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
 
   const executeInBrowserView = useCallback(async <T,>(script: string): Promise<T | null> => {
     const api = window.electronAPI?.browserView;
-    if (!api) throw new Error('内嵌浏览器不可用');
+    if (!api) throw new Error('鍐呭祵娴忚鍣ㄤ笉鍙敤');
     const result = await api.execute<T>({ script });
-    if (!result.ok) throw new Error(result.error || '脚本执行失败');
+    if (!result.ok) throw new Error(result.error || '鑴氭湰鎵ц澶辫触');
     return result.result ?? null;
   }, []);
 
@@ -1168,7 +1251,7 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
           .filter(isVisible)
           .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0];
         if (!(textbox instanceof HTMLElement)) {
-          return { ok: false, message: '未找到提示词输入框' };
+          return { ok: false, message: '鏈壘鍒版彁绀鸿瘝杈撳叆妗? };
         }
 
         const section = textbox.closest('.section-generator-N3XwXD') || document;
@@ -1177,7 +1260,7 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
           document.querySelector('input[type="file"]');
 
         if (!(fileInput instanceof HTMLInputElement)) {
-          return { ok: false, message: '未找到参考素材上传输入框' };
+          return { ok: false, message: '鏈壘鍒板弬鑰冪礌鏉愪笂浼犺緭鍏ユ' };
         }
 
         const toFile = async (url, index) => {
@@ -1218,19 +1301,31 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
           .find((button) => /submit-button|send|generate/i.test(button.className) && !(button instanceof HTMLButtonElement && button.disabled));
 
         if (!(submit instanceof HTMLElement)) {
-          return { ok: true, uploaded: refs.length, message: '已写入提示词与参考图，但未找到可点击的提交按钮' };
+          return { ok: true, uploaded: refs.length, message: '宸插啓鍏ユ彁绀鸿瘝涓庡弬鑰冨浘锛屼絾鏈壘鍒板彲鐐瑰嚮鐨勬彁浜ゆ寜閽? };
         }
 
         submit.click();
-        return { ok: true, uploaded: refs.length, submitted: true, message: '已提交当前分镜' };
+        return { ok: true, uploaded: refs.length, submitted: true, message: '宸叉彁浜ゅ綋鍓嶅垎闀? };
       })()
     `;
 
     return await executeInBrowserView<{ ok: boolean; uploaded?: number; submitted?: boolean; message: string }>(script);
   }, [buildScenePromptPayload, executeInBrowserView]);
 
-  const prepareCombinedPromptInBrowser = useCallback(async () => {
-    const payload = buildCombinedPromptPayload(scenes);
+  const prepareSegmentPromptInBrowser = useCallback(async () => {
+    const firstSegmentKey =
+      scenes.find((scene) => String(scene.segmentLabel || "").trim())?.segmentLabel ||
+      (scenes[0] ? String(scenes[0].sceneNumber) : "");
+    const segmentScenes = scenes.filter(
+      (scene) =>
+        String(scene.segmentLabel || scene.sceneNumber).trim() ===
+        String(firstSegmentKey || "").trim(),
+    );
+    if (segmentScenes.length === 0) {
+      throw new Error("娌℃湁鍙～鍐欑殑鐗囨鎻愮ず璇?);
+    }
+
+        const payload = buildStableSegmentPromptPayload(segmentScenes);
     const refs = await Promise.all(
       payload.refs.map(async (ref, index) => {
         try {
@@ -1246,10 +1341,10 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
       }),
     ).then((items) => items.filter(Boolean) as Array<{ kind: "character" | "scene"; label: string; url: string; dataUrl: string; fileName: string }>);
 
-    const promptTarget = await executeInBrowserView<{
+    const promptTarget = await executeNamedInBrowserView<{
       ok: boolean;
       fileInputIndex: number;
-    }>(`
+    }>("瀹氫綅鎻愮ず璇嶄笌涓婁紶鍖?, `
       (() => {
         const isVisible = (node) => {
           if (!(node instanceof HTMLElement)) return false;
@@ -1272,7 +1367,7 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
     `);
 
     if (!promptTarget?.ok) {
-      throw new Error("未找到可用的提示词区域");
+      throw new Error("鏈壘鍒板彲鐢ㄧ殑鎻愮ず璇嶅尯鍩?);
     }
 
     if (refs.length > 0) {
@@ -1285,7 +1380,7 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
         })),
       });
       if (!uploadResult?.ok) {
-        throw new Error(uploadResult?.error || "参考图上传失败");
+        throw new Error(uploadResult?.error || "鍙傝€冨浘涓婁紶澶辫触");
       }
     }
 
@@ -1294,8 +1389,132 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
       [],
     );
 
-    return await executeInBrowserView<{ ok: boolean; uploaded?: number; filled?: boolean; promptLength?: number; message: string }>(script);
-  }, [buildCombinedPromptPayload, executeInBrowserView, scenes]);
+    return await executeNamedInBrowserView<{ ok: boolean; uploaded?: number; filled?: boolean; promptLength?: number; message: string }>("濉啓鏁存鎻愮ず璇?, script);
+  }, [buildStableSegmentPromptPayload, executeNamedInBrowserView, scenes]);
+
+  const ensureToolbarState = useCallback(
+    async (targetModel: string, targetDuration: string) => {
+      const state = await executeNamedInBrowserView<{
+        currentModel: string;
+        currentDuration: string;
+        hasTargetModel: boolean;
+        hasTargetDuration: boolean;
+        hasReferenceMode: boolean;
+        hasAtReference: boolean;
+      }>(
+        "鏍￠獙宸ュ叿鏍忕姸鎬?,
+        buildReadToolbarStateScript(targetModel, targetDuration),
+      );
+      if (!state) throw new Error("鏍￠獙宸ュ叿鏍忕姸鎬? no state");
+      return state;
+    },
+    [executeNamedInBrowserView],
+  );
+
+  const prepareSegmentInBrowserView = useCallback(
+    async (
+      segmentKey: string,
+      payload: {
+        prompt: string;
+        refs: Array<{ kind: "character" | "scene"; label: string; url: string }>;
+      },
+    ) => {
+      const fallbackApi = window.electronAPI?.browserView;
+      const api = fallbackApi;
+      if (!api) throw new Error("鍐呭祵娴忚鍣ㄤ笉鍙敤");
+
+      await executeNamedInBrowserView(
+        "鍏抽棴骞叉壈寮圭獥",
+        buildDismissInterferingOverlaysScript(),
+      );
+      await executeNamedInBrowserView(
+        "杩涘叆瑙嗛鐢熸垚妯″紡",
+        buildEnterVideoGenerationModeScript(),
+      );
+
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        await executeNamedInBrowserView(
+          "璁剧疆鐩爣妯″瀷",
+          buildSetModelScript(reverseModel),
+        );
+        await executeNamedInBrowserView(
+          "璁剧疆鐩爣鏃堕暱",
+          buildSetDurationScript(reverseDuration),
+        );
+        await executeNamedInBrowserView(
+          "鍒囨崲鍏ㄨ兘鍙傝€?,
+          buildSetFullReferenceScript(),
+        );
+        const state = await ensureToolbarState(reverseModel, reverseDuration);
+        addLogMessage(
+          `[${new Date().toLocaleTimeString()}] 鐗囨 ${segmentKey} 鏍￠獙 ${attempt}: 妯″瀷=${state.currentModel || "鏃?} / 鏃堕暱=${state.currentDuration || "鏃?} / 鍙傝€?${state.hasReferenceMode ? "鏄? : "鍚?} / @=${state.hasAtReference ? "鏄? : "鍚?}`,
+        );
+        if (
+          state.hasTargetModel &&
+          state.hasTargetDuration &&
+          state.hasReferenceMode
+        ) {
+          break;
+        }
+        if (attempt === 3) {
+          throw new Error(
+            `鐩爣鍙傛暟鏈牎鍑嗘垚鍔燂細鐩爣妯″瀷=${reverseModel}锛岀洰鏍囨椂闀?${reverseDuration}锛涘綋鍓嶆ā鍨?${state.currentModel || "鏃?}锛屽綋鍓嶆椂闀?${state.currentDuration || "鏃?}`,
+          );
+        }
+        await sleep(800);
+      }
+
+      const refs = await Promise.all(
+        payload.refs.map(async (ref, index) => ({
+          fileName: `${segmentKey}-reference-${index + 1}.jpg`,
+          dataUrl: await compressImage(ref.url, 400 * 1024, { maxDim: 1024 }),
+        })),
+      );
+
+      const promptTarget = await executeNamedInBrowserView<{
+        ok: boolean;
+        fileInputIndex: number;
+      }>("瀹氫綅鎻愮ず璇嶄笌涓婁紶鍖?, buildLocatePromptAreaScript());
+      if (!promptTarget?.ok) {
+        throw new Error("鏈壘鍒版彁绀鸿瘝涓庝笂浼犲尯");
+      }
+
+      if (refs.length > 0) {
+        const uploadResult = await api.setFileInputFiles({
+          selector: 'input[type="file"]',
+          index: promptTarget.fileInputIndex,
+          files: refs,
+        });
+        if (!uploadResult?.ok) {
+          throw new Error(uploadResult?.error || "鍙傝€冨浘涓婁紶澶辫触");
+        }
+      }
+
+      await executeNamedInBrowserView(
+        "逐字填写片段提示词",
+        buildTypePromptScript(payload.prompt, promptTarget.fileInputIndex, 20),
+      );
+      const promptValue = await executeNamedInBrowserView<string>(
+        "读取提示词内容",
+        buildReadPromptValueScript(promptTarget.fileInputIndex),
+      );
+
+      const submitResult = await executeNamedInBrowserView<{ ok: boolean; step: string }>(
+        "鎻愪氦褰撳墠鐗囨",
+        buildSubmitCurrentPromptStrictScript(promptTarget.fileInputIndex),
+      );
+      if (!submitResult?.ok) {
+        throw new Error(`鎻愪氦澶辫触: ${submitResult?.step || "unknown"}`);
+      }
+    },
+    [
+      compressImage,
+      ensureToolbarState,
+      executeNamedInBrowserView,
+      reverseDuration,
+      reverseModel,
+    ],
+  );
 
   const inspectPage = useCallback(async (): Promise<JimengPageState> => {
     const data = await executeInBrowserView<JimengPageState>(`
@@ -1310,18 +1529,18 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
           hasAgreementDialog,
           isLoggedIn: !hasLoginButton,
           isVideoMode: location.href.includes('type=video'),
-          hasSeedanceReference: bodyText.includes('Seedance 2.0') && (bodyText.includes('Full Reference') || bodyText.includes('全能参考')),
+          hasSeedanceReference: bodyText.includes('Seedance 2.0') && (bodyText.includes('Full Reference') || bodyText.includes('鍏ㄨ兘鍙傝€?)),
         };
       })()
     `);
-    if (!data) throw new Error('页面状态检测失败');
+    if (!data) throw new Error('椤甸潰鐘舵€佹娴嬪け璐?);
     return data;
   }, [executeInBrowserView]);
 
   const inspectPrecisePage = useCallback(async (): Promise<JimengPageState> => {
-    const data = await executeInBrowserView<JimengPageState>(buildSafeInspectJimengPageScript(reverseDuration));
-    if (!data) throw new Error("页面状态检测失败");
-    const dynamic = await executeInBrowserView<{
+    const data = await executeNamedInBrowserView<JimengPageState>("妫€鏌ュ嵆姊﹂〉闈㈢姸鎬?, buildSafeInspectJimengPageScript(reverseDuration));
+    if (!data) throw new Error("椤甸潰鐘舵€佹娴嬪け璐?);
+    const dynamic = await executeNamedInBrowserView<{
       currentModel: string;
       currentDuration: string;
       targetModel: string;
@@ -1329,7 +1548,7 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
       hasTargetModel: boolean;
       hasTargetDuration: boolean;
       hasFallbackToast: boolean;
-    }>(
+    }>("妫€鏌ョ洰鏍囨ā鍨嬩笌鏃堕暱", 
       buildTargetVerificationScriptV2(reverseModel, reverseDuration),
     );
     return {
@@ -1351,7 +1570,7 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
   }, [executeInBrowserView, reverseDuration, reverseModel]);
 
   const inspectTargetSelections = useCallback(async () => {
-    const data = await executeInBrowserView<{
+    const data = await executeNamedInBrowserView<{
       currentModel: string;
       currentDuration: string;
       targetModel: string;
@@ -1359,9 +1578,9 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
       hasTargetModel: boolean;
       hasTargetDuration: boolean;
       hasFallbackToast: boolean;
-    }>(buildTargetVerificationScriptV2(reverseModel, reverseDuration));
+    }>("璇诲彇褰撳墠妯″瀷涓庢椂闀?, buildTargetVerificationScriptV2(reverseModel, reverseDuration));
     if (!data) {
-      throw new Error("目标参数检测失败");
+      throw new Error("鐩爣鍙傛暟妫€娴嬪け璐?);
     }
     return data;
   }, [executeInBrowserView, reverseDuration, reverseModel]);
@@ -1369,7 +1588,7 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
   const calibrateTargetSettings = useCallback(async () => {
     let latest = await inspectTargetSelections();
     addLogMessage(
-      `[${new Date().toLocaleTimeString()}] 当前参数: 模型=${latest.currentModel || "无"} / 时长=${latest.currentDuration || "无"}`,
+      `[${new Date().toLocaleTimeString()}] 褰撳墠鍙傛暟: 妯″瀷=${latest.currentModel || "鏃?} / 鏃堕暱=${latest.currentDuration || "鏃?}`,
     );
 
     for (let round = 1; round <= 3; round += 1) {
@@ -1377,24 +1596,24 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
         return latest;
       }
 
-      const result = await executeInBrowserView<{
+      const result = await executeNamedInBrowserView<{
         actions: string[];
         currentModel: string;
         currentDuration: string;
         targetModel: string;
         targetDuration: string;
         success: boolean;
-      }>(buildForceApplySettingsScriptV2(reverseModel, reverseDuration));
+      }>("鏍″噯鐩爣妯″瀷涓庢椂闀?, buildForceApplySettingsScriptV2(reverseModel, reverseDuration));
 
       if (result?.actions?.length) {
-        addLogMessage(`[${new Date().toLocaleTimeString()}] 参数校准 ${round}: ${result.actions.join(" | ")}`);
+        addLogMessage(`[${new Date().toLocaleTimeString()}] 鍙傛暟鏍″噯 ${round}: ${result.actions.join(" | ")}`);
       } else {
-        addLogMessage(`[${new Date().toLocaleTimeString()}] 参数校准 ${round}: 未找到可操作的模型/时长控件`);
+        addLogMessage(`[${new Date().toLocaleTimeString()}] 鍙傛暟鏍″噯 ${round}: 鏈壘鍒板彲鎿嶄綔鐨勬ā鍨?鏃堕暱鎺т欢`);
       }
 
       latest = await inspectTargetSelections();
       addLogMessage(
-        `[${new Date().toLocaleTimeString()}] 参数校准后 ${round}: 模型=${latest.currentModel || "无"} / 时长=${latest.currentDuration || "无"}${latest.hasFallbackToast ? " / 检测到最佳模型提示" : ""}`,
+        `[${new Date().toLocaleTimeString()}] 鍙傛暟鏍″噯鍚?${round}: 妯″瀷=${latest.currentModel || "鏃?} / 鏃堕暱=${latest.currentDuration || "鏃?}${latest.hasFallbackToast ? " / 妫€娴嬪埌鏈€浣虫ā鍨嬫彁绀? : ""}`,
       );
     }
 
@@ -1408,7 +1627,7 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
         duration: reverseDuration,
       });
       addLogMessage(
-        `[${new Date().toLocaleTimeString()}] Agent 观察 ${step}: ${observation.matchedSignals.join(", ") || "无特征"}`,
+        `[${new Date().toLocaleTimeString()}] Agent 瑙傚療 ${step}: ${observation.matchedSignals.join(", ") || "鏃犵壒寰?}`,
       );
 
       if (observation.targetMatched) {
@@ -1420,11 +1639,11 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
         { model: reverseModel, duration: reverseDuration },
       );
       addLogMessage(
-        `[${new Date().toLocaleTimeString()}] Agent 决策 ${step}: ${action.action}${action.controlId ? ` #${action.controlId}` : ""} - ${action.reason}`,
+        `[${new Date().toLocaleTimeString()}] Agent 鍐崇瓥 ${step}: ${action.action}${action.controlId ? ` #${action.controlId}` : ""} - ${action.reason}`,
       );
 
       const exec = await executeJimengAgentAction(action, observation.controls);
-      addLogMessage(`[${new Date().toLocaleTimeString()}] Agent 执行 ${step}: ${exec.message}`);
+      addLogMessage(`[${new Date().toLocaleTimeString()}] Agent 鎵ц ${step}: ${exec.message}`);
       await sleep(action.action === "wait" ? Math.max(300, Math.min(action.waitMs || 800, 3000)) : 900);
 
       const latest = await inspectPrecisePage();
@@ -1438,21 +1657,21 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
 
   const forceSwitchToFullReference = useCallback(async (): Promise<JimengPageState> => {
     for (let step = 1; step <= 3; step += 1) {
-      const result = await executeInBrowserView<{
+      const result = await executeNamedInBrowserView<{
         actions: string[];
         success: boolean;
         bodyTextSnippet: string;
-      }>(buildSafeForceSwitchFullReferenceScript(reverseDuration));
+      }>("鍒囨崲鍒板叏鑳藉弬鑰冩ā寮?, buildSafeForceSwitchFullReferenceScript(reverseDuration));
 
       if (result?.actions?.length) {
-        addLogMessage(`[${new Date().toLocaleTimeString()}] 强制切换 ${step}: ${result.actions.join(" | ")}`);
+        addLogMessage(`[${new Date().toLocaleTimeString()}] 寮哄埗鍒囨崲 ${step}: ${result.actions.join(" | ")}`);
       } else {
-        addLogMessage(`[${new Date().toLocaleTimeString()}] 强制切换 ${step}: 未找到参考模式切换控件`);
+        addLogMessage(`[${new Date().toLocaleTimeString()}] 寮哄埗鍒囨崲 ${step}: 鏈壘鍒板弬鑰冩ā寮忓垏鎹㈡帶浠禶);
       }
 
       await sleep(900);
       const state = await inspectPrecisePage();
-      addLogMessage(`[${new Date().toLocaleTimeString()}] 强制切换后特征: ${state.matchedSignals.join(", ") || "无"}`);
+      addLogMessage(`[${new Date().toLocaleTimeString()}] 寮哄埗鍒囨崲鍚庣壒寰? ${state.matchedSignals.join(", ") || "鏃?}`);
       if (state.targetMatched || result?.success) {
         return state;
       }
@@ -1466,24 +1685,24 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
     if (latestState.targetMatched) return latestState;
 
     for (let attempt = 1; attempt <= 5; attempt += 1) {
-      const action = await executeInBrowserView<{ clicks: string[]; visibleTexts?: string[] }>(buildSafeAlignSeedanceReferenceScript(reverseDuration));
+      const action = await executeNamedInBrowserView<{ clicks: string[]; visibleTexts?: string[] }>("瀵归綈鍏ㄨ兘鍙傝€冮〉闈㈢粨鏋?, buildSafeAlignSeedanceReferenceScript(reverseDuration));
       if (action?.clicks?.length) {
-        addLogMessage(`[${new Date().toLocaleTimeString()}] 第 ${attempt} 次校准点击: ${action.clicks.join(" | ")}`);
+        addLogMessage(`[${new Date().toLocaleTimeString()}] 绗?${attempt} 娆℃牎鍑嗙偣鍑? ${action.clicks.join(" | ")}`);
       } else {
-        addLogMessage(`[${new Date().toLocaleTimeString()}] 第 ${attempt} 次校准未找到新的可点击目标`);
+        addLogMessage(`[${new Date().toLocaleTimeString()}] 绗?${attempt} 娆℃牎鍑嗘湭鎵惧埌鏂扮殑鍙偣鍑荤洰鏍嘸);
       }
       if (action?.visibleTexts?.length) {
         const hints = action.visibleTexts.filter((text) =>
-          /全能参考|首帧图|首尾帧|Seedance|16:9|5s|@/.test(text),
+          /鍏ㄨ兘鍙傝€億棣栧抚鍥緗棣栧熬甯Seedance|16:9|5s|@/.test(text),
         );
         if (hints.length) {
-          addLogMessage(`[${new Date().toLocaleTimeString()}] 当前候选控件: ${hints.slice(0, 12).join(" / ")}`);
+          addLogMessage(`[${new Date().toLocaleTimeString()}] 褰撳墠鍊欓€夋帶浠? ${hints.slice(0, 12).join(" / ")}`);
         }
       }
 
       await sleep(1200);
       latestState = await inspectPrecisePage();
-      addLogMessage(`[${new Date().toLocaleTimeString()}] 当前命中特征: ${latestState.matchedSignals.join(", ") || "无"}`);
+      addLogMessage(`[${new Date().toLocaleTimeString()}] 褰撳墠鍛戒腑鐗瑰緛: ${latestState.matchedSignals.join(", ") || "鏃?}`);
       if (latestState.targetMatched) {
         return latestState;
       }
@@ -1497,35 +1716,132 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
     setAgentStatus('initializing');
     setProgress(0);
     setOperationLog([]);
-    addLogMessage(`[${new Date().toLocaleTimeString()}] 开始即梦逆向模式...`);
+    setPlaywrightPreviewDataUrl(null);
+    addLogMessage(`[${new Date().toLocaleTimeString()}] 寮€濮嬪嵆姊﹂€嗗悜妯″紡...`);
 
     try {
-      const api = window.electronAPI?.browserView;
-      if (!api) throw new Error('请在 Electron 应用中使用逆向模式');
+      const browserView = window.electronAPI?.browserView;
+      if (browserView) {
+        await syncBrowserBounds();
+        await browserView.create({ url: JIMENG_VIDEO_REFERENCE_URL });
+        await browserView.show();
+        await syncBrowserBounds();
+        addLogMessage(`[${new Date().toLocaleTimeString()}] 宸插惎鍔ㄧ▼搴忓唴瀹炴椂娴忚鍣╜);
+
+        const segmentMap = new Map<string, Scene[]>();
+        for (const scene of scenes) {
+          const key = String(scene.segmentLabel || scene.sceneNumber).trim();
+          if (!segmentMap.has(key)) segmentMap.set(key, []);
+          segmentMap.get(key)!.push(scene);
+        }
+        const segments = [...segmentMap.entries()].map(([segmentKey, segmentScenes]) => ({
+          segmentKey,
+          payload: buildStableSegmentPromptPayload(segmentScenes),
+        }));
+        if (segments.length === 0) {
+          throw new Error("娌℃湁鍙鐞嗙殑鐗囨");
+        }
+
+        setAgentStatus('operating');
+        for (let index = 0; index < segments.length; index += 1) {
+          const segment = segments[index];
+          setCurrentAction(`澶勭悊鐗囨 ${segment.segmentKey} (${index + 1}/${segments.length})`);
+          setProgress(Math.min(95, 10 + Math.round(((index + 1) / segments.length) * 85)));
+          addLogMessage(`[${new Date().toLocaleTimeString()}] 寮€濮嬪鐞嗙墖娈?${segment.segmentKey}`);
+          await prepareSegmentInBrowserView(segment.segmentKey, segment.payload);
+          addLogMessage(`[${new Date().toLocaleTimeString()}] 鐗囨 ${segment.segmentKey} 宸插畬鎴愭彁浜);
+          await sleep(1200);
+        }
+
+        setProgress(100);
+        setAgentStatus('completed');
+        setCurrentAction('闃熷垪鎵ц瀹屾垚');
+        toast({
+          title: 'Reverse Queue Ready',
+          description: `宸插畬鎴?${segments.length} 涓墖娈电殑涓茶鎻愪氦銆俙,
+          className: 'bg-emerald-50 border-emerald-200',
+        });
+        return;
+      }
+
+      if (window.electronAPI?.reversePlaywright) {
+        setCurrentAction('鍚姩 Playwright 鎵ц鍣?);
+        setProgress(15);
+        const segmentMap = new Map<string, Scene[]>();
+        for (const scene of scenes) {
+          const key = String(scene.segmentLabel || scene.sceneNumber).trim();
+          if (!segmentMap.has(key)) segmentMap.set(key, []);
+          segmentMap.get(key)!.push(scene);
+        }
+        const segments = [...segmentMap.entries()].map(([segmentKey, segmentScenes]) => {
+          const payload = buildSegmentPromptPayload(segmentScenes);
+          return {
+            segmentKey,
+            prompt: payload.prompt,
+            refs: payload.refs.map((ref, index) => ({
+              fileName: `${segmentKey}-reference-${index + 1}.jpg`,
+              url: ref.url,
+            })),
+          };
+        });
+        if (segments.length === 0) {
+          throw new Error("娌℃湁鍙鐞嗙殑鐗囨");
+        }
+        addLogMessage(`[${new Date().toLocaleTimeString()}] Playwright runner 鍑嗗 ${segments.length} 涓墖娈礰);
+        const result = await window.electronAPI.reversePlaywright.runSegments({
+          url: JIMENG_VIDEO_REFERENCE_URL,
+          model: reverseModel,
+          duration: reverseDuration,
+          segments,
+          headless: true,
+        });
+        result.logs.forEach((line) =>
+          addLogMessage(`[${new Date().toLocaleTimeString()}] ${line}`),
+        );
+        if (result.screenshotBase64) {
+          setPlaywrightPreviewDataUrl(`data:image/png;base64,${result.screenshotBase64}`);
+        }
+        if (!result.ok) {
+          throw new Error(result.error || "Playwright runner 鎵ц澶辫触");
+        }
+        setProgress(100);
+        setAgentStatus('completed');
+        setCurrentAction('Playwright queue ready');
+        toast({
+          title: 'Playwright Queue Ready',
+          description: `宸插畬鎴?${result.segments?.length || segments.length} 涓墖娈电殑妯″瀷/鏃堕暱鏍″噯銆佸弬鑰冨浘涓婁紶銆佹彁绀鸿瘝濉啓涓庝覆琛屾彁浜ゃ€俙,
+          className: 'bg-emerald-50 border-emerald-200',
+        });
+        return;
+      }
+
+      const fallbackApi2 = window.electronAPI?.browserView;
+      const api = fallbackApi2;
+      if (!api) throw new Error('璇峰湪 Electron 搴旂敤涓娇鐢ㄩ€嗗悜妯″紡');
 
       await syncBrowserBounds();
       await api.create({ url: JIMENG_HOME_URL });
       await api.show();
       await syncBrowserBounds();
-      addLogMessage(`[${new Date().toLocaleTimeString()}] 内嵌浏览器已启动`);
+      addLogMessage(`[${new Date().toLocaleTimeString()}] 鍐呭祵娴忚鍣ㄥ凡鍚姩`);
 
       await sleep(3000);
 
       setProgress(25);
       setAgentStatus('browsing');
-      setCurrentAction('检查登录状态');
+      setCurrentAction('妫€鏌ョ櫥褰曠姸鎬?);
       const initialPageState = await inspectPage();
-      addLogMessage(`[${new Date().toLocaleTimeString()}] 页面标题: ${initialPageState.title}`);
+      addLogMessage(`[${new Date().toLocaleTimeString()}] 椤甸潰鏍囬: ${initialPageState.title}`);
 
       if (!initialPageState.isLoggedIn) {
-        addLogMessage(`[${new Date().toLocaleTimeString()}] 未检测到登录状态，正在自动点击登录入口...`);
+        addLogMessage(`[${new Date().toLocaleTimeString()}] 鏈娴嬪埌鐧诲綍鐘舵€侊紝姝ｅ湪鑷姩鐐瑰嚮鐧诲綍鍏ュ彛...`);
         toast({
-          title: '需要登录',
-          description: '请在内嵌浏览器中扫码登录，系统将自动等待登录完成。',
+          title: '闇€瑕佺櫥褰?,
+          description: '璇峰湪鍐呭祵娴忚鍣ㄤ腑鎵爜鐧诲綍锛岀郴缁熷皢鑷姩绛夊緟鐧诲綍瀹屾垚銆?,
           variant: 'destructive',
         });
 
-        // 自动点击登录按钮
+        // 鑷姩鐐瑰嚮鐧诲綍鎸夐挳
         const loginClicked = await executeInBrowserView<{ clicked: boolean }>(`
           (() => {
             const btn = document.querySelector('[class*="login-button"]');
@@ -1534,10 +1850,9 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
           })()
         `);
         if (loginClicked?.clicked) {
-          addLogMessage(`[${new Date().toLocaleTimeString()}] 登录入口已点击，等待登录弹窗...`);
+          addLogMessage(`[${new Date().toLocaleTimeString()}] 鐧诲綍鍏ュ彛宸茬偣鍑伙紝绛夊緟鐧诲綍寮圭獥...`);
           await sleep(2000);
-          // 仅在同时出现"同意"和"不同意"两个按钮时才认为是协议弹窗，避免误关二维码
-          const agreed = await executeInBrowserView<{ clicked: boolean; found: boolean }>(`
+          // 浠呭湪鍚屾椂鍑虹幇"鍚屾剰"鍜?涓嶅悓鎰?涓や釜鎸夐挳鏃舵墠璁や负鏄崗璁脊绐楋紝閬垮厤璇叧浜岀淮鐮?          const agreed = await executeInBrowserView<{ clicked: boolean; found: boolean }>(`
             (() => {
               const agreeBtn = document.querySelector('[class*="agree-button"]');
               const disagreeBtn = document.querySelector('[class*="disagree-button"]');
@@ -1549,21 +1864,20 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
             })()
           `);
           if (agreed?.found) {
-            addLogMessage(`[${new Date().toLocaleTimeString()}] 已同意协议弹窗`);
+            addLogMessage(`[${new Date().toLocaleTimeString()}] 宸插悓鎰忓崗璁脊绐梎);
             await sleep(1000);
           } else {
-            addLogMessage(`[${new Date().toLocaleTimeString()}] 未检测到协议弹窗，等待二维码...`);
+            addLogMessage(`[${new Date().toLocaleTimeString()}] 鏈娴嬪埌鍗忚寮圭獥锛岀瓑寰呬簩缁寸爜...`);
           }
         } else {
-          addLogMessage(`[${new Date().toLocaleTimeString()}] 未找到登录按钮，请手动点击内嵌浏览器中的登录入口`);
+          addLogMessage(`[${new Date().toLocaleTimeString()}] 鏈壘鍒扮櫥褰曟寜閽紝璇锋墜鍔ㄧ偣鍑诲唴宓屾祻瑙堝櫒涓殑鐧诲綍鍏ュ彛`);
         }
 
         setProgress(45);
-        setCurrentAction('等待扫码登录');
-        addLogMessage(`[${new Date().toLocaleTimeString()}] 正在等待用户在内嵌浏览器中完成扫码登录...`);
+        setCurrentAction('绛夊緟鎵爜鐧诲綍');
+        addLogMessage(`[${new Date().toLocaleTimeString()}] 姝ｅ湪绛夊緟鐢ㄦ埛鍦ㄥ唴宓屾祻瑙堝櫒涓畬鎴愭壂鐮佺櫥褰?..`);
 
-        // 轮询等待登录完成（5分钟超时）
-        const loginDeadline = Date.now() + 5 * 60 * 1000;
+        // 杞绛夊緟鐧诲綍瀹屾垚锛?鍒嗛挓瓒呮椂锛?        const loginDeadline = Date.now() + 5 * 60 * 1000;
         let lastBucket = -1;
         while (Date.now() < loginDeadline) {
           const state = await inspectPage();
@@ -1572,46 +1886,46 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
           const bucket = Math.floor(elapsed / 10);
           if (bucket !== lastBucket) {
             lastBucket = bucket;
-            addLogMessage(`[${new Date().toLocaleTimeString()}] 等待登录中... ${elapsed}s`);
+            addLogMessage(`[${new Date().toLocaleTimeString()}] 绛夊緟鐧诲綍涓?.. ${elapsed}s`);
           }
           await sleep(2000);
-          if (Date.now() >= loginDeadline) throw new Error('登录超时，请重试');
+          if (Date.now() >= loginDeadline) throw new Error('鐧诲綍瓒呮椂锛岃閲嶈瘯');
         }
 
-        addLogMessage(`[${new Date().toLocaleTimeString()}] 登录成功`);
+        addLogMessage(`[${new Date().toLocaleTimeString()}] 鐧诲綍鎴愬姛`);
         toast({
-          title: '登录完成',
-          description: '正在跳转到 Seedance 2.0 视频生成页面...',
+          title: '鐧诲綍瀹屾垚',
+          description: '姝ｅ湪璺宠浆鍒?Seedance 2.0 瑙嗛鐢熸垚椤甸潰...',
           className: 'bg-emerald-50 border-emerald-200',
         });
       } else {
-        addLogMessage(`[${new Date().toLocaleTimeString()}] 已检测到登录状态，直接跳转视频生成页`);
+        addLogMessage(`[${new Date().toLocaleTimeString()}] 宸叉娴嬪埌鐧诲綍鐘舵€侊紝鐩存帴璺宠浆瑙嗛鐢熸垚椤礰);
       }
 
       setBrowserLocked(true);
       await window.electronAPI?.browserView?.setIgnoreMouseEvents(true);
       await api.show();
       await syncBrowserBounds();
-      addLogMessage(`[${new Date().toLocaleTimeString()}] 自动化控制已锁定浏览器交互，鼠标不会再干预操作`);
+      addLogMessage(`[${new Date().toLocaleTimeString()}] 鑷姩鍖栨帶鍒跺凡閿佸畾娴忚鍣ㄤ氦浜掞紝榧犳爣涓嶄細鍐嶅共棰勬搷浣渀);
 
       setProgress(70);
       setAgentStatus('operating');
-      setCurrentAction('跳转 Seedance 2.0 全能参考');
+      setCurrentAction('璺宠浆 Seedance 2.0 鍏ㄨ兘鍙傝€?);
 
-      // 导航到视频生成页
+      // 瀵艰埅鍒拌棰戠敓鎴愰〉
       await api.navigate(JIMENG_VIDEO_REFERENCE_URL);
       await sleep(4000);
 
-      // 点击「全能参考」tab（按文本内容查找，避免依赖不稳定的 class 名）
+      // 鐐瑰嚮銆屽叏鑳藉弬鑰冦€峵ab锛堟寜鏂囨湰鍐呭鏌ユ壘锛岄伩鍏嶄緷璧栦笉绋冲畾鐨?class 鍚嶏級
       const tabClicked = await executeInBrowserView<{ clicked: boolean; text: string }>(`
         (() => {
-          const keywords = ['全能参考', 'Full Reference'];
+          const keywords = ['鍏ㄨ兘鍙傝€?, 'Full Reference'];
           const all = Array.from(document.querySelectorAll('button, [role="tab"], div[class*="tab"], span'));
           for (const kw of keywords) {
             const el = all.find(n => n instanceof HTMLElement && n.innerText?.trim() === kw && n.getBoundingClientRect().width > 0);
             if (el instanceof HTMLElement) { el.click(); return { clicked: true, text: el.innerText.trim() }; }
           }
-          // 宽松匹配：包含关键词
+          // 瀹芥澗鍖归厤锛氬寘鍚叧閿瘝
           for (const kw of keywords) {
             const el = all.find(n => n instanceof HTMLElement && n.innerText?.includes(kw) && n.getBoundingClientRect().width > 0);
             if (el instanceof HTMLElement) { el.click(); return { clicked: true, text: el.innerText.trim() }; }
@@ -1620,45 +1934,45 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
         })()
       `);
       if (tabClicked?.clicked) {
-        addLogMessage(`[${new Date().toLocaleTimeString()}] 已点击全能参考 tab: ${tabClicked.text}`);
+        addLogMessage(`[${new Date().toLocaleTimeString()}] 宸茬偣鍑诲叏鑳藉弬鑰?tab: ${tabClicked.text}`);
         await sleep(2000);
       } else {
-        addLogMessage(`[${new Date().toLocaleTimeString()}] 未找到全能参考 tab，页面可能已在正确位置`);
+        addLogMessage(`[${new Date().toLocaleTimeString()}] 鏈壘鍒板叏鑳藉弬鑰?tab锛岄〉闈㈠彲鑳藉凡鍦ㄦ纭綅缃甡);
       }
 
-      addLogMessage(`[${new Date().toLocaleTimeString()}] 执行强制模式切换...`);
+      addLogMessage(`[${new Date().toLocaleTimeString()}] 鎵ц寮哄埗妯″紡鍒囨崲...`);
       let finalState = await forceSwitchToFullReference();
 
-      addLogMessage(`[${new Date().toLocaleTimeString()}] 应用目标参数: 模型 ${reverseModel} / 时长 ${reverseDuration}`);
+      addLogMessage(`[${new Date().toLocaleTimeString()}] 搴旂敤鐩爣鍙傛暟: 妯″瀷 ${reverseModel} / 鏃堕暱 ${reverseDuration}`);
       const calibratedSettings = await calibrateTargetSettings();
       if (!calibratedSettings.hasTargetModel || !calibratedSettings.hasTargetDuration) {
         throw new Error(
-          `目标参数未校准成功：目标模型=${reverseModel}，目标时长=${reverseDuration}；当前模型=${calibratedSettings.currentModel || "无"}，当前时长=${calibratedSettings.currentDuration || "无"}`,
+          `鐩爣鍙傛暟鏈牎鍑嗘垚鍔燂細鐩爣妯″瀷=${reverseModel}锛岀洰鏍囨椂闀?${reverseDuration}锛涘綋鍓嶆ā鍨?${calibratedSettings.currentModel || "鏃?}锛屽綋鍓嶆椂闀?${calibratedSettings.currentDuration || "鏃?}`,
         );
       }
       await sleep(800);
       finalState = await inspectPrecisePage();
 
-      addLogMessage(`[${new Date().toLocaleTimeString()}] 启动内置 Agent 对齐全能参考...`);
+      addLogMessage(`[${new Date().toLocaleTimeString()}] 鍚姩鍐呯疆 Agent 瀵归綈鍏ㄨ兘鍙傝€?..`);
       if (!finalState.targetMatched) {
         finalState = await alignToSeedanceReferenceWithAgent();
       }
       if (!finalState.targetMatched) {
-        addLogMessage(`[${new Date().toLocaleTimeString()}] Agent 未完全命中，回退到规则兜底...`);
+        addLogMessage(`[${new Date().toLocaleTimeString()}] Agent 鏈畬鍏ㄥ懡涓紝鍥為€€鍒拌鍒欏厹搴?..`);
         finalState = await alignToSeedanceReference();
       }
 
       setBrowserUrl(finalState.url || JIMENG_VIDEO_REFERENCE_URL);
       if (!finalState.targetMatched) {
-        throw new Error(`未能精确定位到 Seedance 2.0 全能参考，当前命中特征: ${finalState.matchedSignals.join(", ") || "无"}`);
+        throw new Error(`鏈兘绮剧‘瀹氫綅鍒?Seedance 2.0 鍏ㄨ兘鍙傝€冿紝褰撳墠鍛戒腑鐗瑰緛: ${finalState.matchedSignals.join(", ") || "鏃?}`);
       }
-      addLogMessage(`[${new Date().toLocaleTimeString()}] 已到达 Seedance 2.0 全能参考视频生成页`);
+      addLogMessage(`[${new Date().toLocaleTimeString()}] 宸插埌杈?Seedance 2.0 鍏ㄨ兘鍙傝€冭棰戠敓鎴愰〉`);
 
       setProgress(82);
-      setCurrentAction('上传参考图并填入整段提示词');
-      addLogMessage(`[${new Date().toLocaleTimeString()}] 开始上传角色/场景参考图并填写整段提示词`);
-      const fillResult = await prepareCombinedPromptInBrowser();
-      addLogMessage(`[${new Date().toLocaleTimeString()}] 整段提示词填写结果: ${fillResult?.message || "执行完成"}`);
+      setCurrentAction('涓婁紶鍙傝€冨浘骞跺～鍏ユ暣娈垫彁绀鸿瘝');
+      addLogMessage(`[${new Date().toLocaleTimeString()}] 寮€濮嬩笂浼犺鑹?鍦烘櫙鍙傝€冨浘骞跺～鍐欐暣娈垫彁绀鸿瘝`);
+      const fillResult = await prepareSegmentPromptInBrowser();
+      addLogMessage(`[${new Date().toLocaleTimeString()}] 鏁存鎻愮ず璇嶅～鍐欑粨鏋? ${fillResult?.message || "鎵ц瀹屾垚"}`);
       setProgress(100);
       setAgentStatus('completed');
       setCurrentAction('Reverse-mode prompt ready');
@@ -1670,13 +1984,13 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
         className: 'bg-emerald-50 border-emerald-200',
       });
       return;
-      setCurrentAction('写入分镜提示词与参考图');
+      setCurrentAction('鍐欏叆鍒嗛暅鎻愮ず璇嶄笌鍙傝€冨浘');
       for (let index = 0; index < scenes.length; index += 1) {
         const scene = scenes[index];
-        addLogMessage(`[${new Date().toLocaleTimeString()}] 开始提交分镜 ${scene.segmentLabel || scene.sceneNumber}/${scenes.length}`);
+        addLogMessage(`[${new Date().toLocaleTimeString()}] 寮€濮嬫彁浜ゅ垎闀?${scene.segmentLabel || scene.sceneNumber}/${scenes.length}`);
         const result = await pushScenePromptToBrowser(scene);
         addLogMessage(
-          `[${new Date().toLocaleTimeString()}] 分镜 ${scene.segmentLabel || scene.sceneNumber}: ${result?.message || "执行完成"}`,
+          `[${new Date().toLocaleTimeString()}] 鍒嗛暅 ${scene.segmentLabel || scene.sceneNumber}: ${result?.message || "鎵ц瀹屾垚"}`,
         );
         setProgress(Math.min(98, 82 + Math.round(((index + 1) / Math.max(1, scenes.length)) * 16)));
         await sleep(1800);
@@ -1714,55 +2028,56 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
   };
 
   const stopAgent = () => {
+    void window.electronAPI?.reversePlaywright?.close();
     void window.electronAPI?.browserView?.setIgnoreMouseEvents(false);
     void window.electronAPI?.browserView?.show();
     setBrowserLocked(false);
     setAgentStatus('idle');
-    setCurrentAction('等待开始...');
+    setCurrentAction('绛夊緟寮€濮?..');
     toast({
-      title: "操作已停止",
-      description: "AI代理已停止执行"
+      title: "鎿嶄綔宸插仠姝?,
+      description: "AI浠ｇ悊宸插仠姝㈡墽琛?
     });
   };
 
-  // 重置代理
+  // 閲嶇疆浠ｇ悊
   const resetAgent = () => {
+    void window.electronAPI?.reversePlaywright?.close();
     void window.electronAPI?.browserView?.setIgnoreMouseEvents(false);
     void window.electronAPI?.browserView?.close();
     setBrowserLocked(false);
-    setBrowserPreviewDataUrl("");
+    setPlaywrightPreviewDataUrl(null);
     setAgentStatus('idle');
     setProgress(0);
-    setCurrentAction('等待开始...');
+    setCurrentAction('绛夊緟寮€濮?..');
     setBrowserUrl(JIMENG_HOME_URL);
     setOperationLog([]);
     toast({
-      title: "已重置",
-      description: "代理状态已重置"
+      title: "宸查噸缃?,
+      description: "浠ｇ悊鐘舵€佸凡閲嶇疆"
     });
   };
 
-  // 状态显示配置
-  const statusConfig = {
-    idle: { label: '就绪', color: 'text-gray-600', bg: 'bg-gray-100' },
-    initializing: { label: '初始化', color: 'text-blue-600', bg: 'bg-blue-100' },
-    browsing: { label: '浏览中', color: 'text-purple-600', bg: 'bg-purple-100' },
-    operating: { label: '操作中', color: 'text-indigo-600', bg: 'bg-indigo-100' },
-    generating: { label: '生成中', color: 'text-orange-600', bg: 'bg-orange-100' },
-    completed: { label: '已完成', color: 'text-emerald-600', bg: 'bg-emerald-100' },
-    error: { label: '错误', color: 'text-red-600', bg: 'bg-red-100' }
+  // 鐘舵€佹樉绀洪厤缃?  const statusConfig = {
+    idle: { label: '灏辩华', color: 'text-gray-600', bg: 'bg-gray-100' },
+    initializing: { label: '鍒濆鍖?, color: 'text-blue-600', bg: 'bg-blue-100' },
+    browsing: { label: '娴忚涓?, color: 'text-purple-600', bg: 'bg-purple-100' },
+    operating: { label: '鎿嶄綔涓?, color: 'text-indigo-600', bg: 'bg-indigo-100' },
+    generating: { label: '鐢熸垚涓?, color: 'text-orange-600', bg: 'bg-orange-100' },
+    completed: { label: '宸插畬鎴?, color: 'text-emerald-600', bg: 'bg-emerald-100' },
+    error: { label: '閿欒', color: 'text-red-600', bg: 'bg-red-100' }
   };
 
   const currentStatus = statusConfig[agentStatus];
 
   return (
     <div className="space-y-4">
-      {/* 代理状态栏 */}
+      {/* 浠ｇ悊鐘舵€佹爮 */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <Bot className="h-4 w-4 text-indigo-600" />
-            <span className="font-medium">多模态AI代理</span>
+            <span className="font-medium">澶氭ā鎬丄I浠ｇ悊</span>
           </div>
           <Badge className={`${currentStatus.bg} ${currentStatus.color} text-xs`}>
             {currentStatus.label}
@@ -1786,25 +2101,41 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
             className="text-xs gap-1"
           >
             {showBrowser ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-            {showBrowser ? "隐藏" : "显示"}浏览器
-          </Button>
+            {showBrowser ? "闅愯棌" : "鏄剧ず"}娴忚鍣?          </Button>
           <div className="text-xs px-2 py-1 rounded bg-emerald-500/10 text-emerald-700 border border-emerald-500/20">
-            应用内实时模式
-          </div>
+            搴旂敤鍐呭疄鏃舵ā寮?          </div>
         </div>
       </div>
 
-      {/* 浏览器窗口 */}
+      {/* 娴忚鍣ㄧ獥鍙?*/}
+      {false && playwrightPreviewDataUrl && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Bot className="h-4 w-4" />
+              Playwright 鎵ц蹇収
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-hidden rounded-lg border bg-muted">
+              <img src={playwrightPreviewDataUrl} alt="Playwright preview" className="h-auto w-full" />
+            </div>
+          </CardContent>
+        </Card>
+      )}
       {showBrowser && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm">
               <Chrome className="h-4 w-4" />
-              内置浏览器 - 即梦视频生成
+              鍐呯疆娴忚鍣?- 鍗虫ⅵ瑙嗛鐢熸垚
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="border rounded-lg overflow-hidden bg-muted">
+          <CardContent className="overflow-x-hidden">
+            <div
+              ref={browserViewportRef}
+              className="w-full max-w-full overflow-hidden rounded-lg border bg-muted"
+            >
               <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 border-b">
                 <div className="flex gap-1.5">
                   <div className="w-3 h-3 rounded-full bg-red-400"></div>
@@ -1815,7 +2146,7 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
                   value={browserUrl}
                   onChange={(e) => setBrowserUrl(e.target.value)}
                   className="h-7 text-xs border-0 focus-visible:ring-0 bg-white ml-2"
-                  placeholder="输入网址..."
+                  placeholder="杈撳叆缃戝潃..."
                   disabled={agentStatus !== 'idle'}
                 />
                 <Button
@@ -1827,22 +2158,21 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
                     await syncBrowserBounds();
                   }}
                 >
-                  跳转
+                  璺宠浆
                 </Button>
               </div>
-              {/* Placeholder that reserves layout space — the actual BrowserView is fixed-positioned */}
-              <div ref={browserPlaceholderRef} className="h-[70vh] min-h-[520px]" />
+              {/* Placeholder that reserves layout space 鈥?the actual BrowserView is fixed-positioned */}
+              <div ref={browserPlaceholderRef} className="h-[70vh] min-h-[520px] w-full overflow-hidden" />
               {/* Fixed overlay: anchored to viewport so page scroll doesn't move the BrowserView */}
               <div
                 ref={browserContainerRef}
-                className="fixed bg-transparent overflow-hidden"
+                className="fixed overflow-hidden bg-transparent"
                 style={{ zIndex: 10 }}
               >
                 {browserLocked && (
                   <div className="absolute inset-x-0 top-0 z-10 pointer-events-none">
                     <div className="mx-3 mt-3 inline-flex rounded bg-amber-500/90 px-2 py-1 text-xs text-black select-none">
-                      自动化控制中：仅锁定内置浏览器交互
-                    </div>
+                      鑷姩鍖栨帶鍒朵腑锛氫粎閿佸畾鍐呯疆娴忚鍣ㄤ氦浜?                    </div>
                   </div>
                 )}
                 {!browserState.visible && (
@@ -1850,24 +2180,23 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
                     <div className="text-center">
                       <Chrome className="h-12 w-12 text-gray-500 mx-auto mb-2" />
                       <p className="text-sm text-gray-400 mb-1">
-                        {agentStatus === 'idle' ? 'AI代理已准备就绪' : currentAction}
+                        {agentStatus === 'idle' ? 'AI浠ｇ悊宸插噯澶囧氨缁? : currentAction}
                       </p>
                       <p className="text-xs text-gray-500">
-                        内嵌浏览器将在此区域实时展示操作过程
+                        鍐呭祵娴忚鍣ㄥ皢鍦ㄦ鍖哄煙瀹炴椂灞曠ず鎿嶄綔杩囩▼
                       </p>
                     </div>
                   </div>
                 )}
                 {browserState.loading && (
                   <div className="absolute top-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded">
-                    页面加载中...
+                    椤甸潰鍔犺浇涓?..
                   </div>
                 )}
                 {!browserLocked && browserState.visible && (
                   <div className="absolute top-2 left-2 bg-emerald-600/90 text-white text-xs px-2 py-1 rounded flex items-center gap-1 z-10">
                     <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
-                    实时内嵌浏览器
-                  </div>
+                    瀹炴椂鍐呭祵娴忚鍣?                  </div>
                 )}
                 {browserState.error && (
                   <div className="absolute bottom-2 left-2 right-2 bg-red-600/90 text-white text-xs px-2 py-1 rounded z-10">
@@ -1880,18 +2209,18 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
         </Card>
       )}
 
-      {/* 控制面板 */}
+      {/* 鎺у埗闈㈡澘 */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
             <Settings className="h-4 w-4" />
-            代理配置
+            浠ｇ悊閰嶇疆
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">目标网站</Label>
+              <Label className="text-xs text-muted-foreground">鐩爣缃戠珯</Label>
               <Input
                 value={browserUrl}
                 onChange={(e) => setBrowserUrl(e.target.value)}
@@ -1902,17 +2231,16 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">浏览器显示</Label>
+              <Label className="text-xs text-muted-foreground">娴忚鍣ㄦ樉绀?/Label>
               <div className="flex items-center gap-2 pt-1 text-sm text-foreground">
                 <Webhook className="h-4 w-4" />
-                应用内实时浏览
-              </div>
+                搴旂敤鍐呭疄鏃舵祻瑙?              </div>
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">目标模型</Label>
+              <Label className="text-xs text-muted-foreground">鐩爣妯″瀷</Label>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="w-full justify-between text-xs" disabled={agentStatus !== 'idle'}>
@@ -1937,7 +2265,7 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">目标时长</Label>
+              <Label className="text-xs text-muted-foreground">鐩爣鏃堕暱</Label>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="w-full justify-between text-xs" disabled={agentStatus !== 'idle'}>
@@ -1963,12 +2291,12 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
           </div>
 
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">执行摘要</Label>
+            <Label className="text-xs text-muted-foreground">鎵ц鎽樿</Label>
             <div className="text-xs bg-secondary/30 p-3 rounded">
-              <p>待处理分镜: {scenes.length}</p>
-              <p>目标参数: {reverseModel} / {reverseDuration}</p>
-              <p>预计执行时间: {Math.ceil(scenes.length * 15 / 60)}分钟</p>
-              <p className="mt-1 text-muted-foreground">真实操作包括: 页面导航、元素识别、表单填写、按钮点击、等待响应等</p>
+              <p>寰呭鐞嗗垎闀? {scenes.length}</p>
+              <p>鐩爣鍙傛暟: {reverseModel} / {reverseDuration}</p>
+              <p>棰勮鎵ц鏃堕棿: {Math.ceil(scenes.length * 15 / 60)}鍒嗛挓</p>
+              <p className="mt-1 text-muted-foreground">鐪熷疄鎿嶄綔鍖呮嫭: 椤甸潰瀵艰埅銆佸厓绱犺瘑鍒€佽〃鍗曞～鍐欍€佹寜閽偣鍑汇€佺瓑寰呭搷搴旂瓑</p>
             </div>
           </div>
 
@@ -1976,22 +2304,19 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
             {agentStatus === 'idle' ? (
               <Button onClick={startAgent} className="gap-1.5">
                 <Play className="h-3.5 w-3.5" />
-                开始真实操作
-              </Button>
+                寮€濮嬬湡瀹炴搷浣?              </Button>
             ) : agentStatus === 'completed' ? (
               <Button className="gap-1.5" variant="default">
                 <CheckCircle className="h-3.5 w-3.5" />
-                任务已完成
-              </Button>
+                浠诲姟宸插畬鎴?              </Button>
             ) : agentStatus === 'error' ? (
               <Button onClick={resetAgent} variant="secondary" className="gap-1.5">
                 <RotateCcw className="h-3.5 w-3.5" />
-                重新开始
-              </Button>
+                閲嶆柊寮€濮?              </Button>
             ) : (
               <Button onClick={stopAgent} variant="destructive" className="gap-1.5">
                 <Pause className="h-3.5 w-3.5" />
-                停止操作
+                鍋滄鎿嶄綔
               </Button>
             )}
 
@@ -2002,19 +2327,19 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
               disabled={agentStatus === 'idle'}
             >
               <RotateCcw className="h-3.5 w-3.5" />
-              重置
+              閲嶇疆
             </Button>
           </div>
         </CardContent>
       </Card>
 
-      {/* 进度指示器 */}
+      {/* 杩涘害鎸囩ず鍣?*/}
       {(agentStatus !== 'idle' && agentStatus !== 'completed') && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <Loader2 className={`h-4 w-4 ${agentStatus === 'generating' ? 'animate-spin' : ''}`} />
-              执行进度
+              鎵ц杩涘害
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -2029,12 +2354,12 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
         </Card>
       )}
 
-      {/* 操作日志 */}
+      {/* 鎿嶄綔鏃ュ織 */}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
             <Bot className="h-4 w-4" />
-            详细操作日志
+            璇︾粏鎿嶄綔鏃ュ織
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -2045,10 +2370,10 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
                   <div
                     key={i}
                     className={`py-0.5 border-b border-muted-foreground/20 last:border-0 ${
-                      log.includes('错误') || log.includes('[错误]') ? 'text-red-600' :
-                      log.includes('完成') ? 'text-emerald-600' :
-                      log.includes('开始') || log.includes('等待') ? 'text-blue-600' :
-                      log.includes('AI代理') ? 'text-indigo-600' :
+                      log.includes('閿欒') || log.includes('[閿欒]') ? 'text-red-600' :
+                      log.includes('瀹屾垚') ? 'text-emerald-600' :
+                      log.includes('寮€濮?) || log.includes('绛夊緟') ? 'text-blue-600' :
+                      log.includes('AI浠ｇ悊') ? 'text-indigo-600' :
                       'text-foreground/80'
                     }`}
                   >
@@ -2059,28 +2384,27 @@ const MultimodalAgentPanel = ({ scenes, characters, sceneSettings }: MultimodalA
             ) : (
               <div className="text-xs text-muted-foreground text-center py-8">
                 <Bot className="h-6 w-6 mx-auto mb-2 opacity-50" />
-                <p>AI代理日志将在此显示</p>
-                <p className="mt-1">开始操作后将显示详细的浏览器操作步骤</p>
+                <p>AI浠ｇ悊鏃ュ織灏嗗湪姝ゆ樉绀?/p>
+                <p className="mt-1">寮€濮嬫搷浣滃悗灏嗘樉绀鸿缁嗙殑娴忚鍣ㄦ搷浣滄楠?/p>
               </div>
             )}
           </div>
         </CardContent>
       </Card>
 
-      {/* 技术说明 */}
+      {/* 鎶€鏈鏄?*/}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
             <AlertTriangle className="h-4 w-4" />
-            技术实现说明
-          </CardTitle>
+            鎶€鏈疄鐜拌鏄?          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-xs text-muted-foreground space-y-2">
-            <p><strong>真实浏览器操作:</strong> AI代理通过自动化控制器操作真实的浏览器实例</p>
-            <p><strong>操作流程:</strong> 页面导航 → 元素识别 → 信息填充 → 交互操作 → 结果验证</p>
-            <p><strong>智能元素定位:</strong> 使用多重选择器策略确保能找到正确的页面元素</p>
-            <p><strong>安全措施:</strong> 所有操作都在隔离的浏览器环境中执行</p>
+            <p><strong>鐪熷疄娴忚鍣ㄦ搷浣?</strong> AI浠ｇ悊閫氳繃鑷姩鍖栨帶鍒跺櫒鎿嶄綔鐪熷疄鐨勬祻瑙堝櫒瀹炰緥</p>
+            <p><strong>鎿嶄綔娴佺▼:</strong> 椤甸潰瀵艰埅 鈫?鍏冪礌璇嗗埆 鈫?淇℃伅濉厖 鈫?浜や簰鎿嶄綔 鈫?缁撴灉楠岃瘉</p>
+            <p><strong>鏅鸿兘鍏冪礌瀹氫綅:</strong> 浣跨敤澶氶噸閫夋嫨鍣ㄧ瓥鐣ョ‘淇濊兘鎵惧埌姝ｇ‘鐨勯〉闈㈠厓绱?/p>
+            <p><strong>瀹夊叏鎺柦:</strong> 鎵€鏈夋搷浣滈兘鍦ㄩ殧绂荤殑娴忚鍣ㄧ幆澧冧腑鎵ц</p>
           </div>
         </CardContent>
       </Card>

@@ -1,7 +1,7 @@
 {
   "name": "vite_react_shadcn_ts",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.2.0",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -12,6 +12,7 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
+    "repair:text-cache": "node scripts/repair-workspace-text-cache.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "electron:dev": "node electron/build.mjs && concurrently \"npm run dev\" \"node electron/dev-launch.cjs\"",

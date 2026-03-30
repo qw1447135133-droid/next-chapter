@@ -15,7 +15,7 @@
  *  5. 触发视频下载         → POST /api/download
  */
 
-import { getApiConfig } from "@/pages/Settings";
+import { getApiConfig } from "@/lib/api-config";
 import { getResolvedFilesStoragePath } from "@/lib/storage-path";
 
 export type JimengTaskStatus = "pending" | "running" | "success" | "failed";

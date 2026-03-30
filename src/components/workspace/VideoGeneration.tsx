@@ -7,7 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Slider } from "@/components/ui/slider";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Play, RefreshCw, Loader2, ArrowRight, CheckCircle, XCircle, ChevronDown, History, RotateCcw, Clock, RectangleHorizontal, RectangleVertical, ScanSearch } from "lucide-react";
-import MultimodalAgentPanel from "./MultimodalAgentPanel";
+import ReverseBrowserViewPanel from "./ReverseBrowserViewPanel";
 import { Badge } from "@/components/ui/badge";
 import ImageThumbnail from "@/components/workspace/ImageThumbnail";
 import type { StoryboardAspectRatio } from "./StoryboardPreview";
@@ -23,6 +23,7 @@ interface VideoGenerationProps {
   scenes: Scene[];
   characters: CharacterSetting[];
   sceneSettings: SceneSetting[];
+  projectId?: string;
   videoModel: VideoModel;
   onVideoModelChange: (model: VideoModel) => void;
   onGenerateAll: () => void;
@@ -51,6 +52,7 @@ const VideoGeneration = ({
   scenes,
   characters,
   sceneSettings,
+  projectId,
   videoModel,
   onVideoModelChange,
   onGenerateAll,
@@ -192,36 +194,41 @@ const VideoGeneration = ({
             </button>
           </div>
 
-          <Popover open={arOpen} onOpenChange={setArOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 h-9 text-xs"
-                disabled={videoMode === "api" && (isGenerating || anyProcessing)}
-              >
-                <currentAR.icon className="h-3.5 w-3.5" />
-                {currentAR.value}
-                <ChevronDown className="h-3 w-3 opacity-50" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-40 p-1" align="end">
-              {ASPECT_RATIO_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-sm text-xs transition-colors ${
-                    aspectRatio === opt.value
-                      ? "bg-primary/10 text-primary font-medium"
-                      : "hover:bg-muted text-foreground"
-                  }`}
-                  onClick={() => { setAspectRatio(opt.value); setArOpen(false); }}
+          {videoMode === "api" && (
+            <Popover open={arOpen} onOpenChange={setArOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 h-9 text-xs"
+                  disabled={isGenerating || anyProcessing}
                 >
-                  <opt.icon className="h-3.5 w-3.5 shrink-0" />
-                  {opt.label}
-                </button>
-              ))}
-            </PopoverContent>
-          </Popover>
+                  <currentAR.icon className="h-3.5 w-3.5" />
+                  {currentAR.value}
+                  <ChevronDown className="h-3 w-3 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-40 p-1" align="end">
+                {ASPECT_RATIO_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-sm text-xs transition-colors ${
+                      aspectRatio === opt.value
+                        ? "bg-primary/10 text-primary font-medium"
+                        : "hover:bg-muted text-foreground"
+                    }`}
+                    onClick={() => {
+                      setAspectRatio(opt.value);
+                      setArOpen(false);
+                    }}
+                  >
+                    <opt.icon className="h-3.5 w-3.5 shrink-0" />
+                    {opt.label}
+                  </button>
+                ))}
+              </PopoverContent>
+            </Popover>
+          )}
 
           {videoMode === "api" && (isGenerating || anyProcessing ? (
             <Button variant="destructive" onClick={onStopAll} disabled={isAborting} className="gap-1">
@@ -243,7 +250,7 @@ const VideoGeneration = ({
 
       {/* 主体内容 */}
       {videoMode === "reverse"
-        ? <MultimodalAgentPanel scenes={scenes} characters={characters} sceneSettings={sceneSettings} />
+        ? <ReverseBrowserViewPanel scenes={scenes} characters={characters} sceneSettings={sceneSettings} projectId={projectId} />
         : <div className={gridClass}>
             {scenes.map((scene) => {
               const isSceneProcessing = scene.videoStatus === "preparing" || scene.videoStatus === "queued" || scene.videoStatus === "processing";

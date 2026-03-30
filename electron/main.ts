@@ -24,6 +24,8 @@ const {
 const { spawn } = require("node:child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require("node:fs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { reversePlaywrightRunner } = require("./reverse-playwright-runner");
 
 // CJS 模式下 __dirname 由 Node.js 自动提供
 // 注意：main.ts 被 esbuild 编译为 CJS，__dirname 在运行时可用
@@ -177,7 +179,14 @@ function hideEmbeddedBrowserView() {
 function closeEmbeddedBrowserView() {
   if (!embeddedBrowserView || !mainWindow) return;
   mainWindow.removeBrowserView(embeddedBrowserView);
-  (embeddedBrowserView.webContents as any).destroy?.();
+  try {
+    const wc = embeddedBrowserView.webContents as any;
+    if (wc && !wc.isDestroyed?.()) {
+      wc.destroy?.();
+    }
+  } catch {
+    /* ignore */
+  }
   embeddedBrowserView = null;
   embeddedBrowserState = { visible: false, url: "", title: "", loading: false, error: "" };
   embeddedBrowserBounds = { x: 0, y: 0, width: 0, height: 0 };
@@ -491,6 +500,20 @@ function setupIPC() {
     return API_BASE;
   });
 
+  // 🛡️ 读取崩溃日志
+  ipcMain.handle("crash:getLogs", () => {
+    const crashLogPath = path.join(getUserDataPath(), "crash-log.json");
+    try {
+      if (fs.existsSync(crashLogPath)) {
+        const logs = JSON.parse(fs.readFileSync(crashLogPath, "utf8"));
+        return { ok: true, logs };
+      }
+      return { ok: true, logs: [] };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  });
+
   ipcMain.handle("browserView:create", async (_event, params?: {
     url?: string;
     bounds?: { x: number; y: number; width: number; height: number };
@@ -643,8 +666,12 @@ function setupIPC() {
           throw new Error(`未找到文件输入框: ${selector}`);
         }
         const safeIndex = Math.max(0, Math.min(index, nodeIds.length - 1));
-        await debuggerClient.sendCommand("DOM.setFileInputFiles", {
+        const described = await debuggerClient.sendCommand("DOM.describeNode", {
           nodeId: nodeIds[safeIndex],
+        });
+        const backendNodeId = described?.node?.backendNodeId;
+        await debuggerClient.sendCommand("DOM.setFileInputFiles", {
+          ...(backendNodeId ? { backendNodeId } : { nodeId: nodeIds[safeIndex] }),
           files: writtenFiles,
         });
         return {
@@ -673,6 +700,148 @@ function setupIPC() {
           }
         }
       }
+    },
+  );
+
+  ipcMain.handle(
+    "browserView:sendInputEvents",
+    async (
+      _event,
+      {
+        events,
+      }: {
+        events: Array<{
+          type: string;
+          keyCode?: string;
+          modifiers?: string[];
+          x?: number;
+          y?: number;
+          button?: string;
+          clickCount?: number;
+        }>;
+      },
+    ) => {
+      if (!embeddedBrowserView) {
+        return { ok: false, error: "浏览器视图尚未创建" };
+      }
+      if (!Array.isArray(events) || events.length === 0) {
+        return { ok: false, error: "没有可发送的输入事件" };
+      }
+      try {
+        embeddedBrowserView.webContents.focus();
+        for (const event of events) {
+          embeddedBrowserView.webContents.sendInputEvent({
+            type: event.type as any,
+            keyCode: event.keyCode as any,
+            modifiers: event.modifiers as any,
+            x: event.x,
+            y: event.y,
+            button: event.button as any,
+            clickCount: event.clickCount,
+          });
+        }
+        return { ok: true };
+      } catch (error) {
+        log(
+          "error",
+          `browserView:sendInputEvents 失败: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    "browserView:download",
+    async (
+      _event,
+      {
+        savePath,
+        script,
+        timeoutMs = 20000,
+      }: {
+        savePath: string;
+        script?: string;
+        timeoutMs?: number;
+      },
+    ) => {
+      if (!embeddedBrowserView) {
+        return { ok: false, error: "浏览器视图尚未创建" };
+      }
+      if (!savePath) {
+        return { ok: false, error: "缺少保存路径" };
+      }
+
+      const targetDir = path.dirname(savePath);
+      fs.mkdirSync(targetDir, { recursive: true });
+
+      return await new Promise((resolve) => {
+        const session = embeddedBrowserView!.webContents.session;
+        let finished = false;
+
+        const cleanup = () => {
+          session.removeListener("will-download", onWillDownload);
+          clearTimeout(timer);
+        };
+
+        const finish = (payload: Record<string, unknown>) => {
+          if (finished) return;
+          finished = true;
+          cleanup();
+          resolve(payload);
+        };
+
+        const onWillDownload = (
+          _downloadEvent: Electron.Event,
+          item: Electron.DownloadItem,
+          webContents: Electron.WebContents,
+        ) => {
+          if (webContents !== embeddedBrowserView!.webContents) return;
+
+          item.setSavePath(savePath);
+          item.once("done", (_doneEvent, state) => {
+            if (state === "completed") {
+              finish({
+                ok: true,
+                savePath,
+                url: item.getURL(),
+              });
+            } else {
+              finish({
+                ok: false,
+                error: `下载未完成: ${state}`,
+                savePath,
+              });
+            }
+          });
+        };
+
+        const timer = setTimeout(() => {
+          finish({ ok: false, error: "等待下载超时", savePath });
+        }, timeoutMs);
+
+        session.on("will-download", onWillDownload);
+
+        if (!script) {
+          finish({ ok: false, error: "缺少下载触发脚本", savePath });
+          return;
+        }
+
+        embeddedBrowserView!.webContents
+          .executeJavaScript(script, true)
+          .catch((error) => {
+            finish({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+              savePath,
+            });
+          });
+      });
     },
   );
 
@@ -719,11 +888,76 @@ function setupIPC() {
     return { ok: true };
   });
 
+  ipcMain.handle(
+    "reversePlaywright:prepareSegment",
+    async (
+      _event,
+      params: {
+        url: string;
+        model: string;
+        duration: string;
+        prompt: string;
+        refs: Array<{ fileName: string; url?: string; dataUrl?: string }>;
+        headless?: boolean;
+      },
+    ) => {
+      return reversePlaywrightRunner.prepareSegment(params);
+    },
+  );
+
+  ipcMain.handle(
+    "reversePlaywright:runSegments",
+    async (
+      _event,
+      params: {
+        url: string;
+        model: string;
+        duration: string;
+        segments: Array<{
+          segmentKey: string;
+          prompt: string;
+          refs: Array<{ fileName: string; url?: string; dataUrl?: string }>;
+        }>;
+        headless?: boolean;
+      },
+    ) => {
+      return reversePlaywrightRunner.runSegments(params);
+    },
+  );
+
+  ipcMain.handle("reversePlaywright:capture", async () => {
+    return reversePlaywrightRunner.capture();
+  });
+
+  ipcMain.handle("reversePlaywright:close", async () => {
+    await reversePlaywrightRunner.close();
+    return { ok: true };
+  });
+
   // 打开即梦登录页面（用于首次授权）
   ipcMain.handle("jimeng:openSetup", async () => {
     await ensureEmbeddedBrowserView("https://jimeng.jianying.com/ai-tool/home");
     return { ok: true };
   });
+
+  ipcMain.handle(
+    "jimeng:writeFile",
+    async (
+      _event,
+      { filePath, content }: { filePath: string; content: string },
+    ) => {
+      try {
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, Buffer.from(content, "base64"));
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  );
 
   // 打开浏览器数据目录
   ipcMain.handle("jimeng:openBrowserData", () => {
@@ -800,6 +1034,81 @@ function setupIPC() {
   ipcMain.handle("storage:openFolder", (_event, folderPath: string) => {
     shell.openPath(folderPath);
   });
+
+  ipcMain.handle(
+    "storage:writeText",
+    async (
+      _event,
+      { filePath, content }: { filePath: string; content: string },
+    ) => {
+      try {
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, content, "utf8");
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    "storage:readText",
+    async (_event, { filePath }: { filePath: string }) => {
+      try {
+        if (!fs.existsSync(filePath)) {
+          return { ok: true, exists: false, content: "" };
+        }
+        return {
+          ok: true,
+          exists: true,
+          content: fs.readFileSync(filePath, "utf8"),
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    "storage:readBase64",
+    async (_event, { filePath }: { filePath: string }) => {
+      try {
+        if (!fs.existsSync(filePath)) {
+          return { ok: true, exists: false, base64: "" };
+        }
+
+        const ext = path.extname(filePath).toLowerCase();
+        const mimeType =
+          ext === ".png"
+            ? "image/png"
+            : ext === ".webp"
+              ? "image/webp"
+              : ext === ".gif"
+                ? "image/gif"
+                : ext === ".mp4"
+                  ? "video/mp4"
+                  : "image/jpeg";
+
+        return {
+          ok: true,
+          exists: true,
+          base64: fs.readFileSync(filePath).toString("base64"),
+          mimeType,
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  );
 }
 
 // =========================== 窗口 & 托盘 ===========================
@@ -823,6 +1132,45 @@ function createWindow() {
     mainWindow?.show();
     // 自动启动 Python 服务（静默后台，不阻塞 UI）
     startPythonServer().catch((e) => log("error", `自动启动失败: ${e}`));
+  });
+
+  // 🛡️ 监听渲染进程崩溃
+  mainWindow.webContents.on("render-process-gone", (event, details) => {
+    log("error", `========== 渲染进程崩溃 ==========`);
+    log("error", `原因: ${details.reason}`);
+    log("error", `退出码: ${details.exitCode}`);
+    console.error("渲染进程崩溃详情:", details);
+
+    // 保存崩溃信息到文件
+    const crashInfo = {
+      timestamp: new Date().toISOString(),
+      reason: details.reason,
+      exitCode: details.exitCode,
+    };
+
+    const crashLogPath = path.join(getUserDataPath(), "crash-log.json");
+    try {
+      let logs = [];
+      if (fs.existsSync(crashLogPath)) {
+        logs = JSON.parse(fs.readFileSync(crashLogPath, "utf8"));
+      }
+      logs.unshift(crashInfo);
+      if (logs.length > 20) logs.length = 20;
+      fs.writeFileSync(crashLogPath, JSON.stringify(logs, null, 2));
+      log("info", `崩溃日志已保存到: ${crashLogPath}`);
+    } catch (err) {
+      log("error", `无法保存崩溃日志: ${err}`);
+    }
+  });
+
+  // 🛡️ 监听未响应
+  mainWindow.webContents.on("unresponsive", () => {
+    log("warn", "渲染进程未响应");
+  });
+
+  // 🛡️ 监听恢复响应
+  mainWindow.webContents.on("responsive", () => {
+    log("info", "渲染进程已恢复响应");
   });
 
   mainWindow.on("resize", () => {

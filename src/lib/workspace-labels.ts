@@ -5,9 +5,58 @@ import type {
   TimeVariantSetting,
 } from "@/types/project";
 
+export function normalizeBracketWrappedLabel(value: string): string {
+  let normalized = String(value || "").trim();
+  while (
+    (normalized.startsWith("[") && normalized.endsWith("]")) ||
+    (normalized.startsWith("【") && normalized.endsWith("】")) ||
+    (normalized.startsWith("(") && normalized.endsWith(")")) ||
+    (normalized.startsWith("（") && normalized.endsWith("）"))
+  ) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  return normalized;
+}
+
+export function normalizeCharacterName(name: string): string {
+  return normalizeBracketWrappedLabel(name);
+}
+
+export function normalizeSceneName(name: string): string {
+  return normalizeBracketWrappedLabel(name)
+    .replace(/\u3010\s*([^\u3010\u3011]+?)\s*\u3011/gu, "$1")
+    .replace(/\[\s*([^\]]+?)\s*\]/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findCharacterByName(
+  characterName: string,
+  characters: CharacterSetting[],
+): CharacterSetting | undefined {
+  const normalizedTarget = normalizeCharacterName(characterName);
+  return characters.find(
+    (item) => normalizeCharacterName(item.name) === normalizedTarget,
+  );
+}
+
+function getCharacterCostumeAssignment(
+  assignments: Record<string, string> | undefined,
+  characterName: string,
+): string | undefined {
+  if (!assignments) return undefined;
+  const normalizedTarget = normalizeCharacterName(characterName);
+  for (const [key, value] of Object.entries(assignments)) {
+    if (normalizeCharacterName(key) === normalizedTarget) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
 function splitLabelParts(label: string): string[] {
   return label
-    .split(/[\/,，、·\s]+/u)
+    .split(/[/,，、\s]+/u)
     .map((part) => part.trim().toLowerCase())
     .filter(Boolean);
 }
@@ -36,7 +85,7 @@ function scoreLabelAgainstText(label: string, text: string): number {
 
 export function buildSceneContextText(scene: Scene): string {
   return [
-    scene.sceneName,
+    normalizeSceneName(scene.sceneName || ""),
     scene.description,
     scene.dialogue,
     scene.cameraDirection,
@@ -53,10 +102,12 @@ export function findSceneSetting(
   scene: Scene,
   sceneSettings: SceneSetting[],
 ): SceneSetting | null {
-  const baseSceneName = scene.sceneName?.trim();
+  const baseSceneName = normalizeSceneName(scene.sceneName || "");
   if (!baseSceneName) return null;
   return (
-    sceneSettings.find((item) => item.name?.trim() === baseSceneName) || null
+    sceneSettings.find(
+      (item) => normalizeSceneName(item.name || "") === baseSceneName,
+    ) || null
   );
 }
 
@@ -67,7 +118,7 @@ export function matchCharacterCostume(
   return matchCharacterCostumeForText(
     character,
     buildSceneContextText(scene),
-    scene.characterCostumes?.[character.name],
+    getCharacterCostumeAssignment(scene.characterCostumes, character.name),
   );
 }
 
@@ -103,7 +154,9 @@ export function matchCharacterCostumeForSegment(
   segmentScenes: Scene[],
 ): string | null {
   const explicitCostumeId = segmentScenes
-    .map((scene) => scene.characterCostumes?.[character.name])
+    .map((scene) =>
+      getCharacterCostumeAssignment(scene.characterCostumes, character.name),
+    )
     .find(Boolean);
   return matchCharacterCostumeForText(
     character,
@@ -149,11 +202,14 @@ export function getCharacterDisplayName(
   scene: Scene,
   characters: CharacterSetting[],
 ): string {
-  const character = characters.find((item) => item.name === characterName);
-  if (!character) return characterName;
+  const normalizedCharacterName = normalizeCharacterName(characterName);
+  const character = findCharacterByName(normalizedCharacterName, characters);
+  if (!character) return normalizedCharacterName;
 
   const costumeLabel = getPreferredCharacterCostumeLabel(character, scene);
-  return costumeLabel ? `${characterName} ${costumeLabel}` : characterName;
+  return costumeLabel
+    ? `${normalizeCharacterName(character.name)} ${costumeLabel}`
+    : normalizeCharacterName(character.name);
 }
 
 export function getSegmentCharacterDisplayNames(
@@ -164,10 +220,10 @@ export function getSegmentCharacterDisplayNames(
 
   for (const scene of segmentScenes) {
     for (const rawName of scene.characters || []) {
-      const characterName = String(rawName || "").trim();
+      const characterName = normalizeCharacterName(String(rawName || "").trim());
       if (!characterName) continue;
 
-      const character = characters.find((item) => item.name === characterName);
+      const character = findCharacterByName(characterName, characters);
       if (!character) {
         names.add(characterName);
         continue;
@@ -177,7 +233,12 @@ export function getSegmentCharacterDisplayNames(
         character,
         segmentScenes,
       );
-      names.add(costumeLabel ? `${characterName} ${costumeLabel}` : characterName);
+      const normalizedStoredName = normalizeCharacterName(character.name);
+      names.add(
+        costumeLabel
+          ? `${normalizedStoredName} ${costumeLabel}`
+          : normalizedStoredName,
+      );
     }
   }
 
@@ -249,7 +310,7 @@ export function getSceneDisplayName(
   scene: Scene,
   sceneSettings: SceneSetting[],
 ): string {
-  const baseSceneName = scene.sceneName?.trim() || "";
+  const baseSceneName = normalizeSceneName(scene.sceneName || "");
   if (!baseSceneName) return "";
 
   const variant = matchSceneTimeVariant(scene, sceneSettings);
@@ -265,7 +326,9 @@ export function getSegmentSceneDisplayName(
   sceneSettings: SceneSetting[],
 ): string {
   const baseSceneName =
-    segmentScenes.map((scene) => scene.sceneName?.trim()).find(Boolean) || "";
+    segmentScenes
+      .map((scene) => normalizeSceneName(scene.sceneName || ""))
+      .find(Boolean) || "";
   if (!baseSceneName) return "";
 
   const variant = matchSceneTimeVariantForSegment(segmentScenes, sceneSettings);

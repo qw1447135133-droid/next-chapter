@@ -3,7 +3,7 @@
  *
  * 直接调用各服务 API，使用设置中配置的 API Key
  */
-import { getApiConfig } from "@/pages/Settings";
+import { getApiConfig } from "@/lib/api-config";
 import { getNetworkRetrySettings } from "@/lib/network-retry-settings";
 
 export const DEFAULT_GEMINI_BASE_URL = "http://202.90.21.53:13003/v1beta";
@@ -434,6 +434,21 @@ export async function getInlineData(
   }
   if (imageUrl.startsWith("http")) {
     return fetchImageAsBase64(imageUrl);
+  }
+  // 🛡️ Local file path — read via Electron API to avoid CORS/canvas crash
+  const isLocalFilePath = imageUrl.length > 0 && !imageUrl.startsWith("blob:");
+  if (isLocalFilePath) {
+    const electronAPI = (window as any).electronAPI;
+    if (electronAPI?.storage?.readBase64) {
+      try {
+        const result = await electronAPI.storage.readBase64(imageUrl);
+        if (result?.ok && result?.base64 && result?.mimeType) {
+          return { mimeType: result.mimeType, data: result.base64 };
+        }
+      } catch {
+        // fall through to null
+      }
+    }
   }
   return null;
 }

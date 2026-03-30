@@ -2,7 +2,7 @@
  * 函数调用封装
  * 直接调用各服务 API，使用设置中配置的 API Key
  */
-import { getApiConfig } from "@/pages/Settings";
+import { getApiConfig } from "@/lib/api-config";
 import { getNetworkRetrySettings } from "@/lib/network-retry-settings";
 import {
   callGemini,

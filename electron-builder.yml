@@ -15,10 +15,10 @@ files:
   - "!**/node_modules/.bin"
   - "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}"
 
-# extraResources 指向 Downloads 目录中的 auto_jimeng
+# extraResources 指向仓库内的 files 目录
 extraResources:
-  - from: C:/Users/admin/Downloads/auto_jimeng/auto_jimeng
-    to: auto_jimeng
+  - from: files
+    to: files
     filter:
       - "**/*"
 

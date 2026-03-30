@@ -1,4 +1,4 @@
-import { getApiConfig } from "@/pages/Settings";
+import { getApiConfig } from "@/lib/api-config";
 
 /**
  * Electron 下解析「缓存文件」根目录：优先用户自定义，否则为默认 program/files。

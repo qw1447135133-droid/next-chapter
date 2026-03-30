@@ -18,127 +18,11 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
-
-export interface ApiConfig {
-  geminiEndpoint: string;
-  geminiKey: string;
-  /** 即梦 / 豆包 Seedance 视频等（与 Gemini 网关可不同） */
-  jimengEndpoint: string;
-  jimengKey: string;
-  viduEndpoint: string;
-  viduKey: string;
-  klingEndpoint: string;
-  klingKey: string;
-  /** 本地即梦自动化 Python 服务（Electron / 网页手动启动） */
-  autoJimengApiBase: string;
-  // 视频首帧图片压缩参数
-  firstFrameMaxDim: number;
-  firstFrameMaxKB: number;
-  // 网络重试参数
-  retryCount: number;
-  retryDelayMs: number;
-  // 存储路径（为空时使用默认路径）
-  storagePath?: string;
-}
-
-const STORAGE_KEY = "storyforge_api_config";
-
-// Simple obfuscation for localStorage (not true encryption, but prevents casual reading)
-const OBF_PREFIX = "obf:";
-
-function obfuscate(value: string): string {
-  if (!value) return "";
-  if (value.startsWith(OBF_PREFIX)) return value;
-  try {
-    return OBF_PREFIX + btoa(unescape(encodeURIComponent(value)));
-  } catch {
-    return value;
-  }
-}
-function deobfuscate(value: string): string {
-  if (!value) return "";
-  if (!value.startsWith(OBF_PREFIX)) return value;
-  try {
-    return decodeURIComponent(escape(atob(value.slice(OBF_PREFIX.length))));
-  } catch {
-    return value;
-  }
-}
-
-const SENSITIVE_KEYS: (keyof ApiConfig)[] = [
-  "geminiKey",
-  "jimengKey",
-  "viduKey",
-  "klingKey",
-];
-
-const DEFAULT_CONFIG: ApiConfig = {
-  geminiEndpoint: "",
-  geminiKey: "",
-  jimengEndpoint: "",
-  jimengKey: "",
-  viduEndpoint: "",
-  viduKey: "",
-  klingEndpoint: "",
-  klingKey: "",
-  autoJimengApiBase: "http://localhost:8000",
-  firstFrameMaxDim: 2048,
-  firstFrameMaxKB: 1024,
-  retryCount: 2,
-  retryDelayMs: 3000,
-  storagePath: "",
-};
-
-export function getApiConfig(): ApiConfig {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved) as Record<string, unknown>;
-      const merged = { ...DEFAULT_CONFIG, ...parsed } as ApiConfig;
-
-      if (
-        typeof parsed.apiEndpoint === "string" &&
-        parsed.apiEndpoint &&
-        !merged.geminiEndpoint
-      ) {
-        merged.geminiEndpoint = parsed.apiEndpoint;
-      }
-      if (typeof parsed.apiKey === "string" && parsed.apiKey && !merged.geminiKey) {
-        merged.geminiKey = parsed.apiKey;
-      }
-
-      const je =
-        typeof merged.jimengEndpoint === "string"
-          ? merged.jimengEndpoint.trim()
-          : "";
-      if (je && /localhost|127\.0\.0\.1|:8000/i.test(je)) {
-        merged.autoJimengApiBase = je;
-        merged.jimengEndpoint = "";
-      }
-
-      for (const key of SENSITIVE_KEYS) {
-        const v = merged[key];
-        if (typeof v === "string" && v) (merged as any)[key] = deobfuscate(v);
-      }
-      return merged;
-    }
-  } catch {
-    /* ignore */
-  }
-  return DEFAULT_CONFIG;
-}
-
-export function saveApiConfig(config: Partial<ApiConfig>): void {
-  const current = getApiConfig();
-  const updated = { ...current, ...config };
-  const toStore = { ...updated } as Record<string, unknown>;
-  for (const key of SENSITIVE_KEYS) {
-    const v = toStore[key];
-    if (typeof v === "string" && v)
-      toStore[key] = obfuscate(v as string);
-  }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore));
-}
+import {
+  getApiConfig,
+  saveApiConfig,
+  type ApiConfig,
+} from "@/lib/api-config";
 
 const API_ROWS: {
   id: "gemini" | "jimeng" | "vidu" | "kling";
@@ -184,6 +68,7 @@ const Settings = () => {
   const { theme, setTheme } = useTheme();
   const [config, setConfig] = useState<ApiConfig>(() => getApiConfig());
   const [defaultStoragePath, setDefaultStoragePath] = useState<string>("");
+  const [defaultDownloadPath, setDefaultDownloadPath] = useState<string>("");
 
   useEffect(() => {
     const loadDefaultPath = async () => {
@@ -191,6 +76,7 @@ const Settings = () => {
         try {
           const paths = await window.electronAPI.storage.getDefaultPath();
           setDefaultStoragePath(paths.files);
+          setDefaultDownloadPath(paths.files);
         } catch (e) {
           console.error("获取默认存储路径失败:", e);
         }
@@ -231,6 +117,31 @@ const Settings = () => {
     saveApiConfig({ storagePath: "" });
     setConfig((p) => ({ ...p, storagePath: "" }));
     toast({ title: "已重置", description: "存储路径已恢复为默认位置" });
+  };
+
+  const handleSelectReverseDownloadPath = async () => {
+    if (window.electronAPI?.storage?.selectFolder) {
+      try {
+        const folderPath = await window.electronAPI.storage.selectFolder();
+        if (folderPath) {
+          saveApiConfig({ reverseDownloadPath: folderPath });
+          setConfig((p) => ({ ...p, reverseDownloadPath: folderPath }));
+          toast({ title: "已保存", description: `下载路径: ${folderPath}` });
+        }
+      } catch (e) {
+        toast({
+          title: "选择失败",
+          description: String(e),
+          variant: "destructive",
+        });
+      }
+    }
+  };
+
+  const handleResetReverseDownloadPath = () => {
+    saveApiConfig({ reverseDownloadPath: "" });
+    setConfig((p) => ({ ...p, reverseDownloadPath: "" }));
+    toast({ title: "已重置", description: "逆向模式下载目录已恢复默认位置" });
   };
 
   const endpointField = (
@@ -435,6 +346,45 @@ const Settings = () => {
                     size="sm"
                     className="mt-2 text-xs text-muted-foreground"
                     onClick={handleResetStoragePath}
+                  >
+                    恢复默认位置
+                  </Button>
+                )}
+              </div>
+
+              <div>
+                <Label className="text-sm">逆向模式视频下载目录</Label>
+                <div className="flex gap-2 mt-1.5">
+                  <Input
+                    value={
+                      config.reverseDownloadPath ||
+                      defaultDownloadPath ||
+                      (window.electronAPI?.storage
+                        ? "正在获取路径..."
+                        : "（仅 Electron 桌面版显示本地路径）")
+                    }
+                    readOnly
+                    className="font-mono text-sm flex-1"
+                  />
+                  <Button
+                    variant="outline"
+                    className="shrink-0 gap-1.5"
+                    onClick={handleSelectReverseDownloadPath}
+                    disabled={!window.electronAPI?.storage?.selectFolder}
+                  >
+                    <FolderCog className="h-4 w-4" />
+                    设置下载目录
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  逆向模式自动下载视频时会保存到这个目录；未配置时默认使用缓存文件目录。
+                </p>
+                {config.reverseDownloadPath && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2 text-xs text-muted-foreground"
+                    onClick={handleResetReverseDownloadPath}
                   >
                     恢复默认位置
                   </Button>

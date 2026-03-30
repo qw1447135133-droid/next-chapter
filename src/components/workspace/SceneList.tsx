@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
 import { Scene, CharacterSetting, SceneSetting } from "@/types/project";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Trash2,
   ArrowRight,
+  Check,
   ChevronDown,
   ChevronRight,
   Link2,
@@ -15,6 +17,9 @@ import { exportScenesToXlsx } from "@/lib/export-xlsx";
 import {
   getSegmentCharacterDisplayNames,
   getSegmentSceneDisplayName,
+  normalizeBracketWrappedLabel,
+  normalizeCharacterName,
+  normalizeSceneName,
 } from "@/lib/workspace-labels";
 
 interface SceneListProps {
@@ -40,10 +45,6 @@ interface EpisodeGroup {
   totalScenes: number;
 }
 
-function stripBrackets(value: string): string {
-  return value.replace(/^[【\[(（]+/, "").replace(/[】\])）]+$/, "").trim();
-}
-
 const SceneList = ({
   scenes,
   onScenesChange,
@@ -52,6 +53,7 @@ const SceneList = ({
   sceneSettings = [],
 }: SceneListProps) => {
   const [collapsedSegments, setCollapsedSegments] = useState<Set<string>>(new Set());
+  const [editingTagSegmentKey, setEditingTagSegmentKey] = useState<string | null>(null);
 
   const segments: Segment[] = useMemo(() => {
     if (scenes.length === 0) return [];
@@ -129,6 +131,37 @@ const SceneList = ({
 
   const removeScene = (id: string) => {
     onScenesChange(scenes.filter((scene) => scene.id !== id));
+  };
+
+  const updateSegmentScenes = (segmentScenes: Scene[], updater: (scene: Scene) => Scene) => {
+    const segmentIds = new Set(segmentScenes.map((scene) => scene.id));
+    onScenesChange(
+      scenes.map((scene) => (segmentIds.has(scene.id) ? updater(scene) : scene)),
+    );
+  };
+
+  const updateSegmentSceneName = (segmentScenes: Scene[], value: string) => {
+    const nextSceneName = normalizeSceneName(value);
+    updateSegmentScenes(segmentScenes, (scene) => ({
+      ...scene,
+      sceneName: nextSceneName,
+    }));
+  };
+
+  const updateSegmentCharacters = (segmentScenes: Scene[], value: string) => {
+    const nextCharacters = Array.from(
+      new Set(
+        value
+          .split(/[，,、]/u)
+          .map((item) => normalizeCharacterName(item))
+          .filter(Boolean),
+      ),
+    );
+
+    updateSegmentScenes(segmentScenes, (scene) => ({
+      ...scene,
+      characters: nextCharacters,
+    }));
   };
 
   const toggleCollapse = (key: string) => {
@@ -210,10 +243,7 @@ const SceneList = ({
                 <div className="space-y-3">
                   {episodeGroup.segments.map((segment) => {
                     const isCollapsed = collapsedSegments.has(segment.key);
-                    const charTags = getSegmentCharacterDisplayNames(
-                      segment.scenes,
-                      characters,
-                    );
+                    const editableCharacterTags = getSegmentCharacterDisplayNames(segment.scenes, characters);
 
                     return (
                       <Card key={segment.key} className="border-border/60">
@@ -238,21 +268,67 @@ const SceneList = ({
                             </span>
                           </div>
 
-                          <div className="mt-2 flex flex-wrap items-start gap-1">
-                            <span className="whitespace-nowrap text-xs font-medium text-muted-foreground">
-                              场景/人物标签：
-                            </span>
-                            {segment.sceneName && (
-                              <span className="text-xs font-medium text-primary">
-                                【{stripBrackets(segment.sceneName)}】
+                          {editingTagSegmentKey === segment.key ? (
+                            <div
+                              className="mt-2 grid gap-2 rounded-md border border-border/50 bg-muted/20 p-2"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="whitespace-nowrap text-xs font-medium text-muted-foreground">
+                                  场景/人物标签：
+                                </span>
+                                <Input
+                                  value={segment.sceneName}
+                                  onChange={(event) =>
+                                    updateSegmentSceneName(segment.scenes, event.target.value)
+                                  }
+                                  placeholder="场景标签"
+                                  className="h-7 text-xs"
+                                />
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  value={editableCharacterTags.join(", ")}
+                                  onChange={(event) =>
+                                    updateSegmentCharacters(segment.scenes, event.target.value)
+                                  }
+                                  placeholder="人物标签，多个用逗号分隔"
+                                  className="h-7 text-xs"
+                                />
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => setEditingTagSegmentKey(null)}
+                                >
+                                  <Check className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div
+                              className="mt-2 flex flex-wrap items-start gap-1 rounded-md border border-transparent px-1 py-1 hover:border-border/50 hover:bg-muted/20"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setEditingTagSegmentKey(segment.key);
+                              }}
+                            >
+                              <span className="whitespace-nowrap text-xs font-medium text-muted-foreground">
+                                场景/人物标签：
                               </span>
-                            )}
-                            {charTags.map((tag, index) => (
-                              <span key={`${tag}-${index}`} className="text-xs font-medium text-primary">
-                                【{stripBrackets(tag)}】
-                              </span>
-                            ))}
-                          </div>
+                              {segment.sceneName && (
+                                <span className="text-xs font-medium text-primary">
+                                  【{normalizeBracketWrappedLabel(segment.sceneName)}】
+                                </span>
+                              )}
+                              {editableCharacterTags.map((tag, index) => (
+                                <span key={`${tag}-${index}`} className="text-xs font-medium text-primary">
+                                  【{normalizeBracketWrappedLabel(tag)}】
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </CardHeader>
 
                         {!isCollapsed && (

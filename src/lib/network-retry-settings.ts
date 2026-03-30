@@ -1,4 +1,4 @@
-import { getApiConfig } from "@/pages/Settings";
+import { getApiConfig } from "@/lib/api-config";
 
 /**
  * 与设置页「网络重试」一致：最大重试次数 0–5，间隔 500–30000ms。

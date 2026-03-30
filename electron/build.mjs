@@ -34,7 +34,7 @@ for (const f of electronFiles) {
     target: "node18",
     sourcemap: false,
     minify: false,
-    external: ["electron", "node:*"],
+    external: ["electron", "node:*", "playwright"],
   });
   console.log(`✅ Compiled: ${path.basename(f.entry)} → ${path.basename(f.outfile)}`);
 }

@@ -14,9 +14,36 @@ export async function compressImage(
     if (byteSize <= maxBytes) return imageSource;
   }
 
+  // 🛡️ For local file paths, read via Electron API first to get a safe data URL
+  const isLocalFilePath = !imageSource.startsWith("data:") && !imageSource.startsWith("http://") && !imageSource.startsWith("https://") && !imageSource.startsWith("blob:");
+  if (isLocalFilePath) {
+    const electronAPI = (window as any).electronAPI;
+    if (electronAPI?.storage?.readBase64) {
+      try {
+        const result = await electronAPI.storage.readBase64(imageSource);
+        if (result?.ok && result?.base64 && result?.mimeType) {
+          imageSource = `data:${result.mimeType};base64,${result.base64}`;
+          // Now check if it fits within maxBytes
+          const byteSize = Math.ceil((imageSource.length - imageSource.indexOf(",") - 1) * 0.75);
+          if (byteSize <= maxBytes) return imageSource;
+          // Otherwise fall through to canvas compression with the data URL
+        } else {
+          return imageSource; // Can't read file, return as-is
+        }
+      } catch {
+        return imageSource; // Error reading file, return as-is
+      }
+    } else {
+      return imageSource; // No Electron API, return as-is without canvas
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = "anonymous"; // needed for storage URLs
+    // 🛡️ Only set crossOrigin for HTTP/HTTPS URLs, not local file paths
+    if (imageSource.startsWith('http://') || imageSource.startsWith('https://')) {
+      img.crossOrigin = "anonymous";
+    }
     img.onload = () => {
       const canvas = document.createElement("canvas");
       let width = img.width;

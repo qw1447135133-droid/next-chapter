@@ -1,5 +1,11 @@
 import { useCallback, useRef } from "react";
-import type { Scene, CharacterSetting, SceneSetting, ArtStyle } from "@/types/project";
+import type {
+  Scene,
+  CharacterSetting,
+  SceneSetting,
+  ArtStyle,
+} from "@/types/project";
+import { getProjectsFilePath, readJsonFile, writeJsonFile } from "@/lib/file-cache";
 
 interface ProjectData {
   title: string;
@@ -22,10 +28,10 @@ interface StoredProject extends ProjectData {
 }
 
 function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).substr(2);
+  return Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
-function getProjects(): StoredProject[] {
+function getProjectsFromLocalStorage(): StoredProject[] {
   try {
     const data = localStorage.getItem(STORAGE_KEY);
     return data ? JSON.parse(data) : [];
@@ -34,25 +40,31 @@ function getProjects(): StoredProject[] {
   }
 }
 
-function saveProjects(projects: StoredProject[]): boolean {
+function saveProjectsToLocalStorage(projects: StoredProject[]): boolean {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
     return true;
-  } catch (e) {
-    console.error("[Persistence] localStorage 保存失败（可能已满）:", e);
-    // Try to save by trimming old projects
-    if (projects.length > 5) {
-      try {
-        const trimmed = projects.slice(0, 5);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
-        console.warn("[Persistence] 已自动裁剪至最近 5 个项目");
-        return true;
-      } catch {
-        console.error("[Persistence] 裁剪后仍无法保存");
-      }
-    }
+  } catch {
     return false;
   }
+}
+
+async function getProjects(): Promise<StoredProject[]> {
+  const filePath = await getProjectsFilePath();
+  if (filePath) {
+    const fromFile = await readJsonFile<StoredProject[]>(filePath);
+    if (fromFile) return fromFile;
+  }
+  return getProjectsFromLocalStorage();
+}
+
+async function saveProjects(projects: StoredProject[]): Promise<boolean> {
+  const filePath = await getProjectsFilePath();
+  if (filePath) {
+    const ok = await writeJsonFile(filePath, projects);
+    if (ok) return true;
+  }
+  return saveProjectsToLocalStorage(projects);
 }
 
 export function useProjectPersistence() {
@@ -71,8 +83,8 @@ export function useProjectPersistence() {
 
   const getProjectId = () => projectIdRef.current;
 
-  const createProject = useCallback(async (data: Partial<ProjectData>): Promise<string | null> => {
-    const projects = getProjects();
+  const createProject = useCallback(async (data: Partial<ProjectData>) => {
+    const projects = await getProjects();
     const now = new Date().toISOString();
     const newProject: StoredProject = {
       id: generateId(),
@@ -88,41 +100,34 @@ export function useProjectPersistence() {
       updatedAt: now,
     };
     projects.unshift(newProject);
-    saveProjects(projects);
-    projectIdRef.current = newProject.id;
-    localStorage.setItem(CURRENT_PROJECT_KEY, newProject.id);
+    await saveProjects(projects);
+    setProjectId(newProject.id);
     return newProject.id;
   }, []);
 
   const saveProject = useCallback(async (data: Partial<ProjectData>) => {
     const id = projectIdRef.current;
     if (!id) return;
-
-    // Accumulate pending changes
     Object.assign(pendingRef.current, data);
-
-    // Debounce: flush all accumulated changes together
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      const projects = getProjects();
+    debounceRef.current = setTimeout(async () => {
+      const projects = await getProjects();
       const index = projects.findIndex((p) => p.id === id);
       if (index === -1) return;
-
       const update = { ...pendingRef.current };
       pendingRef.current = {};
-
-      Object.assign(projects[index], update, { updatedAt: new Date().toISOString() });
-      saveProjects(projects);
+      Object.assign(projects[index], update, {
+        updatedAt: new Date().toISOString(),
+      });
+      await saveProjects(projects);
     }, 500);
   }, []);
 
-  const loadProject = useCallback(async (id: string): Promise<ProjectData | null> => {
-    const projects = getProjects();
+  const loadProject = useCallback(async (id: string) => {
+    const projects = await getProjects();
     const project = projects.find((p) => p.id === id);
     if (!project) return null;
-
-    projectIdRef.current = id;
-    localStorage.setItem(CURRENT_PROJECT_KEY, id);
+    setProjectId(id);
     return {
       title: project.title,
       script: project.script,
@@ -136,9 +141,12 @@ export function useProjectPersistence() {
   }, []);
 
   const listProjects = useCallback(async () => {
-    const projects = getProjects();
+    const projects = await getProjects();
     return projects
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      )
       .slice(0, 20)
       .map((p) => ({
         id: p.id,
@@ -150,26 +158,31 @@ export function useProjectPersistence() {
   }, []);
 
   const deleteProject = useCallback(async (id: string) => {
-    const projects = getProjects();
+    const projects = await getProjects();
     const filtered = projects.filter((p) => p.id !== id);
-    saveProjects(filtered);
+    await saveProjects(filtered);
     if (projectIdRef.current === id) {
-      projectIdRef.current = null;
-      localStorage.removeItem(CURRENT_PROJECT_KEY);
+      setProjectId(null);
     }
     return true;
   }, []);
 
-  // Load last project on init
-  useCallback(() => {
+  useCallback(async () => {
     const lastId = localStorage.getItem(CURRENT_PROJECT_KEY);
-    if (lastId) {
-      const projects = getProjects();
-      if (projects.some((p) => p.id === lastId)) {
-        projectIdRef.current = lastId;
-      }
+    if (!lastId) return;
+    const projects = await getProjects();
+    if (projects.some((p) => p.id === lastId)) {
+      projectIdRef.current = lastId;
     }
   }, []);
 
-  return { createProject, saveProject, loadProject, listProjects, deleteProject, setProjectId, getProjectId };
+  return {
+    createProject,
+    saveProject,
+    loadProject,
+    listProjects,
+    deleteProject,
+    setProjectId,
+    getProjectId,
+  };
 }

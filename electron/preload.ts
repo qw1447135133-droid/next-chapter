@@ -77,6 +77,23 @@ export interface StorageAPI {
   selectFolder: () => Promise<string | null>;
   /** 用系统文件管理器打开指定文件夹 */
   openFolder: (folderPath: string) => Promise<void>;
+  writeText: (
+    filePath: string,
+    content: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  readText: (filePath: string) => Promise<{
+    ok: boolean;
+    exists?: boolean;
+    content?: string;
+    error?: string;
+  }>;
+  readBase64: (filePath: string) => Promise<{
+    ok: boolean;
+    exists?: boolean;
+    base64?: string;
+    mimeType?: string;
+    error?: string;
+  }>;
 }
 
 export interface BrowserViewAPI {
@@ -112,9 +129,72 @@ export interface BrowserViewAPI {
     index?: number;
     error?: string;
   }>;
+  sendInputEvents: (events: Array<{
+    type: string;
+    keyCode?: string;
+    modifiers?: string[];
+    x?: number;
+    y?: number;
+    button?: string;
+    clickCount?: number;
+  }>) => Promise<{ ok: boolean; error?: string }>;
+  download: (params: {
+    savePath: string;
+    script?: string;
+    timeoutMs?: number;
+  }) => Promise<{ ok: boolean; savePath?: string; url?: string; error?: string }>;
   close: () => Promise<{ ok: boolean }>;
   setIgnoreMouseEvents: (ignore: boolean) => Promise<{ ok: boolean }>;
   onStateChange: (callback: (state: BrowserViewState) => void) => () => void;
+}
+
+export interface ReversePlaywrightAPI {
+  runSegments: (params: {
+    url: string;
+    model: string;
+    duration: string;
+    aspectRatio?: string;
+    segments: Array<{
+      segmentKey: string;
+      prompt: string;
+      refs: Array<{ fileName: string; url?: string; dataUrl?: string }>;
+    }>;
+    headless?: boolean;
+  }) => Promise<{
+    ok: boolean;
+    logs: string[];
+    currentModel?: string;
+    currentDuration?: string;
+    screenshotBase64?: string;
+    error?: string;
+    segments?: Array<{
+      segmentKey: string;
+      ok: boolean;
+      uploadedCount?: number;
+      promptLength?: number;
+      error?: string;
+    }>;
+  }>;
+  prepareSegment: (params: {
+    url: string;
+    model: string;
+    duration: string;
+    aspectRatio?: string;
+    prompt: string;
+    refs: Array<{ fileName: string; url?: string; dataUrl?: string }>;
+    headless?: boolean;
+  }) => Promise<{
+    ok: boolean;
+    logs: string[];
+    currentModel?: string;
+    currentDuration?: string;
+    uploadedCount?: number;
+    promptLength?: number;
+    screenshotBase64?: string;
+    error?: string;
+  }>;
+  capture: () => Promise<{ ok: boolean; base64?: string; error?: string }>;
+  close: () => Promise<{ ok: boolean }>;
 }
 
 const jimengAPI: JimengAPI = {
@@ -148,6 +228,9 @@ const browserViewAPI: BrowserViewAPI = {
   capture: () => ipcRenderer.invoke("browserView:capture"),
   setFileInputFiles: (params) =>
     ipcRenderer.invoke("browserView:setFileInputFiles", params),
+  sendInputEvents: (events) =>
+    ipcRenderer.invoke("browserView:sendInputEvents", { events }),
+  download: (params) => ipcRenderer.invoke("browserView:download", params),
   close: () => ipcRenderer.invoke("browserView:close"),
   setIgnoreMouseEvents: (ignore: boolean) => ipcRenderer.invoke("browserView:setIgnoreMouseEvents", ignore),
   onStateChange: (callback) => {
@@ -160,6 +243,15 @@ const browserViewAPI: BrowserViewAPI = {
   },
 };
 
+const reversePlaywrightAPI: ReversePlaywrightAPI = {
+  runSegments: (params) =>
+    ipcRenderer.invoke("reversePlaywright:runSegments", params),
+  prepareSegment: (params) =>
+    ipcRenderer.invoke("reversePlaywright:prepareSegment", params),
+  capture: () => ipcRenderer.invoke("reversePlaywright:capture"),
+  close: () => ipcRenderer.invoke("reversePlaywright:close"),
+};
+
 contextBridge.exposeInMainWorld("electronAPI", {
   jimeng: jimengAPI,
   storage: {
@@ -167,6 +259,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
     selectFolder: () => ipcRenderer.invoke("storage:selectFolder"),
     openFolder: (folderPath: string) =>
       ipcRenderer.invoke("storage:openFolder", folderPath),
+    writeText: (filePath: string, content: string) =>
+      ipcRenderer.invoke("storage:writeText", { filePath, content }),
+    readText: (filePath: string) =>
+      ipcRenderer.invoke("storage:readText", { filePath }),
+    readBase64: (filePath: string) =>
+      ipcRenderer.invoke("storage:readBase64", { filePath }),
   } as StorageAPI,
   browserView: browserViewAPI,
+  reversePlaywright: reversePlaywrightAPI,
+  // 🛡️ 崩溃日志 API
+  invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
 });
