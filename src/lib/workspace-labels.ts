@@ -32,7 +32,8 @@ export function normalizeSceneName(name: string): string {
 
 function simplifySceneNameForMatch(name: string): string {
   return normalizeSceneName(name)
-    .replace(/(设施|設施|舱|艙|仓)$/u, "")
+    .replace(/(窗边|窗前|窗外|窗内|门口|入口|出口|楼梯|走廊|储物间|储藏间|外景|内景)$/u, "")
+    .replace(/(设施|設施|舱|艙|仓|室内|室外|内部|外部|边)$/u, "")
     .trim();
 }
 
@@ -194,6 +195,28 @@ export function findSceneSetting(
   }
 
   return bestScore > 0 ? bestMatch : null;
+}
+
+export function findSegmentSceneSetting(
+  segmentScenes: Scene[],
+  sceneSettings: SceneSetting[],
+): SceneSetting | null {
+  if (!segmentScenes.length) return null;
+
+  const counts = new Map<string, { setting: SceneSetting; count: number; firstIndex: number }>();
+  segmentScenes.forEach((scene, index) => {
+    const matched = findSceneSetting(scene, sceneSettings);
+    if (!matched) return;
+    const current = counts.get(matched.id);
+    if (current) {
+      current.count += 1;
+      return;
+    }
+    counts.set(matched.id, { setting: matched, count: 1, firstIndex: index });
+  });
+
+  return [...counts.values()]
+    .sort((a, b) => b.count - a.count || a.firstIndex - b.firstIndex)[0]?.setting || null;
 }
 
 export function matchCharacterCostume(
@@ -440,8 +463,7 @@ export function getSegmentSceneDisplayName(
   segmentScenes: Scene[],
   sceneSettings: SceneSetting[],
 ): string {
-  const firstScene = segmentScenes[0];
-  const matchedScene = firstScene ? findSceneSetting(firstScene, sceneSettings) : null;
+  const matchedScene = findSegmentSceneSetting(segmentScenes, sceneSettings);
   const baseSceneName = normalizeSceneName(
     matchedScene?.name ||
       segmentScenes

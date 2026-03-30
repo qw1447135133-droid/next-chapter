@@ -37,7 +37,7 @@ import {
   buildTypePromptScript,
 } from "@/lib/reverse-browserview-scripts";
 import {
-  findSceneSetting,
+  findSegmentSceneSetting,
   getPreferredCharacterCostumeLabelForSegment,
   matchSceneTimeVariantForSegment,
   normalizeCharacterName,
@@ -50,6 +50,7 @@ type AspectRatio = "16:9" | "9:16" | "3:2" | "2:3";
 type ReverseModel = "Seedance 2.0" | "Seedance 2.0 Fast";
 type ReverseDuration = "5s" | "10s" | "15s";
 type ReverseReferenceKind = "character" | "scene";
+type ReverseRepeatCount = "1" | "2" | "3" | "4" | "5";
 
 interface ReverseReference {
   kind: ReverseReferenceKind;
@@ -89,6 +90,7 @@ const JIMENG_VIDEO_URL = `${JIMENG_HOME_URL}?type=video&workspace=0`;
 const MODEL_OPTIONS: ReverseModel[] = ["Seedance 2.0", "Seedance 2.0 Fast"];
 const DURATION_OPTIONS: ReverseDuration[] = ["5s", "10s", "15s"];
 const ASPECT_RATIO_OPTIONS: AspectRatio[] = ["16:9", "9:16", "3:2", "2:3"];
+const REPEAT_COUNT_OPTIONS: ReverseRepeatCount[] = ["1", "2", "3", "4", "5"];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -258,6 +260,7 @@ export default function ReverseBrowserViewPanel({
   const [reverseModel, setReverseModel] = useState<ReverseModel>("Seedance 2.0 Fast");
   const [reverseDuration, setReverseDuration] = useState<ReverseDuration>("5s");
   const [reverseAspectRatio, setReverseAspectRatio] = useState<AspectRatio>("9:16");
+  const [reverseRepeatCount, setReverseRepeatCount] = useState<ReverseRepeatCount>("1");
   const [mode, setMode] = useState<GenerationMode>("single");
   const [selectedStartKey, setSelectedStartKey] = useState("");
   const [selectedEpisodeKey, setSelectedEpisodeKey] = useState("");
@@ -354,32 +357,7 @@ export default function ReverseBrowserViewPanel({
         segmentScenes.map((s) => normalizeSceneName(s.sceneName || "")).find(Boolean) || "";
 
       if (baseSceneName) {
-        // Try exact match, then prefix match, then fuzzy character overlap
-        let matchedScene = findSceneSetting(segmentScenes[0], sceneSettings);
-        if (!matchedScene) {
-          matchedScene = sceneSettings.find((item) => {
-            const settingName = normalizeSceneName(item.name || "");
-            return settingName && baseSceneName.startsWith(settingName);
-          }) || null;
-        }
-        if (!matchedScene) {
-          // Fuzzy: find scene setting with most character overlap with baseSceneName
-          let bestScore = 0;
-          for (const item of sceneSettings) {
-            const settingName = normalizeSceneName(item.name || "");
-            if (!settingName) continue;
-            // Count shared characters (simple overlap score)
-            let shared = 0;
-            for (const ch of settingName) {
-              if (baseSceneName.includes(ch)) shared++;
-            }
-            const score = shared / Math.max(settingName.length, baseSceneName.length);
-            if (score > bestScore && score >= 0.5) {
-              bestScore = score;
-              matchedScene = item;
-            }
-          }
-        }
+        const matchedScene = findSegmentSceneSetting(segmentScenes, sceneSettings);
 
         if (matchedScene) {
           const variant = matchSceneTimeVariantForSegment(segmentScenes, sceneSettings);
@@ -877,8 +855,15 @@ export default function ReverseBrowserViewPanel({
   );
 
   const submitSegmentOnce = useCallback(
-    async (definition: SegmentDefinition) => {
+    async (
+      definition: SegmentDefinition,
+      submissionIndex = 1,
+      totalSubmissions = 1,
+    ) => {
       ensureNotStopped();
+      if (totalSubmissions > 1) {
+        appendLog(`片段 ${definition.segmentKey} 重复提交 ${submissionIndex}/${totalSubmissions}`);
+      }
 
       appendLog(`开始处理片段 ${definition.segmentKey}`);
       appendLog(
@@ -1045,13 +1030,34 @@ export default function ReverseBrowserViewPanel({
         throw new Error("当前起始片段之后没有可执行任务");
       }
 
+      const repeatCount = Number(reverseRepeatCount);
+      const totalRuns = Math.max(1, targets.length * repeatCount);
+      let completedRuns = 0;
+
       for (let index = 0; index < targets.length; index += 1) {
         ensureNotStopped();
         const definition = targets[index];
         setCurrentAction(`处理中 ${definition.segmentKey}`);
-        setProgress(Math.round((index / Math.max(1, targets.length)) * 100));
+        setProgress(Math.round((completedRuns / Math.max(1, totalRuns)) * 100));
 
-        await submitSegmentOnce(definition);
+        for (let repeatIndex = 1; repeatIndex <= repeatCount; repeatIndex += 1) {
+          ensureNotStopped();
+          setCurrentAction(
+            repeatCount > 1
+              ? `澶勭悊涓?${definition.segmentKey}（${repeatIndex}/${repeatCount}）`
+              : `澶勭悊涓?${definition.segmentKey}`,
+          );
+          await submitSegmentOnce(definition, repeatIndex, repeatCount);
+          completedRuns += 1;
+          setProgress(Math.round((completedRuns / Math.max(1, totalRuns)) * 100));
+
+          if (repeatIndex < repeatCount) {
+            appendLog(`片段 ${definition.segmentKey} 将在 5s 后执行下一次重复提交`);
+            await sleep(5000);
+            await api.navigate(JIMENG_VIDEO_URL);
+            await sleep(1800);
+          }
+        }
 
         if (mode === "auto" && index < targets.length - 1) {
           appendLog(`片段 ${definition.segmentKey} 已提交，下一段前重新进入视频生成页`);
@@ -1082,6 +1088,7 @@ export default function ReverseBrowserViewPanel({
     appendLog,
     ensureNotStopped,
     mode,
+    reverseRepeatCount,
     segmentDefinitions,
     selectedStartKey,
     submitSegmentOnce,
@@ -1121,7 +1128,7 @@ export default function ReverseBrowserViewPanel({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-5">
+          <div className="grid gap-3 md:grid-cols-6">
             <div className="space-y-2">
               <label className="text-sm">起始片段</label>
               <div className="flex gap-1">
@@ -1234,6 +1241,25 @@ export default function ReverseBrowserViewPanel({
                 <SelectContent>
                   <SelectItem value="single">逐段生成</SelectItem>
                   <SelectItem value="auto">自动生成</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm">重复次数</label>
+              <Select
+                value={reverseRepeatCount}
+                onValueChange={(value) => setReverseRepeatCount(value as ReverseRepeatCount)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {REPEAT_COUNT_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

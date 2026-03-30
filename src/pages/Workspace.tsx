@@ -232,6 +232,35 @@ const Workspace = () => {
     [],
   );
 
+  const ensureSceneSettingsCoverage = useCallback(
+    (
+      inputScenes: Scene[],
+      nextSceneSettings: SceneSetting[],
+    ): SceneSetting[] => {
+      const merged = nextSceneSettings.map((sceneSetting) => ({
+        ...sceneSetting,
+        name: normalizeSceneName(sceneSetting.name),
+      }));
+
+      for (const scene of inputScenes) {
+        const sceneName = normalizeSceneName(scene.sceneName || "");
+        if (!sceneName) continue;
+        if (findSceneSetting(scene, merged)) continue;
+
+        merged.push({
+          id: generateId(),
+          name: sceneName,
+          description: "",
+          isAIGenerated: false,
+          source: "auto",
+        });
+      }
+
+      return merged;
+    },
+    [],
+  );
+
   const handleCharactersChange = useCallback(
     (nextCharacters: CharacterSetting[]) => {
       const normalizedCharacters = nextCharacters.map((character) => ({
@@ -249,18 +278,31 @@ const Workspace = () => {
 
   const handleSceneSettingsChange = useCallback(
     (nextSceneSettings: SceneSetting[]) => {
-      const normalizedSceneSettings = nextSceneSettings.map((sceneSetting) => ({
-        ...sceneSetting,
-        name: normalizeSceneName(sceneSetting.name),
-      }));
+      const normalizedSceneSettings = ensureSceneSettingsCoverage(
+        scenesRef.current,
+        nextSceneSettings,
+      );
       sceneSettingsRef.current = normalizedSceneSettings;
       setSceneSettings(normalizedSceneSettings);
       setScenes((prev) =>
         syncScenesWithDetectedVariants(prev, charactersRef.current, normalizedSceneSettings),
       );
     },
-    [syncScenesWithDetectedVariants],
+    [ensureSceneSettingsCoverage, syncScenesWithDetectedVariants],
   );
+
+  useEffect(() => {
+    const coveredSceneSettings = ensureSceneSettingsCoverage(scenes, sceneSettings);
+    const currentKey = sceneSettings.map((item) => normalizeSceneName(item.name)).join("|");
+    const nextKey = coveredSceneSettings.map((item) => normalizeSceneName(item.name)).join("|");
+    if (nextKey === currentKey) return;
+
+    sceneSettingsRef.current = coveredSceneSettings;
+    setSceneSettings(coveredSceneSettings);
+    setScenes((prev) =>
+      syncScenesWithDetectedVariants(prev, charactersRef.current, coveredSceneSettings),
+    );
+  }, [ensureSceneSettingsCoverage, sceneSettings, scenes, syncScenesWithDetectedVariants]);
   const [videoPace, setVideoPaceState] = useState<
     import("@/types/project").VideoPace
   >(() => {
