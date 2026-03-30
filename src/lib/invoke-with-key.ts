@@ -60,6 +60,29 @@ function videoHttp(
   return directFetch(url, headers, body, signal, service);
 }
 
+function extractFirstJsonObject(raw: string): string {
+  const cleaned = String(raw || "").replace(/^\uFEFF/, "").trim();
+  const fenceMatch =
+    cleaned.match(/```json\s*([\s\S]*?)```/i) ||
+    cleaned.match(/```\s*([\s\S]*?)```/i);
+  if (fenceMatch?.[1]) return fenceMatch[1].trim();
+
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    return cleaned.slice(start, end + 1);
+  }
+  return cleaned;
+}
+
+function parseJsonResponseLoose<T>(raw: string): T | null {
+  try {
+    return JSON.parse(extractFirstJsonObject(raw)) as T;
+  } catch {
+    return null;
+  }
+}
+
 // ===== PROMPTS =====
 
 const EXTRACTION_PROMPT = `你是一位专业影视制作分析师，擅长从剧本中精确提取角色和场景信息。
@@ -2084,17 +2107,21 @@ Return ONLY plain text character description. NO JSON, NO code blocks.`;
   }
 
   if (hasCostumes || shouldDiscover) {
-    try {
-      const parsed = JSON.parse(rawText);
+    const parsed = parseJsonResponseLoose<{
+      description?: string;
+      costumeDescriptions?: any[];
+      discoveredCostumes?: any[];
+      segmentCostumeAssignments?: any[];
+    }>(rawText);
+    if (parsed) {
       return {
         description: parsed.description || "",
         costumeDescriptions: parsed.costumeDescriptions || [],
         discoveredCostumes: parsed.discoveredCostumes || [],
         segmentCostumeAssignments: parsed.segmentCostumeAssignments || [],
       };
-    } catch {
-      return { description: rawText };
     }
+    return { description: rawText };
   }
   return { description: rawText };
 }
@@ -2193,16 +2220,19 @@ Return ONLY plain text description in English. NO JSON.`;
   }
 
   if (shouldDiscover) {
-    try {
-      const parsed = JSON.parse(rawText);
+    const parsed = parseJsonResponseLoose<{
+      description?: string;
+      discoveredTimeVariants?: any[];
+      segmentTimeAssignments?: any[];
+    }>(rawText);
+    if (parsed) {
       return {
         description: parsed.description || "",
         discoveredTimeVariants: parsed.discoveredTimeVariants || [],
         segmentTimeAssignments: parsed.segmentTimeAssignments || [],
       };
-    } catch {
-      return { description: rawText };
     }
+    return { description: rawText };
   }
   return { description: rawText };
 }

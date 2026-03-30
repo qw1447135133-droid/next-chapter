@@ -16,6 +16,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import BrandMark from "@/components/BrandMark";
 
 const modules = [
   {
@@ -100,7 +101,7 @@ const Modules = () => {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex items-center gap-2">
-            <Film className="h-6 w-6 text-primary" />
+            <BrandMark className="h-7 w-12" />
             <span className="text-lg font-semibold font-[Space_Grotesk]">Infinio</span>
           </div>
         </div>

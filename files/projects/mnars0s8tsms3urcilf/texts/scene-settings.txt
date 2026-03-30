@@ -1,11 +1,5 @@
 废弃医疗设施
-```json
-{
-  "description": "A vast, panoramic wide shot of a clandestine, high-tech medical laboratory hidden within a brutalist concrete bunker. The composition features a central aisle leading to a focal point where a shattered medical stasis pod lies surrounded by tangled biometric cables and scattered glass fragments. To the sides, symmetrical rows of dormant, cylindrical glass pods extend into the deep shadows, creating a profound sense of depth and scale. The lighting is dominated by a cold, surgical blue ambient glow, contrasted sharply by the flickering crimson emergency light emanating from a large wall-mounted terminal screen displaying a countdown. The ceiling is a complex web of exposed industrial pipes and metallic conduits. The floor is a damp, reflective dark epoxy finish, mirroring the sterile and haunting mechanical environment. The scene is static and devoid of life, emphasizing a chilling atmosphere of clinical betrayal and architectural isolation.",
-  "discoveredTimeVariants": [],
-  "segmentTimeAssignments": []
-}
-```
+A sweeping, cinematic panoramic view of a sprawling subterranean medical research facility, now derelict and hauntingly silent. The architecture features a vast, vaulted hall with towering reinforced concrete ribs that disappear into the darkness above. Centrally aligned are several advanced life-support pods, their sleek carbon-fiber frames contrasting with the surrounding decay of rusted scaffolding and dangling hydraulic hoses. To the left, a large observation window is shattered, revealing a pitch-black corridor beyond. The lighting is a stark dichotomy: cold, sterile teal luminescence from failing ceiling panels clashing with a searing, pulsated red glow from a primary diagnostic console. The floor is covered in a thin layer of condensation and scattered medical charts, reflecting the flickering overhead lights. No life remains, only the hum of a dying generator and the ominous red digital numbers reflecting off the polished, grime-streaked surfaces.
 时间变体: 
 
 比弗利豪宅

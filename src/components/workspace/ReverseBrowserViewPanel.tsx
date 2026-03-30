@@ -21,6 +21,7 @@ import {
   type JimengAgentControl,
 } from "@/lib/jimeng-browser-agent";
 import {
+  buildComposePromptWithReferenceMentionsScript,
   buildClickSubmitButtonScript,
   buildDismissInterferingOverlaysScript,
   buildLocatePromptAreaScript,
@@ -32,8 +33,6 @@ import {
   buildSetFullReferenceScript,
   buildSetModelScript,
   buildSubmitCurrentPromptStrictScript,
-  buildTypeAtMentionScript,
-  buildTypePromptData,
   buildTypePromptScript,
 } from "@/lib/reverse-browserview-scripts";
 import {
@@ -164,6 +163,48 @@ function buildPromptForSegment(segmentScenes: Scene[], references: ReverseRefere
   });
 
   lines.push("无字幕、无水印、无背景音");
+  return lines.filter(Boolean).join("\n");
+}
+
+function buildOrderedPromptReferences(references: ReverseReference[]): ReverseReference[] {
+  const sceneReferences = uniqueByKey(
+    references.filter((item) => item.kind === "scene"),
+    (item) => `${item.kind}:${item.label}`,
+  );
+  const characterReferences = uniqueByKey(
+    references.filter((item) => item.kind === "character"),
+    (item) => `${item.kind}:${item.label}`,
+  );
+  return [...sceneReferences, ...characterReferences];
+}
+
+function buildPromptBodyLines(segmentScenes: Scene[]): string[] {
+  const lines = segmentScenes.map((scene, index) => {
+    const parts = [`分镜${index + 1}：${scene.description || ""}`];
+    if (scene.dialogue) parts.push(`对白：${scene.dialogue}`);
+    if (scene.cameraDirection) parts.push(`镜头：${scene.cameraDirection}`);
+    return parts.filter(Boolean).join(" ");
+  });
+  lines.push("无字幕、无水印、无背景音乐");
+  return lines;
+}
+
+function buildPromptForSegmentStable(
+  segmentScenes: Scene[],
+  references: ReverseReference[],
+): string {
+  const orderedReferences = buildOrderedPromptReferences(references);
+  const lines: string[] = [];
+
+  if (orderedReferences.length > 0) {
+    lines.push(
+      `场景/人物标签：${orderedReferences
+        .map((item) => `【${item.label} @设定图】`)
+        .join(" ")}`,
+    );
+  }
+
+  lines.push(...buildPromptBodyLines(segmentScenes));
   return lines.filter(Boolean).join("\n");
 }
 
@@ -334,7 +375,7 @@ export default function ReverseBrowserViewPanel({
         segmentKey,
         episodeKey: episodeKeyOf(segmentKey),
         scenes: segmentScenes,
-        prompt: buildPromptForSegment(segmentScenes, references),
+        prompt: buildPromptForSegmentStable(segmentScenes, references),
         references,
       };
     });
@@ -455,9 +496,10 @@ export default function ReverseBrowserViewPanel({
   const prepareUploadReferences = useCallback(
     async (definition: SegmentDefinition): Promise<UploadReadyReference[]> => {
       const prepared: UploadReadyReference[] = [];
+      const orderedReferences = buildOrderedPromptReferences(definition.references);
 
-      for (let index = 0; index < definition.references.length; index += 1) {
-        const reference = definition.references[index];
+      for (let index = 0; index < orderedReferences.length; index += 1) {
+        const reference = orderedReferences[index];
         try {
           const dataUrl = await compressImage(reference.source, 400 * 1024, { maxDim: 1280 });
           if (!dataUrl.startsWith("data:")) continue;
@@ -645,35 +687,38 @@ export default function ReverseBrowserViewPanel({
   const fillPromptAndUploadReferences = useCallback(
     async (definition: SegmentDefinition): Promise<PromptTarget> => {
       const browserView = window.electronAPI?.browserView;
-      if (!browserView) throw new Error("内嵌浏览器不可用");
+      if (!browserView) throw new Error("????????");
 
       const uploadReferences = await prepareUploadReferences(definition);
 
       appendLog(
-        `片段 ${definition.segmentKey} 准备上传 ${uploadReferences.length} 个引用: ${uploadReferences.map((r) => `${r.kind}:${r.label}`).join(", ") || "无"}`,
+        `?? ${definition.segmentKey} ???? ${uploadReferences.length} ???: ${
+          uploadReferences.map((item) => `${item.kind}:${item.label}`).join(", ") || "?"
+        }`,
       );
 
-      // Warn if scene reference is missing
-      const hasScene = definition.references.some((r) => r.kind === "scene");
-      if (!hasScene) {
+      const hasSceneReference = definition.references.some((item) => item.kind === "scene");
+      if (!hasSceneReference) {
         const sceneName = definition.scenes[0]?.sceneName || "";
-        appendLog(`片段 ${definition.segmentKey} 警告: 未找到场景引用，scene.sceneName="${sceneName}", 可用场景: ${sceneSettings.map((s) => `"${s.name}"`).join(", ")}`);
+        appendLog(
+          `?? ${definition.segmentKey} ??: ????????scene.sceneName="${sceneName}", ????: ${sceneSettings
+            .map((item) => `"${item.name}"`)
+            .join(", ")}`,
+        );
       }
 
       const promptTarget = await executeNamed<PromptTarget>(
-        "定位提示词输入区",
+        "????????",
         buildLocatePromptAreaScript(),
       );
-
       if (!promptTarget.ok) {
-        throw new Error(`片段 ${definition.segmentKey} 未找到提示词输入区`);
+        throw new Error(`?? ${definition.segmentKey} ?????????`);
       }
 
       appendLog(
-        `片段 ${definition.segmentKey} 提示词区域：textbox=${promptTarget.textboxIndex} / fileInput=${promptTarget.fileInputIndex}`,
+        `?? ${definition.segmentKey} ??????textbox=${promptTarget.textboxIndex} / fileInput=${promptTarget.fileInputIndex}`,
       );
 
-      // Step 1: Upload all reference images via file input first
       if (uploadReferences.length > 0) {
         const uploadResult = await browserView.setFileInputFiles({
           selector: "input[type='file']",
@@ -683,66 +728,54 @@ export default function ReverseBrowserViewPanel({
             dataUrl: item.dataUrl,
           })),
         });
-
         if (!uploadResult?.ok) {
-          throw new Error(uploadResult?.error || "上传参考素材失败");
+          throw new Error(uploadResult.error || "????????");
         }
-
-        appendLog(`片段 ${definition.segmentKey} 已上传 ${uploadReferences.length} 个参考素材，等待处理`);
-        // Wait for images to be processed and available in the @ mention dropdown
-        await new Promise((r) => setTimeout(r, 1500));
+        appendLog(`?? ${definition.segmentKey} ??? ${uploadReferences.length} ??????????`);
+        await sleep(1500);
       }
 
-      // Step 2: Type the prompt with inline @ mentions after each tag
-      // Split prompt into: tag line (first line) + rest
-      const promptLines = definition.prompt.split("\n");
-      const tagLine = promptLines[0] || "";
-      const restPrompt = promptLines.slice(1).join("\n");
-
-      // Write the tag line char by char, then insert @ for each reference after its label
-      const tagLineScript = buildTypePromptScript(tagLine, promptTarget.textboxIndex, 20);
-      appendLog(`片段 ${definition.segmentKey} 标签行脚本长度: ${tagLineScript.length}`);
-      const tagLineResult = await executeNamed<{ ok: boolean; error?: string }>(
-        "写入标签行",
-        tagLineScript,
-        buildTypePromptData(tagLine),
+      const orderedPromptReferences = buildOrderedPromptReferences(definition.references);
+      const bodyPromptText = buildPromptBodyLines(definition.scenes).join("\n");
+      const promptWrite = await executeNamed<{
+        ok: boolean;
+        step: string;
+        insertedMentions?: string[];
+        currentValue?: string;
+        error?: string;
+      }>(
+        "按顺序写入提示词并选择@设定图",
+        buildComposePromptWithReferenceMentionsScript(promptTarget.textboxIndex),
+        {
+          tagPrefix: orderedPromptReferences.length > 0 ? "场景/人物标签：" : "",
+          charDelayMs: 35,
+          mentionOpenDelayMs: 500,
+          mentionPickedDelayMs: 700,
+          refs: uploadReferences.map((item, index) => ({
+            label: item.label,
+            optionIndex: index,
+            leadText: `${index === 0 ? "" : " "}【${item.label} `,
+            tailText: "】",
+          })),
+          body: orderedPromptReferences.length > 0 ? bodyPromptText : definition.prompt,
+        },
       );
-      if (!tagLineResult.ok) {
-        throw new Error(`片段 ${definition.segmentKey} 标签行写入失败: ${tagLineResult.error || "未知"}`);
+      if (!promptWrite.ok) {
+        throw new Error(
+          `片段 ${definition.segmentKey} 提示词写入失败${
+            promptWrite.error ? `: ${promptWrite.error}` : ""
+          }`,
+        );
       }
 
-      // Insert @ mention for each reference immediately after the tag line
-      for (let refIndex = 0; refIndex < uploadReferences.length; refIndex++) {
-        const ref = uploadReferences[refIndex];
-        const mentionResult = await executeNamed<{
-          ok: boolean;
-          step: string;
-          selectedText?: string;
-          optionCount?: number;
-          error?: string;
-        }>(
-          `插入@引用 ${ref.label}`,
-          buildTypeAtMentionScript(ref.label, refIndex, promptTarget.textboxIndex),
+      uploadReferences.forEach((item, index) => {
+        appendLog(
+          `片段 ${definition.segmentKey} 已插入@设定图[${index}]: ${item.label} -> ${
+            promptWrite.insertedMentions?.[index] || ""
+          }`,
         );
-        if (mentionResult.ok) {
-          appendLog(`片段 ${definition.segmentKey} 已插入@引用[${refIndex}]: ${ref.label} → ${mentionResult.selectedText || ""} (共${mentionResult.optionCount ?? "?"}个选项)`);
-        } else {
-          appendLog(`片段 ${definition.segmentKey} @引用插入失败 ${ref.label}: step=${mentionResult.step}`);
-        }
-      }
-
-      // Write the rest of the prompt (scene descriptions etc.)
-      if (restPrompt) {
-        const restResult = await executeNamed<{ ok: boolean; filled: boolean; promptLength: number; error?: string }>(
-          "逐字写入提示词正文",
-          buildTypePromptScript("\n" + restPrompt, promptTarget.textboxIndex, 20, true),
-          buildTypePromptData("\n" + restPrompt),
-        );
-        if (!restResult.ok) {
-          throw new Error(`片段 ${definition.segmentKey} 提示词正文写入失败: ${restResult.error || "未知"}`);
-        }
-        appendLog(`片段 ${definition.segmentKey} 已逐字写入 ${restResult.promptLength} 个字符`);
-      }
+      });
+      appendLog(`片段 ${definition.segmentKey} 提示词写入完成`);
 
       return promptTarget;
     },
@@ -795,18 +828,58 @@ export default function ReverseBrowserViewPanel({
           { type: "mouseUp", x: clickResult.clickX, y: clickResult.clickY, button: "left", clickCount: 1 },
         ]);
       }
+      const beforeSubmitState = await executeNamed<{
+        ok: boolean;
+        step: string;
+        promptValue?: string;
+        signalTextKey?: string;
+        taskIndicatorCount?: number;
+        hasPostSubmitSignals?: boolean;
+        submitButton?: null | { disabled?: boolean; className?: string; text?: string };
+      }>(
+        "?????",
+        buildReadPromptScopeStateScript(promptTarget.textboxIndex),
+      );
 
-      // Wait and verify submission
       let submitted = false;
-      const deadline = Date.now() + 5000;
+      const deadline = Date.now() + 7000;
       while (Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 200));
-        const after = await executeNamed<{ ok: boolean; step: string; submitButton: null | object }>(
-          "验证提交状态",
+        const after = await executeNamed<{
+          ok: boolean;
+          step: string;
+          promptValue?: string;
+          signalTextKey?: string;
+          taskIndicatorCount?: number;
+          hasPostSubmitSignals?: boolean;
+          submitButton?: null | { disabled?: boolean; className?: string; text?: string };
+        }>(
+          "?????",
           buildReadPromptScopeStateScript(promptTarget.textboxIndex),
         );
-        // Success: textbox gone (page navigated) or submit button disappeared
-        if (!after.ok || after.step === "textbox-not-found" || !after.submitButton) {
+        const textboxGone = !after.ok || after.step === "textbox-not-found";
+        const submitGone = !after.submitButton;
+        const submitDisabled =
+          !!after.submitButton?.disabled &&
+          after.submitButton?.disabled !== beforeSubmitState.submitButton?.disabled;
+        const submitChanged =
+          after.submitButton?.className !== beforeSubmitState.submitButton?.className ||
+          after.submitButton?.text !== beforeSubmitState.submitButton?.text;
+        const signalsChanged =
+          after.signalTextKey !== beforeSubmitState.signalTextKey ||
+          (after.taskIndicatorCount || 0) !== (beforeSubmitState.taskIndicatorCount || 0);
+        const promptChanged =
+          normalizeText(after.promptValue || "") !== normalizeText(beforeSubmitState.promptValue || "");
+
+        if (
+          textboxGone ||
+          submitGone ||
+          !!after.hasPostSubmitSignals ||
+          submitDisabled ||
+          submitChanged ||
+          signalsChanged ||
+          (promptChanged && (submitDisabled || signalsChanged || !!after.hasPostSubmitSignals))
+        ) {
           submitted = true;
           break;
         }

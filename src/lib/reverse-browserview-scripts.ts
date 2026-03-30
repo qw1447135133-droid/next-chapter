@@ -674,7 +674,7 @@ export function buildFillPromptScript(
 export function buildTypePromptScript(
   prompt: string,
   textboxIndex = 0,
-  _delayMs = 20,
+  delayMs = 20,
   append = false,
 ): string {
   // NOTE: prompt text is injected via window.__executeData__.prompt to avoid
@@ -697,21 +697,39 @@ export function buildTypePromptScript(
         }
         const promptText = (window.__executeData__ && window.__executeData__.prompt) || "";
         const appendMode = ${q(append)};
+        const delayMs = ${q(delayMs)};
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const insertChar = (char) => {
+          try {
+            const inserted = document.execCommand("insertText", false, char);
+            if (inserted) return true;
+          } catch (e0) {}
+          if (textbox instanceof HTMLTextAreaElement || textbox instanceof HTMLInputElement) {
+            const proto = textbox instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+            const desc = Object.getOwnPropertyDescriptor(proto, "value");
+            const currentVal = textbox.value || "";
+            const nextValue = currentVal + char;
+            if (desc && desc.set) desc.set.call(textbox, nextValue);
+            else textbox.value = nextValue;
+            textbox.setSelectionRange(nextValue.length, nextValue.length);
+            textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: char, inputType: "insertText" }));
+            return true;
+          }
+          if (textbox instanceof HTMLElement) {
+            textbox.textContent = (textbox.textContent || "") + char;
+            textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: char, inputType: "insertText" }));
+            return true;
+          }
+          return false;
+        };
         textbox.focus();
         if (!appendMode) {
           try { document.execCommand("selectAll", false, null); } catch (e1) {}
           try { document.execCommand("delete", false, null); } catch (e2) {}
         }
-        try {
-          document.execCommand("insertText", false, promptText);
-        } catch (e3) {
-          if (textbox instanceof HTMLTextAreaElement || textbox instanceof HTMLInputElement) {
-            const proto = textbox instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-            const desc = Object.getOwnPropertyDescriptor(proto, "value");
-            const currentVal = appendMode ? textbox.value : "";
-            if (desc && desc.set) desc.set.call(textbox, currentVal + promptText);
-            else textbox.value = currentVal + promptText;
-          }
+        for (const char of String(promptText)) {
+          insertChar(char);
+          await wait(delayMs);
         }
         textbox.dispatchEvent(new Event("input", { bubbles: true }));
         const currentValue = textbox instanceof HTMLTextAreaElement || textbox instanceof HTMLInputElement
@@ -752,6 +770,225 @@ export function buildFillPromptWithReferenceMentionsScript(
   textboxIndex = 0,
 ): string {
   return buildTypePromptScript(prompt, textboxIndex, 20);
+}
+
+export function buildComposePromptWithReferenceMentionsScript(
+  textboxIndex = 0,
+): string {
+  return `
+    (async () => {
+      try {
+        ${sharedHelpers()}
+        const payload = (window.__executeData__ || {});
+        const tagPrefix = String(payload.tagPrefix || "");
+        const refs = Array.isArray(payload.refs) ? payload.refs : [];
+        const body = String(payload.body || "");
+        const textboxes = promptTextboxes();
+        const textbox = textboxes[Math.max(0, ${q(textboxIndex)})] || findPromptTextbox();
+        if (!(textbox instanceof HTMLElement)) {
+          return { ok: false, step: "textbox-not-found", insertedMentions: [] };
+        }
+        const charDelayMs = Number.isFinite(payload.charDelayMs) ? Number(payload.charDelayMs) : 35;
+        const mentionOpenDelayMs = Number.isFinite(payload.mentionOpenDelayMs) ? Number(payload.mentionOpenDelayMs) : 450;
+        const mentionPickedDelayMs = Number.isFinite(payload.mentionPickedDelayMs) ? Number(payload.mentionPickedDelayMs) : 650;
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+        const placeCaretAtEnd = (node) => {
+          if (node instanceof HTMLTextAreaElement || node instanceof HTMLInputElement) {
+            const value = node.value || "";
+            node.focus();
+            node.setSelectionRange(value.length, value.length);
+            return;
+          }
+          if (node instanceof HTMLElement) {
+            node.focus?.();
+            const selection = window.getSelection?.();
+            if (!selection) return;
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            range.collapse(false);
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
+        };
+
+        const insertPlainText = async (value) => {
+          if (!value) return;
+          for (const char of String(value)) {
+            placeCaretAtEnd(textbox);
+            if (textbox instanceof HTMLTextAreaElement || textbox instanceof HTMLInputElement) {
+              const currentValue = textbox.value || "";
+              const nextValue = currentValue + char;
+              const proto =
+                textbox instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+              const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+              if (setter) setter.call(textbox, nextValue);
+              else textbox.value = nextValue;
+              textbox.setSelectionRange(nextValue.length, nextValue.length);
+              textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: char, inputType: "insertText" }));
+              textbox.dispatchEvent(new Event("change", { bubbles: true }));
+            } else {
+              const inserted = document.execCommand("insertText", false, char);
+              if (!inserted && textbox instanceof HTMLElement) {
+                textbox.textContent = (textbox.textContent || "") + char;
+                textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: char, inputType: "insertText" }));
+                textbox.dispatchEvent(new Event("change", { bubbles: true }));
+              }
+            }
+            await wait(charDelayMs);
+          }
+        };
+
+        const textboxRect = () => rectOf(textbox);
+
+        const insertLineBreak = async () => {
+          placeCaretAtEnd(textbox);
+          if (textbox instanceof HTMLTextAreaElement || textbox instanceof HTMLInputElement) {
+            const currentValue = textbox.value || "";
+            const nextValue = currentValue + "\n";
+            const proto =
+              textbox instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+            if (setter) setter.call(textbox, nextValue);
+            else textbox.value = nextValue;
+            textbox.setSelectionRange(nextValue.length, nextValue.length);
+            textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: "\n", inputType: "insertLineBreak" }));
+            textbox.dispatchEvent(new Event("change", { bubbles: true }));
+            await wait(charDelayMs);
+            return;
+          }
+          try {
+            document.execCommand("insertParagraph", false);
+          } catch (e0) {
+            try {
+              document.execCommand("insertHTML", false, "<br>");
+            } catch (e1) {
+              if (textbox instanceof HTMLElement) {
+                textbox.appendChild(document.createElement("br"));
+                textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: "\n", inputType: "insertLineBreak" }));
+                textbox.dispatchEvent(new Event("change", { bubbles: true }));
+              }
+            }
+          }
+          await wait(charDelayMs);
+        };
+
+        const openMentionDropdown = async () => {
+          await insertPlainText("@");
+          await wait(mentionOpenDelayMs);
+          const deadline = Date.now() + 4000;
+          while (Date.now() < deadline) {
+            await wait(150);
+            const candidates = Array.from(
+              document.querySelectorAll("[role='listbox'], [role='menu'], [class*='mention'], [class*='dropdown'], [class*='suggest'], [class*='popup'], [class*='at-'], [class*='picker']")
+            ).filter(isVisible).sort((a, b) => {
+              const rectA = rectOf(a);
+              const rectB = rectOf(b);
+              const base = textboxRect();
+              const distA = Math.abs(rectA.top - base.bottom) + Math.abs(rectA.left - base.left);
+              const distB = Math.abs(rectB.top - base.bottom) + Math.abs(rectB.left - base.left);
+              return distA - distB;
+            });
+            if (candidates.length > 0) return candidates[0];
+          }
+          return null;
+        };
+
+        const readOptionText = (node) => {
+          if (!(node instanceof HTMLElement)) return "";
+          const ownText = normalize(node.innerText || node.textContent || "");
+          if (ownText) return ownText;
+          const nested = Array.from(node.querySelectorAll("*"))
+            .map((child) => normalize(child instanceof HTMLElement ? child.innerText || child.textContent || "" : ""))
+            .find(Boolean);
+          return nested || normalize(node.getAttribute("aria-label") || "");
+        };
+
+        const insertedMentions = [];
+        setTextboxValue(textbox, "");
+        placeCaretAtEnd(textbox);
+
+        if (tagPrefix) {
+          await insertPlainText(tagPrefix);
+        }
+
+        for (let index = 0; index < refs.length; index += 1) {
+          const ref = refs[index] || {};
+          const label = String(ref.label || "");
+          const optionIndex = Number.isFinite(ref.optionIndex) ? Number(ref.optionIndex) : index;
+          const leadText =
+            typeof ref.leadText === "string"
+              ? String(ref.leadText)
+              : (index === 0 ? "" : " ") + "【" + label + " ";
+          const tailText =
+            typeof ref.tailText === "string"
+              ? String(ref.tailText)
+              : "】";
+          await insertPlainText(leadText);
+
+          const dropdown = await openMentionDropdown();
+          if (!dropdown) {
+            return { ok: false, step: "dropdown-not-appeared", insertedMentions };
+          }
+
+          const options = Array.from(
+            dropdown.querySelectorAll("[role='option'], [role='menuitem'], li, [class*='item'], [class*='option']")
+          ).filter((node) => {
+            if (!(node instanceof HTMLElement)) return false;
+            if (!isVisible(node) || node === dropdown) return false;
+            const rect = rectOf(node);
+            const text = readOptionText(node);
+            return rect.height > 0 && rect.height < 140 && !!text;
+          }).map((node) => {
+            const clickable =
+              node.closest("[role='option'], [role='menuitem'], li, button, [role='button']") || node;
+            return clickable instanceof HTMLElement ? clickable : node;
+          }).filter((node, index, arr) => arr.indexOf(node) === index);
+
+          if (options.length === 0) {
+            return { ok: false, step: "no-options-in-dropdown", insertedMentions };
+          }
+
+          const exactOption =
+            options.find((node) => readOptionText(node) === label) ||
+            options.find((node) => readOptionText(node).includes(label));
+          const target =
+            exactOption ||
+            options[Math.max(0, Math.min(optionIndex, options.length - 1))];
+
+          if (!(target instanceof HTMLElement)) {
+            return { ok: false, step: "option-not-element", insertedMentions };
+          }
+
+          clickLikeHuman(target);
+          const selectedText = readOptionText(target);
+          insertedMentions.push(selectedText);
+          await wait(mentionPickedDelayMs);
+          const promptAfterMention = normalize(getTextboxValue(textbox));
+          if (promptAfterMention.endsWith("@") || !selectedText) {
+            return { ok: false, step: "mention-not-applied", insertedMentions };
+          }
+          await insertPlainText(tailText);
+        }
+
+        if (body) {
+          if (refs.length > 0) {
+            await insertLineBreak();
+          }
+          await insertPlainText(body);
+        }
+
+        return {
+          ok: true,
+          step: "prompt-composed",
+          insertedMentions,
+          currentValue: getTextboxValue(textbox),
+        };
+      } catch (e) {
+        return { ok: false, step: "error", error: String(e && e.message ? e.message : e), insertedMentions: [] };
+      }
+    })()
+  `;
 }
 
 export function buildTypeAtMentionScript(

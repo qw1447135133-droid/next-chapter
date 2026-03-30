@@ -30,6 +30,7 @@ import StoryboardPreview from "@/components/workspace/StoryboardPreview";
 import VideoGeneration from "@/components/workspace/VideoGeneration";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import VideoPreview from "@/components/workspace/VideoPreview";
+import BrandMark from "@/components/BrandMark";
 import DecomposeProgress, {
   type ChunkStatus,
 } from "@/components/workspace/DecomposeProgress";
@@ -2235,7 +2236,7 @@ const Workspace = () => {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex items-center gap-2">
-            <Film className="h-5 w-5 text-primary" />
+            <BrandMark className="h-6 w-10" />
             <span className="font-semibold font-[Space_Grotesk]">
               {projectTitle}
             </span>

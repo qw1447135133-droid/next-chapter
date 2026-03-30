@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { ArrowLeft, RefreshCw, Pencil, Eye, Loader2, ShieldCheck, Upload, Film, FileText, ChevronDown, ChevronUp, Palette, Wand2, Download, FileSpreadsheet, Undo2, Redo2, MessageSquare, AlertTriangle, Info, CheckCircle2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import BrandMark from "@/components/BrandMark";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { parseDocument } from "@/lib/document-parser";
 import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "@/components/script-creator/TranslateButton";
@@ -2160,7 +2161,7 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex items-center gap-2">
-            <Film className="h-6 w-6 text-primary" />
+            <BrandMark className="h-7 w-12" />
             <span className="text-lg font-semibold font-[Space_Grotesk]">Infinio</span>
           </div>
         </div>
