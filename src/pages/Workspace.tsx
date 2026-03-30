@@ -159,11 +159,32 @@ const Workspace = () => {
       }
 
       const syncedScenes: Scene[] = [];
+      let previousSegmentContinuity:
+        | {
+            sceneKey: string;
+            characterSetKey: string;
+            costumeByCharacter: Record<string, string>;
+          }
+        | null = null;
 
       for (const segmentKey of orderedSegmentKeys) {
         const segmentScenes = segmentMap.get(segmentKey)!;
         const segmentTimeVariantId =
           matchSceneTimeVariantForSegment(segmentScenes, nextSceneSettings)?.id;
+        const segmentSceneMatch = segmentScenes[0]
+          ? findSceneSetting(segmentScenes[0], nextSceneSettings)
+          : null;
+        const segmentSceneKey =
+          segmentSceneMatch?.id ||
+          normalizeSceneName(segmentScenes[0]?.sceneName || "");
+        const segmentCharacterSetKey = [...new Set(
+          segmentScenes.flatMap((scene) =>
+            (scene.characters || []).map((name) => normalizeCharacterName(String(name || "").trim())),
+          ),
+        )]
+          .filter(Boolean)
+          .sort()
+          .join("|");
 
         const resolveSceneCostumeId = (
           scene: Scene,
@@ -205,12 +226,42 @@ const Workspace = () => {
           return sceneMatchedCostume?.id;
         };
 
+        const segmentCostumeByCharacter: Record<string, string> = {};
+        for (const rawName of segmentScenes.flatMap((scene) => scene.characters || [])) {
+          const normalizedName = normalizeCharacterName(String(rawName || "").trim());
+          if (!normalizedName || segmentCostumeByCharacter[normalizedName]) continue;
+
+          const firstResolved = segmentScenes
+            .map((scene) => resolveSceneCostumeId(scene, normalizedName))
+            .find(Boolean);
+          if (firstResolved) {
+            segmentCostumeByCharacter[normalizedName] = firstResolved;
+          }
+        }
+
+        if (
+          previousSegmentContinuity &&
+          previousSegmentContinuity.sceneKey &&
+          previousSegmentContinuity.sceneKey === segmentSceneKey &&
+          previousSegmentContinuity.characterSetKey === segmentCharacterSetKey
+        ) {
+          for (const [characterName, costumeId] of Object.entries(
+            previousSegmentContinuity.costumeByCharacter,
+          )) {
+            if (segmentCharacterSetKey.includes(characterName) && costumeId) {
+              segmentCostumeByCharacter[characterName] = costumeId;
+            }
+          }
+        }
+
         for (const scene of segmentScenes) {
           const nextCharacterCostumes: Record<string, string> = {};
           for (const rawName of scene.characters || []) {
             const normalizedName = normalizeCharacterName(String(rawName || "").trim());
             if (!normalizedName) continue;
-            const costumeId = resolveSceneCostumeId(scene, normalizedName);
+            const costumeId =
+              segmentCostumeByCharacter[normalizedName] ||
+              resolveSceneCostumeId(scene, normalizedName);
             if (costumeId) {
               nextCharacterCostumes[normalizedName] = costumeId;
             }
@@ -225,6 +276,12 @@ const Workspace = () => {
             sceneTimeVariantId: scene.sceneTimeVariantId || segmentTimeVariantId,
           });
         }
+
+        previousSegmentContinuity = {
+          sceneKey: segmentSceneKey,
+          characterSetKey: segmentCharacterSetKey,
+          costumeByCharacter: { ...segmentCostumeByCharacter },
+        };
       }
 
       return syncedScenes;

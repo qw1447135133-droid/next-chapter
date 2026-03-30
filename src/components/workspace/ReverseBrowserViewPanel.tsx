@@ -51,6 +51,7 @@ type ReverseModel = "Seedance 2.0" | "Seedance 2.0 Fast";
 type ReverseDuration = "5s" | "10s" | "15s";
 type ReverseReferenceKind = "character" | "scene";
 type ReverseRepeatCount = "1" | "2" | "3" | "4" | "5";
+type ReverseBatchWaitMinutes = "5" | "10" | "15" | "20" | "30";
 
 interface ReverseReference {
   kind: ReverseReferenceKind;
@@ -91,6 +92,9 @@ const MODEL_OPTIONS: ReverseModel[] = ["Seedance 2.0", "Seedance 2.0 Fast"];
 const DURATION_OPTIONS: ReverseDuration[] = ["5s", "10s", "15s"];
 const ASPECT_RATIO_OPTIONS: AspectRatio[] = ["16:9", "9:16", "3:2", "2:3"];
 const REPEAT_COUNT_OPTIONS: ReverseRepeatCount[] = ["1", "2", "3", "4", "5"];
+const BATCH_WAIT_MINUTE_OPTIONS: ReverseBatchWaitMinutes[] = ["5", "10", "15", "20", "30"];
+const REVERSE_BATCH_SIZE = 5;
+const INTER_VIDEO_DELAY_MS = 5000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -261,6 +265,7 @@ export default function ReverseBrowserViewPanel({
   const [reverseDuration, setReverseDuration] = useState<ReverseDuration>("5s");
   const [reverseAspectRatio, setReverseAspectRatio] = useState<AspectRatio>("9:16");
   const [reverseRepeatCount, setReverseRepeatCount] = useState<ReverseRepeatCount>("1");
+  const [reverseBatchWaitMinutes, setReverseBatchWaitMinutes] = useState<ReverseBatchWaitMinutes>("20");
   const [mode, setMode] = useState<GenerationMode>("single");
   const [selectedStartKey, setSelectedStartKey] = useState("");
   const [selectedEpisodeKey, setSelectedEpisodeKey] = useState("");
@@ -759,7 +764,7 @@ export default function ReverseBrowserViewPanel({
       const orderedPromptReferences = buildOrderedPromptReferences(definition.references);
       const bodyPromptText = buildPromptBodyLinesStable(definition.scenes).join(" ");
       const promptBodyForInput = orderedPromptReferences.length > 0
-        ? ` ${bodyPromptText}`
+        ? bodyPromptText
         : String(definition.prompt || "").replace(/\s*\n+\s*/g, " ").trim();
 
       if (orderedPromptReferences.length > 0) {
@@ -878,6 +883,44 @@ export default function ReverseBrowserViewPanel({
 
       // Wait for UI to settle after prompt input and @ mentions
       await new Promise((r) => setTimeout(r, 600));
+
+      const submitResult = await executeNamed<{
+        ok: boolean;
+        step: string;
+        signalTextKey?: string;
+        taskIndicatorCount?: number;
+        globalSignalTextKey?: string;
+        globalSignalNodeCount?: number;
+        externalMutationCount?: number;
+      }>(
+        "提交当前提示词",
+        buildSubmitCurrentPromptStrictScript(promptTarget.textboxIndex),
+      );
+
+      if (!submitResult.ok) {
+        throw new Error(
+          `片段 ${definition.segmentKey} 提交失败: ${submitResult.step}${
+            submitResult.signalTextKey ? ` / scope=${submitResult.signalTextKey}` : ""
+          }${
+            submitResult.globalSignalTextKey ? ` / global=${submitResult.globalSignalTextKey}` : ""
+          }${
+            typeof submitResult.externalMutationCount === "number"
+              ? ` / mutations=${submitResult.externalMutationCount}`
+              : ""
+          }`,
+        );
+      }
+
+      appendLog(
+        `片段 ${definition.segmentKey} 已提交 / step=${submitResult.step}${
+          submitResult.globalSignalTextKey ? ` / global=${submitResult.globalSignalTextKey}` : ""
+        }${
+          typeof submitResult.externalMutationCount === "number"
+            ? ` / mutations=${submitResult.externalMutationCount}`
+            : ""
+        }`,
+      );
+      return;
 
       const beforeSubmitState = await executeNamed<{
         ok: boolean;
@@ -1000,6 +1043,37 @@ export default function ReverseBrowserViewPanel({
     ],
   );
 
+  const repeatSubmitPreparedPrompt = useCallback(
+    async (segmentKey: string, submissionIndex: number, totalSubmissions: number) => {
+      ensureNotStopped();
+      const promptTarget = await executeNamed<PromptTarget>(
+        "定位已输入的提示词区域",
+        buildLocatePromptAreaScript(),
+      );
+      if (!promptTarget.ok) {
+        throw new Error(`片段 ${segmentKey} 重复提交失败: 未找到提示词输入区域`);
+      }
+
+      appendLog(`片段 ${segmentKey} 重复提交 ${submissionIndex}/${totalSubmissions}：直接再次点击发送`);
+      const result = await executeNamed<{
+        ok: boolean;
+        step: string;
+        beforeValue?: string;
+        afterValue?: string;
+      }>(
+        "重复提交当前提示词",
+        buildSubmitCurrentPromptStrictScript(promptTarget.textboxIndex),
+      );
+
+      if (!result.ok) {
+        throw new Error(`片段 ${segmentKey} 重复提交失败: ${result.step}`);
+      }
+
+      appendLog(`片段 ${segmentKey} 已完成重复提交 ${submissionIndex}/${totalSubmissions}`);
+    },
+    [appendLog, ensureNotStopped, executeNamed],
+  );
+
   const startReverseMode = useCallback(async () => {
     const api = window.electronAPI?.browserView;
     if (!api) throw new Error("请在 Electron 应用中使用逆向模式");
@@ -1031,8 +1105,11 @@ export default function ReverseBrowserViewPanel({
       }
 
       const repeatCount = Number(reverseRepeatCount);
+      const batchWaitMinutes = Number(reverseBatchWaitMinutes);
+      const batchWaitMs = batchWaitMinutes * 60 * 1000;
       const totalRuns = Math.max(1, targets.length * repeatCount);
       let completedRuns = 0;
+      let runsInCurrentBatch = 0;
 
       for (let index = 0; index < targets.length; index += 1) {
         ensureNotStopped();
@@ -1042,24 +1119,38 @@ export default function ReverseBrowserViewPanel({
 
         for (let repeatIndex = 1; repeatIndex <= repeatCount; repeatIndex += 1) {
           ensureNotStopped();
+          if (completedRuns > 0) {
+            if (runsInCurrentBatch >= REVERSE_BATCH_SIZE) {
+              appendLog(`已连续提交 ${REVERSE_BATCH_SIZE} 个视频，等待 ${batchWaitMinutes} 分钟后继续下一组`);
+              setCurrentAction(`组间等待 ${batchWaitMinutes} 分钟`);
+              await sleep(batchWaitMs);
+              runsInCurrentBatch = 0;
+            } else {
+              appendLog(`将在 5s 后开始下一个视频的输入与提交`);
+              setCurrentAction("等待 5 秒后继续");
+              await sleep(INTER_VIDEO_DELAY_MS);
+            }
+          }
           setCurrentAction(
             repeatCount > 1
               ? `澶勭悊涓?${definition.segmentKey}（${repeatIndex}/${repeatCount}）`
               : `澶勭悊涓?${definition.segmentKey}`,
           );
-          await submitSegmentOnce(definition, repeatIndex, repeatCount);
-          completedRuns += 1;
-          setProgress(Math.round((completedRuns / Math.max(1, totalRuns)) * 100));
-
-          if (repeatIndex < repeatCount) {
-            appendLog(`片段 ${definition.segmentKey} 将在 5s 后执行下一次重复提交`);
-            await sleep(5000);
-            await api.navigate(JIMENG_VIDEO_URL);
-            await sleep(1800);
+          if (repeatIndex === 1) {
+            await submitSegmentOnce(definition, repeatIndex, repeatCount);
+          } else {
+            await repeatSubmitPreparedPrompt(
+              definition.segmentKey,
+              repeatIndex,
+              repeatCount,
+            );
           }
+          completedRuns += 1;
+          runsInCurrentBatch += 1;
+          setProgress(Math.round((completedRuns / Math.max(1, totalRuns)) * 100));
         }
 
-        if (mode === "auto" && index < targets.length - 1) {
+        if (false && mode === "auto" && index < targets.length - 1) {
           appendLog(`片段 ${definition.segmentKey} 已提交，下一段前重新进入视频生成页`);
           await api.navigate(JIMENG_VIDEO_URL);
           await sleep(1800);
@@ -1088,7 +1179,9 @@ export default function ReverseBrowserViewPanel({
     appendLog,
     ensureNotStopped,
     mode,
+    reverseBatchWaitMinutes,
     reverseRepeatCount,
+    repeatSubmitPreparedPrompt,
     segmentDefinitions,
     selectedStartKey,
     submitSegmentOnce,
@@ -1128,7 +1221,7 @@ export default function ReverseBrowserViewPanel({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-6">
+          <div className="grid gap-3 md:grid-cols-7">
             <div className="space-y-2">
               <label className="text-sm">起始片段</label>
               <div className="flex gap-1">
@@ -1258,6 +1351,24 @@ export default function ReverseBrowserViewPanel({
                   {REPEAT_COUNT_OPTIONS.map((option) => (
                     <SelectItem key={option} value={option}>
                       {option}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm">每组等待</label>
+              <Select
+                value={reverseBatchWaitMinutes}
+                onValueChange={(value) => setReverseBatchWaitMinutes(value as ReverseBatchWaitMinutes)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {BATCH_WAIT_MINUTE_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option} 分钟
                     </SelectItem>
                   ))}
                 </SelectContent>

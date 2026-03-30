@@ -440,12 +440,58 @@ function buildSubmitCurrentPromptStrictScript(textboxIndex2 = 0) {
       }
       const beforeValue = before.promptValue;
       const beforeDisabled = before.submitButton.disabled;
+      const globalSignalSelector = [
+        "[class*='task']",
+        "[class*='queue']",
+        "[class*='status']",
+        "[class*='preview']",
+        "[class*='history']",
+        "[class*='record']",
+        "[class*='creation']",
+      ].join(", ");
+      const readGlobalSignals = () => {
+        const texts = Array.from(document.querySelectorAll("button, [role='button'], [role='tab'], div, span"))
+          .filter((node) => node instanceof HTMLElement && isVisible(node))
+          .map((node) => textOf(node))
+          .filter(Boolean)
+          .filter((text) => /\u961F\u5217|\u6392\u961F|\u751F\u6210\u4E2D|\u5904\u7406\u4E2D|\u91CD\u8BD5|\u91CD\u65B0\u751F\u6210|\u8BE6\u60C5|\u67E5\u770B|queue|processing|retry|regenerate|details/i.test(text))
+          .slice(0, 40);
+        const nodeCount = Array.from(document.querySelectorAll(globalSignalSelector))
+          .filter((node) => node instanceof HTMLElement && isVisible(node))
+          .length;
+        return {
+          textKey: [...new Set(texts)].join(" | "),
+          nodeCount,
+        };
+      };
+      const beforeGlobal = readGlobalSignals();
+      let externalMutationCount = 0;
+      const targetRoot =
+        target.closest("[class*='generator']") ||
+        target.closest("[class*='section']") ||
+        target.closest("[class*='panel']") ||
+        target.parentElement;
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          const mutationTarget = mutation.target;
+          if (!(mutationTarget instanceof Node)) continue;
+          if (targetRoot instanceof Node && targetRoot.contains(mutationTarget)) continue;
+          externalMutationCount += 1;
+        }
+      });
+      observer.observe(document.body, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+        attributes: true,
+      });
       clickLikeHuman(target);
       const startedAt = Date.now();
       let after = before;
       while (Date.now() - startedAt <= 4000) {
         await new Promise((resolve) => setTimeout(resolve, 150));
         after = readScope(${q(textboxIndex2)});
+        const afterGlobal = readGlobalSignals();
         const submitChanged =
           !!before.submitButton !== !!after.submitButton ||
           before.submitButton?.disabled !== after.submitButton?.disabled ||
@@ -458,12 +504,19 @@ function buildSubmitCurrentPromptStrictScript(textboxIndex2 = 0) {
         const submitDisappeared = !!before.submitButton && !after.submitButton;
         // Also detect page navigation: textbox itself disappeared
         const textboxGone = !after.ok || after.step === "textbox-not-found";
+        const globalSignalsChanged =
+          beforeGlobal.textKey !== afterGlobal.textKey ||
+          beforeGlobal.nodeCount !== afterGlobal.nodeCount;
+        const observedExternalMutation = externalMutationCount >= 3;
         const verified =
           textboxGone ||
           submitDisappeared ||
           ((submitChanged || signalsChanged) && (after.hasPostSubmitSignals || !!after.submitButton?.disabled)) ||
-          (promptChanged && (after.hasPostSubmitSignals || signalsChanged || submitDisappeared));
+          (promptChanged && (after.hasPostSubmitSignals || signalsChanged || submitDisappeared)) ||
+          globalSignalsChanged ||
+          observedExternalMutation;
         if (verified) {
+          observer.disconnect();
           return {
             ok: true,
             step: "submitted",
@@ -473,9 +526,14 @@ function buildSubmitCurrentPromptStrictScript(textboxIndex2 = 0) {
             afterDisabled: after.submitButton?.disabled || false,
             signalTextKey: after.signalTextKey,
             taskIndicatorCount: after.taskIndicatorCount,
+            globalSignalTextKey: afterGlobal.textKey,
+            globalSignalNodeCount: afterGlobal.nodeCount,
+            externalMutationCount,
           };
         }
       }
+      observer.disconnect();
+      const afterGlobal = readGlobalSignals();
       return {
         ok: false,
         step: "submit-not-confirmed",
@@ -485,6 +543,9 @@ function buildSubmitCurrentPromptStrictScript(textboxIndex2 = 0) {
         afterDisabled: after.submitButton?.disabled || false,
         signalTextKey: after.signalTextKey,
         taskIndicatorCount: after.taskIndicatorCount,
+        globalSignalTextKey: afterGlobal.textKey,
+        globalSignalNodeCount: afterGlobal.nodeCount,
+        externalMutationCount,
       };
     })()
   `;
