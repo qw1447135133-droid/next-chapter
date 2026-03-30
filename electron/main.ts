@@ -123,14 +123,15 @@ async function loadURLWithAbortTolerance(view: BrowserView, url: string) {
     const message = error instanceof Error ? error.message : String(error);
     const currentUrl = view.webContents.getURL();
     if (message.includes("ERR_ABORTED") || message.includes("(-3)")) {
+      // Jimeng sometimes redirects through an intermediate route and Electron
+      // reports a recoverable abort before the final page URL is committed.
       log("warn", `BrowserView loadURL 被中断，按可恢复处理: ${message}`);
-      if (currentUrl) {
-        embeddedBrowserState.url = currentUrl;
-        embeddedBrowserState.loading = false;
-        embeddedBrowserState.error = "";
-        emitEmbeddedBrowserState();
-        return;
-      }
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      embeddedBrowserState.url = view.webContents.getURL() || currentUrl || url;
+      embeddedBrowserState.loading = false;
+      embeddedBrowserState.error = "";
+      emitEmbeddedBrowserState();
+      return;
     }
     throw error;
   }
@@ -161,9 +162,15 @@ async function ensureEmbeddedBrowserView(url?: string) {
 
   embeddedBrowserState.visible = true;
   if (url) {
+    const currentUrl =
+      embeddedBrowserView.webContents.getURL() || embeddedBrowserState.url;
     embeddedBrowserState.url = url;
+    if (currentUrl === url) {
+      log("info", `BrowserView already at target URL, skipping reload: ${url}`);
+    } else {
     log("info", `BrowserView 导航到: ${url}`);
-    await loadURLWithAbortTolerance(embeddedBrowserView, url);
+      await loadURLWithAbortTolerance(embeddedBrowserView, url);
+    }
   }
   emitEmbeddedBrowserState();
   return embeddedBrowserView;

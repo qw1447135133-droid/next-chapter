@@ -5,6 +5,7 @@ import {
   buildEnterVideoGenerationModeScript,
   buildFillPromptScript,
   buildFillPromptWithReferenceMentionsScript,
+  buildTypeAtMentionScript,
   buildLocatePromptAreaScript,
   buildReadPromptValueScript,
   buildSubmitCurrentPromptStrictScript,
@@ -473,5 +474,106 @@ describe("reverse-browserview-scripts", () => {
     expect(result.insertedRefs).toBe(1);
     expect(pickerOpened).toBe(true);
     expect(textbox.value).toContain("銆怉va@鍥剧墖1銆?);
+  });
+
+  it("selects an image-only reference option from the global visible candidates", async () => {
+    document.body.innerHTML = `
+      <div class="section-generator-panel">
+        <textarea role="textbox"></textarea>
+        <div class="floating-reference-card" role="button" id="img-option">
+          <img src="ref.png" alt="Ava 医疗服" />
+        </div>
+      </div>
+    `;
+
+    const textbox = document.querySelector("textarea") as HTMLTextAreaElement;
+    document.getElementById("img-option")?.addEventListener("click", () => {
+      const value = textbox.value || "";
+      textbox.value = `${value}Ava 医疗服`;
+      textbox.setSelectionRange(textbox.value.length, textbox.value.length);
+    });
+
+    const result = await evalScript<{
+      ok: boolean;
+      step: string;
+      selectedText?: string;
+      optionCount?: number;
+      debug?: string;
+    }>(buildTypeAtMentionScript("Ava 医疗服", 0, 0));
+
+    expect(result.ok).toBe(true);
+    expect(result.step).toBe("mention-inserted");
+    expect(result.optionCount).toBeGreaterThan(0);
+    expect(textbox.value.endsWith("@")).toBe(false);
+  });
+
+  it("prefers indexed image options over generic visual cards", async () => {
+    document.body.innerHTML = `
+      <div class="section-generator-panel">
+        <textarea role="textbox"></textarea>
+        <div class="floating-reference-card" role="button" id="img-card">
+          <img src="ref.png" />
+        </div>
+        <div role="option" id="image-1">图片1</div>
+        <button id="back-to-bottom">回到底部</button>
+      </div>
+    `;
+
+    const textbox = document.querySelector("textarea") as HTMLTextAreaElement;
+    document.getElementById("img-card")?.addEventListener("click", () => {
+      // Generic thumbnail cards should not win over the numbered picker option.
+    });
+    document.getElementById("image-1")?.addEventListener("click", () => {
+      const value = textbox.value || "";
+      textbox.value = `${value}Ava 医疗服`;
+      textbox.setSelectionRange(textbox.value.length, textbox.value.length);
+    });
+
+    const result = await evalScript<{
+      ok: boolean;
+      step: string;
+      selectedText?: string;
+      optionCount?: number;
+      debug?: string;
+    }>(buildTypeAtMentionScript("Ava 医疗服", 0, 0));
+
+    expect(result.ok).toBe(true);
+    expect(result.step).toBe("mention-inserted");
+    expect(result.selectedText).toBe("图片1");
+    expect(result.debug).toContain("图片1");
+    expect(textbox.value.endsWith("@")).toBe(false);
+  });
+
+  it("can use a nearby @ trigger button to open the picker", async () => {
+    document.body.innerHTML = `
+      <div class="section-generator-panel">
+        <textarea role="textbox"></textarea>
+        <button id="at-trigger">@</button>
+        <div id="picker" style="display:none">
+          <div role="option" id="ref-1">Ava 医疗服</div>
+        </div>
+      </div>
+    `;
+
+    const textbox = document.querySelector("textarea") as HTMLTextAreaElement;
+    document.getElementById("at-trigger")?.addEventListener("click", () => {
+      const picker = document.getElementById("picker") as HTMLDivElement;
+      picker.style.display = "block";
+    });
+    document.getElementById("ref-1")?.addEventListener("click", () => {
+      const value = textbox.value || "";
+      textbox.value = `${value}Ava 医疗服`;
+      textbox.setSelectionRange(textbox.value.length, textbox.value.length);
+    });
+
+    const result = await evalScript<{
+      ok: boolean;
+      step: string;
+      selectedText?: string;
+    }>(buildTypeAtMentionScript("Ava 医疗服", 0, 0));
+
+    expect(result.ok).toBe(true);
+    expect(result.step).toBe("mention-inserted");
+    expect(result.selectedText).toBe("Ava 医疗服");
   });
 });

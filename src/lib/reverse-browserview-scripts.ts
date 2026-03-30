@@ -1000,32 +1000,37 @@ export function buildInsertLineBreakScript(textboxIndex = 0): string {
       if (!(textbox instanceof HTMLElement)) {
         return { ok: false, step: "textbox-not-found" };
       }
+      // Jimeng's prompt box behaves like a chat composer on some builds:
+      // dispatching line-break/Enter style input can trigger generation.
+      // Use a plain space separator instead of a real newline.
+      const spacer = " ";
       textbox.focus?.();
       if (textbox instanceof HTMLTextAreaElement || textbox instanceof HTMLInputElement) {
         const currentValue = textbox.value || "";
-        const nextValue = currentValue + "\\n";
+        const nextValue = currentValue + spacer;
         const proto =
           textbox instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
         const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
         if (setter) setter.call(textbox, nextValue);
         else textbox.value = nextValue;
         textbox.setSelectionRange(nextValue.length, nextValue.length);
-        textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: "\\n", inputType: "insertLineBreak" }));
+        textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: spacer, inputType: "insertText" }));
         textbox.dispatchEvent(new Event("change", { bubbles: true }));
-        return { ok: true, step: "line-break-inserted" };
+        return { ok: true, step: "space-inserted" };
       }
       try {
-        document.execCommand("insertParagraph", false);
+        const inserted = document.execCommand("insertText", false, spacer);
+        if (!inserted && textbox instanceof HTMLElement) {
+          textbox.textContent = (textbox.textContent || "") + spacer;
+        }
       } catch (e0) {
-        try {
-          document.execCommand("insertHTML", false, "<br>");
-        } catch (e1) {
-          textbox.appendChild(document.createElement("br"));
+        if (textbox instanceof HTMLElement) {
+          textbox.textContent = (textbox.textContent || "") + spacer;
         }
       }
-      textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: "\\n", inputType: "insertLineBreak" }));
+      textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: spacer, inputType: "insertText" }));
       textbox.dispatchEvent(new Event("change", { bubbles: true }));
-      return { ok: true, step: "line-break-inserted" };
+      return { ok: true, step: "space-inserted" };
     })()
   `;
 }
@@ -1038,100 +1043,230 @@ export function buildTypeAtMentionScript(
   return `
     (async () => {
       try {
-      ${sharedHelpers()}
-      const label = ${q(label)};
-      const optionIndex = ${q(optionIndex)};
-      const textboxes = promptTextboxes();
-      const textbox = textboxes[Math.max(0, ${q(textboxIndex)})] || findPromptTextbox();
-      if (!(textbox instanceof HTMLElement)) {
-        return { ok: false, step: "textbox-not-found" };
-      }
-
-      // Focus textbox and type "@" via execCommand to trigger the mention dropdown
-      textbox.focus();
-      // Use insertText execCommand so React/contenteditable picks it up correctly
-      const inserted = document.execCommand("insertText", false, "@");
-      if (!inserted) {
-        // Fallback: dispatch keyboard events for "@"
-        textbox.dispatchEvent(new KeyboardEvent("keydown", { key: "@", keyCode: 50, bubbles: true }));
-        textbox.dispatchEvent(new KeyboardEvent("keypress", { key: "@", keyCode: 50, bubbles: true }));
-        textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: "@", inputType: "insertText" }));
-        textbox.dispatchEvent(new KeyboardEvent("keyup", { key: "@", keyCode: 50, bubbles: true }));
-      }
-
-      // Wait for dropdown to appear (up to 4s)
-      let dropdown = null;
-      const deadline = Date.now() + 4000;
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 200));
-        const candidates = Array.from(
-          document.querySelectorAll("[role='listbox'], [role='menu'], [class*='mention'], [class*='dropdown'], [class*='suggest'], [class*='popup'], [class*='at-'], [class*='reference'], [class*='picker']")
-        ).filter(isVisible);
-        if (candidates.length > 0) {
-          dropdown = candidates[0];
-          break;
+        ${sharedHelpers()}
+        const label = ${q(label)};
+        const optionIndex = ${q(optionIndex)};
+        const textboxes = promptTextboxes();
+        const textbox = textboxes[Math.max(0, ${q(textboxIndex)})] || findPromptTextbox();
+        if (!(textbox instanceof HTMLElement)) {
+          return { ok: false, step: "textbox-not-found" };
         }
-      }
 
-      if (!dropdown) {
-        // Dismiss by pressing Escape
-        textbox.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-        return { ok: false, step: "dropdown-not-appeared" };
-      }
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const baseRect = () => rectOf(textbox);
+        const forbiddenWords = [
+          "\u521b\u5efa\u4e3b\u4f53",
+          "\u53ef\u80fd@\u7684\u5185\u5bb9",
+          "\u8d44\u4ea7",
+          "\u753b\u5e03",
+          "\u9ad8\u7ea7\u4f1a\u5458",
+          "\u4f1a\u5458",
+          "\u8ba2\u9605",
+          "\u6a21\u677f",
+          "\u9996\u9875",
+          "\u5386\u53f2",
+          "\u8bbe\u7f6e",
+          "\u5e2e\u52a9",
+          "\u767b\u5f55",
+          "\u4e0a\u4f20",
+          "\u4e0b\u8f7d",
+          "\u89c6\u9891\u751f\u6210",
+          "\u5168\u80fd\u53c2\u8003",
+          "\u9996\u5c3e\u5e27",
+          "Seedance",
+          "\u573a\u666f/\u4eba\u7269\u6807\u7b7e",
+          "\u53c2\u8003\u5185\u5bb9",
+          "\u56de\u5230\u5e95\u90e8",
+          "\u56de\u5230\u9876\u90e8",
+          "back to top",
+        ];
+        const readOptionText = (node) => {
+          if (!(node instanceof HTMLElement)) return "";
+          const ownText = normalize(node.innerText || node.textContent || "");
+          if (ownText) return ownText;
+          const imgAlt = Array.from(node.querySelectorAll("img"))
+            .map((img) => normalize(img.getAttribute("alt") || ""))
+            .find(Boolean);
+          if (imgAlt) return imgAlt;
+          return normalize(node.getAttribute("aria-label") || "") || normalize(node.getAttribute("title") || "");
+        };
+        const hasVisualPayload = (node) => {
+          if (!(node instanceof HTMLElement)) return false;
+          const bg = window.getComputedStyle(node).backgroundImage || "";
+          return !!node.querySelector("img, picture, canvas, video, svg") || (!!bg && bg !== "none");
+        };
+        const isForbidden = (node, text) => {
+          if (!(node instanceof HTMLElement)) return true;
+          const cls = normalize(node.className || "").toLowerCase();
+          const textValue = String(text || "");
+          return (
+            forbiddenWords.some((word) => textValue.includes(word)) ||
+            /toolbar|sidebar|nav|header|footer|tabbar|menu-bar|topbar/i.test(cls)
+          );
+        };
+        const indexedImagePattern = new RegExp("^(?:\\u56fe\\u7247|image)\\s*" + (optionIndex + 1) + "$", "i");
+        const isIndexedImageText = (text) => indexedImagePattern.test(String(text || ""));
+        const isGenericImageText = (text) => /^(?:\u56fe\u7247|image)\s*\d+$/i.test(String(text || ""));
+        const candidatePriority = (node) => {
+          const text = readOptionText(node);
+          if (text === label) return 6;
+          if (text && text.includes(label)) return 5;
+          if (isIndexedImageText(text)) return 4;
+          if (isGenericImageText(text)) return 3;
+          if (hasVisualPayload(node)) return 2;
+          return 1;
+        };
+        const collectCandidates = () => {
+          const rect = baseRect();
+          return Array.from(
+            document.querySelectorAll("[role='option'], [role='menuitem'], li, button, [role='button'], [class*='item'], [class*='option'], [class*='card'], [class*='mention'], [class*='reference'], [class*='asset'], [class*='thumb']")
+          )
+            .filter((node) => {
+              if (!(node instanceof HTMLElement)) return false;
+              if (node === textbox || node.contains(textbox) || textbox.contains(node)) return false;
+              if (!isVisible(node)) return false;
+              const text = readOptionText(node);
+              const visual = hasVisualPayload(node);
+              if (isForbidden(node, text)) return false;
+              const r = rectOf(node);
+              const nearTextbox =
+                r.bottom >= rect.top - 260 &&
+                r.top <= rect.bottom + 120 &&
+                r.left >= rect.left - 40 &&
+                r.left <= rect.right + 220;
+              const sizeOk =
+                (r.height > 0 && r.height < 160) ||
+                (visual && r.height <= 220 && r.width <= 260);
+              return nearTextbox && sizeOk && (!!text || visual);
+            })
+            .map((node) => {
+              const clickable = node.closest("[role='option'], [role='menuitem'], li, button, [role='button']") || node;
+              return clickable instanceof HTMLElement ? clickable : node;
+            })
+            .filter((node, index, arr) => arr.indexOf(node) === index)
+            .sort((a, b) => {
+              const rect = baseRect();
+              const ra = rectOf(a);
+              const rb = rectOf(b);
+              const scoreA = candidatePriority(a);
+              const scoreB = candidatePriority(b);
+              const distA = Math.abs(ra.top - rect.bottom) + Math.abs(ra.left - rect.left);
+              const distB = Math.abs(rb.top - rect.bottom) + Math.abs(rb.left - rect.left);
+              return scoreB - scoreA || distA - distB;
+            });
+        };
+        const applyAtChar = () => {
+          textbox.focus?.();
+          try {
+            const inserted = document.execCommand("insertText", false, "@");
+            if (inserted) return;
+          } catch (e0) {}
+          if (textbox instanceof HTMLTextAreaElement || textbox instanceof HTMLInputElement) {
+            const value = textbox.value || "";
+            const next = value + "@";
+            const proto = textbox instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+            if (setter) setter.call(textbox, next);
+            else textbox.value = next;
+            textbox.setSelectionRange(next.length, next.length);
+            textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: "@", inputType: "insertText" }));
+            textbox.dispatchEvent(new Event("change", { bubbles: true }));
+            return;
+          }
+          textbox.dispatchEvent(new KeyboardEvent("keydown", { key: "@", keyCode: 50, bubbles: true }));
+          textbox.dispatchEvent(new KeyboardEvent("keypress", { key: "@", keyCode: 50, bubbles: true }));
+          textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: "@", inputType: "insertText" }));
+          textbox.dispatchEvent(new KeyboardEvent("keyup", { key: "@", keyCode: 50, bubbles: true }));
+        };
 
-      const readOptionText = (node) => {
-        if (!(node instanceof HTMLElement)) return "";
-        const ownText = normalize(node.innerText || node.textContent || "");
-        if (ownText) return ownText;
-        const nested = Array.from(node.querySelectorAll("*"))
-          .map((child) => normalize(child instanceof HTMLElement ? child.innerText || child.textContent || "" : ""))
-          .find(Boolean);
-        return nested || normalize(node.getAttribute("aria-label") || "");
-      };
+        applyAtChar();
+        await wait(300);
+        textbox.click?.();
+        textbox.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        textbox.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+        textbox.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowDown", bubbles: true }));
 
-      // Get all visible options in the dropdown
-      const options = Array.from(
-        dropdown.querySelectorAll("[role='option'], [role='menuitem'], li, [class*='item'], [class*='option']")
-      ).filter((n) => {
-        if (!(n instanceof HTMLElement)) return false;
-        if (!isVisible(n)) return false;
-        // Exclude the dropdown container itself
-        if (n === dropdown) return false;
-        // Must be a leaf-ish node (not a container with many children)
-        const rect = rectOf(n);
-        return rect.height > 0 && rect.height < 120 && !!readOptionText(n);
-      }).map((n) => {
-        const clickable = n.closest("[role='option'], [role='menuitem'], li, button, [role='button']") || n;
-        return clickable instanceof HTMLElement ? clickable : n;
-      }).filter((n, index, arr) => arr.indexOf(n) === index);
+        let options = [];
+        const deadline = Date.now() + 5000;
+        while (Date.now() < deadline) {
+          await wait(200);
+          options = collectCandidates();
+          if (options.length > 0) break;
+          const atButton = interactiveNodes().find((node) => {
+            if (!(node instanceof HTMLElement) || node === textbox) return false;
+            const t = textOf(node);
+            const a = normalize(node.getAttribute("aria-label") || "");
+            const r = rectOf(node);
+            const rect = baseRect();
+            return r.top >= rect.top - 40 && r.top <= rect.bottom + 180 && r.left >= rect.right - 20 && r.left <= rect.right + 220 && (t === "@" || a === "@");
+          });
+          if (atButton instanceof HTMLElement) clickLikeHuman(atButton);
+        }
 
-      if (options.length === 0) {
-        textbox.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-        return { ok: false, step: "no-options-in-dropdown" };
-      }
+        if (options.length === 0) {
+          return { ok: false, step: "no-options-in-dropdown", optionCount: 0, debug: "local-visible-options=0" };
+        }
 
-      const exactOption =
-        options.find((node) => readOptionText(node) === label) ||
-        options.find((node) => readOptionText(node).includes(label));
-      const target = exactOption || options[Math.min(optionIndex, options.length - 1)];
-      if (!(target instanceof HTMLElement)) {
-        textbox.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-        return { ok: false, step: "option-not-element" };
-      }
+        const preview = options.slice(0, 8).map((node, idx) => readOptionText(node) || ("[image-option-" + (idx + 1) + "]")).join(" | ");
+        const exactOption = options.find((node) => readOptionText(node) === label) || options.find((node) => readOptionText(node).includes(label));
+        const indexedImageOption = options.find((node) => isIndexedImageText(readOptionText(node)));
+        const textualImageOptions = options.filter((node) => isGenericImageText(readOptionText(node)));
+        const visualOnlyOption = options.find((node) => hasVisualPayload(node));
+        const target =
+          exactOption ||
+          indexedImageOption ||
+          textualImageOptions[Math.max(0, Math.min(optionIndex, textualImageOptions.length - 1))] ||
+          visualOnlyOption ||
+          options[Math.max(0, Math.min(optionIndex, options.length - 1))];
+        if (!(target instanceof HTMLElement)) {
+          return { ok: false, step: "option-not-element", debug: preview };
+        }
 
-      clickLikeHuman(target);
-      await new Promise((r) => setTimeout(r, 700));
-      const afterValue = normalize(getTextboxValue(textbox));
-      if (afterValue.endsWith("@")) {
-        return { ok: false, step: "mention-not-applied", selectedText: readOptionText(target), optionCount: options.length };
-      }
+        const tryApply = async () => {
+          const valueBeforeApply = normalize(getTextboxValue(textbox));
+          const waitForMentionApplied = async () => {
+            const settleDeadline = Date.now() + 1800;
+            while (Date.now() < settleDeadline) {
+              await wait(150);
+              const afterValue = normalize(getTextboxValue(textbox));
+              if (afterValue !== valueBeforeApply && !afterValue.endsWith("@")) return true;
+            }
+            return false;
+          };
+          const clickTargets = [
+            target,
+            target.querySelector("img, picture, canvas, video"),
+            Array.from(target.querySelectorAll("*")).find((child) => child instanceof HTMLElement && !!readOptionText(child)),
+          ].filter(Boolean);
+          for (const candidate of clickTargets) {
+            if (!(candidate instanceof HTMLElement)) continue;
+            clickLikeHuman(candidate);
+            if (await waitForMentionApplied()) return true;
+          }
+          target.focus?.();
+          target.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+          target.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }));
+          return await waitForMentionApplied();
+        };
 
-      return {
-        ok: true,
-        step: "mention-inserted",
-        selectedText: readOptionText(target),
-        optionCount: options.length,
-      };
+        const applied = await tryApply();
+        if (!applied) {
+          return {
+            ok: false,
+            step: "mention-not-applied",
+            selectedText: readOptionText(target),
+            optionCount: options.length,
+            debug: preview,
+          };
+        }
+
+        return {
+          ok: true,
+          step: "mention-inserted",
+          selectedText: readOptionText(target),
+          optionCount: options.length,
+          debug: preview,
+        };
       } catch (e) {
         return { ok: false, step: "error", error: String(e && e.message ? e.message : e) };
       }

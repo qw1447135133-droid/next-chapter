@@ -140,6 +140,23 @@ function normalizeText(value: string): string {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
+const GLOBAL_PROMPT_SUFFIX = "无字幕、无水印、无背景音";
+
+function stripPromptBoilerplate(value: string): string {
+  return normalizeText(value)
+    .replace(/镜头[:：]\s*/g, "")
+    .replace(/[，、,\s]*无字幕、无水印、无背景音(?:乐)?/g, "")
+    .trim();
+}
+
+function cleanPromptFragment(value: string): string {
+  return stripPromptBoilerplate(String(value || "")).replace(/^[：:、，,\s]+|[：:、，,\s]+$/g, "");
+}
+
+function cleanCameraDirection(value: string): string {
+  return cleanPromptFragment(value).replace(/^(镜头|运镜)[:：]\s*/i, "");
+}
+
 function buildPromptForSegment(segmentScenes: Scene[], references: ReverseReference[]): string {
   const sceneTags = uniqueByKey(
     references.filter((item) => item.kind === "scene"),
@@ -190,6 +207,20 @@ function buildPromptBodyLines(segmentScenes: Scene[]): string[] {
   return lines;
 }
 
+function buildPromptBodyLinesStable(segmentScenes: Scene[]): string[] {
+  const lines = segmentScenes.map((scene, index) => {
+    const description = cleanPromptFragment(scene.description || "");
+    const dialogue = cleanPromptFragment(scene.dialogue || "");
+    const cameraDirection = cleanCameraDirection(scene.cameraDirection || "");
+    const parts = [`分镜${index + 1}：${description}`];
+    if (dialogue) parts.push(`对白：${dialogue}`);
+    if (cameraDirection) parts.push(`镜头：${cameraDirection}`);
+    return parts.filter(Boolean).join(" ");
+  });
+  lines.push(GLOBAL_PROMPT_SUFFIX);
+  return lines;
+}
+
 function buildPromptForSegmentStable(
   segmentScenes: Scene[],
   references: ReverseReference[],
@@ -205,7 +236,7 @@ function buildPromptForSegmentStable(
     );
   }
 
-  lines.push(...buildPromptBodyLines(segmentScenes));
+  lines.push(...buildPromptBodyLinesStable(segmentScenes));
   return lines.filter(Boolean).join("\n");
 }
 
@@ -417,14 +448,25 @@ export default function ReverseBrowserViewPanel({
     if (!api) return;
 
     const apply = async () => {
-      if (!showBrowser) {
-        await api.hide();
-        return;
-      }
+      try {
+        if (!showBrowser) {
+          await api.hide();
+          return;
+        }
 
-      await api.create({ url: JIMENG_VIDEO_URL });
-      await api.show();
-      await syncBrowserBounds();
+        await api.create({ url: JIMENG_VIDEO_URL });
+        await api.show();
+        await syncBrowserBounds();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setBrowserState((prev) => ({
+          ...prev,
+          visible: false,
+          loading: false,
+          error: message,
+        }));
+        appendLog(`程序内浏览器初始化失败: ${message}`);
+      }
     };
 
     void apply();
@@ -439,7 +481,7 @@ export default function ReverseBrowserViewPanel({
       // Hide browser when component unmounts (navigating away from reverse mode)
       void api.hide();
     };
-  }, [showBrowser, syncBrowserBounds]);
+  }, [appendLog, showBrowser, syncBrowserBounds]);
 
   // Temporarily hide BrowserView when UI dropdowns/popovers open so they aren't obscured
   useEffect(() => {
@@ -737,7 +779,10 @@ export default function ReverseBrowserViewPanel({
       }
 
       const orderedPromptReferences = buildOrderedPromptReferences(definition.references);
-      const bodyPromptText = buildPromptBodyLines(definition.scenes).join("\n");
+      const bodyPromptText = buildPromptBodyLinesStable(definition.scenes).join(" ");
+      const promptBodyForInput = orderedPromptReferences.length > 0
+        ? ` ${bodyPromptText}`
+        : String(definition.prompt || "").replace(/\s*\n+\s*/g, " ").trim();
 
       if (orderedPromptReferences.length > 0) {
         const prefixWrite = await executeNamed<{ ok: boolean; error?: string }>(
@@ -766,13 +811,18 @@ export default function ReverseBrowserViewPanel({
             step: string;
             selectedText?: string;
             optionCount?: number;
+            debug?: string;
             error?: string;
           }>(
             `插入@设定图 ${item.label}`,
             buildTypeAtMentionScript(item.label, index, promptTarget.textboxIndex),
           );
           if (!mentionResult.ok) {
-            throw new Error(`片段 ${definition.segmentKey} @设定图插入失败 ${item.label}: ${mentionResult.step}`);
+            throw new Error(
+              `片段 ${definition.segmentKey} @设定图插入失败 ${item.label}: ${mentionResult.step}${
+                mentionResult.debug ? ` / ${mentionResult.debug}` : ""
+              }${mentionResult.error ? ` / ${mentionResult.error}` : ""}`,
+            );
           }
           appendLog(`片段 ${definition.segmentKey} 已插入@设定图[${index}]: ${item.label} -> ${mentionResult.selectedText || ""}`);
 
@@ -804,12 +854,12 @@ export default function ReverseBrowserViewPanel({
       }>(
         "逐字写入提示词正文",
         buildTypePromptScript(
-          orderedPromptReferences.length > 0 ? bodyPromptText : definition.prompt,
+          promptBodyForInput,
           promptTarget.textboxIndex,
           35,
           true,
         ),
-        { prompt: orderedPromptReferences.length > 0 ? bodyPromptText : definition.prompt },
+        { prompt: promptBodyForInput },
       );
       if (!promptWrite.ok) {
         throw new Error(
@@ -844,6 +894,19 @@ export default function ReverseBrowserViewPanel({
       // Wait for UI to settle after prompt input and @ mentions
       await new Promise((r) => setTimeout(r, 600));
 
+      const beforeSubmitState = await executeNamed<{
+        ok: boolean;
+        step: string;
+        promptValue?: string;
+        signalTextKey?: string;
+        taskIndicatorCount?: number;
+        hasPostSubmitSignals?: boolean;
+        submitButton?: null | { disabled?: boolean; className?: string; text?: string };
+      }>(
+        "?????",
+        buildReadPromptScopeStateScript(promptTarget.textboxIndex),
+      );
+
       // Click via JS click() first (most reliable for React apps), then verify
       const clickResult = await executeNamed<{
         ok: boolean;
@@ -863,16 +926,7 @@ export default function ReverseBrowserViewPanel({
 
       appendLog(`片段 ${definition.segmentKey} 点击提交按钮 @(${clickResult.clickX},${clickResult.clickY}) text="${clickResult.btnText}" class="${clickResult.btnClass}"`);
 
-      // Also send real mouse events as backup
-      const api = window.electronAPI?.browserView;
-      if (api && clickResult.clickX != null && clickResult.clickY != null) {
-        await api.sendInputEvents([
-          { type: "mouseMove", x: clickResult.clickX, y: clickResult.clickY },
-          { type: "mouseDown", x: clickResult.clickX, y: clickResult.clickY, button: "left", clickCount: 1 },
-          { type: "mouseUp", x: clickResult.clickX, y: clickResult.clickY, button: "left", clickCount: 1 },
-        ]);
-      }
-      const beforeSubmitState = await executeNamed<{
+      const hasSubmitStateChange = (after: {
         ok: boolean;
         step: string;
         promptValue?: string;
@@ -880,27 +934,7 @@ export default function ReverseBrowserViewPanel({
         taskIndicatorCount?: number;
         hasPostSubmitSignals?: boolean;
         submitButton?: null | { disabled?: boolean; className?: string; text?: string };
-      }>(
-        "?????",
-        buildReadPromptScopeStateScript(promptTarget.textboxIndex),
-      );
-
-      let submitted = false;
-      const deadline = Date.now() + 7000;
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 200));
-        const after = await executeNamed<{
-          ok: boolean;
-          step: string;
-          promptValue?: string;
-          signalTextKey?: string;
-          taskIndicatorCount?: number;
-          hasPostSubmitSignals?: boolean;
-          submitButton?: null | { disabled?: boolean; className?: string; text?: string };
-        }>(
-          "?????",
-          buildReadPromptScopeStateScript(promptTarget.textboxIndex),
-        );
+      }) => {
         const textboxGone = !after.ok || after.step === "textbox-not-found";
         const submitGone = !after.submitButton;
         const submitDisabled =
@@ -915,7 +949,7 @@ export default function ReverseBrowserViewPanel({
         const promptChanged =
           normalizeText(after.promptValue || "") !== normalizeText(beforeSubmitState.promptValue || "");
 
-        if (
+        return (
           textboxGone ||
           submitGone ||
           !!after.hasPostSubmitSignals ||
@@ -923,10 +957,43 @@ export default function ReverseBrowserViewPanel({
           submitChanged ||
           signalsChanged ||
           (promptChanged && (submitDisabled || signalsChanged || !!after.hasPostSubmitSignals))
-        ) {
-          submitted = true;
-          break;
+        );
+      };
+
+      const probeForSubmission = async (timeoutMs: number) => {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 200));
+          const after = await executeNamed<{
+            ok: boolean;
+            step: string;
+            promptValue?: string;
+            signalTextKey?: string;
+            taskIndicatorCount?: number;
+            hasPostSubmitSignals?: boolean;
+            submitButton?: null | { disabled?: boolean; className?: string; text?: string };
+          }>(
+            "?????",
+            buildReadPromptScopeStateScript(promptTarget.textboxIndex),
+          );
+          if (hasSubmitStateChange(after)) {
+            return true;
+          }
         }
+        return false;
+      };
+
+      let submitted = await probeForSubmission(1200);
+
+      const api = window.electronAPI?.browserView;
+      if (!submitted && api && clickResult.clickX != null && clickResult.clickY != null) {
+        appendLog(`鐗囨 ${definition.segmentKey} JS 点击后未检测到变化，补发一次原生点击`);
+        await api.sendInputEvents([
+          { type: "mouseMove", x: clickResult.clickX, y: clickResult.clickY },
+          { type: "mouseDown", x: clickResult.clickX, y: clickResult.clickY, button: "left", clickCount: 1 },
+          { type: "mouseUp", x: clickResult.clickX, y: clickResult.clickY, button: "left", clickCount: 1 },
+        ]);
+        submitted = await probeForSubmission(7000);
       }
 
       if (!submitted) {

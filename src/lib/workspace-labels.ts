@@ -30,6 +30,24 @@ export function normalizeSceneName(name: string): string {
     .trim();
 }
 
+function simplifySceneNameForMatch(name: string): string {
+  return normalizeSceneName(name)
+    .replace(/(设施|設施|舱|艙|仓)$/u, "")
+    .trim();
+}
+
+function scoreSceneNameSimilarity(left: string, right: string): number {
+  const a = simplifySceneNameForMatch(left);
+  const b = simplifySceneNameForMatch(right);
+  if (!a || !b) return 0;
+  if (a === b) return Math.max(a.length, b.length) + 200;
+  if (a.includes(b) || b.includes(a)) return Math.min(a.length, b.length) + 120;
+
+  const sharedChars = [...new Set(a.split(""))].filter((char) => b.includes(char)).length;
+  const overlapScore = (sharedChars / Math.max(a.length, b.length)) * 100;
+  return overlapScore >= 45 ? overlapScore : 0;
+}
+
 function findCharacterByName(
   characterName: string,
   characters: CharacterSetting[],
@@ -104,11 +122,23 @@ export function findSceneSetting(
 ): SceneSetting | null {
   const baseSceneName = normalizeSceneName(scene.sceneName || "");
   if (!baseSceneName) return null;
-  return (
+  const exactMatch =
     sceneSettings.find(
       (item) => normalizeSceneName(item.name || "") === baseSceneName,
-    ) || null
-  );
+    ) || null;
+  if (exactMatch) return exactMatch;
+
+  let bestMatch: SceneSetting | null = null;
+  let bestScore = 0;
+  for (const item of sceneSettings) {
+    const score = scoreSceneNameSimilarity(baseSceneName, item.name || "");
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = item;
+    }
+  }
+
+  return bestScore > 0 ? bestMatch : null;
 }
 
 export function matchCharacterCostume(

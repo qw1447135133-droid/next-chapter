@@ -1766,13 +1766,12 @@ async function loadURLWithAbortTolerance(view, url) {
     const currentUrl = view.webContents.getURL();
     if (message.includes("ERR_ABORTED") || message.includes("(-3)")) {
       log("warn", `BrowserView loadURL \u88AB\u4E2D\u65AD\uFF0C\u6309\u53EF\u6062\u590D\u5904\u7406: ${message}`);
-      if (currentUrl) {
-        embeddedBrowserState.url = currentUrl;
-        embeddedBrowserState.loading = false;
-        embeddedBrowserState.error = "";
-        emitEmbeddedBrowserState();
-        return;
-      }
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      embeddedBrowserState.url = view.webContents.getURL() || currentUrl || url;
+      embeddedBrowserState.loading = false;
+      embeddedBrowserState.error = "";
+      emitEmbeddedBrowserState();
+      return;
     }
     throw error;
   }
@@ -1800,9 +1799,14 @@ async function ensureEmbeddedBrowserView(url) {
   }
   embeddedBrowserState.visible = true;
   if (url) {
+    const currentUrl = embeddedBrowserView.webContents.getURL() || embeddedBrowserState.url;
     embeddedBrowserState.url = url;
-    log("info", `BrowserView \u5BFC\u822A\u5230: ${url}`);
-    await loadURLWithAbortTolerance(embeddedBrowserView, url);
+    if (currentUrl === url) {
+      log("info", `BrowserView already at target URL, skipping reload: ${url}`);
+    } else {
+      log("info", `BrowserView \u5BFC\u822A\u5230: ${url}`);
+      await loadURLWithAbortTolerance(embeddedBrowserView, url);
+    }
   }
   emitEmbeddedBrowserState();
   return embeddedBrowserView;
