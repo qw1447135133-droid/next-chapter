@@ -21,9 +21,9 @@ import {
   type JimengAgentControl,
 } from "@/lib/jimeng-browser-agent";
 import {
-  buildComposePromptWithReferenceMentionsScript,
   buildClickSubmitButtonScript,
   buildDismissInterferingOverlaysScript,
+  buildInsertLineBreakScript,
   buildLocatePromptAreaScript,
   buildReadPromptScopeStateScript,
   buildReadPromptValueScript,
@@ -33,6 +33,7 @@ import {
   buildSetFullReferenceScript,
   buildSetModelScript,
   buildSubmitCurrentPromptStrictScript,
+  buildTypeAtMentionScript,
   buildTypePromptScript,
 } from "@/lib/reverse-browserview-scripts";
 import {
@@ -737,44 +738,87 @@ export default function ReverseBrowserViewPanel({
 
       const orderedPromptReferences = buildOrderedPromptReferences(definition.references);
       const bodyPromptText = buildPromptBodyLines(definition.scenes).join("\n");
+
+      if (orderedPromptReferences.length > 0) {
+        const prefixWrite = await executeNamed<{ ok: boolean; error?: string }>(
+          "写入标签前缀",
+          buildTypePromptScript("场景/人物标签：", promptTarget.textboxIndex, 35, false),
+          { prompt: "场景/人物标签：" },
+        );
+        if (!prefixWrite.ok) {
+          throw new Error(`片段 ${definition.segmentKey} 标签前缀写入失败${prefixWrite.error ? `: ${prefixWrite.error}` : ""}`);
+        }
+
+        for (let index = 0; index < uploadReferences.length; index += 1) {
+          const item = uploadReferences[index];
+          const leadText = `${index === 0 ? "" : " "}【${item.label} `;
+          const leadWrite = await executeNamed<{ ok: boolean; error?: string }>(
+            `写入标签 ${item.label}`,
+            buildTypePromptScript(leadText, promptTarget.textboxIndex, 35, true),
+            { prompt: leadText },
+          );
+          if (!leadWrite.ok) {
+            throw new Error(`片段 ${definition.segmentKey} 标签写入失败 ${item.label}${leadWrite.error ? `: ${leadWrite.error}` : ""}`);
+          }
+
+          const mentionResult = await executeNamed<{
+            ok: boolean;
+            step: string;
+            selectedText?: string;
+            optionCount?: number;
+            error?: string;
+          }>(
+            `插入@设定图 ${item.label}`,
+            buildTypeAtMentionScript(item.label, index, promptTarget.textboxIndex),
+          );
+          if (!mentionResult.ok) {
+            throw new Error(`片段 ${definition.segmentKey} @设定图插入失败 ${item.label}: ${mentionResult.step}`);
+          }
+          appendLog(`片段 ${definition.segmentKey} 已插入@设定图[${index}]: ${item.label} -> ${mentionResult.selectedText || ""}`);
+
+          const tailWrite = await executeNamed<{ ok: boolean; error?: string }>(
+            `补全标签尾部 ${item.label}`,
+            buildTypePromptScript("】", promptTarget.textboxIndex, 35, true),
+            { prompt: "】" },
+          );
+          if (!tailWrite.ok) {
+            throw new Error(`片段 ${definition.segmentKey} 标签尾部写入失败 ${item.label}${tailWrite.error ? `: ${tailWrite.error}` : ""}`);
+          }
+        }
+
+        const lineBreak = await executeNamed<{ ok: boolean; step?: string }>(
+          "插入正文换行",
+          buildInsertLineBreakScript(promptTarget.textboxIndex),
+        );
+        if (!lineBreak.ok) {
+          throw new Error(`片段 ${definition.segmentKey} 正文换行失败`);
+        }
+      }
+
       const promptWrite = await executeNamed<{
         ok: boolean;
-        step: string;
-        insertedMentions?: string[];
+        filled: boolean;
+        promptLength: number;
         currentValue?: string;
         error?: string;
       }>(
-        "按顺序写入提示词并选择@设定图",
-        buildComposePromptWithReferenceMentionsScript(promptTarget.textboxIndex),
-        {
-          tagPrefix: orderedPromptReferences.length > 0 ? "场景/人物标签：" : "",
-          charDelayMs: 35,
-          mentionOpenDelayMs: 500,
-          mentionPickedDelayMs: 700,
-          refs: uploadReferences.map((item, index) => ({
-            label: item.label,
-            optionIndex: index,
-            leadText: `${index === 0 ? "" : " "}【${item.label} `,
-            tailText: "】",
-          })),
-          body: orderedPromptReferences.length > 0 ? bodyPromptText : definition.prompt,
-        },
+        "逐字写入提示词正文",
+        buildTypePromptScript(
+          orderedPromptReferences.length > 0 ? bodyPromptText : definition.prompt,
+          promptTarget.textboxIndex,
+          35,
+          true,
+        ),
+        { prompt: orderedPromptReferences.length > 0 ? bodyPromptText : definition.prompt },
       );
       if (!promptWrite.ok) {
         throw new Error(
-          `片段 ${definition.segmentKey} 提示词写入失败${
+          `片段 ${definition.segmentKey} 提示词正文写入失败${
             promptWrite.error ? `: ${promptWrite.error}` : ""
           }`,
         );
       }
 
-      uploadReferences.forEach((item, index) => {
-        appendLog(
-          `片段 ${definition.segmentKey} 已插入@设定图[${index}]: ${item.label} -> ${
-            promptWrite.insertedMentions?.[index] || ""
-          }`,
-        );
-      });
       appendLog(`片段 ${definition.segmentKey} 提示词写入完成`);
 
       return promptTarget;

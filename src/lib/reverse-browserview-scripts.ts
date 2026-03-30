@@ -991,8 +991,47 @@ export function buildComposePromptWithReferenceMentionsScript(
   `;
 }
 
+export function buildInsertLineBreakScript(textboxIndex = 0): string {
+  return `
+    (() => {
+      ${sharedHelpers()}
+      const textboxes = promptTextboxes();
+      const textbox = textboxes[Math.max(0, ${q(textboxIndex)})] || findPromptTextbox();
+      if (!(textbox instanceof HTMLElement)) {
+        return { ok: false, step: "textbox-not-found" };
+      }
+      textbox.focus?.();
+      if (textbox instanceof HTMLTextAreaElement || textbox instanceof HTMLInputElement) {
+        const currentValue = textbox.value || "";
+        const nextValue = currentValue + "\\n";
+        const proto =
+          textbox instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+        if (setter) setter.call(textbox, nextValue);
+        else textbox.value = nextValue;
+        textbox.setSelectionRange(nextValue.length, nextValue.length);
+        textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: "\\n", inputType: "insertLineBreak" }));
+        textbox.dispatchEvent(new Event("change", { bubbles: true }));
+        return { ok: true, step: "line-break-inserted" };
+      }
+      try {
+        document.execCommand("insertParagraph", false);
+      } catch (e0) {
+        try {
+          document.execCommand("insertHTML", false, "<br>");
+        } catch (e1) {
+          textbox.appendChild(document.createElement("br"));
+        }
+      }
+      textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: "\\n", inputType: "insertLineBreak" }));
+      textbox.dispatchEvent(new Event("change", { bubbles: true }));
+      return { ok: true, step: "line-break-inserted" };
+    })()
+  `;
+}
+
 export function buildTypeAtMentionScript(
-  _label: string,
+  label: string,
   optionIndex: number,
   textboxIndex = 0,
 ): string {
@@ -1000,6 +1039,7 @@ export function buildTypeAtMentionScript(
     (async () => {
       try {
       ${sharedHelpers()}
+      const label = ${q(label)};
       const optionIndex = ${q(optionIndex)};
       const textboxes = promptTextboxes();
       const textbox = textboxes[Math.max(0, ${q(textboxIndex)})] || findPromptTextbox();
@@ -1039,6 +1079,16 @@ export function buildTypeAtMentionScript(
         return { ok: false, step: "dropdown-not-appeared" };
       }
 
+      const readOptionText = (node) => {
+        if (!(node instanceof HTMLElement)) return "";
+        const ownText = normalize(node.innerText || node.textContent || "");
+        if (ownText) return ownText;
+        const nested = Array.from(node.querySelectorAll("*"))
+          .map((child) => normalize(child instanceof HTMLElement ? child.innerText || child.textContent || "" : ""))
+          .find(Boolean);
+        return nested || normalize(node.getAttribute("aria-label") || "");
+      };
+
       // Get all visible options in the dropdown
       const options = Array.from(
         dropdown.querySelectorAll("[role='option'], [role='menuitem'], li, [class*='item'], [class*='option']")
@@ -1049,28 +1099,37 @@ export function buildTypeAtMentionScript(
         if (n === dropdown) return false;
         // Must be a leaf-ish node (not a container with many children)
         const rect = rectOf(n);
-        return rect.height > 0 && rect.height < 120;
-      });
+        return rect.height > 0 && rect.height < 120 && !!readOptionText(n);
+      }).map((n) => {
+        const clickable = n.closest("[role='option'], [role='menuitem'], li, button, [role='button']") || n;
+        return clickable instanceof HTMLElement ? clickable : n;
+      }).filter((n, index, arr) => arr.indexOf(n) === index);
 
       if (options.length === 0) {
         textbox.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
         return { ok: false, step: "no-options-in-dropdown" };
       }
 
-      // Click the option at the given index (0-based, clamped to available options)
-      const target = options[Math.min(optionIndex, options.length - 1)];
+      const exactOption =
+        options.find((node) => readOptionText(node) === label) ||
+        options.find((node) => readOptionText(node).includes(label));
+      const target = exactOption || options[Math.min(optionIndex, options.length - 1)];
       if (!(target instanceof HTMLElement)) {
         textbox.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
         return { ok: false, step: "option-not-element" };
       }
 
       clickLikeHuman(target);
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 700));
+      const afterValue = normalize(getTextboxValue(textbox));
+      if (afterValue.endsWith("@")) {
+        return { ok: false, step: "mention-not-applied", selectedText: readOptionText(target), optionCount: options.length };
+      }
 
       return {
         ok: true,
         step: "mention-inserted",
-        selectedText: normalize(target.innerText || target.textContent || ""),
+        selectedText: readOptionText(target),
         optionCount: options.length,
       };
       } catch (e) {
