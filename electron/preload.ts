@@ -107,7 +107,7 @@ export interface BrowserViewAPI {
   show: () => Promise<{ ok: boolean; state: BrowserViewState }>;
   hide: () => Promise<{ ok: boolean; state: BrowserViewState }>;
   getState: () => Promise<BrowserViewState>;
-  execute: <T>(params: { script: string; args?: unknown[] }) => Promise<{
+  execute: <T>(params: { script: string; data?: unknown; args?: unknown[] }) => Promise<{
     ok: boolean;
     result?: T;
     error?: string;

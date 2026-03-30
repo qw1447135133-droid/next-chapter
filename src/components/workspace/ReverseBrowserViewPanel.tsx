@@ -21,6 +21,7 @@ import {
   type JimengAgentControl,
 } from "@/lib/jimeng-browser-agent";
 import {
+  buildClickSubmitButtonScript,
   buildDismissInterferingOverlaysScript,
   buildLocatePromptAreaScript,
   buildReadPromptScopeStateScript,
@@ -32,6 +33,7 @@ import {
   buildSetModelScript,
   buildSubmitCurrentPromptStrictScript,
   buildTypeAtMentionScript,
+  buildTypePromptData,
   buildTypePromptScript,
 } from "@/lib/reverse-browserview-scripts";
 import {
@@ -185,6 +187,7 @@ export default function ReverseBrowserViewPanel({
   const [reverseAspectRatio, setReverseAspectRatio] = useState<AspectRatio>("9:16");
   const [mode, setMode] = useState<GenerationMode>("single");
   const [selectedStartKey, setSelectedStartKey] = useState("");
+  const [selectedEpisodeKey, setSelectedEpisodeKey] = useState("");
   const [showBrowser, setShowBrowser] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [currentAction, setCurrentAction] = useState("待命");
@@ -278,14 +281,31 @@ export default function ReverseBrowserViewPanel({
         segmentScenes.map((s) => normalizeSceneName(s.sceneName || "")).find(Boolean) || "";
 
       if (baseSceneName) {
-        // Try exact match first, then prefix match (scene name may include time variant suffix)
+        // Try exact match, then prefix match, then fuzzy character overlap
         let matchedScene = findSceneSetting(segmentScenes[0], sceneSettings);
         if (!matchedScene) {
-          // Fallback: find a scene setting whose name is a prefix of baseSceneName
           matchedScene = sceneSettings.find((item) => {
             const settingName = normalizeSceneName(item.name || "");
             return settingName && baseSceneName.startsWith(settingName);
           }) || null;
+        }
+        if (!matchedScene) {
+          // Fuzzy: find scene setting with most character overlap with baseSceneName
+          let bestScore = 0;
+          for (const item of sceneSettings) {
+            const settingName = normalizeSceneName(item.name || "");
+            if (!settingName) continue;
+            // Count shared characters (simple overlap score)
+            let shared = 0;
+            for (const ch of settingName) {
+              if (baseSceneName.includes(ch)) shared++;
+            }
+            const score = shared / Math.max(settingName.length, baseSceneName.length);
+            if (score > bestScore && score >= 0.5) {
+              bestScore = score;
+              matchedScene = item;
+            }
+          }
         }
 
         if (matchedScene) {
@@ -323,6 +343,7 @@ export default function ReverseBrowserViewPanel({
   useEffect(() => {
     if (!selectedStartKey && segmentDefinitions[0]) {
       setSelectedStartKey(segmentDefinitions[0].segmentKey);
+      setSelectedEpisodeKey(segmentDefinitions[0].episodeKey);
     }
   }, [segmentDefinitions, selectedStartKey]);
 
@@ -373,6 +394,40 @@ export default function ReverseBrowserViewPanel({
     return () => {
       window.removeEventListener("resize", onResize);
       window.removeEventListener("scroll", onResize, true);
+      // Hide browser when component unmounts (navigating away from reverse mode)
+      void api.hide();
+    };
+  }, [showBrowser, syncBrowserBounds]);
+
+  // Temporarily hide BrowserView when UI dropdowns/popovers open so they aren't obscured
+  useEffect(() => {
+    if (!showBrowser) return;
+    const api = window.electronAPI?.browserView;
+    if (!api) return;
+
+    let restoreTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const onPointerDown = (e: PointerEvent) => {
+      const placeholder = browserPlaceholderRef.current;
+      if (!placeholder) return;
+      const target = e.target as Element | null;
+      if (!target) return;
+      // Only hide when clicking an interactive control outside the BrowserView placeholder
+      const isInteractive =
+        target.closest("button, [role='button'], select, [role='combobox'], [role='listbox'], [role='option'], input, textarea, label, a") !== null;
+      if (!isInteractive) return;
+      if (placeholder.contains(target)) return;
+      void api.hide();
+      if (restoreTimer) clearTimeout(restoreTimer);
+      restoreTimer = setTimeout(() => {
+        void api.show().then(() => syncBrowserBounds());
+      }, 800);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      if (restoreTimer) clearTimeout(restoreTimer);
     };
   }, [showBrowser, syncBrowserBounds]);
 
@@ -383,11 +438,11 @@ export default function ReverseBrowserViewPanel({
   }, []);
 
   const executeNamed = useCallback(
-    async <T,>(label: string, script: string): Promise<T> => {
+    async <T,>(label: string, script: string, data?: unknown): Promise<T> => {
       const api = window.electronAPI?.browserView;
       if (!api) throw new Error("内嵌浏览器不可用");
 
-      const result = await api.execute<T>({ script });
+      const result = await api.execute<T>({ script, data });
       if (!result.ok) {
         throw new Error(`${label}: ${result.error || "脚本执行失败"}`);
       }
@@ -638,27 +693,25 @@ export default function ReverseBrowserViewPanel({
         await new Promise((r) => setTimeout(r, 1500));
       }
 
-      // Step 2: Type the prompt body (without @ mentions)
-      const typedResult = await executeNamed<{
-        ok: boolean;
-        filled: boolean;
-        promptLength: number;
-        currentValue: string;
-        error?: string;
-      }>(
-        "逐字写入提示词",
-        buildTypePromptScript(definition.prompt, promptTarget.textboxIndex, 20),
-      );
+      // Step 2: Type the prompt with inline @ mentions after each tag
+      // Split prompt into: tag line (first line) + rest
+      const promptLines = definition.prompt.split("\n");
+      const tagLine = promptLines[0] || "";
+      const restPrompt = promptLines.slice(1).join("\n");
 
-      if (!typedResult.ok) {
-        const reason = typedResult.error || "未知原因";
-        appendLog(`片段 ${definition.segmentKey} 提示词写入失败: ${reason}`);
-        throw new Error(`片段 ${definition.segmentKey} 提示词写入失败: ${reason}`);
+      // Write the tag line char by char, then insert @ for each reference after its label
+      const tagLineScript = buildTypePromptScript(tagLine, promptTarget.textboxIndex, 20);
+      appendLog(`片段 ${definition.segmentKey} 标签行脚本长度: ${tagLineScript.length}`);
+      const tagLineResult = await executeNamed<{ ok: boolean; error?: string }>(
+        "写入标签行",
+        tagLineScript,
+        buildTypePromptData(tagLine),
+      );
+      if (!tagLineResult.ok) {
+        throw new Error(`片段 ${definition.segmentKey} 标签行写入失败: ${tagLineResult.error || "未知"}`);
       }
 
-      appendLog(`片段 ${definition.segmentKey} 已逐字写入 ${typedResult.promptLength} 个字符`);
-
-      // Step 3: Insert @ mentions for each reference (by upload order index)
+      // Insert @ mention for each reference immediately after the tag line
       for (let refIndex = 0; refIndex < uploadReferences.length; refIndex++) {
         const ref = uploadReferences[refIndex];
         const mentionResult = await executeNamed<{
@@ -671,13 +724,24 @@ export default function ReverseBrowserViewPanel({
           `插入@引用 ${ref.label}`,
           buildTypeAtMentionScript(ref.label, refIndex, promptTarget.textboxIndex),
         );
-
         if (mentionResult.ok) {
           appendLog(`片段 ${definition.segmentKey} 已插入@引用[${refIndex}]: ${ref.label} → ${mentionResult.selectedText || ""} (共${mentionResult.optionCount ?? "?"}个选项)`);
         } else {
-          appendLog(`片段 ${definition.segmentKey} @引用插入失败 ${ref.label}: step=${mentionResult.step}${mentionResult.dropdownText ? ` / 下拉选项=${mentionResult.dropdownText}` : ""}`);
-          // Non-fatal: continue even if @ mention fails
+          appendLog(`片段 ${definition.segmentKey} @引用插入失败 ${ref.label}: step=${mentionResult.step}`);
         }
+      }
+
+      // Write the rest of the prompt (scene descriptions etc.)
+      if (restPrompt) {
+        const restResult = await executeNamed<{ ok: boolean; filled: boolean; promptLength: number; error?: string }>(
+          "逐字写入提示词正文",
+          buildTypePromptScript("\n" + restPrompt, promptTarget.textboxIndex, 20, true),
+          buildTypePromptData("\n" + restPrompt),
+        );
+        if (!restResult.ok) {
+          throw new Error(`片段 ${definition.segmentKey} 提示词正文写入失败: ${restResult.error || "未知"}`);
+        }
+        appendLog(`片段 ${definition.segmentKey} 已逐字写入 ${restResult.promptLength} 个字符`);
       }
 
       return promptTarget;
@@ -703,38 +767,34 @@ export default function ReverseBrowserViewPanel({
       // Wait for UI to settle after prompt input and @ mentions
       await new Promise((r) => setTimeout(r, 600));
 
-      // Find submit button coordinates via script
-      const scopeState = await executeNamed<{
+      // Click via JS click() first (most reliable for React apps), then verify
+      const clickResult = await executeNamed<{
         ok: boolean;
         step: string;
-        submitButton: { left: number; top: number; width: number; height: number; text: string; disabled: boolean } | null;
+        clickX?: number;
+        clickY?: number;
+        btnText?: string;
+        btnClass?: string;
       }>(
-        "读取提交按钮位置",
-        buildReadPromptScopeStateScript(promptTarget.textboxIndex),
+        "点击提交按钮",
+        buildClickSubmitButtonScript(promptTarget.textboxIndex),
       );
 
-      if (!scopeState.ok || !scopeState.submitButton) {
-        throw new Error(`片段 ${definition.segmentKey} 未找到提交按钮: ${scopeState.step}`);
+      if (!clickResult.ok) {
+        throw new Error(`片段 ${definition.segmentKey} 未找到提交按钮: ${clickResult.step}`);
       }
 
-      if (scopeState.submitButton.disabled) {
-        throw new Error(`片段 ${definition.segmentKey} 提交按钮被禁用`);
-      }
+      appendLog(`片段 ${definition.segmentKey} 点击提交按钮 @(${clickResult.clickX},${clickResult.clickY}) text="${clickResult.btnText}" class="${clickResult.btnClass}"`);
 
-      // Click via real mouse events (Electron sendInputEvents) for reliable submission
-      const btn = scopeState.submitButton;
-      const clickX = Math.round(btn.left + (btn.width || 36) / 2);
-      const clickY = Math.round(btn.top + (btn.height || 36) / 2);
-      appendLog(`片段 ${definition.segmentKey} 点击提交按钮 @(${clickX},${clickY}) text="${btn.text}"`);
-
+      // Also send real mouse events as backup
       const api = window.electronAPI?.browserView;
-      if (!api) throw new Error("内嵌浏览器不可用");
-
-      await api.sendInputEvents([
-        { type: "mouseMove", x: clickX, y: clickY },
-        { type: "mouseDown", x: clickX, y: clickY, button: "left", clickCount: 1 },
-        { type: "mouseUp", x: clickX, y: clickY, button: "left", clickCount: 1 },
-      ]);
+      if (api && clickResult.clickX != null && clickResult.clickY != null) {
+        await api.sendInputEvents([
+          { type: "mouseMove", x: clickResult.clickX, y: clickResult.clickY },
+          { type: "mouseDown", x: clickResult.clickX, y: clickResult.clickY, button: "left", clickCount: 1 },
+          { type: "mouseUp", x: clickResult.clickX, y: clickResult.clickY, button: "left", clickCount: 1 },
+        ]);
+      }
 
       // Wait and verify submission
       let submitted = false;
@@ -880,18 +940,48 @@ export default function ReverseBrowserViewPanel({
           <div className="grid gap-3 md:grid-cols-5">
             <div className="space-y-2">
               <label className="text-sm">起始片段</label>
-              <Select value={selectedStartKey} onValueChange={setSelectedStartKey}>
-                <SelectTrigger>
-                  <SelectValue placeholder="选择片段" />
-                </SelectTrigger>
-                <SelectContent>
-                  {segmentDefinitions.map((definition) => (
-                    <SelectItem key={definition.segmentKey} value={definition.segmentKey}>
-                      {definition.segmentKey}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex gap-1">
+                <Select
+                  value={selectedEpisodeKey}
+                  onValueChange={(ep) => {
+                    setSelectedEpisodeKey(ep);
+                    const first = segmentDefinitions.find((d) => d.episodeKey === ep);
+                    if (first) setSelectedStartKey(first.segmentKey);
+                  }}
+                >
+                  <SelectTrigger className="w-20">
+                    <SelectValue placeholder="集" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from(new Set(segmentDefinitions.map((d) => d.episodeKey))).map((ep) => (
+                      <SelectItem key={ep} value={ep}>
+                        第{ep}集
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={selectedStartKey}
+                  onValueChange={setSelectedStartKey}
+                  disabled={!selectedEpisodeKey}
+                >
+                  <SelectTrigger className="flex-1">
+                    <SelectValue placeholder="段落" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {segmentDefinitions
+                      .filter((d) => d.episodeKey === selectedEpisodeKey)
+                      .map((definition) => {
+                        const segNum = definition.segmentKey.split("-").slice(1).join("-");
+                        return (
+                          <SelectItem key={definition.segmentKey} value={definition.segmentKey}>
+                            第{segNum}段
+                          </SelectItem>
+                        );
+                      })}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div className="space-y-2">

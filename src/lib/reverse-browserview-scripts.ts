@@ -67,9 +67,9 @@ function sharedHelpers(): string {
         if (setter) setter.call(textbox, value);
         else textbox.value = value;
         textbox.setSelectionRange(value.length, value.length);
-        try { textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: value, inputType: "insertText" })); } catch (_) {}
+        try { textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: value, inputType: "insertText" })); } catch (e) {}
         if (!skipChangeEvent) {
-          try { textbox.dispatchEvent(new Event("change", { bubbles: true })); } catch (_) {}
+          try { textbox.dispatchEvent(new Event("change", { bubbles: true })); } catch (e) {}
         }
         return;
       }
@@ -83,13 +83,13 @@ function sharedHelpers(): string {
             document.execCommand("selectAll", false, undefined);
             document.execCommand("insertText", false, value);
             return;
-          } catch (_) {}
+          } catch (e) {}
         }
         // Fallback: direct textContent assignment
-        try { textbox.textContent = value; } catch (_) {}
-        try { textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: value, inputType: "insertText" })); } catch (_) {}
+        try { textbox.textContent = value; } catch (e) {}
+        try { textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: value, inputType: "insertText" })); } catch (e) {}
         if (!skipChangeEvent) {
-          try { textbox.dispatchEvent(new Event("change", { bubbles: true })); } catch (_) {}
+          try { textbox.dispatchEvent(new Event("change", { bubbles: true })); } catch (e) {}
         }
       }
     };
@@ -674,65 +674,59 @@ export function buildFillPromptScript(
 export function buildTypePromptScript(
   prompt: string,
   textboxIndex = 0,
-  delayMs = 20,
+  _delayMs = 20,
+  append = false,
 ): string {
+  // NOTE: prompt text is injected via window.__executeData__.prompt to avoid
+  // unicode encoding issues when embedding Chinese/special chars in script strings
   return `
     (async () => {
       try {
-      ${sharedHelpers()}
-      const prompt = ${q(prompt)};
-      const explicitTextboxIndex = ${q(textboxIndex)};
-      const delayMs = ${q(delayMs)};
-      const textboxes = promptTextboxes();
-      const textbox = textboxes[Math.max(0, explicitTextboxIndex)] || findPromptTextbox();
-      if (!(textbox instanceof HTMLElement)) {
-        return { ok: false, filled: false, promptLength: 0, currentValue: "", error: "textbox-not-found" };
-      }
-
-      // Clear first
-      textbox.focus();
-      document.execCommand("selectAll", false, undefined);
-      document.execCommand("delete", false, undefined);
-
-      // Type char by char; use Shift+Enter for newlines to avoid accidental submission
-      for (const char of prompt) {
-        if (char === "\\n") {
-          // Dispatch Shift+Enter keydown so the editor treats it as a soft newline
-          textbox.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true, cancelable: true }));
-          // Insert the actual newline character (not a paragraph break)
-          document.execCommand("insertText", false, "\\n");
-          textbox.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", shiftKey: true, bubbles: true }));
-        } else {
-          document.execCommand("insertText", false, char);
+        const allTextboxes = Array.from(document.querySelectorAll(
+          "textarea, input[type='text'], [role='textbox'], [contenteditable='true']"
+        )).filter((n) => {
+          if (!(n instanceof HTMLElement)) return false;
+          const s = window.getComputedStyle(n);
+          const r = n.getBoundingClientRect();
+          return s.display !== "none" && s.visibility !== "hidden" && r.width > 0 && r.height > 0;
+        });
+        const idx = ${q(textboxIndex)};
+        const textbox = allTextboxes[Math.max(0, idx)] || allTextboxes[0];
+        if (!(textbox instanceof HTMLElement)) {
+          return { ok: false, filled: false, promptLength: 0, currentValue: "", error: "textbox-not-found" };
         }
-        if (delayMs > 0) {
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
-        }
-      }
-
-      // Verify; fall back to atomic write if needed
-      const typedValue = getTextboxValue(textbox);
-      const tail = prompt.replace(/\\n/g, " ").slice(-12).trim();
-      const typedNorm = typedValue.replace(/[\\n\\r]/g, " ").replace(/\\s+/g, " ").trim();
-      const ok = typedValue.length > 0 && (typedNorm.includes(tail) || typedValue.length >= prompt.length * 0.85);
-      if (!ok) {
+        const promptText = (window.__executeData__ && window.__executeData__.prompt) || "";
+        const appendMode = ${q(append)};
         textbox.focus();
-        document.execCommand("selectAll", false, undefined);
-        document.execCommand("insertText", false, prompt);
-      }
-
-      return {
-        ok: true,
-        filled: true,
-        promptLength: prompt.length,
-        currentValue: getTextboxValue(textbox),
-        error: "",
-      };
-      } catch (e) {
-        return { ok: false, filled: false, promptLength: 0, currentValue: "", error: String(e && e.message ? e.message : e) };
+        if (!appendMode) {
+          try { document.execCommand("selectAll", false, null); } catch (e1) {}
+          try { document.execCommand("delete", false, null); } catch (e2) {}
+        }
+        try {
+          document.execCommand("insertText", false, promptText);
+        } catch (e3) {
+          if (textbox instanceof HTMLTextAreaElement || textbox instanceof HTMLInputElement) {
+            const proto = textbox instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+            const desc = Object.getOwnPropertyDescriptor(proto, "value");
+            const currentVal = appendMode ? textbox.value : "";
+            if (desc && desc.set) desc.set.call(textbox, currentVal + promptText);
+            else textbox.value = currentVal + promptText;
+          }
+        }
+        textbox.dispatchEvent(new Event("input", { bubbles: true }));
+        const currentValue = textbox instanceof HTMLTextAreaElement || textbox instanceof HTMLInputElement
+          ? textbox.value
+          : (textbox.innerText || textbox.textContent || "");
+        return { ok: true, filled: true, promptLength: promptText.length, currentValue, error: "" };
+      } catch (err) {
+        return { ok: false, filled: false, promptLength: 0, currentValue: "", error: String(err && err.message ? err.message : err) };
       }
     })()
   `;
+}
+
+export function buildTypePromptData(prompt: string): { prompt: string } {
+  return { prompt };
 }
 
 export function buildReadPromptValueScript(textboxIndex = 0): string {
@@ -845,6 +839,76 @@ export function buildTypeAtMentionScript(
       } catch (e) {
         return { ok: false, step: "error", error: String(e && e.message ? e.message : e) };
       }
+    })()
+  `;
+}
+
+export function buildClickSubmitButtonScript(textboxIndex = 0): string {
+  return `
+    (() => {
+      ${sharedHelpers()}
+      const textboxes = promptTextboxes();
+      const textbox = textboxes[Math.max(0, ${q(textboxIndex)})] || findPromptTextbox();
+      if (!(textbox instanceof HTMLElement)) {
+        return { ok: false, step: "textbox-not-found" };
+      }
+      // Walk up from textbox to find a scope that contains a submit button
+      // Look for button with submit-button class, or the rightmost small button near the textbox
+      const tRect = rectOf(textbox);
+      const allButtons = Array.from(document.querySelectorAll("button, [role='button']")).filter(isVisible);
+      const candidates = allButtons
+        .map((node) => {
+          const rect = rectOf(node);
+          const cls = normalize(node instanceof HTMLElement ? node.className || "" : "");
+          let score = 0;
+          // Strong signal: class contains submit-button
+          if (/submit.?button|send.?button/i.test(cls)) score += 1000;
+          // Penalize toolbar/swap buttons
+          if (/swap.?button|toolbar.?button|tool.?bar/i.test(cls)) score -= 800;
+          // Penalize disabled
+          if (node instanceof HTMLButtonElement && node.disabled) score -= 500;
+          // Prefer small square buttons (icon buttons)
+          if (rect.width >= 28 && rect.width <= 56 && rect.height >= 28 && rect.height <= 56) score += 200;
+          // Prefer buttons to the right of and vertically aligned with textbox
+          const verticalOverlap = rect.top < tRect.bottom + 40 && rect.bottom > tRect.top - 40;
+          const rightOfTextbox = rect.left > tRect.left + tRect.width * 0.5;
+          if (verticalOverlap) score += 150;
+          if (rightOfTextbox) score += 200;
+          // Prefer buttons below the textbox
+          if (rect.top >= tRect.bottom - 10) score += 100;
+          return { node, score, rect };
+        })
+        .filter((c) => c.score > 0)
+        .sort((a, b) => b.score - a.score);
+
+      const best = candidates[0];
+      if (!best) {
+        return { ok: false, step: "no-submit-candidate" };
+      }
+      const target = best.node;
+      if (!(target instanceof HTMLElement)) {
+        return { ok: false, step: "target-not-element" };
+      }
+      if (target instanceof HTMLButtonElement && target.disabled) {
+        return { ok: false, step: "button-disabled" };
+      }
+      const rect = best.rect;
+      const clickX = Math.round(rect.left + rect.width / 2);
+      const clickY = Math.round(rect.top + rect.height / 2);
+      // JS click
+      target.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+      target.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      target.click();
+      return {
+        ok: true,
+        step: "clicked",
+        clickX,
+        clickY,
+        btnText: normalize(target.innerText || target.textContent || ""),
+        btnClass: normalize(target.className || ""),
+      };
     })()
   `;
 }

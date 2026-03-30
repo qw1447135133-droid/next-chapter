@@ -98,9 +98,9 @@ function sharedHelpers() {
         if (setter) setter.call(textbox, value);
         else textbox.value = value;
         textbox.setSelectionRange(value.length, value.length);
-        try { textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: value, inputType: "insertText" })); } catch (_) {}
+        try { textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: value, inputType: "insertText" })); } catch (e) {}
         if (!skipChangeEvent) {
-          try { textbox.dispatchEvent(new Event("change", { bubbles: true })); } catch (_) {}
+          try { textbox.dispatchEvent(new Event("change", { bubbles: true })); } catch (e) {}
         }
         return;
       }
@@ -114,13 +114,13 @@ function sharedHelpers() {
             document.execCommand("selectAll", false, undefined);
             document.execCommand("insertText", false, value);
             return;
-          } catch (_) {}
+          } catch (e) {}
         }
         // Fallback: direct textContent assignment
-        try { textbox.textContent = value; } catch (_) {}
-        try { textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: value, inputType: "insertText" })); } catch (_) {}
+        try { textbox.textContent = value; } catch (e) {}
+        try { textbox.dispatchEvent(new InputEvent("input", { bubbles: true, data: value, inputType: "insertText" })); } catch (e) {}
         if (!skipChangeEvent) {
-          try { textbox.dispatchEvent(new Event("change", { bubbles: true })); } catch (_) {}
+          try { textbox.dispatchEvent(new Event("change", { bubbles: true })); } catch (e) {}
         }
       }
     };
@@ -2124,11 +2124,15 @@ function setupIPC() {
     return { ok: true, state: { ...embeddedBrowserState } };
   });
   ipcMain.handle("browserView:getState", () => ({ ...embeddedBrowserState }));
-  ipcMain.handle("browserView:execute", async (_event, { script }) => {
+  ipcMain.handle("browserView:execute", async (_event, { script, data }) => {
     if (!embeddedBrowserView) {
       return { ok: false, error: "\u6D4F\u89C8\u5668\u89C6\u56FE\u5C1A\u672A\u521B\u5EFA" };
     }
     try {
+      if (data !== void 0) {
+        const dataScript = `window.__executeData__ = ${JSON.stringify(data)};`;
+        await embeddedBrowserView.webContents.executeJavaScript(dataScript, true);
+      }
       const result2 = await embeddedBrowserView.webContents.executeJavaScript(script, true);
       return { ok: true, result: result2 };
     } catch (error) {

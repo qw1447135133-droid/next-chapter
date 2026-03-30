@@ -130,8 +130,21 @@ export function matchCharacterCostumeForText(
   if (!character.costumes || character.costumes.length <= 1) return null;
 
   if (explicitCostumeId) {
-    const assigned = character.costumes.find((item) => item.id === explicitCostumeId);
-    if (assigned?.label?.trim()) return assigned.label.trim();
+    // Try matching by id first
+    const byId = character.costumes.find((item) => item.id === explicitCostumeId);
+    if (byId?.label?.trim()) return byId.label.trim();
+    // Also try matching by label (AI decomposition stores label, not id)
+    const byLabel = character.costumes.find(
+      (item) => item.label?.trim().toLowerCase() === explicitCostumeId.trim().toLowerCase(),
+    );
+    if (byLabel?.label?.trim()) return byLabel.label.trim();
+    // Partial label match (e.g. "青年·战甲" contains "战甲")
+    const byPartial = character.costumes.find(
+      (item) =>
+        item.label?.trim() &&
+        (explicitCostumeId.includes(item.label.trim()) || item.label.trim().includes(explicitCostumeId.trim())),
+    );
+    if (byPartial?.label?.trim()) return byPartial.label.trim();
   }
 
   let bestLabel: string | null = null;
@@ -266,10 +279,21 @@ export function matchSceneTimeVariantForText(
   }
 
   if (explicitTimeVariantId) {
-    const assigned = matchedScene.timeVariants.find(
-      (item) => item.id === explicitTimeVariantId,
+    // Try by id first
+    const byId = matchedScene.timeVariants.find((item) => item.id === explicitTimeVariantId);
+    if (byId) return byId;
+    // Try by label (in case the stored value is a label, not an id)
+    const byLabel = matchedScene.timeVariants.find(
+      (item) => item.label?.trim().toLowerCase() === explicitTimeVariantId.trim().toLowerCase(),
     );
-    if (assigned) return assigned;
+    if (byLabel) return byLabel;
+    // Partial label match
+    const byPartial = matchedScene.timeVariants.find(
+      (item) =>
+        item.label?.trim() &&
+        (explicitTimeVariantId.includes(item.label.trim()) || item.label.trim().includes(explicitTimeVariantId.trim())),
+    );
+    if (byPartial) return byPartial;
   }
 
   let bestVariant: TimeVariantSetting | null = null;

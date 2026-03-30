@@ -567,11 +567,16 @@ function setupIPC() {
 
   ipcMain.handle("browserView:getState", () => ({ ...embeddedBrowserState }));
 
-  ipcMain.handle("browserView:execute", async (_event, { script }: { script: string; args?: unknown[] }) => {
+  ipcMain.handle("browserView:execute", async (_event, { script, data }: { script: string; data?: unknown; args?: unknown[] }) => {
     if (!embeddedBrowserView) {
       return { ok: false, error: "浏览器视图尚未创建" };
     }
     try {
+      // If data is provided, inject it as window.__executeData__ before running the script
+      if (data !== undefined) {
+        const dataScript = `window.__executeData__ = ${JSON.stringify(data)};`;
+        await embeddedBrowserView.webContents.executeJavaScript(dataScript, true);
+      }
       const result = await embeddedBrowserView.webContents.executeJavaScript(script, true);
       return { ok: true, result };
     } catch (error) {
