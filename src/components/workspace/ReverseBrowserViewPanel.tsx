@@ -613,8 +613,13 @@ export default function ReverseBrowserViewPanel({
         }
 
         const inVideoMode =
-          observation.matchedSignals.includes("video-entry") &&
-          observation.matchedSignals.includes("video-toolbar-entry");
+          observation.matchedSignals.includes("video-toolbar-entry") &&
+          (
+            observation.matchedSignals.includes("video-entry") ||
+            observation.matchedSignals.includes("seedance-reference") ||
+            observation.matchedSignals.includes("reference-content") ||
+            observation.matchedSignals.includes("seedance-model")
+          );
 
         // Once in video mode, switch to scripted approach for toolbar settings
         // (scripted DOM manipulation is more reliable than coordinate clicking for dropdowns)
@@ -651,6 +656,7 @@ export default function ReverseBrowserViewPanel({
           };
 
           if (missing.model) {
+            appendLog(`片段 ${segmentKey} 脚本设置模型 ${targets.model}`);
             const r = await executeNamed<{ ok: boolean; step: string; debug?: string }>(
               "set-model",
               buildSetModelScript(targets.model),

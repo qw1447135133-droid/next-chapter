@@ -780,6 +780,130 @@ async function selectFullReferenceInDom() {
     currentReference
   };
 }
+async function selectModelInDom(payload) {
+  const normalize2 = (value) => String(value || "").replace(/\s+/g, " ").trim();
+  const normalizeModelText2 = (value) => {
+    const text = normalize2(value);
+    if (/^Seedance 2\.0 Fast\b/i.test(text)) return "Seedance 2.0 Fast";
+    if (/^Seedance 2\.0\b/i.test(text)) return "Seedance 2.0";
+    return text;
+  };
+  const rectOf = (node) => node instanceof HTMLElement ? node.getBoundingClientRect() : { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 };
+  const isVisible = (node) => {
+    if (!(node instanceof HTMLElement)) return false;
+    const style = window.getComputedStyle(node);
+    const rect = rectOf(node);
+    return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+  };
+  const textOf = (node) => normalize2(
+    node instanceof HTMLElement ? node.innerText || node.textContent || "" : node.textContent || ""
+  );
+  const isCompactCandidate = (node) => {
+    if (!(node instanceof HTMLElement) || !isVisible(node)) return false;
+    const rect = rectOf(node);
+    const text = textOf(node);
+    if (!text) return false;
+    if (rect.width > 420 || rect.height > 96) return false;
+    if (text.length > 40 && rect.width > 280) return false;
+    return true;
+  };
+  const interactiveSelector = "button, [role='button'], [role='tab'], [role='combobox'], [role='option'], [role='menuitem'], label, li, a, div, span";
+  const popupRootOf = (node) => node.closest(
+    "[role='listbox'], [role='menu'], [role='tooltip'], [role='dialog'], [class*='popup'], [class*='dropdown'], [class*='tooltip'], [data-radix-popper-content-wrapper]"
+  );
+  const sortByVisualOrder = (nodes) => [...nodes].sort((a, b) => {
+    const rectA = rectOf(a);
+    const rectB = rectOf(b);
+    return rectA.top - rectB.top || rectA.left - rectB.left;
+  });
+  const interactiveNodes = () => sortByVisualOrder(
+    Array.from(document.querySelectorAll(interactiveSelector)).filter(
+      isCompactCandidate
+    )
+  );
+  const clickableOf = (node) => {
+    if (!(node instanceof HTMLElement)) return null;
+    return node.closest(
+      "button, [role='button'], [role='tab'], [role='combobox'], [role='option'], [role='menuitem'], label, li, a"
+    ) || node;
+  };
+  const humanClick = (node) => {
+    const clickable = clickableOf(node);
+    if (!(clickable instanceof HTMLElement)) return "";
+    clickable.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    clickable.focus?.();
+    clickable.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    clickable.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    clickable.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    clickable.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    clickable.click();
+    return textOf(clickable);
+  };
+  const controlCandidates = () => interactiveNodes().filter((node) => {
+    const text = textOf(node);
+    const role = normalize2(node.getAttribute("role") || "");
+    if (!/Seedance 2\.0/i.test(text)) return false;
+    if (popupRootOf(node)) return false;
+    return role === "combobox" || role === "button" || node.tagName.toLowerCase() === "button";
+  });
+  const optionCandidates = (anchorRect2, current2) => interactiveNodes().filter((node) => {
+    if (node === current2) return false;
+    const text = textOf(node);
+    if (!/Seedance 2\.0/i.test(text)) return false;
+    const role = normalize2(node.getAttribute("role") || "");
+    const popupRoot = popupRootOf(node);
+    const isPopupOption = role === "option" || role === "menuitem" || role === "button" || node.tagName.toLowerCase() === "button" || !!popupRoot || /option|item|menu|popup|dropdown|select|list/i.test(
+      normalize2(node.className || "")
+    );
+    if (!isPopupOption) return false;
+    if (!anchorRect2) return true;
+    const rect = rectOf(node);
+    const horizontallyNear = rect.right >= anchorRect2.left - 120 && rect.left <= anchorRect2.right + 280;
+    const verticallyNear = rect.top >= anchorRect2.top - 80 && rect.top <= anchorRect2.bottom + 520;
+    return horizontallyNear && verticallyNear;
+  });
+  const scoreOption = (node) => {
+    const text = textOf(node);
+    const normalized = normalizeModelText2(text);
+    if (normalized === payload.targetModel && text === payload.targetModel) return 1400;
+    if (normalized === payload.targetModel) return 1200;
+    if (text.includes(payload.targetModel)) return 900;
+    if (payload.targetModel.includes(text)) return 700;
+    return 0;
+  };
+  const current = controlCandidates()[0] || null;
+  if (!current) {
+    return { ok: false, step: "control-not-found" };
+  }
+  const currentModel = normalizeModelText2(textOf(current));
+  if (currentModel === payload.targetModel) {
+    return { ok: true, step: "already-set", currentModel: textOf(current) };
+  }
+  humanClick(current);
+  const anchorRect = rectOf(current);
+  const startedAt = Date.now();
+  while (Date.now() - startedAt <= 1500) {
+    const options = optionCandidates(anchorRect, current).filter((node) => scoreOption(node) > 0).sort((a, b) => scoreOption(b) - scoreOption(a));
+    const option = options[0] || null;
+    if (option) {
+      const targetText = humanClick(option);
+      return {
+        ok: true,
+        step: "model-selected",
+        currentModel: targetText,
+        targetText,
+        debug: options.slice(0, 6).map((node) => textOf(node)).join(" | ")
+      };
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+  }
+  return {
+    ok: false,
+    step: "option-not-found",
+    currentModel: textOf(current),
+    debug: interactiveNodes().map((node) => textOf(node)).filter((text) => /Seedance 2\.0/i.test(text)).slice(0, 12).join(" | ")
+  };
+}
 var init_reverse_playwright_dom = __esm({
   "src/lib/reverse-playwright-dom.ts"() {
   }
@@ -1033,21 +1157,18 @@ var init_reverse_playwright_runner = __esm({
         }
         for (let attempt = 1; attempt <= 3; attempt += 1) {
           await this.dismissInterferingOverlays(page2, logs2);
-          const combo = await this.clickComboboxByPredicate(
-            page2,
-            (text) => text.includes("Seedance 2.0"),
-            logs2
-          );
-          if (!combo) throw new Error("model combobox not found");
-          const option = targetModel === "Seedance 2.0" ? page2.getByRole("option").filter({ hasText: /^Seedance 2\.0(?!\s*Fast)\b/ }).first() : page2.getByRole("option").filter({ hasText: /^Seedance 2\.0 Fast\b/ }).first();
-          await option.waitFor({ state: "visible", timeout: 5e3 });
-          await this.clickLocator(option, logs2, "model");
+          const scriptedResult2 = await page2.evaluate(selectModelInDom, { targetModel }).catch((error) => ({
+            ok: false,
+            step: error instanceof Error ? error.message : String(error),
+            currentModel: "",
+            debug: ""
+          }));
           await page2.waitForTimeout(500);
           const latest = await this.readSelections(page2);
           this.logLine(
             logs2,
             "model",
-            `attempt ${attempt}: ${latest.currentModel || "unknown"}`
+            `attempt ${attempt}: ${scriptedResult2?.step || "unknown"} -> ${latest.currentModel || "unknown"}${scriptedResult2?.debug ? ` / ${scriptedResult2.debug}` : ""}`
           );
           if (latest.currentModel === targetModel) return;
           if (targetModel === "Seedance 2.0 Fast" && latest.currentModel === "Seedance 2.0") {

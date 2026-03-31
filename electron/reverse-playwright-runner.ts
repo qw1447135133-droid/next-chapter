@@ -13,6 +13,7 @@ import {
 import {
   selectAspectRatioInDom,
   selectFullReferenceInDom,
+  selectModelInDom,
 } from "../src/lib/reverse-playwright-dom";
 
 export interface ReverseRunnerRefFile {
@@ -360,33 +361,21 @@ export class ReversePlaywrightRunner {
 
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       await this.dismissInterferingOverlays(page, logs);
-      const combo = await this.clickComboboxByPredicate(
-        page,
-        (text) => text.includes("Seedance 2.0"),
-        logs,
-      );
-      if (!combo) throw new Error("model combobox not found");
-
-      const option =
-        targetModel === "Seedance 2.0"
-          ? page
-              .getByRole("option")
-              .filter({ hasText: /^Seedance 2\.0(?!\s*Fast)\b/ })
-              .first()
-          : page
-              .getByRole("option")
-              .filter({ hasText: /^Seedance 2\.0 Fast\b/ })
-              .first();
-
-      await option.waitFor({ state: "visible", timeout: 5000 });
-      await this.clickLocator(option, logs, "model");
+      const scriptedResult = await page
+        .evaluate(selectModelInDom, { targetModel })
+        .catch((error) => ({
+          ok: false,
+          step: error instanceof Error ? error.message : String(error),
+          currentModel: "",
+          debug: "",
+        }));
       await page.waitForTimeout(500);
 
       const latest = await this.readSelections(page);
       this.logLine(
         logs,
         "model",
-        `attempt ${attempt}: ${latest.currentModel || "unknown"}`,
+        `attempt ${attempt}: ${scriptedResult?.step || "unknown"} -> ${latest.currentModel || "unknown"}${scriptedResult?.debug ? ` / ${scriptedResult.debug}` : ""}`,
       );
       if (latest.currentModel === targetModel) return;
       if (targetModel === "Seedance 2.0 Fast" && latest.currentModel === "Seedance 2.0") {

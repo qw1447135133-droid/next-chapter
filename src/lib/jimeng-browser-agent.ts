@@ -197,6 +197,7 @@ function buildObservePageScript(targets: JimengAgentTargets): string {
     const normalizedCurrentAspectRatio = normalize(
       currentAspectRatio.match(/\\b(16:9|9:16|1:1|21:9|3:2|2:3|4:3)\\b/)?.[0] || currentAspectRatio,
     );
+    const hasAnySeedanceModel = /Seedance 2\\.0/i.test(normalize(currentModel));
     const hasSeedanceModel = normalize(currentModel) === ${JSON.stringify(targets.model)};
     const hasFullReference = /全能参考|Full Reference/.test(currentReference);
     const hasReferenceContent = includesKeyword(["参考内容", "Reference"]) || hasAtTrigger;
@@ -216,8 +217,14 @@ function buildObservePageScript(targets: JimengAgentTargets): string {
       hasAtTrigger ||
       promptEditors.length > 0;
     const hasVideo =
-      (location.href.includes("type=video") || hasSeedanceModel) &&
-      hasGeneratorToolbar;
+      hasGeneratorToolbar &&
+      (
+        location.href.includes("type=video") ||
+        hasAnySeedanceModel ||
+        hasFullReference ||
+        hasReferenceContent ||
+        hasBottomVideoEntry
+      );
     const matchedSignals = [];
     if (hasLeftGenerateEntry) matchedSignals.push("left-generate-entry");
     if (hasBottomVideoEntry) matchedSignals.push("video-toolbar-entry");

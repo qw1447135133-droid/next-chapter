@@ -422,6 +422,27 @@ export function buildSetFullReferenceScript(): string {
       );
       if (!(control instanceof HTMLElement)) return { ok: false, step: "target-not-found", currentReference: "" };
       fireOpenMenu(control);
+      const popup = document.querySelector("div.lv-select-popup");
+      const popupOptions =
+        popup instanceof HTMLElement
+          ? Array.from(
+              popup.querySelectorAll(
+                "div.lv-select-popup-inner[role='listbox'] li[role='option'], div.lv-select-popup-inner[role='listbox'] [role='option'], li.lv-select-option",
+              ),
+            ).filter(isVisible)
+          : [];
+      const popupOption = popupOptions.find((node) => {
+        const text = textOf(node);
+        return text === "全能参考" || text === "Full Reference" || /全能参考|Full Reference/.test(text);
+      });
+      if (popupOption instanceof HTMLElement) {
+        clickLikeHuman(popupOption);
+        return {
+          ok: true,
+          step: "reference-selected-popup",
+          currentReference: textOf(popupOption),
+        };
+      }
       const option =
         compactToolbarControls().find((node) => textOf(node) === "全能参考" || textOf(node) === "Full Reference") ||
         interactiveNodes().find((node) => textOf(node) === "全能参考" || textOf(node) === "Full Reference");
@@ -436,9 +457,19 @@ export function buildSetModelScript(targetModel: string): string {
   return `
     (() => {
       ${sharedHelpers()}
+      const normalizeModelText = (value) => {
+        const text = normalize(value);
+        if (/^Seedance 2\\.0 Fast\\b/i.test(text)) return "Seedance 2.0 Fast";
+        if (/^Seedance 2\\.0\\b/i.test(text)) return "Seedance 2.0";
+        return text;
+      };
       const target = ${q(targetModel)};
       const controls = compactToolbarControls();
-      const current = controls.find((node) => /Seedance 2\\.0/i.test(textOf(node)) && textOf(node) === target);
+      const current = controls.find(
+        (node) =>
+          /Seedance 2\\.0/i.test(textOf(node)) &&
+          normalizeModelText(textOf(node)) === target,
+      );
       if (current) return { ok: true, step: "already-set", currentModel: textOf(current) };
 
       const control =
@@ -459,6 +490,47 @@ export function buildSetModelScript(targetModel: string): string {
 
       const cRect = rectOf(control);
       fireOpenMenu(control);
+      const popup = document.querySelector("div.lv-select-popup");
+      const popupOptions =
+        popup instanceof HTMLElement
+          ? Array.from(
+              popup.querySelectorAll(
+                "div.lv-select-popup-inner[role='listbox'] li[role='option'], div.lv-select-popup-inner[role='listbox'] [role='option'], li.lv-select-option",
+              ),
+            ).filter(isVisible)
+          : [];
+      const popupOptionText = (node) => {
+        if (!(node instanceof HTMLElement)) return "";
+        const label =
+          node.querySelector(".option-label-Fv9c0E") ||
+          node.querySelector("[alt]") ||
+          node;
+        return textOf(label);
+      };
+      const scoreOption = (node) => {
+        const labelText = popupOptionText(node) || textOf(node);
+        const normalized = normalizeModelText(labelText);
+        if (normalized === target && labelText === target) return 1400;
+        if (normalized === target) return 1200;
+        if (labelText.includes(target)) return 900;
+        if (target.includes(labelText)) return 700;
+        return 0;
+      };
+      const popupOption = popupOptions
+        .filter((node) => /Seedance 2\\.0/i.test(popupOptionText(node) || textOf(node)))
+        .sort((a, b) => scoreOption(b) - scoreOption(a))[0] || null;
+      if (popupOption instanceof HTMLElement && scoreOption(popupOption) > 0) {
+        clickLikeHuman(popupOption);
+        return {
+          ok: true,
+          step: "model-selected-popup",
+          currentModel: popupOptionText(popupOption) || textOf(popupOption),
+          debug: popupOptions
+            .slice(0, 6)
+            .map((node) => popupOptionText(node) || textOf(node))
+            .join(" | "),
+        };
+      }
       const options = interactiveNodes()
         .filter((node) => {
           if (!(node instanceof HTMLElement)) return false;
@@ -476,19 +548,12 @@ export function buildSetModelScript(targetModel: string): string {
           );
         })
         .sort((a, b) => {
-          const score = (node: HTMLElement) => {
-            const text = textOf(node);
-            if (text === target) return 1000;
-            if (text.includes(target)) return 800;
-            if (target.includes(text)) return 600;
-            return 0;
-          };
-          return score(b) - score(a);
+          return scoreOption(b) - scoreOption(a);
         });
 
       const option = options[0] || null;
 
-      if (!(option instanceof HTMLElement)) {
+      if (!(option instanceof HTMLElement) || scoreOption(option) <= 0) {
         const visibleSeedanceTexts = interactiveNodes()
           .map((node) => textOf(node))
           .filter((text) => /Seedance 2\\.0/i.test(text))
@@ -505,8 +570,8 @@ export function buildSetModelScript(targetModel: string): string {
       return {
         ok: true,
         step: "model-selected",
-        currentModel: textOf(option),
-        debug: options.slice(0, 8).map((node) => textOf(node)).join(" | "),
+        currentModel: popupOptionText(option) || textOf(option),
+        debug: options.slice(0, 8).map((node) => popupOptionText(node) || textOf(node)).join(" | "),
       };
     })()
   `;

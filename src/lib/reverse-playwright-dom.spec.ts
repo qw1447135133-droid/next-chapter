@@ -1,6 +1,7 @@
 import {
   selectAspectRatioInDom,
   selectFullReferenceInDom,
+  selectModelInDom,
 } from "./reverse-playwright-dom";
 
 describe("selectAspectRatioInDom", () => {
@@ -234,5 +235,105 @@ describe("selectAspectRatioInDom", () => {
     expect(result.ok).toBe(true);
     expect(result.step).toBe("reference-selected");
     expect(current.textContent).toBe("全能参考");
+  });
+  it("selects the requested model from button-style popup options with extended labels", async () => {
+    document.body.innerHTML = `
+      <div role="combobox" id="model-current">Seedance 2.0 Fast</div>
+      <div role="dialog" id="model-popup" hidden>
+        <button id="model-fast">Seedance 2.0 Fast High Value</button>
+        <button id="model-target">Seedance 2.0 All-round</button>
+      </div>
+    `;
+
+    const current = document.getElementById("model-current") as HTMLDivElement;
+    const popup = document.getElementById("model-popup") as HTMLDivElement;
+    const fast = document.getElementById("model-fast") as HTMLButtonElement;
+    const target = document.getElementById("model-target") as HTMLButtonElement;
+
+    Object.defineProperty(current, "getBoundingClientRect", {
+      configurable: true,
+      value() {
+        return {
+          x: 520,
+          y: 340,
+          top: 340,
+          left: 520,
+          right: 680,
+          bottom: 376,
+          width: 160,
+          height: 36,
+          toJSON() {
+            return this;
+          },
+        };
+      },
+    });
+    Object.defineProperty(popup, "getBoundingClientRect", {
+      configurable: true,
+      value() {
+        return {
+          x: 500,
+          y: 390,
+          top: 390,
+          left: 500,
+          right: 760,
+          bottom: 500,
+          width: 260,
+          height: 110,
+          toJSON() {
+            return this;
+          },
+        };
+      },
+    });
+    Object.defineProperty(fast, "getBoundingClientRect", {
+      configurable: true,
+      value() {
+        return {
+          x: 520,
+          y: 400,
+          top: 400,
+          left: 520,
+          right: 720,
+          bottom: 436,
+          width: 200,
+          height: 36,
+          toJSON() {
+            return this;
+          },
+        };
+      },
+    });
+    Object.defineProperty(target, "getBoundingClientRect", {
+      configurable: true,
+      value() {
+        return {
+          x: 520,
+          y: 444,
+          top: 444,
+          left: 520,
+          right: 700,
+          bottom: 480,
+          width: 180,
+          height: 36,
+          toJSON() {
+            return this;
+          },
+        };
+      },
+    });
+
+    current.addEventListener("click", () => {
+      popup.hidden = false;
+    });
+    target.addEventListener("click", () => {
+      current.textContent = "Seedance 2.0";
+    });
+
+    const result = await selectModelInDom({ targetModel: "Seedance 2.0" });
+
+    expect(result.ok).toBe(true);
+    expect(result.step).toBe("model-selected");
+    expect(current.textContent).toBe("Seedance 2.0");
   });
 });
