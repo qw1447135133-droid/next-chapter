@@ -624,6 +624,7 @@ export default function ReverseBrowserViewPanel({
             hasTargetDuration: boolean;
             hasTargetAspectRatio: boolean;
             hasReferenceMode: boolean;
+            currentModel: string;
             currentDuration: string;
             currentAspectRatio: string;
             currentReference: string;
@@ -636,6 +637,12 @@ export default function ReverseBrowserViewPanel({
             ),
           ).catch(() => null);
 
+          if (toolbarStateBefore) {
+            appendLog(
+              `片段 ${segmentKey} 工具栏预检: 模型=${toolbarStateBefore.currentModel || "(empty)"} / 时长=${toolbarStateBefore.currentDuration} / 比例=${toolbarStateBefore.currentAspectRatio} / 参考=${toolbarStateBefore.currentReference}`,
+            );
+          }
+
           const missing = {
             reference: !(toolbarStateBefore?.hasReferenceMode ?? observation.matchedSignals.includes("seedance-reference")),
             duration: !(toolbarStateBefore?.hasTargetDuration ?? observation.matchedSignals.includes(targets.duration)),
@@ -644,11 +651,11 @@ export default function ReverseBrowserViewPanel({
           };
 
           if (missing.model) {
-            const r = await executeNamed<{ ok: boolean; step: string }>(
+            const r = await executeNamed<{ ok: boolean; step: string; debug?: string }>(
               "set-model",
               buildSetModelScript(targets.model),
             ).catch(() => null);
-            if (r && !r.ok) appendLog(`片段 ${segmentKey} 模型脚本返回: step=${r.step}`);
+            if (r && !r.ok) appendLog(`片段 ${segmentKey} 模型脚本返回: step=${r.step}${r.debug ? ` / ${r.debug}` : ""}`);
             await sleep(600);
           } else if (missing.reference) {
             appendLog(`片段 ${segmentKey} 脚本设置全能参考`);

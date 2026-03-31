@@ -454,22 +454,24 @@ export function buildSetModelScript(targetModel: string): string {
         ));
 
       if (!(control instanceof HTMLElement)) {
-        return { ok: false, step: "target-not-found" };
+        return { ok: false, step: "control-not-found" };
       }
 
       const cRect = rectOf(control);
       fireOpenMenu(control);
-
-      const option = interactiveNodes()
+      const options = interactiveNodes()
         .filter((node) => {
           if (!(node instanceof HTMLElement)) return false;
           const text = textOf(node);
           if (!/Seedance 2\\.0/i.test(text)) return false;
           const rect = rectOf(node);
           return (
-            (normalize(node.getAttribute("role") || "") === "option" ||
+            (
+              normalize(node.getAttribute("role") || "") === "option" ||
               normalize(node.getAttribute("role") || "") === "menuitem" ||
-              /option|item|menu|popup|dropdown/i.test(normalize(node.className || ""))) &&
+              normalize(node.getAttribute("role") || "") === "button" ||
+              /option|item|menu|popup|dropdown|select|list/i.test(normalize(node.className || ""))
+            ) &&
             Math.abs(rect.top - cRect.top) <= 500
           );
         })
@@ -482,14 +484,30 @@ export function buildSetModelScript(targetModel: string): string {
             return 0;
           };
           return score(b) - score(a);
-        })[0] || null;
+        });
+
+      const option = options[0] || null;
 
       if (!(option instanceof HTMLElement)) {
-        return { ok: false, step: "target-not-found" };
+        const visibleSeedanceTexts = interactiveNodes()
+          .map((node) => textOf(node))
+          .filter((text) => /Seedance 2\\.0/i.test(text))
+          .slice(0, 12);
+        return {
+          ok: false,
+          step: "option-not-found",
+          currentModel: textOf(control),
+          debug: visibleSeedanceTexts.join(" | "),
+        };
       }
 
       clickLikeHuman(option);
-      return { ok: true, step: "model-selected", currentModel: textOf(option) };
+      return {
+        ok: true,
+        step: "model-selected",
+        currentModel: textOf(option),
+        debug: options.slice(0, 8).map((node) => textOf(node)).join(" | "),
+      };
     })()
   `;
 }
