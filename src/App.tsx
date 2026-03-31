@@ -11,6 +11,7 @@ import ScriptCreator from "./pages/ScriptCreator";
 import ComplianceReview from "./pages/ComplianceReview";
 import Settings from "./pages/Settings";
 import History from "./pages/History";
+import Recharge from "./pages/Recharge";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -33,6 +34,7 @@ const App = () => (
             <Route path="/compliance-review" element={<ComplianceReview />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/history" element={<History />} />
+            <Route path="/recharge" element={<Recharge />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Router>

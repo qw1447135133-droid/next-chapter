@@ -614,19 +614,43 @@ export default function ReverseBrowserViewPanel({
 
         const inVideoMode =
           observation.matchedSignals.includes("video-entry") &&
-          observation.matchedSignals.includes("seedance-model");
+          observation.matchedSignals.includes("video-toolbar-entry");
 
         // Once in video mode, switch to scripted approach for toolbar settings
         // (scripted DOM manipulation is more reliable than coordinate clicking for dropdowns)
         if (inVideoMode) {
+          const toolbarStateBefore = await executeNamed<{
+            hasTargetModel: boolean;
+            hasTargetDuration: boolean;
+            hasTargetAspectRatio: boolean;
+            hasReferenceMode: boolean;
+            currentDuration: string;
+            currentAspectRatio: string;
+            currentReference: string;
+          }>(
+            "read-toolbar-state-before",
+            buildReadToolbarStateScript(
+              targets.model,
+              targets.duration,
+              targets.aspectRatio || "16:9",
+            ),
+          ).catch(() => null);
+
           const missing = {
-            reference: !observation.matchedSignals.includes("seedance-reference"),
-            duration: !observation.matchedSignals.includes(targets.duration),
-            aspectRatio: !observation.matchedSignals.includes(targets.aspectRatio || "16:9"),
-            model: !observation.matchedSignals.includes("seedance-model"),
+            reference: !(toolbarStateBefore?.hasReferenceMode ?? observation.matchedSignals.includes("seedance-reference")),
+            duration: !(toolbarStateBefore?.hasTargetDuration ?? observation.matchedSignals.includes(targets.duration)),
+            aspectRatio: !(toolbarStateBefore?.hasTargetAspectRatio ?? observation.matchedSignals.includes(targets.aspectRatio || "16:9")),
+            model: !(toolbarStateBefore?.hasTargetModel ?? observation.matchedSignals.includes("seedance-model")),
           };
 
-          if (missing.reference) {
+          if (missing.model) {
+            const r = await executeNamed<{ ok: boolean; step: string }>(
+              "set-model",
+              buildSetModelScript(targets.model),
+            ).catch(() => null);
+            if (r && !r.ok) appendLog(`片段 ${segmentKey} 模型脚本返回: step=${r.step}`);
+            await sleep(600);
+          } else if (missing.reference) {
             appendLog(`片段 ${segmentKey} 脚本设置全能参考`);
             const r = await executeNamed<{ ok: boolean; step: string }>("脚本设置全能参考", buildSetFullReferenceScript()).catch(() => null);
             if (r && !r.ok) appendLog(`片段 ${segmentKey} 全能参考脚本返回: step=${r.step}`);

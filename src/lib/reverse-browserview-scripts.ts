@@ -433,13 +433,65 @@ export function buildSetFullReferenceScript(): string {
 }
 
 export function buildSetModelScript(targetModel: string): string {
-  return buildSelectScript(
-    // Match combobox or button showing a Seedance model name
-    `(/Seedance 2\\\\.0/i.test(textOf(node))) && (normalize(node.getAttribute("role") || "") === "combobox" || node.tagName.toLowerCase() === "button" || normalize(node.getAttribute("role") || "") === "button")`,
-    `textOf(node) === ${q(targetModel)}`,
-    `(/Seedance 2\\\\.0/i.test(textOf(node))) && textOf(node) === ${q(targetModel)}`,
-    "model-selected",
-  );
+  return `
+    (() => {
+      ${sharedHelpers()}
+      const target = ${q(targetModel)};
+      const controls = compactToolbarControls();
+      const current = controls.find((node) => /Seedance 2\\.0/i.test(textOf(node)) && textOf(node) === target);
+      if (current) return { ok: true, step: "already-set", currentModel: textOf(current) };
+
+      const control =
+        controls.find((node) => /Seedance 2\\.0/i.test(textOf(node)) && (
+          normalize(node.getAttribute("role") || "") === "combobox" ||
+          node.tagName.toLowerCase() === "button" ||
+          normalize(node.getAttribute("role") || "") === "button"
+        )) ||
+        interactiveNodes().find((node) => /Seedance 2\\.0/i.test(textOf(node)) && (
+          normalize(node.getAttribute("role") || "") === "combobox" ||
+          node.tagName.toLowerCase() === "button" ||
+          normalize(node.getAttribute("role") || "") === "button"
+        ));
+
+      if (!(control instanceof HTMLElement)) {
+        return { ok: false, step: "target-not-found" };
+      }
+
+      const cRect = rectOf(control);
+      fireOpenMenu(control);
+
+      const option = interactiveNodes()
+        .filter((node) => {
+          if (!(node instanceof HTMLElement)) return false;
+          const text = textOf(node);
+          if (!/Seedance 2\\.0/i.test(text)) return false;
+          const rect = rectOf(node);
+          return (
+            (normalize(node.getAttribute("role") || "") === "option" ||
+              normalize(node.getAttribute("role") || "") === "menuitem" ||
+              /option|item|menu|popup|dropdown/i.test(normalize(node.className || ""))) &&
+            Math.abs(rect.top - cRect.top) <= 500
+          );
+        })
+        .sort((a, b) => {
+          const score = (node: HTMLElement) => {
+            const text = textOf(node);
+            if (text === target) return 1000;
+            if (text.includes(target)) return 800;
+            if (target.includes(text)) return 600;
+            return 0;
+          };
+          return score(b) - score(a);
+        })[0] || null;
+
+      if (!(option instanceof HTMLElement)) {
+        return { ok: false, step: "target-not-found" };
+      }
+
+      clickLikeHuman(option);
+      return { ok: true, step: "model-selected", currentModel: textOf(option) };
+    })()
+  `;
 }
 
 export function buildSetDurationScript(targetDuration: string): string {
