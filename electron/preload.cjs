@@ -47,7 +47,8 @@ var builtinApiBundle = readBuiltinApiBundle();
 var builtinApiBundlePath = getBuiltinApiBundlePath();
 var runtimeAPI = {
   builtinApiBundle,
-  builtinApiBundlePath
+  builtinApiBundlePath,
+  verifyBuiltinApiAdminPassword: (password) => import_electron.ipcRenderer.invoke("runtime:verifyBuiltinApiAdminPassword", password)
 };
 var jimengAPI = {
   start: () => import_electron.ipcRenderer.invoke("jimeng:start"),

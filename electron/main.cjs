@@ -1875,6 +1875,7 @@ var init_reverse_playwright_runner = __esm({
 
 // electron/main.ts
 var path2 = require("node:path");
+var crypto = require("node:crypto");
 var {
   app: app2,
   BrowserWindow,
@@ -1901,6 +1902,7 @@ function getJimengSourceDir() {
 }
 var API_PORT = 8e3;
 var API_BASE = `http://localhost:${API_PORT}`;
+var BUILTIN_API_ADMIN_PASSWORD_HASH = "d4f31b6def1e6e11148cbab15b400e91528ab18880b25225d9a9f840d4d0d192";
 var mainWindow = null;
 var tray = null;
 var pythonProcess = null;
@@ -2047,6 +2049,18 @@ function log(level, msg) {
   pythonLogs.push(line);
   if (pythonLogs.length > 500) pythonLogs.shift();
   console.log(line);
+}
+function verifyBuiltinApiAdminPassword(password) {
+  if (typeof password !== "string" || !password) {
+    return false;
+  }
+  const actualHash = crypto.createHash("sha256").update(password, "utf8").digest("hex");
+  const expectedBuffer = Buffer.from(BUILTIN_API_ADMIN_PASSWORD_HASH, "hex");
+  const actualBuffer = Buffer.from(actualHash, "hex");
+  if (expectedBuffer.length !== actualBuffer.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(expectedBuffer, actualBuffer);
 }
 async function findPython() {
   for (const name of ["uv"]) {
@@ -2269,6 +2283,10 @@ function setupIPC() {
     if (pythonStatus !== "running") return null;
     return API_BASE;
   });
+  ipcMain.handle(
+    "runtime:verifyBuiltinApiAdminPassword",
+    (_event, password) => verifyBuiltinApiAdminPassword(password)
+  );
   ipcMain.handle("crash:getLogs", () => {
     const crashLogPath = path2.join(getUserDataPath(), "crash-log.json");
     try {

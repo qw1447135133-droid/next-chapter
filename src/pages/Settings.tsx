@@ -34,12 +34,14 @@ import { toast } from "@/hooks/use-toast";
 import {
   clearApiConfig,
   DEFAULT_API_CONFIG,
-  getBuiltinApiBundleMeta,
   getStoredApiConfig,
+  loadBuiltinApiBundleFromDisk,
   resolveApiConfigForRuntime,
   resolveConfiguredModelNameFromConfig,
+  saveBuiltinApiBundle,
   saveApiConfig,
   SUPPORTED_MODEL_MAPPINGS,
+  type BuiltinApiBundle,
   type ApiConfig,
   type ApiMode,
 } from "@/lib/api-config";
@@ -115,8 +117,22 @@ export default function Settings() {
   const [testState, setTestState] = useState<TestStateMap>({});
   const [selectedModelKey, setSelectedModelKey] = useState<string | null>(null);
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
+  const [adminPasswordDialogOpen, setAdminPasswordDialogOpen] = useState(false);
+  const [builtinEditorOpen, setBuiltinEditorOpen] = useState(false);
+  const [adminPassword, setAdminPassword] = useState("");
+  const [builtinDraft, setBuiltinDraft] = useState<BuiltinApiBundle>({
+    geminiEndpoint: "",
+    geminiKey: "",
+    jimengEndpoint: "",
+    jimengKey: "",
+    viduEndpoint: "",
+    viduKey: "",
+    klingEndpoint: "",
+    klingKey: "",
+    modelMappings: {},
+  });
+  const [builtinSaving, setBuiltinSaving] = useState(false);
   const importRef = useRef<HTMLInputElement | null>(null);
-  const builtinMeta = getBuiltinApiBundleMeta();
 
   useEffect(() => {
     const loadDefaultPath = async () => {
@@ -172,6 +188,77 @@ export default function Settings() {
   const handleSave = () => {
     saveApiConfig(config);
     toast({ title: "已保存", description: "设置已保存到本地。" });
+  };
+
+  const handleOpenBuiltinAdminDialog = async () => {
+    try {
+      const latest = await loadBuiltinApiBundleFromDisk();
+      if (latest) {
+        setBuiltinDraft(latest);
+      }
+      setAdminPassword("");
+      setAdminPasswordDialogOpen(true);
+    } catch (error) {
+      toast({
+        title: "读取失败",
+        description: error instanceof Error ? error.message : String(error),
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleVerifyBuiltinAdminPassword = async () => {
+    const verify = window.electronAPI?.runtime?.verifyBuiltinApiAdminPassword;
+    if (!verify) {
+      toast({
+        title: "当前环境不支持",
+        description: "仅桌面端可验证管理员密码。",
+        variant: "destructive",
+      });
+      return;
+    }
+    const isValid = await verify(adminPassword);
+    if (!isValid) {
+      toast({
+        title: "管理员密码错误",
+        description: "请输入正确的管理员密码后再修改内置 API。",
+        variant: "destructive",
+      });
+      return;
+    }
+    setAdminPassword("");
+    setAdminPasswordDialogOpen(false);
+    setBuiltinEditorOpen(true);
+  };
+
+  const setBuiltinField = (
+    field: Exclude<keyof BuiltinApiBundle, "modelMappings">,
+    value: string,
+  ) => {
+    setBuiltinDraft((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSaveBuiltinApi = async () => {
+    setBuiltinSaving(true);
+    try {
+      await saveBuiltinApiBundle({
+        ...builtinDraft,
+        modelMappings: builtinDraft.modelMappings || {},
+      });
+      setBuiltinEditorOpen(false);
+      toast({
+        title: "内置 API 已更新",
+        description: "新的 API Key 已写入内置配置，当前运行可立即生效。",
+      });
+    } catch (error) {
+      toast({
+        title: "保存失败",
+        description: error instanceof Error ? error.message : String(error),
+        variant: "destructive",
+      });
+    } finally {
+      setBuiltinSaving(false);
+    }
   };
 
   const handleClear = () => {
@@ -417,11 +504,18 @@ export default function Settings() {
                 <button type="button" onClick={() => handleApiModeChange("custom")} className={`px-4 py-1.5 rounded-md text-sm transition-colors ${config.apiMode === "custom" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}>自定义 API</button>
               </div>
               {config.apiMode === "builtin" ? (
-                <div className="rounded-md border border-border/60 bg-muted/30 p-3 space-y-1">
-                  <p className="text-sm font-medium">内置配置文件</p>
-                  <p className="text-xs text-muted-foreground break-all">{builtinMeta.path || "未检测到内置配置文件路径。"}</p>
-                  <p className="text-xs text-muted-foreground">当前状态：{builtinMeta.loaded ? "已加载" : "未加载"}</p>
-                  <p className="text-xs text-muted-foreground">这是内置 API 模式使用的打包 JSON 配置文件。</p>
+                <div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => void handleOpenBuiltinAdminDialog()}
+                    disabled={!window.electronAPI?.storage?.writeText}
+                  >
+                    <Key className="h-4 w-4" />
+                    修改内置 API
+                  </Button>
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-2">
@@ -472,7 +566,7 @@ export default function Settings() {
                 <CardContent className="pt-6 space-y-5">
                   <div>
                     <h3 className="text-sm font-medium">模型映射</h3>
-                    <p className="text-xs text-muted-foreground mt-0.5">点击某一项，例如“文本模型 &gt; Gemini 3.1 Pro”，即可在弹窗中编辑这一项模型映射。</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">点击某一项，例如“文本模型 &gt; Gemini 3 Pro”，即可在弹窗中编辑这一项模型映射。</p>
                     <p className="text-xs text-muted-foreground mt-1">当前在线测试支持 Gemini 文本模型和 Seedance 视频模型。</p>
                   </div>
                   {(["text", "image", "video"] as const).map((category) => {
@@ -518,6 +612,89 @@ export default function Settings() {
               </div>
             ) : null}
             <DialogFooter><Button type="button" onClick={() => setModelDialogOpen(false)}>完成</Button></DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={adminPasswordDialogOpen} onOpenChange={setAdminPasswordDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>输入管理员密码</DialogTitle>
+              <DialogDescription>验证通过后，才可以直接在程序内修改内置 API Key。</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">管理员密码</Label>
+              <Input
+                type="password"
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    void handleVerifyBuiltinAdminPassword();
+                  }
+                }}
+                placeholder="请输入管理员密码"
+                className="font-mono text-sm"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setAdminPasswordDialogOpen(false)}>
+                取消
+              </Button>
+              <Button type="button" onClick={() => void handleVerifyBuiltinAdminPassword()}>
+                验证
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={builtinEditorOpen} onOpenChange={setBuiltinEditorOpen}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>修改内置 API</DialogTitle>
+              <DialogDescription>保存后会直接写入内置配置文件，不需要再手动编辑 JSON。</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+              {API_ROWS.map((row) => {
+                const endpointField = ENDPOINT_FIELD_MAP[row.id];
+                const keyField = KEY_FIELD_MAP[row.id];
+                return (
+                  <div key={row.id} className="rounded-md border border-border/50 p-4 space-y-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium">{row.title}</span>
+                      <Badge variant="outline">{row.id}</Badge>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">API 地址</Label>
+                      <Input
+                        value={String(builtinDraft[endpointField] ?? "")}
+                        onChange={(e) => setBuiltinField(endpointField, e.target.value)}
+                        placeholder={row.endpointPlaceholder}
+                        className="font-mono text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">API Key</Label>
+                      <Input
+                        type="password"
+                        value={String(builtinDraft[keyField] ?? "")}
+                        onChange={(e) => setBuiltinField(keyField, e.target.value)}
+                        placeholder="请输入 API Key"
+                        className="font-mono text-sm"
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setBuiltinEditorOpen(false)}>
+                取消
+              </Button>
+              <Button type="button" onClick={() => void handleSaveBuiltinApi()} disabled={builtinSaving}>
+                {builtinSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                保存内置 API
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
 

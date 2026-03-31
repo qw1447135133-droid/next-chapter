@@ -43,14 +43,14 @@ export interface ApiConfig {
 export const SUPPORTED_MODEL_MAPPINGS: SupportedModelMapping[] = [
   {
     key: "gemini-3-pro",
-    label: "Gemini 3.1 Pro",
+    label: "Gemini 3 Pro",
     provider: "gemini",
     category: "text",
     defaultModelName: "gemini-3-pro",
   },
   {
     key: "gemini-3-pro-preview",
-    label: "Gemini 3.0 Pro",
+    label: "Gemini 3 Pro Preview",
     provider: "gemini",
     category: "text",
     defaultModelName: "gemini-3-pro-preview",
@@ -64,21 +64,56 @@ export const SUPPORTED_MODEL_MAPPINGS: SupportedModelMapping[] = [
   },
   {
     key: "gemini-3-flash-preview",
-    label: "Gemini 3.0 Flash",
+    label: "Gemini 3 Flash Preview",
     provider: "gemini",
     category: "text",
     defaultModelName: "gemini-3-flash-preview",
   },
   {
+    key: "gpt-5.4",
+    label: "GPT-5.4",
+    provider: "gemini",
+    category: "text",
+    defaultModelName: "gpt-5.4",
+  },
+  {
+    key: "gpt-5.4-mini",
+    label: "GPT-5.4 Mini",
+    provider: "gemini",
+    category: "text",
+    defaultModelName: "gpt-5.4-mini",
+  },
+  {
+    key: "claude-sonnet-4-6",
+    label: "Claude Sonnet 4.6",
+    provider: "gemini",
+    category: "text",
+    defaultModelName: "claude-sonnet-4-6",
+  },
+  {
+    key: "claude-sonnet-4-6-thinking",
+    label: "Claude Sonnet 4.6 Thinking",
+    provider: "gemini",
+    category: "text",
+    defaultModelName: "claude-sonnet-4-6-thinking",
+  },
+  {
+    key: "claude-opus-4-6",
+    label: "Claude Opus 4.6",
+    provider: "gemini",
+    category: "text",
+    defaultModelName: "claude-opus-4-6",
+  },
+  {
     key: "gemini-3-pro-image-preview",
-    label: "Nano Banana Pro",
+    label: "Gemini 3 Pro Image Preview",
     provider: "gemini",
     category: "image",
     defaultModelName: "gemini-3-pro-image-preview",
   },
   {
     key: "gemini-3.1-flash-image-preview",
-    label: "Nano Banana 2",
+    label: "Gemini 3.1 Flash Image Preview",
     provider: "gemini",
     category: "image",
     defaultModelName: "gemini-3.1-flash-image-preview",
@@ -115,6 +150,7 @@ export const SUPPORTED_MODEL_MAPPINGS: SupportedModelMapping[] = [
 
 const STORAGE_KEY = "storyforge_api_config";
 const OBF_PREFIX = "obf:";
+let builtinApiBundleCache: BuiltinApiBundle | null | undefined;
 
 function obfuscate(value: string): string {
   if (!value) return "";
@@ -164,18 +200,74 @@ export const DEFAULT_API_CONFIG: ApiConfig = {
 };
 
 function getBuiltinApiBundle(): BuiltinApiBundle | null {
-  try {
-    return window.electronAPI?.runtime?.builtinApiBundle || null;
-  } catch {
-    return null;
+  if (builtinApiBundleCache !== undefined) {
+    return builtinApiBundleCache;
   }
+  try {
+    builtinApiBundleCache = window.electronAPI?.runtime?.builtinApiBundle || null;
+  } catch {
+    builtinApiBundleCache = null;
+  }
+  return builtinApiBundleCache;
+}
+
+function sanitizeBuiltinApiBundle(input: Partial<BuiltinApiBundle>): BuiltinApiBundle {
+  return {
+    geminiEndpoint: typeof input.geminiEndpoint === "string" ? input.geminiEndpoint.trim() : "",
+    geminiKey: typeof input.geminiKey === "string" ? input.geminiKey.trim() : "",
+    jimengEndpoint: typeof input.jimengEndpoint === "string" ? input.jimengEndpoint.trim() : "",
+    jimengKey: typeof input.jimengKey === "string" ? input.jimengKey.trim() : "",
+    viduEndpoint: typeof input.viduEndpoint === "string" ? input.viduEndpoint.trim() : "",
+    viduKey: typeof input.viduKey === "string" ? input.viduKey.trim() : "",
+    klingEndpoint: typeof input.klingEndpoint === "string" ? input.klingEndpoint.trim() : "",
+    klingKey: typeof input.klingKey === "string" ? input.klingKey.trim() : "",
+    modelMappings: normalizeModelMappings(input.modelMappings),
+  };
 }
 
 export function getBuiltinApiBundleMeta() {
   return {
     path: window.electronAPI?.runtime?.builtinApiBundlePath || "",
-    loaded: !!window.electronAPI?.runtime?.builtinApiBundle,
+    loaded: !!getBuiltinApiBundle(),
   };
+}
+
+export async function loadBuiltinApiBundleFromDisk(): Promise<BuiltinApiBundle | null> {
+  const filePath = getBuiltinApiBundleMeta().path;
+  if (!filePath || !window.electronAPI?.storage?.readText) {
+    builtinApiBundleCache = getBuiltinApiBundle();
+    return builtinApiBundleCache;
+  }
+  const result = await window.electronAPI.storage.readText(filePath);
+  if (!result.ok) {
+    throw new Error(result.error || "读取内置 API 配置失败");
+  }
+  if (!result.exists || !result.content?.trim()) {
+    builtinApiBundleCache = null;
+    return builtinApiBundleCache;
+  }
+  const parsed = JSON.parse(result.content) as Partial<BuiltinApiBundle>;
+  builtinApiBundleCache = sanitizeBuiltinApiBundle(parsed);
+  return builtinApiBundleCache;
+}
+
+export async function saveBuiltinApiBundle(
+  bundle: Partial<BuiltinApiBundle>,
+): Promise<BuiltinApiBundle> {
+  const filePath = getBuiltinApiBundleMeta().path;
+  if (!filePath || !window.electronAPI?.storage?.writeText) {
+    throw new Error("当前环境不支持写入内置 API 配置");
+  }
+  const nextBundle = sanitizeBuiltinApiBundle(bundle);
+  const result = await window.electronAPI.storage.writeText(
+    filePath,
+    JSON.stringify(nextBundle, null, 2),
+  );
+  if (!result.ok) {
+    throw new Error(result.error || "写入内置 API 配置失败");
+  }
+  builtinApiBundleCache = nextBundle;
+  return nextBundle;
 }
 
 export function getStoredApiConfig(): ApiConfig {
@@ -241,20 +333,35 @@ function applyBuiltinOverlay(config: ApiConfig): ApiConfig {
   if (config.apiMode !== "builtin") return config;
   const builtin = getBuiltinApiBundle();
   if (!builtin) return config;
+  const builtinMappings = normalizeModelMappings(builtin.modelMappings);
+  const geminiEndpoint =
+    typeof builtin.geminiEndpoint === "string" ? builtin.geminiEndpoint.trim() : "";
+  const geminiKey =
+    typeof builtin.geminiKey === "string" ? builtin.geminiKey.trim() : "";
+  const jimengEndpointRaw =
+    typeof builtin.jimengEndpoint === "string" ? builtin.jimengEndpoint.trim() : "";
+  const jimengKeyRaw =
+    typeof builtin.jimengKey === "string" ? builtin.jimengKey.trim() : "";
+  const viduEndpoint =
+    typeof builtin.viduEndpoint === "string" ? builtin.viduEndpoint.trim() : "";
+  const viduKey =
+    typeof builtin.viduKey === "string" ? builtin.viduKey.trim() : "";
+  const klingEndpoint =
+    typeof builtin.klingEndpoint === "string" ? builtin.klingEndpoint.trim() : "";
+  const klingKey =
+    typeof builtin.klingKey === "string" ? builtin.klingKey.trim() : "";
+
   return {
     ...config,
-    geminiEndpoint: builtin.geminiEndpoint || config.geminiEndpoint,
-    geminiKey: builtin.geminiKey || config.geminiKey,
-    jimengEndpoint: builtin.jimengEndpoint || builtin.geminiEndpoint || config.jimengEndpoint,
-    jimengKey: builtin.jimengKey || builtin.geminiKey || config.jimengKey,
-    viduEndpoint: builtin.viduEndpoint || config.viduEndpoint,
-    viduKey: builtin.viduKey || config.viduKey,
-    klingEndpoint: builtin.klingEndpoint || config.klingEndpoint,
-    klingKey: builtin.klingKey || config.klingKey,
-    modelMappings: {
-      ...config.modelMappings,
-      ...normalizeModelMappings(builtin.modelMappings),
-    },
+    geminiEndpoint,
+    geminiKey,
+    jimengEndpoint: jimengEndpointRaw || geminiEndpoint,
+    jimengKey: jimengKeyRaw || geminiKey,
+    viduEndpoint,
+    viduKey,
+    klingEndpoint,
+    klingKey,
+    modelMappings: builtinMappings,
   };
 }
 

@@ -214,6 +214,7 @@ export interface ReversePlaywrightAPI {
 export interface RuntimeAPI {
   builtinApiBundle: BuiltinApiBundle | null;
   builtinApiBundlePath: string;
+  verifyBuiltinApiAdminPassword: (password: string) => Promise<boolean>;
 }
 
 function getBuiltinApiBundlePath(): string {
@@ -238,6 +239,8 @@ const builtinApiBundlePath = getBuiltinApiBundlePath();
 const runtimeAPI: RuntimeAPI = {
   builtinApiBundle,
   builtinApiBundlePath,
+  verifyBuiltinApiAdminPassword: (password: string) =>
+    ipcRenderer.invoke("runtime:verifyBuiltinApiAdminPassword", password),
 };
 
 const jimengAPI: JimengAPI = {

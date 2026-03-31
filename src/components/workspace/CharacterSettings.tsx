@@ -17,8 +17,8 @@ import ImageThumbnail, { prewarmThumbnail } from "./ImageThumbnail";
 export type CharImageModel = "gemini-3-pro-image-preview" | "gemini-3.1-flash-image-preview" | "doubao-seedream-5-0-260128";
 
 const CHAR_IMAGE_MODEL_OPTIONS: { value: CharImageModel; label: string }[] = [
-  { value: "gemini-3-pro-image-preview", label: "Nano Banana Pro" },
-  { value: "gemini-3.1-flash-image-preview", label: "Nano Banana 2" },
+  { value: "gemini-3-pro-image-preview", label: "Gemini 3 Pro Image Preview" },
+  { value: "gemini-3.1-flash-image-preview", label: "Gemini 3.1 Flash Image Preview" },
   { value: "doubao-seedream-5-0-260128", label: "Seedream 5.0" },
 ];
 import ImageHistoryDialog from "./ImageHistoryDialog";

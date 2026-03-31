@@ -9,6 +9,7 @@
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("node:path");
+const crypto = require("node:crypto");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const {
   app,
@@ -51,6 +52,8 @@ function getJimengSourceDir(): string {
 const API_PORT = 8000;
 /** API 地址 */
 const API_BASE = `http://localhost:${API_PORT}`;
+const BUILTIN_API_ADMIN_PASSWORD_HASH =
+  "d4f31b6def1e6e11148cbab15b400e91528ab18880b25225d9a9f840d4d0d192";
 
 // =========================== 状态 ===========================
 
@@ -229,6 +232,19 @@ function log(level: string, msg: string) {
   pythonLogs.push(line);
   if (pythonLogs.length > 500) pythonLogs.shift();
   console.log(line);
+}
+
+function verifyBuiltinApiAdminPassword(password: string): boolean {
+  if (typeof password !== "string" || !password) {
+    return false;
+  }
+  const actualHash = crypto.createHash("sha256").update(password, "utf8").digest("hex");
+  const expectedBuffer = Buffer.from(BUILTIN_API_ADMIN_PASSWORD_HASH, "hex");
+  const actualBuffer = Buffer.from(actualHash, "hex");
+  if (expectedBuffer.length !== actualBuffer.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(expectedBuffer, actualBuffer);
 }
 
 // =========================== Python 服务管理 ===========================
@@ -508,6 +524,11 @@ function setupIPC() {
   });
 
   // 🛡️ 读取崩溃日志
+  ipcMain.handle(
+    "runtime:verifyBuiltinApiAdminPassword",
+    (_event, password: string) => verifyBuiltinApiAdminPassword(password),
+  );
+
   ipcMain.handle("crash:getLogs", () => {
     const crashLogPath = path.join(getUserDataPath(), "crash-log.json");
     try {

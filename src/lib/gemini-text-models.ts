@@ -2,12 +2,22 @@ export type DecomposeModel =
   | "gemini-3-pro"
   | "gemini-3-pro-preview"
   | "gemini-3-pro-thinking"
-  | "gemini-3-flash-preview";
+  | "gemini-3-flash-preview"
+  | "gpt-5.4"
+  | "gpt-5.4-mini"
+  | "claude-sonnet-4-6"
+  | "claude-sonnet-4-6-thinking"
+  | "claude-opus-4-6";
 
 export type ComplianceModel =
   | "gemini-3-pro"
   | "gemini-3-pro-preview"
-  | "gemini-3-flash-preview";
+  | "gemini-3-flash-preview"
+  | "gpt-5.4"
+  | "gpt-5.4-mini"
+  | "claude-sonnet-4-6"
+  | "claude-sonnet-4-6-thinking"
+  | "claude-opus-4-6";
 
 export const DEFAULT_DECOMPOSE_MODEL: DecomposeModel = "gemini-3-pro";
 export const DEFAULT_COMPLIANCE_MODEL: ComplianceModel = "gemini-3-pro";
@@ -16,10 +26,15 @@ export const DECOMPOSE_MODEL_OPTIONS: Array<{
   value: DecomposeModel;
   label: string;
 }> = [
-  { value: "gemini-3-pro", label: "Gemini 3.1 Pro" },
-  { value: "gemini-3-pro-preview", label: "Gemini 3.0 Pro" },
+  { value: "gemini-3-pro", label: "Gemini 3 Pro" },
+  { value: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview" },
   { value: "gemini-3-pro-thinking", label: "Gemini 3 Pro Thinking" },
-  { value: "gemini-3-flash-preview", label: "Gemini 3.0 Flash" },
+  { value: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview" },
+  { value: "gpt-5.4", label: "GPT-5.4" },
+  { value: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
+  { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+  { value: "claude-sonnet-4-6-thinking", label: "Claude Sonnet 4.6 Thinking" },
+  { value: "claude-opus-4-6", label: "Claude Opus 4.6" },
 ];
 
 export const COMPLIANCE_MODEL_OPTIONS: Array<{
@@ -37,6 +52,11 @@ const LEGACY_MODEL_MAP: Record<string, DecomposeModel> = {
   "gemini-3-flash-preview": "gemini-3-flash-preview",
   "gemini-3-pro": "gemini-3-pro",
   "gemini-3-pro-thinking": "gemini-3-pro-thinking",
+  "gpt-5.4": "gpt-5.4",
+  "gpt-5.4-mini": "gpt-5.4-mini",
+  "claude-sonnet-4-6": "claude-sonnet-4-6",
+  "claude-sonnet-4-6-thinking": "claude-sonnet-4-6-thinking",
+  "claude-opus-4-6": "claude-opus-4-6",
 };
 
 export function normalizeDecomposeModel(

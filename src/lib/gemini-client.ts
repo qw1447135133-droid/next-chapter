@@ -181,6 +181,111 @@ export { directFetch as getFetchMethod };
 
 const smartDirectOrProxyFetch = directFetch;
 
+function isChatCompletionsModel(model: string): boolean {
+  return /^gpt-/i.test(String(model || "").trim());
+}
+
+function isMessagesApiModel(model: string): boolean {
+  return /^claude-/i.test(String(model || "").trim());
+}
+
+function buildChatCompletionsUrl(base: string): string {
+  const root = String(base || DEFAULT_GEMINI_BASE_URL)
+    .replace(/\/v1beta(\/.*)?$/i, "")
+    .replace(/\/v1(\/.*)?$/i, "");
+  return `${root}/v1/chat/completions`;
+}
+
+function buildMessagesApiUrl(base: string): string {
+  const root = String(base || DEFAULT_GEMINI_BASE_URL)
+    .replace(/\/v1beta(\/.*)?$/i, "")
+    .replace(/\/v1(\/.*)?$/i, "");
+  return `${root}/v1/messages`;
+}
+
+function convertContentsToChatMessages(contents: any[]): Array<{
+  role: "system" | "user" | "assistant";
+  content: string;
+}> {
+  return (Array.isArray(contents) ? contents : [])
+    .map((entry) => {
+      const role =
+        entry?.role === "model"
+          ? "assistant"
+          : entry?.role === "system"
+            ? "system"
+            : "user";
+      const content = Array.isArray(entry?.parts)
+        ? entry.parts
+            .map((part: any) => {
+              if (typeof part?.text === "string") return part.text;
+              if (part?.fileData?.fileUri) return `[file] ${part.fileData.fileUri}`;
+              if (part?.inlineData) return "[inline data omitted]";
+              return "";
+            })
+            .filter(Boolean)
+            .join("\n\n")
+        : "";
+      return { role, content: String(content || "").trim() };
+    })
+    .filter((message) => !!message.content);
+}
+
+function buildChatCompletionsBody(
+  resolvedModel: string,
+  contents: any[],
+  generationConfig?: Record<string, any>,
+  stream = false,
+) {
+  const body: Record<string, any> = {
+    model: resolvedModel,
+    messages: convertContentsToChatMessages(contents),
+    stream,
+  };
+  if (typeof generationConfig?.temperature === "number") {
+    body.temperature = generationConfig.temperature;
+  }
+  if (typeof generationConfig?.topP === "number") {
+    body.top_p = generationConfig.topP;
+  }
+  if (typeof generationConfig?.maxOutputTokens === "number") {
+    body.max_tokens = generationConfig.maxOutputTokens;
+  }
+  return body;
+}
+
+function buildMessagesApiBody(
+  resolvedModel: string,
+  contents: any[],
+  generationConfig?: Record<string, any>,
+  stream = false,
+) {
+  return {
+    model: resolvedModel,
+    messages: convertContentsToChatMessages(contents).filter(
+      (message) => message.role !== "system",
+    ),
+    system: convertContentsToChatMessages(contents)
+      .filter((message) => message.role === "system")
+      .map((message) => message.content)
+      .join("\n\n")
+      .trim() || undefined,
+    stream,
+    max_tokens:
+      typeof generationConfig?.maxOutputTokens === "number"
+        ? generationConfig.maxOutputTokens
+        : 4096,
+    temperature:
+      typeof generationConfig?.temperature === "number"
+        ? generationConfig.temperature
+        : undefined,
+    top_p:
+      typeof generationConfig?.topP === "number"
+        ? generationConfig.topP
+        : undefined,
+  };
+}
+
 // ===== Core API Call =====
 
 export async function callGemini(
@@ -191,6 +296,40 @@ export async function callGemini(
 ): Promise<any> {
   const config = getApiConfig();
   const resolvedModel = resolveConfiguredModelName(model);
+  if (isMessagesApiModel(model) || isMessagesApiModel(resolvedModel)) {
+    const response = await geminiFetch(
+      buildMessagesApiUrl(config.geminiEndpoint || DEFAULT_GEMINI_BASE_URL),
+      { "Content-Type": "application/json" },
+      JSON.stringify(
+        buildMessagesApiBody(resolvedModel, contents, generationConfig, false),
+      ),
+      signal,
+    );
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        `模型 ${model} 调用失败 (${response.status}): ${text.slice(0, 200)}`,
+      );
+    }
+    return response.json();
+  }
+  if (isChatCompletionsModel(model) || isChatCompletionsModel(resolvedModel)) {
+    const response = await geminiFetch(
+      buildChatCompletionsUrl(config.geminiEndpoint || DEFAULT_GEMINI_BASE_URL),
+      { "Content-Type": "application/json" },
+      JSON.stringify(
+        buildChatCompletionsBody(resolvedModel, contents, generationConfig, false),
+      ),
+      signal,
+    );
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        `模型 ${model} 调用失败 (${response.status}): ${text.slice(0, 200)}`,
+      );
+    }
+    return response.json();
+  }
   const baseUrl = (config.geminiEndpoint || DEFAULT_GEMINI_BASE_URL)
     .replace(/\/v1beta(\/.*)?$/, "")
     .replace(/\/v1(\/.*)?$/, "");
@@ -285,6 +424,111 @@ export async function callGeminiStream(
 ): Promise<string> {
   const config = getApiConfig();
   const resolvedModel = resolveConfiguredModelName(model);
+  if (isMessagesApiModel(model) || isMessagesApiModel(resolvedModel)) {
+    const response = await geminiFetch(
+      buildMessagesApiUrl(config.geminiEndpoint || DEFAULT_GEMINI_BASE_URL),
+      { "Content-Type": "application/json" },
+      JSON.stringify(
+        buildMessagesApiBody(resolvedModel, contents, generationConfig, true),
+      ),
+      signal,
+    );
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        `模型 ${model} 调用失败 (${response.status}): ${text.slice(0, 200)}`,
+      );
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("浏览器不支持流式读取");
+
+    const decoder = new TextDecoder();
+    let accumulated = "";
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const jsonStr = line.slice(6).trim();
+        if (!jsonStr || jsonStr === "[DONE]") continue;
+        try {
+          const parsed = JSON.parse(jsonStr);
+          const delta =
+            parsed?.delta?.text ??
+            parsed?.content_block?.text ??
+            parsed?.content?.[0]?.text;
+          if (typeof delta === "string" && delta) {
+            accumulated += delta;
+            onChunk(accumulated);
+          }
+        } catch {
+          // skip malformed JSON
+        }
+      }
+    }
+
+    return accumulated.trim();
+  }
+  if (isChatCompletionsModel(model) || isChatCompletionsModel(resolvedModel)) {
+    const response = await geminiFetch(
+      buildChatCompletionsUrl(config.geminiEndpoint || DEFAULT_GEMINI_BASE_URL),
+      { "Content-Type": "application/json" },
+      JSON.stringify(
+        buildChatCompletionsBody(resolvedModel, contents, generationConfig, true),
+      ),
+      signal,
+    );
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        `模型 ${model} 调用失败 (${response.status}): ${text.slice(0, 200)}`,
+      );
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("浏览器不支持流式读取");
+
+    const decoder = new TextDecoder();
+    let accumulated = "";
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const jsonStr = line.slice(6).trim();
+        if (!jsonStr || jsonStr === "[DONE]") continue;
+        try {
+          const parsed = JSON.parse(jsonStr);
+          const delta = parsed?.choices?.[0]?.delta?.content;
+          if (typeof delta === "string" && delta) {
+            accumulated += delta;
+            onChunk(accumulated);
+          }
+        } catch {
+          // skip malformed JSON
+        }
+      }
+    }
+
+    return accumulated.trim();
+  }
   const baseUrl = (config.geminiEndpoint || DEFAULT_GEMINI_BASE_URL)
     .replace(/\/v1beta(\/.*)?$/, "")
     .replace(/\/v1(\/.*)?$/, "");
@@ -352,6 +596,23 @@ export async function callGeminiStream(
 // ===== Response Parsing =====
 
 export function extractText(data: any): string {
+  const anthropicContent = data?.content;
+  if (Array.isArray(anthropicContent)) {
+    return anthropicContent
+      .map((part: any) => (typeof part?.text === "string" ? part.text : ""))
+      .join("")
+      .trim();
+  }
+  const chatContent = data?.choices?.[0]?.message?.content;
+  if (typeof chatContent === "string") {
+    return chatContent.trim();
+  }
+  if (Array.isArray(chatContent)) {
+    return chatContent
+      .map((part: any) => (typeof part?.text === "string" ? part.text : ""))
+      .join("")
+      .trim();
+  }
   const parts = data?.candidates?.[0]?.content?.parts || [];
   return parts
     .filter((p: any) => !p.thought)

@@ -92,6 +92,7 @@ interface ElectronAPI {
   runtime: {
     builtinApiBundle: BuiltinApiBundle | null;
     builtinApiBundlePath: string;
+    verifyBuiltinApiAdminPassword: (password: string) => Promise<boolean>;
   };
   browserView: {
     create: (params?: { url?: string; bounds?: BrowserViewBounds }) => Promise<{

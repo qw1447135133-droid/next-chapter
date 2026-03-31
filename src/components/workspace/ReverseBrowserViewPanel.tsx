@@ -520,6 +520,34 @@ export default function ReverseBrowserViewPanel({
     [],
   );
 
+  const dismissAllPopups = useCallback(async () => {
+    await executeNamed<{ ok: boolean }>(
+      "关闭所有弹出菜单",
+      `(() => {
+        try {
+          // Press Escape multiple times to close nested popups
+          for (let i = 0; i < 3; i++) {
+            document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+            document.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape", bubbles: true, cancelable: true }));
+          }
+          // Click on a neutral area to close any remaining dropdowns
+          const neutralArea = document.querySelector('body');
+          if (neutralArea) {
+            const rect = neutralArea.getBoundingClientRect();
+            const clickEvent = new MouseEvent('click', {
+              bubbles: true,
+              cancelable: true,
+              clientX: rect.width / 2,
+              clientY: 50
+            });
+            neutralArea.dispatchEvent(clickEvent);
+          }
+        } catch (e) {}
+        return { ok: true };
+      })()`,
+    ).catch(() => null);
+  }, [executeNamed]);
+
   const prepareUploadReferences = useCallback(
     async (definition: SegmentDefinition): Promise<UploadReadyReference[]> => {
       const prepared: UploadReadyReference[] = [];
@@ -753,6 +781,10 @@ export default function ReverseBrowserViewPanel({
       const browserView = window.electronAPI?.browserView;
       if (!browserView) throw new Error("????????");
 
+      // Dismiss any open popups before starting
+      await dismissAllPopups();
+      await sleep(200);
+
       const uploadReferences = await prepareUploadReferences(definition);
 
       appendLog(
@@ -916,20 +948,13 @@ export default function ReverseBrowserViewPanel({
 
       appendLog(`片段 ${definition.segmentKey} 提示词写入完成`);
 
-      await executeNamed<{ ok: boolean }>(
-        "close-transient-popups",
-        `(() => {
-          try {
-            document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-            document.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape", bubbles: true }));
-          } catch (e) {}
-          return { ok: true };
-        })()`,
-      ).catch(() => null);
+      // Close any popups that may have opened during typing (e.g., @ mention menus, duration dropdowns)
+      await dismissAllPopups();
+      await sleep(300);
 
       return promptTarget;
     },
-    [appendLog, executeNamed, prepareUploadReferences, sceneSettings],
+    [appendLog, dismissAllPopups, executeNamed, prepareUploadReferences, sceneSettings],
   );
 
   const submitSegmentOnce = useCallback(
@@ -954,8 +979,10 @@ export default function ReverseBrowserViewPanel({
       await alignToolbarState(definition.segmentKey);
       const promptTarget = await fillPromptAndUploadReferences(definition);
 
-      // Wait for UI to settle after prompt input and @ mentions
+      // Wait for UI to settle after prompt input and @ mentions, then dismiss any lingering popups
       await new Promise((r) => setTimeout(r, 600));
+      await dismissAllPopups();
+      await new Promise((r) => setTimeout(r, 300));
 
       const submitResult = await executeNamed<{
         ok: boolean;
@@ -1106,6 +1133,7 @@ export default function ReverseBrowserViewPanel({
     [
       alignToolbarState,
       appendLog,
+      dismissAllPopups,
       ensureNotStopped,
       executeNamed,
       fillPromptAndUploadReferences,
