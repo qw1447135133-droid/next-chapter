@@ -15,8 +15,13 @@ import type { CharacterSetting, Scene, SceneSetting } from "@/types/project";
 
 function encodeUtf8Base64(text: string): string {
   const bytes = new TextEncoder().encode(text);
+  // 🛡️ 使用分块处理避免大文本导致内存溢出
   let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
   return btoa(binary);
 }
 
@@ -45,9 +50,16 @@ async function fetchAsBase64(url: string): Promise<string | null> {
     const response = await fetch(url);
     if (!response.ok) return null;
     const buffer = await response.arrayBuffer();
-    let binary = "";
+
+    // 🛡️ 使用分块处理避免大图像导致内存溢出
     const bytes = new Uint8Array(buffer);
-    for (const byte of bytes) binary += String.fromCharCode(byte);
+    let binary = "";
+    const chunkSize = 8192;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode(...chunk);
+    }
+    return btoa(binary);
     return btoa(binary);
   } catch {
     return null;
@@ -56,6 +68,14 @@ async function fetchAsBase64(url: string): Promise<string | null> {
 
 function safeName(value: string): string {
   return value.replace(/[^\w\u4e00-\u9fa5.-]+/g, "_").slice(0, 80) || "item";
+}
+
+function isLocalFilePath(source: string): boolean {
+  return !!source &&
+    !source.startsWith("data:") &&
+    !source.startsWith("http://") &&
+    !source.startsWith("https://") &&
+    !source.startsWith("blob:");
 }
 
 function groupScenesBySegment(scenes: Scene[]): Array<{ segmentKey: string; scenes: Scene[] }> {
@@ -118,73 +138,81 @@ export async function exportWorkspaceCache(params: {
 
   for (const character of params.characters) {
     if (character.imageUrl) {
-      const base64 = await fetchAsBase64(character.imageUrl);
-      if (base64) {
-        await writeBase64File(
-          `${projectRoot}\\images\\characters\\${safeName(character.name)}.jpg`,
-          base64,
-        );
+      if (!isLocalFilePath(character.imageUrl)) {
+        const base64 = await fetchAsBase64(character.imageUrl);
+        if (base64) {
+          await writeBase64File(
+            `${projectRoot}/images/characters/${safeName(character.name)}.jpg`,
+            base64,
+          );
+        }
+        await persistThumbnailToProjectCache(character.imageUrl, params.projectId);
       }
-      await persistThumbnailToProjectCache(character.imageUrl, params.projectId);
     }
 
     for (const costume of character.costumes || []) {
       if (!costume.imageUrl) continue;
-      const base64 = await fetchAsBase64(costume.imageUrl);
-      if (base64) {
-        await writeBase64File(
-          `${projectRoot}\\images\\characters\\${safeName(character.name)}\\${safeName(costume.label || "costume")}.jpg`,
-          base64,
-        );
+      if (!isLocalFilePath(costume.imageUrl)) {
+        const base64 = await fetchAsBase64(costume.imageUrl);
+        if (base64) {
+          await writeBase64File(
+            `${projectRoot}/images/characters/${safeName(character.name)}/${safeName(costume.label || "costume")}.jpg`,
+            base64,
+          );
+        }
+        await persistThumbnailToProjectCache(costume.imageUrl, params.projectId);
       }
-      await persistThumbnailToProjectCache(costume.imageUrl, params.projectId);
     }
   }
 
   for (const scene of params.sceneSettings) {
     if (scene.imageUrl) {
-      const base64 = await fetchAsBase64(scene.imageUrl);
-      if (base64) {
-        await writeBase64File(
-          `${projectRoot}\\images\\scenes\\${safeName(scene.name)}.jpg`,
-          base64,
-        );
+      if (!isLocalFilePath(scene.imageUrl)) {
+        const base64 = await fetchAsBase64(scene.imageUrl);
+        if (base64) {
+          await writeBase64File(
+            `${projectRoot}/images/scenes/${safeName(scene.name)}.jpg`,
+            base64,
+          );
+        }
+        await persistThumbnailToProjectCache(scene.imageUrl, params.projectId);
       }
-      await persistThumbnailToProjectCache(scene.imageUrl, params.projectId);
     }
 
     for (const variant of scene.timeVariants || []) {
       if (!variant.imageUrl) continue;
-      const base64 = await fetchAsBase64(variant.imageUrl);
-      if (base64) {
-        await writeBase64File(
-          `${projectRoot}\\images\\scenes\\${safeName(scene.name)}\\${safeName(variant.label || "variant")}.jpg`,
-          base64,
-        );
+      if (!isLocalFilePath(variant.imageUrl)) {
+        const base64 = await fetchAsBase64(variant.imageUrl);
+        if (base64) {
+          await writeBase64File(
+            `${projectRoot}/images/scenes/${safeName(scene.name)}/${safeName(variant.label || "variant")}.jpg`,
+            base64,
+          );
+        }
+        await persistThumbnailToProjectCache(variant.imageUrl, params.projectId);
       }
-      await persistThumbnailToProjectCache(variant.imageUrl, params.projectId);
     }
   }
 
   for (const scene of params.scenes) {
     const segmentName = safeName(scene.segmentLabel || String(scene.sceneNumber));
 
-    if (scene.storyboardUrl) {
+    if (scene.storyboardUrl && !isLocalFilePath(scene.storyboardUrl)) {
       const storyboardBase64 = await fetchAsBase64(scene.storyboardUrl);
       if (storyboardBase64) {
         await writeBase64File(
-          `${projectRoot}\\images\\storyboards\\${segmentName}.jpg`,
+          `${projectRoot}/images/storyboards/${segmentName}.jpg`,
           storyboardBase64,
         );
       }
       await persistThumbnailToProjectCache(scene.storyboardUrl, params.projectId);
     }
 
-    if (scene.videoUrl) {
+    if (scene.videoUrl && !isLocalFilePath(scene.videoUrl)) {
       const videoBase64 = await fetchAsBase64(scene.videoUrl);
       if (videoBase64) {
         await writeBase64File(
-          `${projectRoot}\\videos\\${segmentName}.mp4`,
+          `${projectRoot}/videos/${segmentName}.mp4`,
           videoBase64,
         );
       }
@@ -192,7 +220,7 @@ export async function exportWorkspaceCache(params: {
   }
 
   await writeTextFile(
-    `${projectRoot}\\texts\\manifest.json`,
+    `${projectRoot}/texts/manifest.json`,
     JSON.stringify(
       {
         projectId: params.projectId,
@@ -221,7 +249,7 @@ async function exportWorkspaceTextCache(params: {
   const projectRoot = await getProjectRootPath(params.projectId);
   if (!projectRoot) return false;
 
-  await writeTextFile(`${projectRoot}\\texts\\script.txt`, params.script || "");
+  await writeTextFile(`${projectRoot}/texts/script.txt`, params.script || "");
 
   const sceneBreakdownText = params.scenes
     .map((scene) => {
@@ -252,7 +280,7 @@ async function exportWorkspaceTextCache(params: {
       ].join("\n");
     })
     .join("\n\n");
-  await writeTextFile(`${projectRoot}\\texts\\scene-breakdown.txt`, sceneBreakdownText);
+  await writeTextFile(`${projectRoot}/texts/scene-breakdown.txt`, sceneBreakdownText);
 
   const characterText = params.characters
     .map((character) =>
@@ -266,7 +294,7 @@ async function exportWorkspaceTextCache(params: {
       ].join("\n"),
     )
     .join("\n\n");
-  await writeTextFile(`${projectRoot}\\texts\\characters.txt`, characterText);
+  await writeTextFile(`${projectRoot}/texts/characters.txt`, characterText);
 
   const sceneSettingText = params.sceneSettings
     .map((scene) =>
@@ -280,18 +308,18 @@ async function exportWorkspaceTextCache(params: {
       ].join("\n"),
     )
     .join("\n\n");
-  await writeTextFile(`${projectRoot}\\texts\\scene-settings.txt`, sceneSettingText);
+  await writeTextFile(`${projectRoot}/texts/scene-settings.txt`, sceneSettingText);
 
   for (const { segmentKey, scenes } of groupScenesBySegment(params.scenes)) {
     const prompt = buildSegmentPrompt(scenes, params.characters, params.sceneSettings);
     await writeTextFile(
-      `${projectRoot}\\texts\\segments\\${safeName(segmentKey)}.txt`,
+      `${projectRoot}/texts/segments/${safeName(segmentKey)}.txt`,
       prompt,
     );
   }
 
   await writeTextFile(
-    `${projectRoot}\\texts\\manifest.json`,
+    `${projectRoot}/texts/manifest.json`,
     JSON.stringify(
       {
         projectId: params.projectId,

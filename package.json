@@ -15,9 +15,10 @@
     "repair:text-cache": "node scripts/repair-workspace-text-cache.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "electron:dev": "node electron/build.mjs && concurrently \"npm run dev\" \"node electron/dev-launch.cjs\"",
-    "electron:build": "npm run build && node electron/build.mjs && electron-builder --config electron-builder.yml",
-    "electron:preview": "npm run build && node electron/build.mjs && env -u ELECTRON_RUN_AS_NODE electron ."
+    "electron:sync-icon": "powershell -ExecutionPolicy Bypass -File scripts/sync-electron-icon.ps1",
+    "electron:dev": "npm run electron:sync-icon && node electron/build.mjs && concurrently \"npm run dev\" \"node electron/dev-launch.cjs\"",
+    "electron:build": "npm run build && npm run electron:sync-icon && node electron/build.mjs && electron-builder --config electron-builder.yml",
+    "electron:preview": "npm run build && npm run electron:sync-icon && node electron/build.mjs && env -u ELECTRON_RUN_AS_NODE electron ."
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

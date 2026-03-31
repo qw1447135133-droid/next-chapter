@@ -1769,6 +1769,70 @@ export function buildCollectResultCardsScript(): string {
   `;
 }
 
+export function buildCollectGenerationTaskCardsScript(): string {
+  return `
+    (() => {
+      ${sharedHelpers()}
+      const downloadButtons = interactiveNodes().filter((node) => /下载|download/i.test(textOf(node)));
+      const taskSelectors = ["article", "section", "li", "div"];
+      const raw = taskSelectors.flatMap((selector) => Array.from(document.querySelectorAll(selector)))
+        .filter(isVisible)
+        .map((node) => {
+          if (!(node instanceof HTMLElement)) return null;
+          const rect = rectOf(node);
+          if (rect.width < 220 || rect.height < 72) return null;
+          const text = textOf(node);
+          if (!text || text.length < 2) return null;
+          const controls = Array.from(
+            node.querySelectorAll("button, [role='button'], a, span, div"),
+          ).filter(isVisible);
+          const downloadButton = controls.find((item) => /下载|download/i.test(textOf(item))) || null;
+          const failed = /失败|error|异常|重试|重新生成|retry/i.test(text);
+          const processing = /生成中|排队|处理中|等待|queue|processing|提交中|预计/i.test(text);
+          const hasVideo = !!node.querySelector("video");
+          if (!downloadButton && !failed && !processing && !hasVideo) return null;
+          let status = "unknown";
+          if (downloadButton) status = "ready";
+          else if (failed) status = "failed";
+          else if (processing) status = "processing";
+          return {
+            node,
+            text,
+            status,
+            top: Math.round(rect.top + window.scrollY),
+            area: Math.round(rect.width * rect.height),
+            downloadIndex: downloadButton ? downloadButtons.findIndex((item) => item === downloadButton) : -1,
+          };
+        })
+        .filter(Boolean);
+      const cards = raw
+        .filter((entry, index, all) => !all.some((other, otherIndex) => {
+          if (index === otherIndex) return false;
+          if (!(entry.node instanceof HTMLElement) || !(other.node instanceof HTMLElement)) return false;
+          return other.node.contains(entry.node) && other.area >= entry.area && other.status === entry.status;
+        }))
+        .sort((a, b) => a.top - b.top)
+        .map((entry, index) => ({
+          cardKey: [entry.status, entry.downloadIndex, entry.top, entry.text.slice(0, 80)].join("|"),
+          status: entry.status,
+          top: entry.top,
+          downloadIndex: entry.downloadIndex,
+          snippet: entry.text.slice(0, 160),
+          order: index,
+        }));
+      return {
+        ok: true,
+        tasks: cards,
+        scrollTop: Math.round(window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0),
+        scrollHeight: Math.max(
+          document.documentElement.scrollHeight || 0,
+          document.body.scrollHeight || 0,
+        ),
+      };
+    })()
+  `;
+}
+
 export function buildTriggerDownloadButtonScript(index = 0): string {
   return `
     (() => {
@@ -1778,6 +1842,28 @@ export function buildTriggerDownloadButtonScript(index = 0): string {
       if (!(target instanceof HTMLElement)) return { ok: false, step: "download-button-not-found" };
       clickLikeHuman(target);
       return { ok: true, step: "download-clicked" };
+    })()
+  `;
+}
+
+export function buildScrollGenerationTaskViewportScript(direction: "up" | "down" = "down"): string {
+  return `
+    (() => {
+      const currentTop = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+      const maxTop = Math.max(
+        0,
+        (document.documentElement.scrollHeight || document.body.scrollHeight || 0) - window.innerHeight,
+      );
+      const delta = Math.max(240, Math.round(window.innerHeight * 0.72)) * (${q(direction)} === "down" ? 1 : -1);
+      let nextTop = Math.min(maxTop, Math.max(0, currentTop + delta));
+      const reachedEdge =
+        (${q(direction)} === "down" && nextTop >= maxTop) ||
+        (${q(direction)} === "up" && nextTop <= 0);
+      if (reachedEdge) {
+        nextTop = ${q(direction)} === "down" ? 0 : maxTop;
+      }
+      window.scrollTo({ top: nextTop, behavior: "instant" });
+      return { ok: true, direction: ${q(direction)}, scrollTop: nextTop, maxTop, reachedEdge };
     })()
   `;
 }

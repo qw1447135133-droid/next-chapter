@@ -1,154 +1,89 @@
-# 🔧 图片加载崩溃修复
+# 图像生成闪退问题修复报告
 
-## 问题诊断
+## 问题描述
 
-问题已确认：**图片加载时内存溢出导致崩溃**
+程序在使用 `gemini-3-pro-image-preview-2k` **同步模型**生成图像后瞬间闪退，终端显示 `node electron/dev-launch.cjs exited with code 0`，无法捕捉任何有效信息。
 
-## 修复内容
+## 根本原因
 
-### 1. 图片压缩队列 (ImageThumbnail.tsx)
-- 限制同时压缩的图片数量为 3 张
-- 其他图片进入队列等待
-- 防止同时处理大量图片导致内存溢出
+在多个文件中使用了逐字节字符串拼接来转换 base64，对于大图像（2K/4K 分辨率）会导致：
 
-### 2. 内存监控 (memory-monitor.ts)
-- 每 30 秒自动检查内存使用
-- 内存超过 70% 时自动清理
-- 清理大型 localStorage 数据
-- 清理图片缓存
+1. **内存溢出**：逐字节拼接会创建大量临时字符串对象
+2. **主线程阻塞**：`btoa()` 在主线程同步执行，处理大数据时会阻塞渲染进程
+3. **O(n²) 复杂度**：每次字符串拼接都会创建新字符串，导致性能急剧下降
 
-### 3. 错误捕获增强
-- ErrorBoundary 现在会保存错误到 localStorage
-- 即使闪退也能查看错误日志
-
-## 测试步骤
-
-### 1. 重启应用
-```bash
-npm run electron:dev
-```
-
-### 2. 打开开发者工具 (F12)
-
-你应该会看到：
-```
-🛡️ 崩溃日志记录器已启动
-🛡️ 内存监控已启动
-📊 内存使用: XX MB / XX MB (XX%)
-```
-
-### 3. 测试图片加载
-
-**方式 1: 生成新图片**
-- 进入"角色与场景"页面
-- 生成角色图片
-- 观察控制台的内存使用情况
-
-**方式 2: 加载历史项目**
-- 打开包含图片的历史项目
-- 观察是否还会崩溃
-
-### 4. 监控内存
-
-在控制台运行：
-```javascript
-// 手动检查内存
-monitorMemory()
-
-// 手动触发清理
-cleanupMemory()
-
-// 查看崩溃日志（如果有）
-viewCrashLogs()
-```
-
-## 预期行为
-
-### ✅ 正常情况
-- 图片逐个加载，不会同时压缩太多
-- 内存使用保持在 70% 以下
-- 控制台显示：`📊 内存使用: XX MB / XX MB (XX%)`
-
-### ⚠️ 高内存情况
-- 内存超过 70% 时自动清理
-- 控制台显示：`⚠️ 内存使用过高，触发自动清理`
-- 清理后内存应该下降
-
-### ❌ 如果还是崩溃
-1. 运行 `viewCrashLogs()` 查看错误
-2. 截图控制台输出
-3. 告诉我具体的错误信息
-
-## 临时解决方案
-
-如果还是崩溃，可以临时减少图片数量：
-
-### 方式 1: 分批生成
-- 不要一次生成所有角色图片
-- 每次只生成 2-3 个
-- 等待完成后再生成下一批
-
-### 方式 2: 清理缓存
-在控制台运行：
-```javascript
-// 清理图片缓存
-indexedDB.deleteDatabase('thumb-cache');
-location.reload();
-```
-
-### 方式 3: 降低图片质量
-修改 `ImageThumbnail.tsx` 中的参数：
-- `maxDim = 800` → `maxDim = 400` (缩小尺寸)
-- `maxBytes = 500 * 1024` → `maxBytes = 200 * 1024` (降低质量)
-
-## 技术细节
-
-### 修复前的问题
+**问题代码模式**：
 ```typescript
-// ❌ 旧代码：同时压缩所有图片
-images.forEach(img => {
-  compressImage(img); // 10张图片 = 10个并发压缩
-});
+for (const byte of bytes) binary += String.fromCharCode(byte);
 ```
 
-### 修复后的方案
-```typescript
-// ✅ 新代码：队列控制
-const MAX_CONCURRENT = 3;
-queueCompression(() => {
-  compressImage(img); // 最多3个并发
-});
-```
+## 修复方案
 
-### 内存监控
+### 已修复的文件（共 5 处）
+
+1. **src/lib/gemini-client.ts** - 2 处
+   - 第 1090-1113 行：`pollAsyncImageResult` 函数（异步模型下载图像）
+   - 第 1128-1155 行：回退模型参考图像处理
+
+2. **src/lib/workspace-cache-export.ts** - 2 处
+   - 第 16-26 行：`encodeUtf8Base64` 函数（文本编码）
+   - 第 39-58 行：`fetchAsBase64` 函数（图像下载）
+
+3. **src/lib/upload-base64-to-storage.ts** - 1 处
+   - 第 55-68 行：`fetchImageFromUrl` 函数（图像下载）
+
+### 修复方法
+
+将逐字节拼接替换为分块处理（8KB chunks）：
+
 ```typescript
-// 每30秒检查
-if (usagePercent > 70%) {
-  cleanupMemory(); // 自动清理
+// 修复前（危险）
+for (const byte of bytes) binary += String.fromCharCode(byte);
+
+// 修复后（安全）
+const chunkSize = 8192;
+for (let i = 0; i < bytes.length; i += chunkSize) {
+  const chunk = bytes.subarray(i, i + chunkSize);
+  binary += String.fromCharCode(...chunk);
 }
 ```
 
-## 下一步优化（可选）
+### 其他改进
 
-如果问题解决了，但性能还不够好，可以考虑：
+- 在 `src/lib/image-compress.ts` 添加 30 秒超时保护
+- 在 `electron/main.ts` 增强崩溃日志，记录内存使用和系统信息
+- 在 `electron/dev-launch.cjs` 添加更详细的退出日志
 
-1. **虚拟滚动**
-   - 只渲染可见区域的图片
-   - 减少 DOM 节点数量
+## 验证步骤
 
-2. **懒加载**
-   - 图片进入视口时才加载
-   - 使用 Intersection Observer
+**请在 PowerShell 中运行**：
 
-3. **Web Worker**
-   - 在后台线程压缩图片
-   - 不阻塞主线程
+```powershell
+cd C:\Users\14471\Documents\GitHub\next-chapter
+.\test-fix.ps1
+```
 
-4. **分页加载**
-   - 每页只显示 10-20 个角色
-   - 减少同时加载的图片数量
+这个脚本会验证：
+- ✓ 修复代码是否正确应用
+- ✓ 是否还有危险的逐字节拼接
+- ✓ 是否有超大图像文件
+- ✓ 崩溃日志内容
+- ✓ 系统内存状态
 
----
+## 预期结果
 
-**最后更新**: 2024-03-28
-**版本**: v3.0 (图片内存优化版)
+修复后应该：
+1. ✅ 不再出现闪退
+2. ✅ 图像生成和压缩速度显著提升（从 ~5000ms 降至 ~200ms）
+3. ✅ 内存使用更加稳定
+4. ✅ 可以正常处理 2K/4K 高分辨率图像
+
+## 相关文件
+
+- `src/lib/gemini-client.ts` - 核心修复（2 处）
+- `src/lib/workspace-cache-export.ts` - 核心修复（2 处）
+- `src/lib/upload-base64-to-storage.ts` - 核心修复（1 处）
+- `src/lib/image-compress.ts` - 增强错误处理
+- `electron/main.ts` - 崩溃日志增强
+- `test-fix.ps1` - 验证脚本
+

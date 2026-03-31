@@ -5,6 +5,10 @@
  */
 import { getApiConfig, resolveConfiguredModelName } from "@/lib/api-config";
 import { getNetworkRetrySettings } from "@/lib/network-retry-settings";
+import {
+  buildThumbnailRelativePath,
+  persistAssetToProjectCache,
+} from "@/lib/upload-base64-to-storage";
 
 export const DEFAULT_GEMINI_BASE_URL = "https://api.tu-zi.com/v1beta";
 
@@ -73,7 +77,7 @@ const RETRYABLE_STATUS_CODES = new Set([502, 503, 504, 429, 500, 502]);
 export async function directFetch(
   targetUrl: string,
   targetHeaders: Record<string, string>,
-  body?: string,
+  body?: string | FormData,
   signal?: AbortSignal,
   serviceHint: AiService | null = null,
 ): Promise<Response> {
@@ -87,10 +91,18 @@ export async function directFetch(
     if (!headers["Authorization"] && !headers["authorization"]) {
       headers["Authorization"] = `Bearer ${apiKey}`;
     }
+    // Determine method: POST if Content-Type is set OR if body is FormData
+    const method = targetHeaders["Content-Type"] || body instanceof FormData ? "POST" : "GET";
+
+    // Don't set Content-Type for FormData - browser will set it with boundary
+    const finalHeaders = body instanceof FormData
+      ? Object.fromEntries(Object.entries(headers).filter(([k]) => k.toLowerCase() !== 'content-type'))
+      : headers;
+
     return fetch(targetUrl, {
-      method: targetHeaders["Content-Type"] ? "POST" : "GET",
-      headers,
-      body: body || undefined,
+      method,
+      headers: finalHeaders,
+      body: method === "POST" ? (body || undefined) : undefined,
       signal,
     });
   };
@@ -719,14 +731,82 @@ export async function getInlineData(
 // ===== Image as Data URL =====
 
 /**
- * @deprecated 上传功能已移除，返回 data URL
+ * 保存图像到本地文件系统并返回文件路径
+ * 对于大图像，避免使用 data URL 导致内存溢出
  */
 export async function uploadImageToStorage(
   base64: string,
   mimeType: string,
-  _folder: string,
+  folder: string,
 ): Promise<string> {
-  return `data:${mimeType};base64,${base64}`;
+  // 🛡️ 验证参数
+  if (!base64 || typeof base64 !== "string" || base64.trim().length === 0) {
+    console.error("uploadImageToStorage: Invalid base64 data", { base64Length: base64?.length, type: typeof base64 });
+    throw new Error("Invalid base64 data: empty or invalid string");
+  }
+
+  // 🛡️ 设置默认 mimeType
+  const safeMimeType = mimeType && typeof mimeType === "string" && mimeType.trim().length > 0
+    ? mimeType
+    : "image/jpeg";
+
+  // 🛡️ 检查是否在 Electron 环境中
+  const electronAPI = (window as any).electronAPI;
+  if (!electronAPI?.jimeng?.writeFile || !electronAPI?.storage?.getDefaultPath) {
+    // 非 Electron 环境，返回 data URL（浏览器环境）
+    console.warn("Not in Electron environment, returning data URL");
+    return `data:${safeMimeType};base64,${base64}`;
+  }
+
+  try {
+    // 获取项目根目录
+    const paths = await electronAPI.storage.getDefaultPath();
+    const projectId = localStorage.getItem("storyforge_current_project");
+
+    if (!projectId || !paths?.files) {
+      // 无法获取项目路径，返回 data URL
+      console.warn("No project ID or files path, returning data URL");
+      return `data:${safeMimeType};base64,${base64}`;
+    }
+
+    // 生成文件名
+    const ext = safeMimeType.includes("png") ? ".png" : safeMimeType.includes("webp") ? ".webp" : ".jpg";
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const hash = Math.random().toString(36).substring(2, 8);
+    const fileName = `${timestamp}-${hash}${ext}`;
+
+    // 构建文件路径 - 使用正斜杠以确保跨平台兼容性
+    const filePath = `${paths.files}/projects/${projectId}/images/generated/${folder}/${fileName}`;
+
+    console.log("Saving image to:", filePath, "size:", Math.round(base64.length * 0.75 / 1024), "KB");
+
+    // 保存文件
+    const result = await electronAPI.jimeng.writeFile(filePath, base64);
+
+    if (result.ok) {
+      const dataUrl = `data:${safeMimeType};base64,${base64}`;
+      try {
+        await persistAssetToProjectCache(
+          dataUrl,
+          buildThumbnailRelativePath(filePath),
+          projectId,
+        );
+      } catch {
+        // Ignore thumbnail cache write failures and keep the original image save successful.
+      }
+      console.log("Image saved successfully to:", filePath);
+      // ⚠️ 重要：返回文件路径而不是 data URL
+      // 浏览器会通过 Electron API 读取文件，避免在内存中存储大 data URL
+      return filePath;
+    } else {
+      console.warn("Failed to save image to file system, falling back to data URL:", result.error);
+      return `data:${safeMimeType};base64,${base64}`;
+    }
+  } catch (err) {
+    console.error("Error saving image to storage:", err);
+    // 出错时返回 data URL
+    return `data:${safeMimeType};base64,${base64}`;
+  }
 }
 
 /**
@@ -944,3 +1024,236 @@ export const STORYBOARD_STYLE_MAP: Record<string, string> = {
   "retro-comic":
     "Vintage 1960s-70s American comic book style. Bold ink brush outlines, flat CMYK color blocks, mechanical halftone Ben-Day dot patterns, ink bleed, paper yellowing, deep chiaroscuro shadows.",
 };
+
+// ===== Async Image Generation (Gemini 3 Pro Image Preview Async) =====
+
+export async function callAsyncImageGeneration(
+  prompt: string,
+  options: {
+    model?: string;
+    size?: string;
+    input_reference?: string;
+    signal?: AbortSignal;
+  } = {},
+): Promise<{ task_id: string; fallbackModel?: string; shouldUseFallback?: boolean }> {
+  const config = getApiConfig();
+  const baseUrl = (config.geminiEndpoint || DEFAULT_GEMINI_BASE_URL)
+    .replace(/\/v1beta(\/.*)?$/, "")
+    .replace(/\/v1(\/.*)?$/, "");
+
+  const requestedModel = options.model || "gemini-3-pro-image-preview-2k-async";
+
+  // 定义回退模型映射
+  const fallbackMap: Record<string, string> = {
+    "gemini-3-pro-image-preview-async": "gemini-3-pro-image-preview",
+    "gemini-3-pro-image-preview-2k-async": "gemini-3-pro-image-preview-2k",
+    "gemini-3-pro-image-preview-4k-async": "gemini-3-pro-image-preview-4k",
+    "nano-banana-2": "gemini-3-pro-image-preview",
+    "nano-banana-2-2k": "gemini-3-pro-image-preview-2k",
+    "nano-banana-2-4k": "gemini-3-pro-image-preview-4k",
+  };
+
+  // 如果有参考图像，异步API不支持，直接返回标记使用回退模型
+  if (options.input_reference) {
+    console.warn("异步API不支持参考图像，将使用同步回退模型");
+    return {
+      task_id: "",
+      fallbackModel: fallbackMap[requestedModel],
+      shouldUseFallback: true,
+    };
+  }
+
+  const formData = new FormData();
+  // 直接使用原始模型名称，不经过 resolveConfiguredModelName 映射
+  // 因为这是内部API调用，不应该受用户配置的模型映射影响
+  formData.append("model", requestedModel);
+  formData.append("prompt", prompt);
+  formData.append("size", options.size || "1:1");
+
+  // Note: Don't set Content-Type for FormData - browser will set it with boundary
+  const resp = await smartDirectOrProxyFetch(
+    `${baseUrl}/v1/videos`,
+    {
+      Authorization: `Bearer ${config.geminiKey}`,
+    },
+    formData,
+    options.signal,
+    "gemini",
+  );
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`异步图像生成提交失败 (${resp.status}): ${text}`);
+  }
+
+  const data = await resp.json();
+  console.log("异步图像生成任务已提交:", data);
+  if (!data.id) {
+    console.error("API 响应缺少任务 ID:", JSON.stringify(data, null, 2));
+    throw new Error("API 未返回任务 ID");
+  }
+
+  return {
+    task_id: data.id,
+    fallbackModel: fallbackMap[requestedModel]
+  };
+}
+
+export async function pollAsyncImageResult(
+  taskId: string,
+  options: {
+    maxAttempts?: number;
+    intervalMs?: number;
+    signal?: AbortSignal;
+    fallbackModel?: string;
+    prompt?: string;
+    size?: string;
+    input_reference?: string;
+  } = {},
+): Promise<{ base64: string; mimeType: string; usedFallback?: boolean }> {
+  const config = getApiConfig();
+  const baseUrl = (config.geminiEndpoint || DEFAULT_GEMINI_BASE_URL)
+    .replace(/\/v1beta(\/.*)?$/, "")
+    .replace(/\/v1(\/.*)?$/, "");
+
+  const maxAttempts = options.maxAttempts || 60; // 最多轮询 60 次
+  const intervalMs = options.intervalMs || 5000; // 每 5 秒轮询一次
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (options.signal?.aborted) {
+      throw new Error("任务已取消");
+    }
+
+    const resp = await smartDirectOrProxyFetch(
+      `${baseUrl}/v1/videos/${taskId}`,
+      {
+        Authorization: `Bearer ${config.geminiKey}`,
+      },
+      undefined,
+      options.signal,
+      "gemini",
+    );
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`查询异步图像结果失败 (${resp.status}): ${text}`);
+    }
+
+    const data = await resp.json();
+    console.log(`轮询异步图像任务 ${taskId} (第 ${attempt + 1}/${maxAttempts} 次):`, data);
+
+    // 检查状态
+    if (data.status === "completed" || data.status === "succeeded") {
+      // 获取图像 URL - 支持多种可能的响应格式
+      const imageUrl =
+        data.video_url ||
+        data.output?.image_url ||
+        data.output?.url ||
+        data.result?.url ||
+        data.url ||
+        data.data?.url ||
+        data.image_url;
+
+      if (!imageUrl) {
+        console.error("API 响应数据结构:", JSON.stringify(data, null, 2));
+        throw new Error("API 返回成功但未包含图像 URL");
+      }
+
+      // 下载图像并转换为 base64
+      const imageResp = await fetch(imageUrl);
+      if (!imageResp.ok) {
+        throw new Error(`下载生成的图像失败: ${imageResp.status}`);
+      }
+
+      const blob = await imageResp.blob();
+      const arrayBuffer = await blob.arrayBuffer();
+
+      // 🛡️ 使用分块处理避免大图像导致内存溢出和渲染进程崩溃
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = "";
+      const chunkSize = 8192; // 8KB chunks
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, i + chunkSize);
+        binary += String.fromCharCode(...chunk);
+      }
+      const base64 = btoa(binary);
+
+      return {
+        base64,
+        mimeType: blob.type || "image/jpeg",
+        usedFallback: false,
+      };
+    }
+
+    if (data.status === "failed" || data.status === "error") {
+      const errorMsg = data.error?.message || data.message || "任务失败";
+
+      // 如果有回退模型且提供了必要参数，尝试使用回退模型
+      if (options.fallbackModel && options.prompt) {
+        console.warn(`异步模型失败，尝试使用回退模型: ${options.fallbackModel}`);
+
+        // 使用同步 API 调用回退模型
+        const parts: any[] = [{ text: options.prompt }];
+
+        // 如果有参考图像，添加到 parts
+        if (options.input_reference) {
+          // 下载参考图像并转换为 base64
+          try {
+            const refResp = await fetch(options.input_reference);
+            if (refResp.ok) {
+              const refBlob = await refResp.blob();
+              const refArrayBuffer = await refBlob.arrayBuffer();
+
+              // 🛡️ 使用分块处理避免大图像导致内存溢出
+              const bytes = new Uint8Array(refArrayBuffer);
+              let binary = "";
+              const chunkSize = 8192;
+              for (let i = 0; i < bytes.length; i += chunkSize) {
+                const chunk = bytes.subarray(i, i + chunkSize);
+                binary += String.fromCharCode(...chunk);
+              }
+              const refBase64 = btoa(binary);
+
+              parts.push({
+                inlineData: {
+                  mimeType: refBlob.type || "image/jpeg",
+                  data: refBase64,
+                },
+              });
+            }
+          } catch (e) {
+            console.warn("无法加载参考图像，继续使用纯文本提示词", e);
+          }
+        }
+
+        // 调用同步 Gemini API
+        const fallbackData = await callGemini(
+          options.fallbackModel,
+          [{ role: "user", parts }],
+          {
+            responseModalities: ["IMAGE", "TEXT"],
+            imageSize: options.size === "1:1" ? "1K" : options.size === "16:9" ? "2K" : "2K",
+          }
+        );
+
+        const img = await extractImageBase64(fallbackData);
+        if (!img) {
+          throw new Error(`回退模型也失败: ${errorMsg}`);
+        }
+
+        return {
+          base64: img.base64,
+          mimeType: img.mimeType,
+          usedFallback: true,
+        };
+      }
+
+      throw new Error(`异步图像生成失败: ${errorMsg}`);
+    }
+
+    // 状态为 pending/processing，继续等待
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  throw new Error(`异步图像生成超时（已轮询 ${maxAttempts} 次）`);
+}

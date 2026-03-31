@@ -2158,9 +2158,8 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
           <Button variant="ghost" size="icon" onClick={() => navigate("/modules")}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div className="flex items-center gap-2">
-            <BrandMark className="h-7 w-12" />
-            <span className="text-lg font-semibold font-[Space_Grotesk]">Infinio</span>
+          <div className="flex items-center">
+            <BrandMark className="h-10 w-auto" />
           </div>
         </div>
         <TaskHistoryMenu />

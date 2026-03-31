@@ -30,7 +30,8 @@ export async function compressImage(
         } else {
           return imageSource; // Can't read file, return as-is
         }
-      } catch {
+      } catch (err) {
+        console.error("Error reading file for compression:", err);
         return imageSource; // Error reading file, return as-is
       }
     } else {
@@ -39,57 +40,90 @@ export async function compressImage(
   }
 
   return new Promise((resolve, reject) => {
+    // 🛡️ Check data URL size before processing
+    if (imageSource.startsWith("data:")) {
+      const base64Length = imageSource.length - imageSource.indexOf(",") - 1;
+      const estimatedBytes = Math.ceil(base64Length * 0.75);
+      // If data URL is extremely large (>20MB), reject immediately to prevent crash
+      if (estimatedBytes > 20 * 1024 * 1024) {
+        reject(new Error(`Image too large: ${Math.round(estimatedBytes/1024/1024)}MB. Maximum 20MB.`));
+        return;
+      }
+    }
+
     const img = new Image();
     // 🛡️ Only set crossOrigin for HTTP/HTTPS URLs, not local file paths
     if (imageSource.startsWith('http://') || imageSource.startsWith('https://')) {
       img.crossOrigin = "anonymous";
     }
+
+    // 🛡️ Add timeout to prevent hanging on large images
+    const timeout = setTimeout(() => {
+      img.src = ""; // Clear source to stop loading
+      reject(new Error("Image compression timeout - image too large or network issue"));
+    }, 30000); // 30 second timeout
+
     img.onload = () => {
-      const canvas = document.createElement("canvas");
-      let width = img.width;
-      let height = img.height;
+      clearTimeout(timeout);
+      try {
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
 
-      // Scale down if dimensions are very large
-      const dimLimit = maxDim;
-      if (width > dimLimit || height > dimLimit) {
-        const ratio = Math.min(dimLimit / width, dimLimit / height);
-        width = Math.round(width * ratio);
-        height = Math.round(height * ratio);
-      }
+        // Scale down if dimensions are very large
+        const dimLimit = maxDim;
+        if (width > dimLimit || height > dimLimit) {
+          const ratio = Math.min(dimLimit / width, dimLimit / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
 
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        reject(new Error("Canvas context unavailable"));
-        return;
-      }
-      ctx.drawImage(img, 0, 0, width, height);
-
-      // Try progressively lower quality
-      const qualities = [0.8, 0.6, 0.4, 0.3, 0.2];
-      for (const q of qualities) {
-        const result = canvas.toDataURL("image/jpeg", q);
-        const size = Math.ceil((result.length - result.indexOf(",") - 1) * 0.75);
-        if (size <= maxBytes) {
-          resolve(result);
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("Canvas context unavailable"));
           return;
         }
-      }
+        ctx.drawImage(img, 0, 0, width, height);
 
-      // Last resort: further scale down
-      const smallCanvas = document.createElement("canvas");
-      smallCanvas.width = Math.round(width * 0.5);
-      smallCanvas.height = Math.round(height * 0.5);
-      const sCtx = smallCanvas.getContext("2d");
-      if (!sCtx) {
-        reject(new Error("Canvas context unavailable"));
-        return;
+        // Try progressively lower quality
+        const qualities = [0.8, 0.6, 0.4, 0.3, 0.2];
+        for (const q of qualities) {
+          const result = canvas.toDataURL("image/jpeg", q);
+          const size = Math.ceil((result.length - result.indexOf(",") - 1) * 0.75);
+          if (size <= maxBytes) {
+            resolve(result);
+            return;
+          }
+        }
+
+        // Last resort: further scale down
+        const smallCanvas = document.createElement("canvas");
+        smallCanvas.width = Math.round(width * 0.5);
+        smallCanvas.height = Math.round(height * 0.5);
+        const sCtx = smallCanvas.getContext("2d");
+        if (!sCtx) {
+          reject(new Error("Canvas context unavailable"));
+          return;
+        }
+        sCtx.drawImage(canvas, 0, 0, smallCanvas.width, smallCanvas.height);
+        resolve(smallCanvas.toDataURL("image/jpeg", 0.3));
+      } catch (err) {
+        reject(new Error(`Canvas compression failed: ${err instanceof Error ? err.message : String(err)}`));
       }
-      sCtx.drawImage(canvas, 0, 0, smallCanvas.width, smallCanvas.height);
-      resolve(smallCanvas.toDataURL("image/jpeg", 0.3));
     };
-    img.onerror = () => reject(new Error("Failed to load image for compression"));
-    img.src = imageSource;
+
+    img.onerror = () => {
+      clearTimeout(timeout);
+      reject(new Error("Failed to load image for compression"));
+    };
+
+    try {
+      img.src = imageSource;
+    } catch (err) {
+      clearTimeout(timeout);
+      reject(new Error(`Failed to set image source: ${err instanceof Error ? err.message : String(err)}`));
+    }
   });
 }

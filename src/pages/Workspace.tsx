@@ -792,7 +792,7 @@ const Workspace = () => {
         const storageRoot = configuredRoot || root?.files;
         if (!storageRoot) return;
 
-        const firstSegmentPath = `${storageRoot.replace(/[\\/]+$/, "")}\\projects\\${projectId}\\texts\\segments\\${String(firstSegmentKey).replace(/[^\w\u4e00-\u9fa5.-]+/g, "_").slice(0, 80) || "item"}.txt`;
+        const firstSegmentPath = `${storageRoot.replace(/[\\/]+$/, "")}/projects/${projectId}/texts/segments/${String(firstSegmentKey).replace(/[^\w\u4e00-\u9fa5.-]+/g, "_").slice(0, 80) || "item"}.txt`;
         const result = await window.electronAPI.storage.readText(firstSegmentPath);
         if (cancelled || !result.ok) return;
         if (result.exists) return;
@@ -1453,7 +1453,7 @@ const Workspace = () => {
   const handleGenerateSceneStoryboard = async (
     sceneId: string,
     aspectRatio: string = "16:9",
-    model: string = "gemini-3-pro-image-preview",
+    model: string = "gemini-3-pro-image-preview-2k-async",
   ) => {
     const scene = scenes.find((s) => s.id === sceneId);
     if (!scene) return;
@@ -1659,7 +1659,7 @@ const Workspace = () => {
 
   const handleGenerateAllStoryboards = async (
     aspectRatio: string = "16:9",
-    model: string = "gemini-3-pro-image-preview",
+    model: string = "gemini-3-pro-image-preview-2k-async",
   ) => {
     stopStoryboardGenRef.current = false;
     setIsAbortingStoryboards(false);
@@ -1775,8 +1775,9 @@ const Workspace = () => {
 
     // --- Step 1: Enhance prompt via AI ---
     let enhancedDescription = cleanBrackets(scene.description);
-    const maxDuration = videoModel === "vidu-q3" ? 16 : 15;
-    const minDuration = videoModel === "kling-v3" ? 3 : 4;
+    // Sora 2 models only support 10s and 15s
+    const maxDuration = videoModel === "sora-2" || videoModel === "sora-2-pro" ? 15 : 15;
+    const minDuration = videoModel === "sora-2" || videoModel === "sora-2-pro" ? 10 : 4;
     // If user manually set duration, use that; otherwise use AI recommendation
     const isManual = scene.isManualDuration && scene.recommendedDuration;
     let recommendedDuration: number = isManual
@@ -1873,24 +1874,7 @@ const Workspace = () => {
         // Compress image to under 10MB before sending
         const { compressImage } = await import("@/lib/image-compress");
         const compressed = await compressImage(scene.storyboardUrl);
-
-        // For Vidu, we need a real URL — upload to storage if it's a data URI
-        if (videoModel === "vidu-q3" && compressed.startsWith("data:")) {
-          const { uploadImageToStorage } = await import("@/lib/gemini-client");
-          const match = compressed.match(/^data:(image\/\w+);base64,(.+)$/);
-          if (match) {
-            const publicUrl = await uploadImageToStorage(
-              match[2],
-              match[1],
-              "video-frames",
-            );
-            body.imageUrl = publicUrl;
-          } else {
-            body.imageUrl = compressed;
-          }
-        } else {
-          body.imageUrl = compressed;
-        }
+        body.imageUrl = compressed;
       }
 
       const { data, error } = await invokeFunction("generate-video", body);
@@ -2361,7 +2345,7 @@ const Workspace = () => {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex items-center gap-2">
-            <BrandMark className="h-6 w-10" />
+            <BrandMark className="h-8 w-auto" />
             <span className="font-semibold font-[Space_Grotesk]">
               {projectTitle}
             </span>

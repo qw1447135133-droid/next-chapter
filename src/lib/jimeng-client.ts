@@ -15,7 +15,6 @@
  *  5. 触发视频下载         → POST /api/download
  */
 
-import { getApiConfig } from "@/lib/api-config";
 import { getResolvedFilesStoragePath } from "@/lib/storage-path";
 
 export type JimengTaskStatus = "pending" | "running" | "success" | "failed";
@@ -112,11 +111,8 @@ function isElectron(): boolean {
 // =========================== HTTP 请求层 ===========================
 
 function getWebBaseUrl(): string {
-  const config = getApiConfig();
-  return (config.autoJimengApiBase || "http://localhost:8000").replace(
-    /\/$/,
-    "",
-  );
+  // Legacy fallback for old Python automation service (no longer used)
+  return "http://localhost:8000";
 }
 
 async function request<T>(

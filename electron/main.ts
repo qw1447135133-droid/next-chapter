@@ -234,6 +234,17 @@ function log(level: string, msg: string) {
   console.log(line);
 }
 
+function resolveUniqueDownloadPath(targetPath: string): string {
+  const parsed = path.parse(targetPath);
+  let attempt = 1;
+  let candidate = targetPath;
+  while (fs.existsSync(candidate)) {
+    attempt += 1;
+    candidate = path.join(parsed.dir, `${parsed.name}(${attempt})${parsed.ext}`);
+  }
+  return candidate;
+}
+
 function verifyBuiltinApiAdminPassword(password: string): boolean {
   if (typeof password !== "string" || !password) {
     return false;
@@ -312,11 +323,11 @@ async function startPythonServer(): Promise<boolean> {
 
   // 检查源码目录
   if (!fs.existsSync(getJimengSourceDir())) {
-    log("error", `auto_jimeng 源码目录不存在: ${getJimengSourceDir()}`);
-    pythonStatus = "error";
+    log("warn", `auto_jimeng 源码目录不存在: ${getJimengSourceDir()}，跳过启动 Python 服务`);
+    pythonStatus = "stopped";
     mainWindow?.webContents.send("jimeng:status", {
-      status: "error",
-      message: `auto_jimeng 源码未找到，请联系开发者。\n期望路径: ${getJimengSourceDir()}`,
+      status: "stopped",
+      message: `auto_jimeng 服务未配置（可选功能）`,
     });
     return false;
   }
@@ -810,7 +821,8 @@ function setupIPC() {
         return { ok: false, error: "缺少保存路径" };
       }
 
-      const targetDir = path.dirname(savePath);
+      const finalSavePath = resolveUniqueDownloadPath(savePath);
+      const targetDir = path.dirname(finalSavePath);
       fs.mkdirSync(targetDir, { recursive: true });
 
       return await new Promise((resolve) => {
@@ -836,32 +848,32 @@ function setupIPC() {
         ) => {
           if (webContents !== embeddedBrowserView!.webContents) return;
 
-          item.setSavePath(savePath);
+          item.setSavePath(finalSavePath);
           item.once("done", (_doneEvent, state) => {
             if (state === "completed") {
               finish({
                 ok: true,
-                savePath,
+                savePath: finalSavePath,
                 url: item.getURL(),
               });
             } else {
               finish({
                 ok: false,
                 error: `下载未完成: ${state}`,
-                savePath,
+                savePath: finalSavePath,
               });
             }
           });
         };
 
         const timer = setTimeout(() => {
-          finish({ ok: false, error: "等待下载超时", savePath });
+          finish({ ok: false, error: "等待下载超时", savePath: finalSavePath });
         }, timeoutMs);
 
         session.on("will-download", onWillDownload);
 
         if (!script) {
-          finish({ ok: false, error: "缺少下载触发脚本", savePath });
+          finish({ ok: false, error: "缺少下载触发脚本", savePath: finalSavePath });
           return;
         }
 
@@ -871,7 +883,7 @@ function setupIPC() {
             finish({
               ok: false,
               error: error instanceof Error ? error.message : String(error),
-              savePath,
+              savePath: finalSavePath,
             });
           });
       });
@@ -980,8 +992,10 @@ function setupIPC() {
       { filePath, content }: { filePath: string; content: string },
     ) => {
       try {
-        fs.mkdirSync(path.dirname(filePath), { recursive: true });
-        fs.writeFileSync(filePath, Buffer.from(content, "base64"));
+        // Normalize path to handle mixed slashes
+        const normalizedPath = path.normalize(filePath);
+        fs.mkdirSync(path.dirname(normalizedPath), { recursive: true });
+        fs.writeFileSync(normalizedPath, Buffer.from(content, "base64"));
         return { ok: true };
       } catch (error) {
         return {
@@ -1112,11 +1126,14 @@ function setupIPC() {
     "storage:readBase64",
     async (_event, { filePath }: { filePath: string }) => {
       try {
-        if (!fs.existsSync(filePath)) {
+        // Normalize path to handle mixed slashes
+        const normalizedPath = path.normalize(filePath);
+
+        if (!fs.existsSync(normalizedPath)) {
           return { ok: true, exists: false, base64: "" };
         }
 
-        const ext = path.extname(filePath).toLowerCase();
+        const ext = path.extname(normalizedPath).toLowerCase();
         const mimeType =
           ext === ".png"
             ? "image/png"
@@ -1131,7 +1148,7 @@ function setupIPC() {
         return {
           ok: true,
           exists: true,
-          base64: fs.readFileSync(filePath).toString("base64"),
+          base64: fs.readFileSync(normalizedPath).toString("base64"),
           mimeType,
         };
       } catch (error) {
@@ -1176,11 +1193,17 @@ function createWindow() {
     log("error", `退出码: ${details.exitCode}`);
     console.error("渲染进程崩溃详情:", details);
 
-    // 保存崩溃信息到文件
+    // 保存崩溃信息到文件，包含更多上下文
     const crashInfo = {
       timestamp: new Date().toISOString(),
       reason: details.reason,
       exitCode: details.exitCode,
+      // 添加内存使用信息
+      memoryUsage: process.memoryUsage(),
+      // 添加系统信息
+      platform: process.platform,
+      arch: process.arch,
+      nodeVersion: process.version,
     };
 
     const crashLogPath = path.join(getUserDataPath(), "crash-log.json");
@@ -1230,7 +1253,9 @@ function createWindow() {
   // 加载 Vite dev server 或打包后的 index.html
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
-    mainWindow.webContents.openDevTools();
+    if (process.env.ELECTRON_OPEN_DEVTOOLS === "1") {
+      mainWindow.webContents.openDevTools();
+    }
   } else {
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }

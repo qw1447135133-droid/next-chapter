@@ -5,17 +5,15 @@ export interface BuiltinApiBundle {
   geminiKey?: string;
   jimengEndpoint?: string;
   jimengKey?: string;
-  viduEndpoint?: string;
-  viduKey?: string;
-  klingEndpoint?: string;
-  klingKey?: string;
+  tuziEndpoint?: string;
+  tuziKey?: string;
   modelMappings?: Record<string, string>;
 }
 
 export interface SupportedModelMapping {
   key: string;
   label: string;
-  provider: "gemini" | "jimeng" | "vidu" | "kling";
+  provider: "gemini" | "jimeng" | "tuzi";
   category: "text" | "image" | "video";
   defaultModelName: string;
 }
@@ -26,12 +24,9 @@ export interface ApiConfig {
   geminiKey: string;
   jimengEndpoint: string;
   jimengKey: string;
-  viduEndpoint: string;
-  viduKey: string;
-  klingEndpoint: string;
-  klingKey: string;
+  tuziEndpoint: string;
+  tuziKey: string;
   modelMappings: Record<string, string>;
-  autoJimengApiBase: string;
   firstFrameMaxDim: number;
   firstFrameMaxKB: number;
   retryCount: number;
@@ -133,18 +128,18 @@ export const SUPPORTED_MODEL_MAPPINGS: SupportedModelMapping[] = [
     defaultModelName: "doubao-seedance-1-5-pro_1080p",
   },
   {
-    key: "viduq3-pro",
-    label: "Vidu Q3",
-    provider: "vidu",
+    key: "sora-2",
+    label: "Sora 2",
+    provider: "tuzi",
     category: "video",
-    defaultModelName: "viduq3-pro",
+    defaultModelName: "sora-2",
   },
   {
-    key: "kling-v3",
-    label: "Kling V3",
-    provider: "kling",
+    key: "sora-2-pro",
+    label: "Sora 2 Pro",
+    provider: "tuzi",
     category: "video",
-    defaultModelName: "kling-v3",
+    defaultModelName: "sora-2-pro",
   },
 ];
 
@@ -175,8 +170,7 @@ function deobfuscate(value: string): string {
 const SENSITIVE_KEYS: (keyof ApiConfig)[] = [
   "geminiKey",
   "jimengKey",
-  "viduKey",
-  "klingKey",
+  "tuziKey",
 ];
 
 export const DEFAULT_API_CONFIG: ApiConfig = {
@@ -185,12 +179,9 @@ export const DEFAULT_API_CONFIG: ApiConfig = {
   geminiKey: "",
   jimengEndpoint: "",
   jimengKey: "",
-  viduEndpoint: "",
-  viduKey: "",
-  klingEndpoint: "",
-  klingKey: "",
+  tuziEndpoint: "",
+  tuziKey: "",
   modelMappings: {},
-  autoJimengApiBase: "http://localhost:8000",
   firstFrameMaxDim: 2048,
   firstFrameMaxKB: 1024,
   retryCount: 2,
@@ -217,10 +208,8 @@ function sanitizeBuiltinApiBundle(input: Partial<BuiltinApiBundle>): BuiltinApiB
     geminiKey: typeof input.geminiKey === "string" ? input.geminiKey.trim() : "",
     jimengEndpoint: typeof input.jimengEndpoint === "string" ? input.jimengEndpoint.trim() : "",
     jimengKey: typeof input.jimengKey === "string" ? input.jimengKey.trim() : "",
-    viduEndpoint: typeof input.viduEndpoint === "string" ? input.viduEndpoint.trim() : "",
-    viduKey: typeof input.viduKey === "string" ? input.viduKey.trim() : "",
-    klingEndpoint: typeof input.klingEndpoint === "string" ? input.klingEndpoint.trim() : "",
-    klingKey: typeof input.klingKey === "string" ? input.klingKey.trim() : "",
+    tuziEndpoint: typeof input.tuziEndpoint === "string" ? input.tuziEndpoint.trim() : "",
+    tuziKey: typeof input.tuziKey === "string" ? input.tuziKey.trim() : "",
     modelMappings: normalizeModelMappings(input.modelMappings),
   };
 }
@@ -342,14 +331,10 @@ function applyBuiltinOverlay(config: ApiConfig): ApiConfig {
     typeof builtin.jimengEndpoint === "string" ? builtin.jimengEndpoint.trim() : "";
   const jimengKeyRaw =
     typeof builtin.jimengKey === "string" ? builtin.jimengKey.trim() : "";
-  const viduEndpoint =
-    typeof builtin.viduEndpoint === "string" ? builtin.viduEndpoint.trim() : "";
-  const viduKey =
-    typeof builtin.viduKey === "string" ? builtin.viduKey.trim() : "";
-  const klingEndpoint =
-    typeof builtin.klingEndpoint === "string" ? builtin.klingEndpoint.trim() : "";
-  const klingKey =
-    typeof builtin.klingKey === "string" ? builtin.klingKey.trim() : "";
+  const tuziEndpoint =
+    typeof builtin.tuziEndpoint === "string" ? builtin.tuziEndpoint.trim() : "";
+  const tuziKey =
+    typeof builtin.tuziKey === "string" ? builtin.tuziKey.trim() : "";
 
   return {
     ...config,
@@ -357,25 +342,14 @@ function applyBuiltinOverlay(config: ApiConfig): ApiConfig {
     geminiKey,
     jimengEndpoint: jimengEndpointRaw || geminiEndpoint,
     jimengKey: jimengKeyRaw || geminiKey,
-    viduEndpoint,
-    viduKey,
-    klingEndpoint,
-    klingKey,
+    tuziEndpoint,
+    tuziKey,
     modelMappings: builtinMappings,
   };
 }
 
 export function resolveApiConfigForRuntime(config: ApiConfig): ApiConfig {
-  let merged = { ...config };
-  const jimengEndpoint =
-    typeof merged.jimengEndpoint === "string"
-      ? merged.jimengEndpoint.trim()
-      : "";
-  if (jimengEndpoint && /localhost|127\.0\.0\.1|:8000/i.test(jimengEndpoint)) {
-    merged.autoJimengApiBase = jimengEndpoint;
-    merged.jimengEndpoint = "";
-  }
-  return applyBuiltinOverlay(merged);
+  return applyBuiltinOverlay(config);
 }
 
 export function getApiConfig(): ApiConfig {

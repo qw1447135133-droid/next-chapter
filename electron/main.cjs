@@ -2050,6 +2050,16 @@ function log(level, msg) {
   if (pythonLogs.length > 500) pythonLogs.shift();
   console.log(line);
 }
+function resolveUniqueDownloadPath(targetPath) {
+  const parsed = path2.parse(targetPath);
+  let attempt = 1;
+  let candidate = targetPath;
+  while (fs2.existsSync(candidate)) {
+    attempt += 1;
+    candidate = path2.join(parsed.dir, `${parsed.name}(${attempt})${parsed.ext}`);
+  }
+  return candidate;
+}
 function verifyBuiltinApiAdminPassword(password) {
   if (typeof password !== "string" || !password) {
     return false;
@@ -2108,12 +2118,11 @@ async function startPythonServer() {
     logs: pythonLogs
   });
   if (!fs2.existsSync(getJimengSourceDir())) {
-    log("error", `auto_jimeng \u6E90\u7801\u76EE\u5F55\u4E0D\u5B58\u5728: ${getJimengSourceDir()}`);
-    pythonStatus = "error";
+    log("warn", `auto_jimeng \u6E90\u7801\u76EE\u5F55\u4E0D\u5B58\u5728: ${getJimengSourceDir()}\uFF0C\u8DF3\u8FC7\u542F\u52A8 Python \u670D\u52A1`);
+    pythonStatus = "stopped";
     mainWindow?.webContents.send("jimeng:status", {
-      status: "error",
-      message: `auto_jimeng \u6E90\u7801\u672A\u627E\u5230\uFF0C\u8BF7\u8054\u7CFB\u5F00\u53D1\u8005\u3002
-\u671F\u671B\u8DEF\u5F84: ${getJimengSourceDir()}`
+      status: "stopped",
+      message: `auto_jimeng \u670D\u52A1\u672A\u914D\u7F6E\uFF08\u53EF\u9009\u529F\u80FD\uFF09`
     });
     return false;
   }
@@ -2508,7 +2517,8 @@ function setupIPC() {
       if (!savePath) {
         return { ok: false, error: "\u7F3A\u5C11\u4FDD\u5B58\u8DEF\u5F84" };
       }
-      const targetDir = path2.dirname(savePath);
+      const finalSavePath = resolveUniqueDownloadPath(savePath);
+      const targetDir = path2.dirname(finalSavePath);
       fs2.mkdirSync(targetDir, { recursive: true });
       return await new Promise((resolve) => {
         const session = embeddedBrowserView.webContents.session;
@@ -2525,36 +2535,36 @@ function setupIPC() {
         };
         const onWillDownload = (_downloadEvent, item, webContents) => {
           if (webContents !== embeddedBrowserView.webContents) return;
-          item.setSavePath(savePath);
+          item.setSavePath(finalSavePath);
           item.once("done", (_doneEvent, state) => {
             if (state === "completed") {
               finish({
                 ok: true,
-                savePath,
+                savePath: finalSavePath,
                 url: item.getURL()
               });
             } else {
               finish({
                 ok: false,
                 error: `\u4E0B\u8F7D\u672A\u5B8C\u6210: ${state}`,
-                savePath
+                savePath: finalSavePath
               });
             }
           });
         };
         const timer = setTimeout(() => {
-          finish({ ok: false, error: "\u7B49\u5F85\u4E0B\u8F7D\u8D85\u65F6", savePath });
+          finish({ ok: false, error: "\u7B49\u5F85\u4E0B\u8F7D\u8D85\u65F6", savePath: finalSavePath });
         }, timeoutMs);
         session.on("will-download", onWillDownload);
         if (!script) {
-          finish({ ok: false, error: "\u7F3A\u5C11\u4E0B\u8F7D\u89E6\u53D1\u811A\u672C", savePath });
+          finish({ ok: false, error: "\u7F3A\u5C11\u4E0B\u8F7D\u89E6\u53D1\u811A\u672C", savePath: finalSavePath });
           return;
         }
         embeddedBrowserView.webContents.executeJavaScript(script, true).catch((error) => {
           finish({
             ok: false,
             error: error instanceof Error ? error.message : String(error),
-            savePath
+            savePath: finalSavePath
           });
         });
       });
@@ -2629,8 +2639,9 @@ function setupIPC() {
     "jimeng:writeFile",
     async (_event, { filePath, content }) => {
       try {
-        fs2.mkdirSync(path2.dirname(filePath), { recursive: true });
-        fs2.writeFileSync(filePath, Buffer.from(content, "base64"));
+        const normalizedPath = path2.normalize(filePath);
+        fs2.mkdirSync(path2.dirname(normalizedPath), { recursive: true });
+        fs2.writeFileSync(normalizedPath, Buffer.from(content, "base64"));
         return { ok: true };
       } catch (error) {
         return {
@@ -2734,15 +2745,16 @@ function setupIPC() {
     "storage:readBase64",
     async (_event, { filePath }) => {
       try {
-        if (!fs2.existsSync(filePath)) {
+        const normalizedPath = path2.normalize(filePath);
+        if (!fs2.existsSync(normalizedPath)) {
           return { ok: true, exists: false, base64: "" };
         }
-        const ext = path2.extname(filePath).toLowerCase();
+        const ext = path2.extname(normalizedPath).toLowerCase();
         const mimeType = ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : ext === ".gif" ? "image/gif" : ext === ".mp4" ? "video/mp4" : "image/jpeg";
         return {
           ok: true,
           exists: true,
-          base64: fs2.readFileSync(filePath).toString("base64"),
+          base64: fs2.readFileSync(normalizedPath).toString("base64"),
           mimeType
         };
       } catch (error) {
@@ -2782,7 +2794,13 @@ function createWindow() {
     const crashInfo = {
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
       reason: details.reason,
-      exitCode: details.exitCode
+      exitCode: details.exitCode,
+      // 添加内存使用信息
+      memoryUsage: process.memoryUsage(),
+      // 添加系统信息
+      platform: process.platform,
+      arch: process.arch,
+      nodeVersion: process.version
     };
     const crashLogPath = path2.join(getUserDataPath(), "crash-log.json");
     try {
@@ -2822,7 +2840,9 @@ function createWindow() {
   });
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
-    mainWindow.webContents.openDevTools();
+    if (process.env.ELECTRON_OPEN_DEVTOOLS === "1") {
+      mainWindow.webContents.openDevTools();
+    }
   } else {
     mainWindow.loadFile(path2.join(__dirname, "../dist/index.html"));
   }

@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Download, History, RotateCcw, X } from "lucide-react";
+import ImageThumbnail, { downloadImageSource } from "./ImageThumbnail";
 
 interface ImageHistoryDialogProps {
   history: ImageHistoryEntry[];
@@ -23,17 +24,14 @@ const ImageHistoryDialog = ({ history, label, onRestore }: ImageHistoryDialogPro
 
   const handleDownload = async (entry: ImageHistoryEntry) => {
     try {
-      const resp = await fetch(entry.imageUrl);
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      const ext = entry.imageUrl.includes(".png") ? "png" : "jpg";
-      link.download = `${label}-${new Date(entry.createdAt).getTime()}.${ext}`;
-      link.click();
-      URL.revokeObjectURL(url);
+      await downloadImageSource(
+        entry.imageUrl,
+        `${label}-${new Date(entry.createdAt).getTime()}`,
+      );
     } catch {
-      window.open(entry.imageUrl, "_blank");
+      if (!entry.imageUrl.startsWith("data:") && /^https?:\/\//i.test(entry.imageUrl)) {
+        window.open(entry.imageUrl, "_blank");
+      }
     }
   };
 
@@ -94,10 +92,11 @@ const ImageHistoryDialog = ({ history, label, onRestore }: ImageHistoryDialogPro
               </div>
             </div>
             <div className="flex-1 overflow-auto px-4 pb-4">
-              <img
+              <ImageThumbnail
                 src={selectedEntry.imageUrl}
                 alt={label}
                 className="w-full rounded-lg border border-border/40"
+                maxDim={1400}
               />
               {selectedEntry.description && (
                 <div className="mt-3 p-3 rounded-lg bg-muted/50 border border-border/40">
@@ -119,10 +118,11 @@ const ImageHistoryDialog = ({ history, label, onRestore }: ImageHistoryDialogPro
                   onClick={() => setSelectedEntry(entry)}
                 >
                   <div className="aspect-square overflow-hidden bg-muted/30">
-                    <img
+                    <ImageThumbnail
                       src={entry.imageUrl}
                       alt={`${label} 历史 ${idx + 1}`}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                      maxDim={600}
                     />
                   </div>
                   <div className="p-2">

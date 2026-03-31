@@ -13,6 +13,8 @@ import {
   fetchImageAsBase64,
   uploadImageToStorage,
   callSeedreamImage,
+  callAsyncImageGeneration,
+  pollAsyncImageResult,
   rewriteToFirstFrame,
   directFetch,
   resolveDirectApiKey,
@@ -85,6 +87,49 @@ function parseJsonResponseLoose<T>(raw: string): T | null {
   } catch {
     return null;
   }
+}
+
+function summarizeInlineData(
+  inlineData: { mimeType?: string; data?: string } | null | undefined,
+) {
+  return {
+    hasData: !!inlineData?.data,
+    mimeType: inlineData?.mimeType ?? null,
+    dataLength: inlineData?.data?.length ?? 0,
+  };
+}
+
+function summarizeExtractedImage(
+  image: { base64?: string; mimeType?: string } | null | undefined,
+) {
+  return {
+    hasImage: !!image?.base64,
+    base64Length: image?.base64?.length ?? 0,
+    mimeType: image?.mimeType ?? null,
+  };
+}
+
+function summarizeGeminiImageResponse(response: any) {
+  const parts = response?.candidates?.[0]?.content?.parts;
+  return {
+    hasCandidates: Array.isArray(response?.candidates),
+    candidatesLength: response?.candidates?.length ?? 0,
+    firstCandidateFinishReason: response?.candidates?.[0]?.finishReason ?? null,
+    partsLength: Array.isArray(parts) ? parts.length : 0,
+    inlineDataParts: Array.isArray(parts) ? parts.filter((part: any) => !!part?.inlineData).length : 0,
+    textParts:
+      Array.isArray(parts)
+        ? parts.filter((part: any) => typeof part?.text === "string" && part.text.length > 0).length
+        : 0,
+  };
+}
+
+function summarizeUploadImagePayload(imageBase64: string, mimeType: string) {
+  return {
+    imageBase64Type: typeof imageBase64,
+    imageBase64Length: imageBase64?.length ?? 0,
+    mimeType,
+  };
 }
 
 // ===== PROMPTS =====
@@ -1172,6 +1217,8 @@ function parseDecomposeResult(resultText: string): any[] {
 }
 
 async function localGenerateCharacter(body: any) {
+  console.log("🔵 localGenerateCharacter called with body:", { name: body.name, model: body.model });
+
   const { name, description, style, model, referenceImageUrl, viewMode } = body;
   if (!name) throw new Error("缺少角色名称");
 
@@ -1228,23 +1275,173 @@ Each view should be labeled clearly. The character design must be consistent acr
 CRITICAL: The character's clothing, armor, and accessories MUST match the era and setting described above. If the description mentions medieval, fantasy, ancient, or any specific historical period, ALL clothing must be era-appropriate. NEVER use modern clothing (suits, t-shirts, jeans, sneakers) for historical/fantasy characters.`;
   }
 
-  const selectedModel = model || "gemini-3-pro-image-preview";
+  const selectedModel = model || "gemini-3-pro-image-preview-2k-async";
   const isSeedream = selectedModel.startsWith("doubao-seedream");
+  const isAsync = selectedModel.includes("-async");
 
   const aspectRatio = isSingleMode ? "9:16" : "16:9";
   const seedreamSize = isSingleMode ? "1440x2560" : "2560x1440";
+  const asyncSize = isSingleMode ? "9:16" : "16:9";
 
-  let imageBase64: string;
-  let mimeType: string;
+  let imageBase64: string = "";
+  let mimeType: string = "image/jpeg"; // 默认值
+
+  console.log("🔵 Image generation config:", { selectedModel, isSeedream, isAsync, hasReferenceImage: !!referenceImageUrl });
 
   if (isSeedream) {
+    console.log("🟢 Using Seedream model");
     const result = await callSeedreamImage(prompt, {
       model: selectedModel,
       size: seedreamSize,
     });
     imageBase64 = result.base64;
     mimeType = result.mimeType;
+    console.log("🟢 Seedream result:", { base64Length: imageBase64.length, mimeType });
+  } else if (isAsync) {
+    console.log("🟡 Using async model");
+    // 使用新的异步 API
+    try {
+      const { task_id, fallbackModel, shouldUseFallback } = await callAsyncImageGeneration(prompt, {
+        model: selectedModel,
+        size: asyncSize,
+        input_reference: referenceImageUrl,
+      });
+
+      // 如果异步API不支持（如有参考图像），直接使用回退模型
+      if (shouldUseFallback && fallbackModel) {
+        console.log("🟣 [START] 异步API不支持此请求，直接使用同步回退模型:", fallbackModel);
+
+        try {
+          // 使用同步API
+          const parts: any[] = [{ text: prompt }];
+
+          if (referenceImageUrl) {
+            console.log("🟣 Processing reference image:", referenceImageUrl);
+            const inlineData = await getInlineData(referenceImageUrl);
+            console.log("🟣 Got inline data:", summarizeInlineData(inlineData));
+
+            if (inlineData) {
+              // 如果图片太大（>2MB），先压缩
+              if (inlineData.data.length >= 2 * 1024 * 1024) {
+                console.log("🟣 Compressing large image...");
+                const compressed = await compressImage(
+                  `data:${inlineData.mimeType};base64,${inlineData.data}`,
+                  { maxSizeMB: 1.5, maxWidthOrHeight: 2048 }
+                );
+                const base64Data = compressed.split(",")[1];
+                parts.push({
+                  inlineData: { mimeType: "image/jpeg", data: base64Data },
+                });
+                console.log("🟣 Compressed image added to parts");
+              } else {
+                parts.push({ inlineData });
+                console.log("🟣 Original image added to parts");
+              }
+            }
+          }
+
+          console.log("🟣 Calling Gemini with fallback model...");
+          const response = await callGemini(
+            fallbackModel,
+            [{ role: "user", parts }],
+            {
+              responseModalities: ["IMAGE", "TEXT"],
+              imageSize: asyncSize === "1:1" ? "1K" : asyncSize === "16:9" ? "2K" : "2K",
+            }
+          );
+
+          console.log("🟣 Sync fallback response structure:", summarizeGeminiImageResponse(response));
+
+          const extracted = await extractImageBase64(response);
+          console.log("🟣 Extracted result:", summarizeExtractedImage(extracted));
+
+          if (!extracted) {
+            console.error("❌ Failed to extract image. Response summary:", summarizeGeminiImageResponse(response));
+            throw new Error("回退模型未返回图像");
+          }
+          imageBase64 = extracted.base64;
+          mimeType = extracted.mimeType;
+          console.log("🟣 [SUCCESS] Image extracted successfully");
+        } catch (error) {
+          console.error("❌ [ERROR] Sync fallback failed:", error);
+          throw error;
+        }
+      } else {
+        // 正常轮询异步结果
+        const result = await pollAsyncImageResult(task_id, {
+          maxAttempts: 60,
+          intervalMs: 5000,
+          fallbackModel,
+          prompt,
+          size: asyncSize,
+          input_reference: referenceImageUrl,
+        });
+        imageBase64 = result.base64;
+        mimeType = result.mimeType;
+        if (result.usedFallback) {
+          console.log(`角色图像生成使用了回退模型: ${fallbackModel}`);
+        }
+      }
+    } catch (asyncError: any) {
+      // 异步API提交失败，尝试使用同步回退模型
+      console.warn("异步API提交失败，使用同步回退模型:", asyncError.message);
+
+      // 确定回退模型
+      const fallbackMap: Record<string, string> = {
+        "gemini-3-pro-image-preview-async": "gemini-3-pro-image-preview",
+        "gemini-3-pro-image-preview-2k-async": "gemini-3-pro-image-preview-2k",
+        "gemini-3-pro-image-preview-4k-async": "gemini-3-pro-image-preview-4k",
+        "nano-banana-2": "gemini-3-pro-image-preview",
+        "nano-banana-2-2k": "gemini-3-pro-image-preview-2k",
+        "nano-banana-2-4k": "gemini-3-pro-image-preview-4k",
+      };
+      const fallbackModel = fallbackMap[selectedModel];
+
+      if (!fallbackModel) {
+        throw asyncError; // 如果没有回退模型，抛出原始错误
+      }
+
+      // 使用同步API作为回退
+      const parts: any[] = [{ text: prompt }];
+
+      if (referenceImageUrl) {
+        const inlineData = await getInlineData(referenceImageUrl);
+        if (inlineData) {
+          // 如果图片太大（>2MB），先压缩
+          if (inlineData.data.length >= 2 * 1024 * 1024) {
+            const compressed = await compressImage(
+              `data:${inlineData.mimeType};base64,${inlineData.data}`,
+              { maxSizeMB: 1.5, maxWidthOrHeight: 2048 }
+            );
+            const base64Data = compressed.split(",")[1];
+            parts.push({
+              inlineData: { mimeType: "image/jpeg", data: base64Data },
+            });
+          } else {
+            parts.push({ inlineData });
+          }
+        }
+      }
+
+      const response = await callGemini(
+        fallbackModel,
+        [{ role: "user", parts }],
+        {
+          responseModalities: ["IMAGE", "TEXT"],
+          imageSize: asyncSize === "1:1" ? "1K" : asyncSize === "16:9" ? "2K" : "2K",
+        }
+      );
+
+      const extracted = await extractImageBase64(response);
+      if (!extracted) {
+        throw new Error("回退模型未返回图像");
+      }
+      imageBase64 = extracted.base64;
+      mimeType = extracted.mimeType;
+      console.log(`🟡 角色图像生成使用了回退模型: ${fallbackModel}`);
+    }
   } else {
+    console.log("🟣 Using sync model (else branch)");
     // Build multimodal parts
     const parts: any[] = [{ text: prompt }];
 
@@ -1282,9 +1479,23 @@ CRITICAL: The character's clothing, armor, and accessories MUST match the era an
     });
 
     const img = await extractImageBase64(data);
-    if (!img) throw new Error("AI 未返回角色图");
+    if (!img) {
+      console.error("extractImageBase64 returned null, response summary:", summarizeGeminiImageResponse(data));
+      throw new Error("AI 未返回角色图");
+    }
+    if (!img.base64 || img.base64.trim().length === 0) {
+      console.error("extractImageBase64 returned empty base64, img summary:", summarizeExtractedImage(img));
+      throw new Error("AI 返回的图像数据为空");
+    }
+    console.log("Image extracted successfully, base64 length:", img.base64.length, "mimeType:", img.mimeType);
     imageBase64 = img.base64;
     mimeType = img.mimeType;
+  }
+
+  console.log("Before uploadImageToStorage:", summarizeUploadImagePayload(imageBase64, mimeType));
+
+  if (!imageBase64 || imageBase64.length === 0) {
+    throw new Error("图像生成失败：未获取到图像数据");
   }
 
   const imageUrl = await uploadImageToStorage(
@@ -1346,11 +1557,12 @@ Art style: ${styleDesc}.
 This is a wide establishing shot showing the full environment. Focus on atmosphere, lighting, and mood. Professional concept art quality.${staticSceneRule}`;
   }
 
-  const selectedModel = model || "gemini-3-pro-image-preview";
+  const selectedModel = model || "gemini-3-pro-image-preview-2k-async";
   const isSeedream = selectedModel.startsWith("doubao-seedream");
+  const isAsync = selectedModel.includes("-async");
 
-  let imageBase64: string;
-  let mimeType: string;
+  let imageBase64: string = "";
+  let mimeType: string = "image/jpeg"; // 默认值
 
   if (isSeedream) {
     const result = await callSeedreamImage(prompt, {
@@ -1359,6 +1571,130 @@ This is a wide establishing shot showing the full environment. Focus on atmosphe
     });
     imageBase64 = result.base64;
     mimeType = result.mimeType;
+  } else if (isAsync) {
+    // 使用新的异步 API
+    try {
+      const { task_id, fallbackModel, shouldUseFallback } = await callAsyncImageGeneration(prompt, {
+        model: selectedModel,
+        size: "16:9",
+        input_reference: referenceImageUrl,
+      });
+
+      // 如果异步API不支持（如有参考图像），直接使用回退模型
+      if (shouldUseFallback && fallbackModel) {
+        console.log("异步API不支持此请求，直接使用同步回退模型:", fallbackModel);
+
+        // 使用同步API
+        const parts: any[] = [{ text: prompt }];
+
+        if (referenceImageUrl) {
+          const inlineData = await getInlineData(referenceImageUrl);
+          if (inlineData) {
+            // 如果图片太大（>2MB），先压缩
+            if (inlineData.data.length >= 2 * 1024 * 1024) {
+              const compressed = await compressImage(
+                `data:${inlineData.mimeType};base64,${inlineData.data}`,
+                { maxSizeMB: 1.5, maxWidthOrHeight: 2048 }
+              );
+              const base64Data = compressed.split(",")[1];
+              parts.push({
+                inlineData: { mimeType: "image/jpeg", data: base64Data },
+              });
+            } else {
+              parts.push({ inlineData });
+            }
+          }
+        }
+
+        const response = await callGemini(
+          fallbackModel,
+          [{ role: "user", parts }],
+          {
+            responseModalities: ["IMAGE", "TEXT"],
+            imageSize: "2K",
+          }
+        );
+
+        const extracted = extractImageBase64(response);
+        if (!extracted) {
+          throw new Error("回退模型未返回图像");
+        }
+        imageBase64 = extracted.base64;
+        mimeType = extracted.mimeType;
+      } else {
+        // 正常轮询异步结果
+        const result = await pollAsyncImageResult(task_id, {
+          maxAttempts: 60,
+          intervalMs: 5000,
+          fallbackModel,
+          prompt,
+          size: "16:9",
+          input_reference: referenceImageUrl,
+        });
+        imageBase64 = result.base64;
+        mimeType = result.mimeType;
+        if (result.usedFallback) {
+          console.log(`场景图像生成使用了回退模型: ${fallbackModel}`);
+        }
+      }
+    } catch (asyncError: any) {
+      // 异步API提交失败，尝试使用同步回退模型
+      console.warn("异步API提交失败，使用同步回退模型:", asyncError.message);
+
+      // 确定回退模型
+      const fallbackMap: Record<string, string> = {
+        "gemini-3-pro-image-preview-async": "gemini-3-pro-image-preview",
+        "gemini-3-pro-image-preview-2k-async": "gemini-3-pro-image-preview-2k",
+        "gemini-3-pro-image-preview-4k-async": "gemini-3-pro-image-preview-4k",
+        "nano-banana-2": "gemini-3-pro-image-preview",
+        "nano-banana-2-2k": "gemini-3-pro-image-preview-2k",
+        "nano-banana-2-4k": "gemini-3-pro-image-preview-4k",
+      };
+      const fallbackModel = fallbackMap[selectedModel];
+
+      if (!fallbackModel) {
+        throw asyncError; // 如果没有回退模型，抛出原始错误
+      }
+
+      // 使用同步API作为回退
+      const parts: any[] = [{ text: prompt }];
+
+      if (referenceImageUrl) {
+        const inlineData = await getInlineData(referenceImageUrl);
+        if (inlineData) {
+          // 如果图片太大（>2MB），先压缩
+          if (inlineData.data.length >= 2 * 1024 * 1024) {
+            const compressed = await compressImage(
+              `data:${inlineData.mimeType};base64,${inlineData.data}`,
+              { maxSizeMB: 1.5, maxWidthOrHeight: 2048 }
+            );
+            const base64Data = compressed.split(",")[1];
+            parts.push({
+              inlineData: { mimeType: "image/jpeg", data: base64Data },
+            });
+          } else {
+            parts.push({ inlineData });
+          }
+        }
+      }
+
+      const response = await callGemini(
+        fallbackModel,
+        [{ role: "user", parts }],
+        {
+          responseModalities: ["IMAGE", "TEXT"],
+          imageSize: "2K",
+        }
+      );
+
+      const extracted = await extractImageBase64(response);
+      if (!extracted) {
+        throw new Error("回退模型未返回图像");
+      }
+      imageBase64 = extracted.base64;
+      mimeType = extracted.mimeType;
+      console.log(`场景图像生成使用了回退模型: ${fallbackModel}`);
+    }
   } else {
     // Build multimodal parts
     const parts: any[] = [{ text: prompt }];
@@ -1605,11 +1941,12 @@ ${narrativeContext}
     }
   }
 
-  const selectedModel = model || "gemini-3-pro-image-preview";
+  const selectedModel = model || "gemini-3-pro-image-preview-2k-async";
   const isSeedream = selectedModel.startsWith("doubao-seedream");
+  const isAsync = selectedModel.includes("-async");
 
-  let imageBase64: string;
-  let mimeType: string;
+  let imageBase64: string = "";
+  let mimeType: string = "image/jpeg"; // 默认值
 
   if (isSeedream) {
     // Build Seedream prompt with image URLs
@@ -1655,6 +1992,107 @@ ${narrativeContext}
     });
     imageBase64 = result.base64;
     mimeType = result.mimeType;
+  } else if (isAsync) {
+    // 使用新的异步 API
+    // 确定分辨率和尺寸
+    let asyncSize = "1:1";
+    if (selectedModel.includes("2k")) {
+      asyncSize = "1:1";
+    } else if (selectedModel.includes("4k")) {
+      asyncSize = "1:1";
+    }
+
+    // 收集参考图像 URL（只使用第一个角色图像作为主要参考）
+    let referenceImageUrl: string | undefined;
+    if (Array.isArray(characterImages) && characterImages.length > 0) {
+      const firstChar = characterImages[0];
+      if (
+        firstChar.imageUrl &&
+        typeof firstChar.imageUrl === "string" &&
+        !firstChar.imageUrl.startsWith("data:")
+      ) {
+        referenceImageUrl = firstChar.imageUrl;
+      }
+    }
+    // 如果没有角色图像，尝试使用场景图像
+    if (
+      !referenceImageUrl &&
+      sceneImageUrl &&
+      typeof sceneImageUrl === "string" &&
+      !sceneImageUrl.startsWith("data:")
+    ) {
+      referenceImageUrl = sceneImageUrl;
+    }
+
+    // 提交异步任务
+    try {
+      const { task_id, fallbackModel, shouldUseFallback } = await callAsyncImageGeneration(prompt, {
+        model: selectedModel,
+        size: asyncSize,
+        input_reference: referenceImageUrl,
+      });
+
+      // 如果异步API不支持（如有参考图像），直接使用回退模型
+      if (shouldUseFallback && fallbackModel) {
+        console.log("异步API不支持此请求，直接使用同步回退模型:", fallbackModel);
+
+        // 使用同步API作为回退，使用已经构建好的 parts
+        const data = await callGemini(fallbackModel, [{ role: "user", parts }], {
+          responseModalities: ["IMAGE", "TEXT"],
+          imageSize: "2K",
+        });
+
+        const img = await extractImageBase64(data);
+        if (!img) throw new Error("回退模型未返回分镜图");
+        imageBase64 = img.base64;
+        mimeType = img.mimeType;
+      } else {
+        // 正常轮询异步结果
+        const result = await pollAsyncImageResult(task_id, {
+          maxAttempts: 60,
+          intervalMs: 5000,
+          fallbackModel,
+          prompt,
+          size: asyncSize,
+          input_reference: referenceImageUrl,
+        });
+        imageBase64 = result.base64;
+        mimeType = result.mimeType;
+        if (result.usedFallback) {
+          console.log(`分镜图生成使用了回退模型: ${fallbackModel}`);
+        }
+      }
+    } catch (asyncError: any) {
+      // 异步API提交失败，尝试使用同步回退模型
+      console.warn("异步API提交失败，使用同步回退模型:", asyncError.message);
+
+      // 确定回退模型
+      const fallbackMap: Record<string, string> = {
+        "gemini-3-pro-image-preview-async": "gemini-3-pro-image-preview",
+        "gemini-3-pro-image-preview-2k-async": "gemini-3-pro-image-preview-2k",
+        "gemini-3-pro-image-preview-4k-async": "gemini-3-pro-image-preview-4k",
+        "nano-banana-2": "gemini-3-pro-image-preview",
+        "nano-banana-2-2k": "gemini-3-pro-image-preview-2k",
+        "nano-banana-2-4k": "gemini-3-pro-image-preview-4k",
+      };
+      const fallbackModel = fallbackMap[selectedModel];
+
+      if (!fallbackModel) {
+        throw asyncError; // 如果没有回退模型，抛出原始错误
+      }
+
+      // 使用同步API作为回退，使用已经构建好的 parts
+      const data = await callGemini(fallbackModel, [{ role: "user", parts }], {
+        responseModalities: ["IMAGE", "TEXT"],
+        imageSize: "2K",
+      });
+
+      const img = await extractImageBase64(data);
+      if (!img) throw new Error("回退模型未返回分镜图");
+      imageBase64 = img.base64;
+      mimeType = img.mimeType;
+      console.log(`分镜图生成使用了回退模型: ${fallbackModel}`);
+    }
   } else {
     const data = await callGemini(selectedModel, [{ role: "user", parts }], {
       responseModalities: ["IMAGE", "TEXT"],

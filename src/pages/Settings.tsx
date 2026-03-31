@@ -558,7 +558,6 @@ export default function Settings() {
                       </div>
                     </Collapsible>
                   ))}
-                  <div className="space-y-1.5"><Label className="text-sm font-medium">即梦本地自动化服务</Label><Input value={config.autoJimengApiBase || ""} onChange={(e) => setConfig((prev) => ({ ...prev, autoJimengApiBase: e.target.value }))} placeholder="http://localhost:8000" className="font-mono text-sm" /><p className="text-xs text-muted-foreground">桌面端连接本地 Python 自动化服务时使用，与远程 API 网关无关。</p></div>
                 </CardContent>
               </Card>
 

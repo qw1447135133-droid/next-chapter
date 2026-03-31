@@ -360,56 +360,93 @@ const VideoGeneration = ({
                             )}
                           </div>
                           {(() => {
-                            const maxVal = videoModel.startsWith("vidu") ? 16 : 15;
-                            const minVal = videoModel.startsWith("kling") ? 3 : 4;
+                            // Sora 2 models only support 10s and 15s
+                            const isSora2 = videoModel === "sora-2" || videoModel === "sora-2-pro";
+                            const maxVal = 15;
+                            const minVal = isSora2 ? 10 : 4;
                             const currentVal = scene.recommendedDuration || scene.duration || 5;
+                            const allowedValues = isSora2 ? [10, 15] : Array.from({ length: maxVal - minVal + 1 }, (_, i) => i + minVal);
+
                             return (
                               <>
-                                <Slider
-                                  min={minVal}
-                                  max={maxVal}
-                                  step={1}
-                                  value={[currentVal]}
-                                  onValueChange={([val]) => {
-                                    if (onScenesChange) {
-                                      onScenesChange(
-                                        scenes.map((s) =>
-                                          s.id === scene.id
-                                            ? { ...s, recommendedDuration: val, isManualDuration: true }
-                                            : s
-                                        )
-                                      );
-                                    }
-                                  }}
-                                  className="[&_[role=slider]]:bg-emerald-500 [&_[role=slider]]:border-emerald-500 [&_[role=slider]]:w-5 [&_[role=slider]]:h-5 [&_.relative>.absolute]:bg-emerald-500"
-                                />
-                                <div className="flex justify-between mt-2">
-                                  {Array.from({ length: maxVal - minVal + 1 }, (_, i) => i + minVal).map((d) => (
-                                    <button
-                                      key={d}
-                                      type="button"
-                                      onClick={() => {
+                                {isSora2 ? (
+                                  // For Sora 2: show only 10s and 15s buttons
+                                  <div className="flex gap-2 justify-center py-2">
+                                    {allowedValues.map((d) => (
+                                      <button
+                                        key={d}
+                                        type="button"
+                                        onClick={() => {
+                                          if (onScenesChange) {
+                                            onScenesChange(
+                                              scenes.map((s) =>
+                                                s.id === scene.id
+                                                  ? { ...s, recommendedDuration: d, isManualDuration: true }
+                                                  : s
+                                              )
+                                            );
+                                          }
+                                        }}
+                                        className={`text-sm px-4 py-2 rounded-lg font-medium transition-colors ${
+                                          d === currentVal
+                                            ? "bg-emerald-500 text-white"
+                                            : "bg-muted text-muted-foreground hover:text-foreground hover:bg-accent"
+                                        }`}
+                                      >
+                                        {d}s
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  // For other models: show slider
+                                  <>
+                                    <Slider
+                                      min={minVal}
+                                      max={maxVal}
+                                      step={1}
+                                      value={[currentVal]}
+                                      onValueChange={([val]) => {
                                         if (onScenesChange) {
                                           onScenesChange(
                                             scenes.map((s) =>
                                               s.id === scene.id
-                                                ? { ...s, recommendedDuration: d, isManualDuration: true }
+                                                ? { ...s, recommendedDuration: val, isManualDuration: true }
                                                 : s
                                             )
                                           );
                                         }
                                       }}
-                                      className={`text-xs w-5 h-5 rounded-full flex items-center justify-center transition-colors ${
-                                        d === currentVal
-                                          ? "bg-emerald-500 text-white font-bold"
-                                          : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                                      }`}
-                                    >
-                                      {d}
-                                    </button>
+                                      className="[&_[role=slider]]:bg-emerald-500 [&_[role=slider]]:border-emerald-500 [&_[role=slider]]:w-5 [&_[role=slider]]:h-5 [&_.relative>.absolute]:bg-emerald-500"
+                                    />
+                                    <div className="flex justify-between mt-2">
+                                      {allowedValues.map((d) => (
+                                        <button
+                                          key={d}
+                                          type="button"
+                                          onClick={() => {
+                                            if (onScenesChange) {
+                                              onScenesChange(
+                                                scenes.map((s) =>
+                                                  s.id === scene.id
+                                                    ? { ...s, recommendedDuration: d, isManualDuration: true }
+                                                    : s
+                                                )
+                                              );
+                                            }
+                                          }}
+                                          className={`text-xs w-5 h-5 rounded-full flex items-center justify-center transition-colors ${
+                                            d === currentVal
+                                              ? "bg-emerald-500 text-white font-bold"
+                                              : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                                          }`}
+                                        >
+                                          {d}
+                                        </button>
                                   ))}
                                 </div>
                               </>
+                            )}
+                          </>
                             );
                           })()}
                         </PopoverContent>

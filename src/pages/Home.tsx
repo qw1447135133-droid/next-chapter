@@ -38,9 +38,8 @@ const Home = () => {
     <div className="min-h-screen flex flex-col">
       {/* Nav */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-border/50">
-        <div className="flex items-center gap-2">
-          <BrandMark className="h-9 w-14" />
-          <span className="text-xl font-semibold font-[Space_Grotesk]">Infinio</span>
+        <div className="flex items-center">
+          <BrandMark className="h-12 w-auto" />
         </div>
         <Button variant="ghost" size="sm" onClick={() => navigate("/settings")}>
           <Settings className="h-4 w-4 mr-1" />

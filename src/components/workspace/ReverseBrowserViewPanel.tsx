@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Eye, EyeOff, Loader2, Play, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, Eye, EyeOff, Loader2, Play, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -77,7 +77,6 @@ interface ReverseBrowserViewPanelProps {
   scenes: Scene[];
   characters: CharacterSetting[];
   sceneSettings: SceneSetting[];
-  projectId?: string;
 }
 
 interface PromptTarget {
@@ -85,6 +84,15 @@ interface PromptTarget {
   fileInputIndex: number;
   scopedFileCount: number;
   textboxIndex: number;
+}
+
+type SegmentRunState =
+  | "idle"
+  | "submitted";
+
+interface SegmentRunStatus {
+  state: SegmentRunState;
+  detail?: string;
 }
 
 const JIMENG_HOME_URL = "https://jimeng.jianying.com/ai-tool/home";
@@ -257,6 +265,15 @@ function describeControl(control?: JimengAgentControl | null): string {
   return `#${control.id} ${label} @(${control.x},${control.y})`;
 }
 
+function segmentStateClassName(state?: SegmentRunState): string {
+  switch (state) {
+    case "submitted":
+      return "text-emerald-600";
+    default:
+      return "";
+  }
+}
+
 export default function ReverseBrowserViewPanel({
   scenes,
   characters,
@@ -271,10 +288,12 @@ export default function ReverseBrowserViewPanel({
   const [selectedStartKey, setSelectedStartKey] = useState("");
   const [selectedEpisodeKey, setSelectedEpisodeKey] = useState("");
   const [showBrowser, setShowBrowser] = useState(true);
+  const [logsCollapsed, setLogsCollapsed] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [currentAction, setCurrentAction] = useState("待命");
   const [progress, setProgress] = useState(0);
   const [operationLog, setOperationLog] = useState<string[]>([]);
+  const [segmentRunStatuses, setSegmentRunStatuses] = useState<Record<string, SegmentRunStatus>>({});
   const [browserState, setBrowserState] = useState<{
     visible: boolean;
     url?: string;
@@ -292,6 +311,13 @@ export default function ReverseBrowserViewPanel({
   const appendLog = useCallback((message: string) => {
     const entry = `[${new Date().toLocaleTimeString()}] ${message}`;
     setOperationLog((prev) => [...prev, entry]);
+  }, []);
+
+  const setSegmentRunStatus = useCallback((segmentKey: string, next: SegmentRunStatus) => {
+    setSegmentRunStatuses((prev) => ({
+      ...prev,
+      [segmentKey]: next,
+    }));
   }, []);
 
   useEffect(() => {
@@ -405,6 +431,20 @@ export default function ReverseBrowserViewPanel({
   }, [segmentDefinitions, selectedStartKey]);
 
   useEffect(() => {
+    if (!selectedEpisodeKey) return;
+    const episodeSegments = segmentDefinitions.filter(
+      (item) => item.episodeKey === selectedEpisodeKey,
+    );
+    if (episodeSegments.length === 0) return;
+    const stillValid = episodeSegments.some(
+      (item) => item.segmentKey === selectedStartKey,
+    );
+    if (!stillValid) {
+      setSelectedStartKey(episodeSegments[0].segmentKey);
+    }
+  }, [segmentDefinitions, selectedEpisodeKey, selectedStartKey]);
+
+  useEffect(() => {
     const api = window.electronAPI?.browserView;
     if (!api) return;
 
@@ -466,38 +506,6 @@ export default function ReverseBrowserViewPanel({
       void api.hide().then(() => api.close()).catch(() => {});
     };
   }, [appendLog, showBrowser, syncBrowserBounds]);
-
-  // Temporarily hide BrowserView when UI dropdowns/popovers open so they aren't obscured
-  useEffect(() => {
-    if (!showBrowser) return;
-    const api = window.electronAPI?.browserView;
-    if (!api) return;
-
-    let restoreTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const onPointerDown = (e: PointerEvent) => {
-      const placeholder = browserPlaceholderRef.current;
-      if (!placeholder) return;
-      const target = e.target as Element | null;
-      if (!target) return;
-      // Only hide when clicking an interactive control outside the BrowserView placeholder
-      const isInteractive =
-        target.closest("button, [role='button'], select, [role='combobox'], [role='listbox'], [role='option'], input, textarea, label, a") !== null;
-      if (!isInteractive) return;
-      if (placeholder.contains(target)) return;
-      void api.hide();
-      if (restoreTimer) clearTimeout(restoreTimer);
-      restoreTimer = setTimeout(() => {
-        void api.show().then(() => syncBrowserBounds());
-      }, 800);
-    };
-
-    document.addEventListener("pointerdown", onPointerDown, true);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      if (restoreTimer) clearTimeout(restoreTimer);
-    };
-  }, [showBrowser, syncBrowserBounds]);
 
   const ensureNotStopped = useCallback(() => {
     if (stopRequestedRef.current) {
@@ -1020,6 +1028,15 @@ export default function ReverseBrowserViewPanel({
             : ""
         }`,
       );
+      pendingGenerationTasksRef.current.push({
+        taskKey: `${definition.segmentKey}#${submissionIndex}`,
+        segmentKey: definition.segmentKey,
+        episodeKey: definition.episodeKey,
+      });
+      setSegmentRunStatus(definition.segmentKey, {
+        state: "submitted",
+        detail: `已提交 ${submissionIndex}/${totalSubmissions}`,
+      });
       return;
 
       const beforeSubmitState = await executeNamed<{
@@ -1141,6 +1158,7 @@ export default function ReverseBrowserViewPanel({
       reverseAspectRatio,
       reverseDuration,
       reverseModel,
+      setSegmentRunStatus,
     ],
   );
 
@@ -1185,6 +1203,7 @@ export default function ReverseBrowserViewPanel({
     setCurrentAction("准备中");
     setProgress(0);
     setOperationLog([]);
+    setSegmentRunStatuses({});
 
     try {
       await api.create({ url: JIMENG_VIDEO_URL });
@@ -1192,7 +1211,6 @@ export default function ReverseBrowserViewPanel({
       await syncBrowserBounds();
       appendLog("已启动程序内实时浏览器");
       await sleep(2500); // wait for page initial load
-
       const startIndex = segmentDefinitions.findIndex(
         (item) => item.segmentKey === selectedStartKey,
       );
@@ -1245,6 +1263,10 @@ export default function ReverseBrowserViewPanel({
               repeatIndex,
               repeatCount,
             );
+            setSegmentRunStatus(definition.segmentKey, {
+              state: "submitted",
+              detail: `已提交 ${repeatIndex}/${repeatCount}`,
+            });
           }
           completedRuns += 1;
           runsInCurrentBatch += 1;
@@ -1256,6 +1278,12 @@ export default function ReverseBrowserViewPanel({
           await api.navigate(JIMENG_VIDEO_URL);
           await sleep(1800);
         }
+      }
+
+      if (false && pendingGenerationTasksRef.current.length > 0) {
+        setCurrentAction("监控生成结果");
+        appendLog(`开始监控生成结果，待观察 ${pendingGenerationTasksRef.current.length} 个任务`);
+        await sleep(batchWaitMs);
       }
 
       setProgress(100);
@@ -1284,6 +1312,7 @@ export default function ReverseBrowserViewPanel({
     reverseRepeatCount,
     repeatSubmitPreparedPrompt,
     segmentDefinitions,
+    setSegmentRunStatus,
     selectedStartKey,
     submitSegmentOnce,
     syncBrowserBounds,
@@ -1346,6 +1375,7 @@ export default function ReverseBrowserViewPanel({
                   </SelectContent>
                 </Select>
                 <Select
+                  key={selectedEpisodeKey || "no-episode"}
                   value={selectedStartKey}
                   onValueChange={setSelectedStartKey}
                   disabled={!selectedEpisodeKey}
@@ -1358,8 +1388,13 @@ export default function ReverseBrowserViewPanel({
                       .filter((d) => d.episodeKey === selectedEpisodeKey)
                       .map((definition) => {
                         const segNum = definition.segmentKey.split("-").slice(1).join("-");
+                        const segmentState = segmentRunStatuses[definition.segmentKey]?.state;
                         return (
-                          <SelectItem key={definition.segmentKey} value={definition.segmentKey}>
+                          <SelectItem
+                            key={definition.segmentKey}
+                            value={definition.segmentKey}
+                            className={segmentStateClassName(segmentState)}
+                          >
                             第{segNum}段
                           </SelectItem>
                         );
@@ -1520,6 +1555,18 @@ export default function ReverseBrowserViewPanel({
             </div>
             <Progress value={progress} />
           </div>
+
+          <div className="flex justify-end">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setLogsCollapsed((prev) => !prev)}
+              className="gap-2 text-muted-foreground"
+            >
+              {logsCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              {logsCollapsed ? "显示日志" : "收起日志"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -1536,7 +1583,7 @@ export default function ReverseBrowserViewPanel({
         <CardHeader className="pb-3">
           <CardTitle>执行日志</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className={logsCollapsed ? "hidden" : undefined}>
           <ScrollArea className="h-[280px] rounded-md border p-3">
             <div ref={logRef} className="space-y-2 whitespace-pre-wrap text-xs">
               {operationLog.length === 0 ? (

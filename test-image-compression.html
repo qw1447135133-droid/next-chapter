@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>图像压缩测试</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+    }
+    .test-section {
+      margin: 20px 0;
+      padding: 20px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+    .result {
+      margin-top: 10px;
+      padding: 10px;
+      background: #f0f0f0;
+      border-radius: 3px;
+    }
+    .error {
+      background: #ffebee;
+      color: #c62828;
+    }
+    .success {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+  </style>
+</head>
+<body>
+  <h1>图像 Base64 转换测试</h1>
+  <p>测试大图像的 base64 转换是否会导致崩溃</p>
+
+  <div class="test-section">
+    <h2>测试 1: 旧方法 (reduce)</h2>
+    <button onclick="testOldMethod()">运行测试</button>
+    <div id="old-result" class="result"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>测试 2: 新方法 (分块)</h2>
+    <button onclick="testNewMethod()">运行测试</button>
+    <div id="new-result" class="result"></div>
+  </div>
+
+  <script>
+    // 生成一个大的测试图像 (模拟 2MB 的数据)
+    function generateLargeArrayBuffer(sizeMB) {
+      const size = sizeMB * 1024 * 1024;
+      const buffer = new ArrayBuffer(size);
+      const view = new Uint8Array(buffer);
+      // 填充一些随机数据
+      for (let i = 0; i < size; i += 1000) {
+        view[i] = Math.floor(Math.random() * 256);
+      }
+      return buffer;
+    }
+
+    // 旧方法：使用 reduce
+    function testOldMethod() {
+      const resultDiv = document.getElementById('old-result');
+      resultDiv.textContent = '测试中...';
+      resultDiv.className = 'result';
+
+      setTimeout(() => {
+        try {
+          const start = performance.now();
+          const arrayBuffer = generateLargeArrayBuffer(2); // 2MB
+          const bytes = new Uint8Array(arrayBuffer);
+
+          // 这是会导致崩溃的旧方法
+          const base64 = btoa(
+            bytes.reduce((data, byte) => data + String.fromCharCode(byte), "")
+          );
+
+          const end = performance.now();
+          const time = (end - start).toFixed(2);
+
+          resultDiv.textContent = `✓ 成功！耗时: ${time}ms, Base64 长度: ${base64.length}`;
+          resultDiv.className = 'result success';
+        } catch (err) {
+          resultDiv.textContent = `✗ 失败: ${err.message}`;
+          resultDiv.className = 'result error';
+        }
+      }, 100);
+    }
+
+    // 新方法：使用分块
+    function testNewMethod() {
+      const resultDiv = document.getElementById('new-result');
+      resultDiv.textContent = '测试中...';
+      resultDiv.className = 'result';
+
+      setTimeout(() => {
+        try {
+          const start = performance.now();
+          const arrayBuffer = generateLargeArrayBuffer(2); // 2MB
+          const bytes = new Uint8Array(arrayBuffer);
+
+          // 新方法：分块处理
+          let binary = "";
+          const chunkSize = 8192;
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            const chunk = bytes.subarray(i, i + chunkSize);
+            binary += String.fromCharCode(...chunk);
+          }
+          const base64 = btoa(binary);
+
+          const end = performance.now();
+          const time = (end - start).toFixed(2);
+
+          resultDiv.textContent = `✓ 成功！耗时: ${time}ms, Base64 长度: ${base64.length}`;
+          resultDiv.className = 'result success';
+        } catch (err) {
+          resultDiv.textContent = `✗ 失败: ${err.message}`;
+          resultDiv.className = 'result error';
+        }
+      }, 100);
+    }
+  </script>
+</body>
+</html>

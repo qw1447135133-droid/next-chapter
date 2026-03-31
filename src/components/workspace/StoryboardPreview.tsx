@@ -9,12 +9,26 @@ import { Image, RefreshCw, Loader2, ArrowRight, History, ChevronDown, RectangleH
 import ImageThumbnail from "./ImageThumbnail";
 
 export type StoryboardAspectRatio = "16:9" | "9:16" | "3:2" | "2:3";
-export type StoryboardModel = "gemini-3-pro-image-preview" | "doubao-seedream-5-0-260128" | "gemini-3.1-flash-image-preview";
+export type StoryboardModel = "nano-banana-pro" | "nano-banana-2";
+export type ImageResolution = "1K" | "2K" | "4K";
+
+// Map resolution to actual model value
+const RESOLUTION_TO_MODEL_MAP: Record<StoryboardModel, Record<ImageResolution, string>> = {
+  "nano-banana-pro": {
+    "1K": "gemini-3-pro-image-preview-async",
+    "2K": "gemini-3-pro-image-preview-2k-async",
+    "4K": "gemini-3-pro-image-preview-4k-async",
+  },
+  "nano-banana-2": {
+    "1K": "nano-banana-2",
+    "2K": "nano-banana-2-2k",
+    "4K": "nano-banana-2-4k",
+  },
+};
 
 const STORYBOARD_MODEL_OPTIONS: { value: StoryboardModel; label: string }[] = [
-  { value: "gemini-3-pro-image-preview", label: "Gemini 3 Pro Image Preview" },
-  { value: "gemini-3.1-flash-image-preview", label: "Gemini 3.1 Flash Image Preview" },
-  { value: "doubao-seedream-5-0-260128", label: "Seedream 5.0" },
+  { value: "nano-banana-pro", label: "nano banana pro" },
+  { value: "nano-banana-2", label: "nano-banana-2" },
 ];
 
 const ASPECT_RATIO_OPTIONS: { value: StoryboardAspectRatio; label: string; icon: typeof RectangleHorizontal; cssAspect: string }[] = [
@@ -59,7 +73,20 @@ const StoryboardPreview = ({
   };
   const [arOpen, setArOpen] = useState(false);
   const [storyboardModel, setStoryboardModelState] = useState<StoryboardModel>(() => {
-    try { return (localStorage.getItem("storyboard-model") as StoryboardModel) || "gemini-3-pro-image-preview"; } catch { return "gemini-3-pro-image-preview"; }
+    try {
+      const stored = localStorage.getItem("storyboard-model") || "nano-banana-pro";
+      // 迁移旧的模型值到新的模型系统
+      if (stored.includes("gemini-3-pro-image-preview")) {
+        return "nano-banana-pro";
+      }
+      // 确保值在有效范围内
+      if (stored === "nano-banana-pro" || stored === "nano-banana-2") {
+        return stored as StoryboardModel;
+      }
+      return "nano-banana-pro";
+    } catch {
+      return "nano-banana-pro";
+    }
   });
   const setStoryboardModel = (v: StoryboardModel) => {
     setStoryboardModelState(v);
@@ -67,6 +94,26 @@ const StoryboardPreview = ({
   };
   const [modelOpen, setModelOpen] = useState(false);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Resolution selector state
+  const [storyboardResolution, setStoryboardResolutionState] = useState<ImageResolution>(() => {
+    try {
+      const stored = localStorage.getItem("storyboard-resolution") || "2K";
+      // 确保值在有效范围内
+      if (stored === "1K" || stored === "2K" || stored === "4K") {
+        return stored as ImageResolution;
+      }
+      return "2K";
+    } catch {
+      return "2K";
+    }
+  });
+  const setStoryboardResolution = (v: ImageResolution) => {
+    setStoryboardResolutionState(v);
+    try { localStorage.setItem("storyboard-resolution", v); } catch { /* ignore */ }
+  };
+  const [resolutionOpen, setResolutionOpen] = useState(false);
+  const resolutionDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -78,9 +125,34 @@ const StoryboardPreview = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [modelOpen]);
 
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (resolutionDropdownRef.current && !resolutionDropdownRef.current.contains(e.target as Node)) {
+        setResolutionOpen(false);
+      }
+    };
+    if (resolutionOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [resolutionOpen]);
+
   const isAnyGenerating = (generatingScenes?.size ?? 0) > 0;
-  const currentModel = STORYBOARD_MODEL_OPTIONS.find((o) => o.value === storyboardModel)!;
+  const currentModel = STORYBOARD_MODEL_OPTIONS.find((o) => o.value === storyboardModel) || STORYBOARD_MODEL_OPTIONS[0];
   const currentAR = ASPECT_RATIO_OPTIONS.find((o) => o.value === aspectRatio)!;
+
+  // Get actual model value based on selected model and resolution
+  const getActualModelValue = () => {
+    const modelMap = RESOLUTION_TO_MODEL_MAP[storyboardModel];
+    if (!modelMap) {
+      console.warn(`Unknown model: ${storyboardModel}, falling back to nano-banana-pro`);
+      return RESOLUTION_TO_MODEL_MAP["nano-banana-pro"][storyboardResolution] || "gemini-3-pro-image-preview-2k-async";
+    }
+    const actualModel = modelMap[storyboardResolution];
+    if (!actualModel) {
+      console.warn(`Unknown resolution: ${storyboardResolution} for model: ${storyboardModel}, falling back to 2K`);
+      return modelMap["2K"] || "gemini-3-pro-image-preview-2k-async";
+    }
+    return actualModel;
+  };
 
   const restoreFromHistory = (sceneId: string, url: string) => {
     const updated = scenes.map((s) => {
@@ -135,6 +207,34 @@ const StoryboardPreview = ({
                 </div>
               )}
             </div>
+            {/* Resolution Selector */}
+            <div className="relative" ref={resolutionDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setResolutionOpen((v) => !v)}
+                disabled={isAnyGenerating}
+                className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {storyboardResolution}
+                <ChevronDown className={`h-3 w-3 transition-transform ${resolutionOpen ? "rotate-180" : ""}`} />
+              </button>
+              {resolutionOpen && (
+                <div className="absolute left-0 top-full mt-1 z-50 min-w-[80px] rounded-lg border border-border bg-popover shadow-lg py-1">
+                  {(["1K", "2K", "4K"] as ImageResolution[]).map((res) => (
+                    <button
+                      key={res}
+                      type="button"
+                      onClick={() => { setStoryboardResolution(res); setResolutionOpen(false); }}
+                      className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent ${
+                        res === storyboardResolution ? "text-primary font-semibold" : "text-popover-foreground"
+                      }`}
+                    >
+                      {res}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
           <p className="text-sm text-muted-foreground mt-1">为每个分镜生成对应的画面图像</p>
         </div>
@@ -171,7 +271,7 @@ const StoryboardPreview = ({
               {isAborting ? "正在中止..." : "中止生成"}
             </Button>
           ) : (
-            <Button variant="outline" onClick={() => onGenerateAll(aspectRatio, storyboardModel)} disabled={isAnyGenerating} className="gap-1">
+            <Button variant="outline" onClick={() => onGenerateAll(aspectRatio, getActualModelValue())} disabled={isAnyGenerating} className="gap-1">
               <Image className="h-3.5 w-3.5" />
               全部生成
             </Button>
@@ -205,7 +305,7 @@ const StoryboardPreview = ({
                     variant="outline"
                     size="sm"
                     className="h-7 text-xs gap-1"
-                    onClick={() => onGenerateScene(scene.id, aspectRatio, storyboardModel)}
+                    onClick={() => onGenerateScene(scene.id, aspectRatio, getActualModelValue())}
                     disabled={isGen}
                   >
                     {isGen ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}

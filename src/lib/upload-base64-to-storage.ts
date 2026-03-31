@@ -52,12 +52,29 @@ async function fetchAsBase64(url: string): Promise<{ base64: string; mimeType?: 
       return { mimeType: match[1], base64: match[2] };
     }
 
+    // 🛡️ Handle file paths via Electron API
+    const isFilePath = !url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("blob:");
+    if (isFilePath && window.electronAPI?.storage?.readBase64) {
+      const result = await window.electronAPI.storage.readBase64(url);
+      if (result?.ok && result?.base64) {
+        return { base64: result.base64, mimeType: result.mimeType };
+      }
+      return null;
+    }
+
     const response = await fetch(url);
     if (!response.ok) return null;
     const buffer = await response.arrayBuffer();
-    let binary = "";
+
+    // 🛡️ 使用分块处理避免大图像导致内存溢出
     const bytes = new Uint8Array(buffer);
-    for (const byte of bytes) binary += String.fromCharCode(byte);
+    let binary = "";
+    const chunkSize = 8192;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode(...chunk);
+    }
+
     return {
       base64: btoa(binary),
       mimeType: response.headers.get("content-type") || undefined,
@@ -68,7 +85,7 @@ async function fetchAsBase64(url: string): Promise<{ base64: string; mimeType?: 
 }
 
 export function buildThumbnailRelativePath(source: string): string {
-  return `images\\generated\\thumbnails\\${hashString(source)}.jpg`;
+  return `images/generated/thumbnails/${hashString(source)}.jpg`;
 }
 
 export async function readCachedThumbnailDataUrl(
@@ -85,7 +102,7 @@ export async function readCachedThumbnailDataUrl(
   if (!projectRoot) return null;
 
   const result = await storage.readBase64(
-    `${projectRoot}\\${buildThumbnailRelativePath(source)}`,
+    `${projectRoot}/${buildThumbnailRelativePath(source)}`,
   );
   if (!result.ok || !result.exists || !result.base64) return null;
   return `data:${result.mimeType || "image/jpeg"};base64,${result.base64}`;
@@ -129,7 +146,7 @@ export async function persistAssetToProjectCache(
   if (!base64Data?.base64) return false;
 
   const cleanRelativePath = relativePath.replace(/^[/\\]+/, "");
-  return await writeBase64File(`${projectRoot}\\${cleanRelativePath}`, base64Data.base64);
+  return await writeBase64File(`${projectRoot}/${cleanRelativePath}`, base64Data.base64);
 }
 
 /**
@@ -141,6 +158,21 @@ export async function ensureStorageUrl(
   folder: string = "characters",
 ): Promise<string> {
   const projectId = getCurrentProjectId();
+  const isLocalFilePath =
+    !!dataUrl &&
+    !dataUrl.startsWith("data:") &&
+    !dataUrl.startsWith("http://") &&
+    !dataUrl.startsWith("https://") &&
+    !dataUrl.startsWith("blob:");
+
+  // Already persisted by the Electron-side write path.
+  // Re-reading and re-writing the same freshly-generated local file just to
+  // "ensure" storage duplicates image decode/compression work and can spike
+  // renderer memory right after generation completes.
+  if (isLocalFilePath) {
+    return dataUrl;
+  }
+
   try {
     const base64Data = await fetchAsBase64(dataUrl);
     if (base64Data?.base64) {
@@ -149,7 +181,7 @@ export async function ensureStorageUrl(
       const fileName = `${timestamp}-${Math.random().toString(36).slice(2, 8)}${ext}`;
       await persistAssetToProjectCache(
         dataUrl,
-        `images\\generated\\${safeName(folder)}\\${fileName}`,
+        `images/generated/${safeName(folder)}/${fileName}`,
         projectId,
       );
       await persistThumbnailToProjectCache(dataUrl, projectId);

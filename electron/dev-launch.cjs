@@ -29,14 +29,21 @@ function launchElectron() {
   const env = { ...process.env, VITE_DEV_SERVER_URL: url };
   delete env.ELECTRON_RUN_AS_NODE;
 
+  console.log('[dev-launch] Launching Electron...');
   const child = spawn('electron', ['.'], {
     stdio: 'inherit',
     shell: true,
     env,
   });
 
-  child.on('exit', () => {
-    process.exit(0);
+  child.on('exit', (code, signal) => {
+    console.log(`[dev-launch] Electron exited with code ${code}, signal ${signal}`);
+    process.exit(code || 0);
+  });
+
+  child.on('error', (err) => {
+    console.error('[dev-launch] Failed to start Electron:', err);
+    process.exit(1);
   });
 }
 

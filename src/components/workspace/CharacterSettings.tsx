@@ -12,14 +12,41 @@ import { Badge } from "@/components/ui/badge";
 import {
   Plus, Trash2, Upload, Sparkles, ArrowRight, User, MapPin, Loader2, ImageIcon, ChevronDown, Shirt, Square, Clock, LayoutGrid, Image, Music, X,
 } from "lucide-react";
-import ImageThumbnail, { prewarmThumbnail } from "./ImageThumbnail";
+import ImageThumbnail, { prewarmThumbnail as originalPrewarmThumbnail } from "./ImageThumbnail";
 
-export type CharImageModel = "gemini-3-pro-image-preview" | "gemini-3.1-flash-image-preview" | "doubao-seedream-5-0-260128";
+// 安全的缩略图预热包装函数
+const prewarmThumbnail = (url: string) => {
+  try {
+    if (url) {
+      originalPrewarmThumbnail(url);
+    }
+  } catch (err) {
+    console.warn("预热缩略图失败:", err);
+    // 不阻塞主流程
+  }
+};
+
+export type CharImageModel = "nano-banana-pro" | "nano-banana-2";
+
+export type ImageResolution = "1K" | "2K" | "4K";
+
+// Map resolution to actual model value
+const RESOLUTION_TO_MODEL_MAP: Record<CharImageModel, Record<ImageResolution, string>> = {
+  "nano-banana-pro": {
+    "1K": "gemini-3-pro-image-preview-async",
+    "2K": "gemini-3-pro-image-preview-2k-async",
+    "4K": "gemini-3-pro-image-preview-4k-async",
+  },
+  "nano-banana-2": {
+    "1K": "nano-banana-2",
+    "2K": "nano-banana-2-2k",
+    "4K": "nano-banana-2-4k",
+  },
+};
 
 const CHAR_IMAGE_MODEL_OPTIONS: { value: CharImageModel; label: string }[] = [
-  { value: "gemini-3-pro-image-preview", label: "Gemini 3 Pro Image Preview" },
-  { value: "gemini-3.1-flash-image-preview", label: "Gemini 3.1 Flash Image Preview" },
-  { value: "doubao-seedream-5-0-260128", label: "Seedream 5.0" },
+  { value: "nano-banana-pro", label: "nano banana pro" },
+  { value: "nano-banana-2", label: "nano-banana-2" },
 ];
 import ImageHistoryDialog from "./ImageHistoryDialog";
 
@@ -195,7 +222,16 @@ const CharacterSettings = ({
 
   // Image model selector state (persisted to localStorage)
   const [charImageModel, setCharImageModelState] = useState<CharImageModel>(() => {
-    return safeGetLocalStorage<CharImageModel>("char-image-model", "gemini-3-pro-image-preview");
+    const stored = safeGetLocalStorage<string>("char-image-model", "nano-banana-pro");
+    // 迁移旧的模型值到新的模型系统
+    if (stored.includes("gemini-3-pro-image-preview")) {
+      return "nano-banana-pro";
+    }
+    // 确保值在有效范围内
+    if (stored === "nano-banana-pro" || stored === "nano-banana-2") {
+      return stored as CharImageModel;
+    }
+    return "nano-banana-pro";
   });
   const setCharImageModel = (v: CharImageModel) => {
     setCharImageModelState(v);
@@ -203,6 +239,22 @@ const CharacterSettings = ({
   };
   const [charModelOpen, setCharModelOpen] = useState(false);
   const charModelDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Resolution selector state (persisted to localStorage)
+  const [imageResolution, setImageResolutionState] = useState<ImageResolution>(() => {
+    const stored = safeGetLocalStorage<string>("char-image-resolution", "2K");
+    // 确保值在有效范围内
+    if (stored === "1K" || stored === "2K" || stored === "4K") {
+      return stored as ImageResolution;
+    }
+    return "2K";
+  });
+  const setImageResolution = (v: ImageResolution) => {
+    setImageResolutionState(v);
+    try { localStorage.setItem("char-image-resolution", v); } catch { /* ignore */ }
+  };
+  const [resolutionOpen, setResolutionOpen] = useState(false);
+  const resolutionDropdownRef = useRef<HTMLDivElement>(null);
 
   // Character view mode: "tri-view" (16:9 three-view sheet) or "single" (9:16 front portrait)
   type CharViewMode = "tri-view" | "single";
@@ -236,7 +288,32 @@ const CharacterSettings = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [charModelOpen]);
 
-  const currentCharModel = CHAR_IMAGE_MODEL_OPTIONS.find((o) => o.value === charImageModel)!;
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (resolutionDropdownRef.current && !resolutionDropdownRef.current.contains(e.target as Node)) {
+        setResolutionOpen(false);
+      }
+    };
+    if (resolutionOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [resolutionOpen]);
+
+  const currentCharModel = CHAR_IMAGE_MODEL_OPTIONS.find((o) => o.value === charImageModel) || CHAR_IMAGE_MODEL_OPTIONS[0];
+
+  // Get actual model value based on selected model and resolution
+  const getActualModelValue = () => {
+    const modelMap = RESOLUTION_TO_MODEL_MAP[charImageModel];
+    if (!modelMap) {
+      console.warn(`Unknown model: ${charImageModel}, falling back to nano-banana-pro`);
+      return RESOLUTION_TO_MODEL_MAP["nano-banana-pro"][imageResolution] || "gemini-3-pro-image-preview-2k-async";
+    }
+    const actualModel = modelMap[imageResolution];
+    if (!actualModel) {
+      console.warn(`Unknown resolution: ${imageResolution} for model: ${charImageModel}, falling back to 2K`);
+      return modelMap["2K"] || "gemini-3-pro-image-preview-2k-async";
+    }
+    return actualModel;
+  };
 
   // Effective style: for "custom" artStyle, pass the custom prompt as the style string
   const effectiveStyle = artStyle === "custom" && customArtStylePrompt?.trim()
@@ -470,7 +547,7 @@ const CharacterSettings = ({
               name: `${character.name} - ${freshCos?.label || cos.label}`,
               description: combinedDesc,
               style: effectiveStyle,
-              model: charImageModel,
+              model: getActualModelValue(),
               referenceImageUrl: isFirstCostume ? undefined : anchorImageUrl,
               viewMode: charViewMode,
             }),
@@ -584,7 +661,7 @@ const CharacterSettings = ({
       setGeneratingCharImgIds((prev) => new Set(prev).add(id));
       try {
         const { data, error } = await withTimeout(
-          invokeFunction("generate-character", { name: character.name, description: character.description, style: effectiveStyle, model: charImageModel, viewMode: charViewMode }),
+          invokeFunction("generate-character", { name: character.name, description: character.description, style: effectiveStyle, model: getActualModelValue(), viewMode: charViewMode }),
           CHAR_IMAGE_TIMEOUT_MS,
         );
         if (error) throw error;
@@ -791,7 +868,7 @@ const CharacterSettings = ({
                 name: `${scene.name} - ${freshTv?.label || tv.label}`,
                 description: combinedDesc,
                 style: effectiveStyle,
-                model: charImageModel,
+                model: getActualModelValue(),
                 referenceImageUrl: isFirstVariant ? undefined : anchorImageUrl,
               }),
               SCENE_IMAGE_TIMEOUT_MS,
@@ -859,7 +936,7 @@ const CharacterSettings = ({
       setGeneratingSceneImgIds((prev) => new Set(prev).add(id));
       try {
         const { data, error } = await withTimeout(
-          invokeFunction("generate-scene", { name: scene.name, description: scene.description, style: effectiveStyle, model: charImageModel }),
+          invokeFunction("generate-scene", { name: scene.name, description: scene.description, style: effectiveStyle, model: getActualModelValue() }),
           SCENE_IMAGE_TIMEOUT_MS,
         );
         if (error) throw error;
@@ -1343,7 +1420,7 @@ const CharacterSettings = ({
                   name: c.name,
                   description: latest?.description || desc,
                   style: effectiveStyle,
-                  model: charImageModel,
+                  model: getActualModelValue(),
                   viewMode: charViewMode,
                 }),
                 CHAR_IMAGE_TIMEOUT_MS,
@@ -1410,7 +1487,7 @@ const CharacterSettings = ({
                   name: `${c.name} - ${freshCos?.label || cos.label}`,
                   description: combinedDesc,
                   style: effectiveStyle,
-                  model: charImageModel,
+                  model: getActualModelValue(),
                   referenceImageUrl: isFirstCostume ? undefined : costumeAnchorUrl,
                   viewMode: charViewMode,
                 }),
@@ -1552,7 +1629,7 @@ const CharacterSettings = ({
                   name: s.name,
                   description: latest?.description || desc,
                   style: effectiveStyle,
-                  model: charImageModel,
+                  model: getActualModelValue(),
                 }),
                 SCENE_IMAGE_TIMEOUT_MS,
               ),
@@ -1611,7 +1688,7 @@ const CharacterSettings = ({
                   name: `${s.name} - ${freshTv?.label || tv.label}`,
                   description: combinedDesc,
                   style: effectiveStyle,
-                  model: charImageModel,
+                  model: getActualModelValue(),
                   referenceImageUrl: isFirstVariant ? undefined : tvAnchorUrl,
                 }),
                 SCENE_IMAGE_TIMEOUT_MS,
@@ -1721,6 +1798,34 @@ const CharacterSettings = ({
                       }`}
                     >
                       {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {/* Resolution Selector */}
+            <div className="relative" ref={resolutionDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setResolutionOpen((v) => !v)}
+                disabled={isAutoDetectingAll}
+                className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {imageResolution}
+                <ChevronDown className={`h-3 w-3 transition-transform ${resolutionOpen ? "rotate-180" : ""}`} />
+              </button>
+              {resolutionOpen && (
+                <div className="absolute left-0 top-full mt-1 z-50 min-w-[80px] rounded-lg border border-border bg-popover shadow-lg py-1">
+                  {(["1K", "2K", "4K"] as ImageResolution[]).map((res) => (
+                    <button
+                      key={res}
+                      type="button"
+                      onClick={() => { setImageResolution(res); setResolutionOpen(false); }}
+                      className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent ${
+                        res === imageResolution ? "text-primary font-semibold" : "text-popover-foreground"
+                      }`}
+                    >
+                      {res}
                     </button>
                   ))}
                 </div>
@@ -2078,14 +2183,27 @@ const CharacterSettings = ({
             try {
               const combinedDesc = `${c.name}，${costume.label}：${costume.description || c.description}`;
               const { data, error } = await withTimeout(
-                invokeFunction("generate-character", { name: `${c.name} - ${costume.label}`, description: combinedDesc, style: effectiveStyle, model: charImageModel, referenceImageUrl, viewMode: charViewMode }),
+                invokeFunction("generate-character", { name: `${c.name} - ${costume.label}`, description: combinedDesc, style: effectiveStyle, model: getActualModelValue(), referenceImageUrl, viewMode: charViewMode }),
                 CHAR_IMAGE_TIMEOUT_MS,
               );
               if (error) throw error;
               if (data?.error) throw new Error(data.error);
               const rawUrl = data.imageUrl;
+
+              // 安全检查：确保 rawUrl 存在
+              if (!rawUrl) {
+                throw new Error("API 未返回图像 URL");
+              }
+
               prewarmThumbnail(rawUrl);
               const freshChar = charactersRef.current.find((ch) => ch.id === c.id);
+
+              // 安全检查：确保角色存在
+              if (!freshChar) {
+                console.error("角色状态丢失，ID:", c.id);
+                throw new Error("角色状态丢失，请刷新页面重试");
+              }
+
               const freshCostume = freshChar?.costumes?.find(cos => cos.id === costumeId);
               const history = [...(freshCostume?.imageHistory || [])];
               if (freshCostume?.imageUrl) {
@@ -2096,15 +2214,22 @@ const CharacterSettings = ({
               );
               updateCharacterAsync(c.id, { costumes: updatedCostumes });
               toast({ title: "生成成功", description: `${c.name}「${costume.label}」服装图已生成` });
+
+              // 异步上传到存储，不阻塞主流程
               ensureStorageUrl(rawUrl, "costumes").then(finalUrl => {
                 if (finalUrl !== rawUrl) {
                   const latestChar = charactersRef.current.find(ch => ch.id === c.id);
-                  const upd = (latestChar?.costumes || []).map(cos =>
-                    cos.id === costumeId ? { ...cos, imageUrl: finalUrl } : cos
-                  );
-                  updateCharacterAsync(c.id, { costumes: upd });
+                  if (latestChar) {
+                    const upd = (latestChar?.costumes || []).map(cos =>
+                      cos.id === costumeId ? { ...cos, imageUrl: finalUrl } : cos
+                    );
+                    updateCharacterAsync(c.id, { costumes: upd });
+                  }
                 }
-              }).catch(() => {});
+              }).catch((err) => {
+                console.error("上传图像到存储失败:", err);
+                // 不显示错误给用户，因为图像已经生成成功
+              });
             } catch (e: any) {
               console.error("Costume generation error:", e);
               const fe = friendlyError(e);
@@ -2496,7 +2621,7 @@ const CharacterSettings = ({
             try {
               const combinedDesc = `${s.name}，${tv.label}：${tv.description || s.description}`;
               const { data, error } = await withTimeout(
-                invokeFunction("generate-scene", { name: `${s.name} - ${tv.label}`, description: combinedDesc, style: effectiveStyle, model: charImageModel, referenceImageUrl }),
+                invokeFunction("generate-scene", { name: `${s.name} - ${tv.label}`, description: combinedDesc, style: effectiveStyle, model: getActualModelValue(), referenceImageUrl }),
                 SCENE_IMAGE_TIMEOUT_MS,
               );
               if (error) throw error;
