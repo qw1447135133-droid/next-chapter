@@ -192,6 +192,21 @@ function sharedHelpers(): string {
       node.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowDown", bubbles: true }));
       return clicked;
     };
+    const closeTransientPopups = () => {
+      try {
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        document.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape", bubbles: true }));
+      } catch (e0) {}
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) {
+        try { active.blur(); } catch (e1) {}
+      }
+      const textbox = findPromptTextbox();
+      if (textbox instanceof HTMLElement) {
+        try { textbox.focus(); } catch (e2) {}
+      }
+      return true;
+    };
     const readToolbarTexts = () => toolbarNodes().map((node) => textOf(node)).filter(Boolean);
     const readScope = (textboxIndex = 0) => {
       const textboxes = promptTextboxes();
@@ -437,6 +452,7 @@ export function buildSetFullReferenceScript(): string {
       });
       if (popupOption instanceof HTMLElement) {
         clickLikeHuman(popupOption);
+        closeTransientPopups();
         return {
           ok: true,
           step: "reference-selected-popup",
@@ -448,6 +464,7 @@ export function buildSetFullReferenceScript(): string {
         interactiveNodes().find((node) => textOf(node) === "全能参考" || textOf(node) === "Full Reference");
       if (!(option instanceof HTMLElement)) return { ok: false, step: "option-not-found", currentReference: textOf(control) };
       clickLikeHuman(option);
+      closeTransientPopups();
       return { ok: true, step: "reference-selected", currentReference: textOf(option) };
     })()
   `;
@@ -521,6 +538,7 @@ export function buildSetModelScript(targetModel: string): string {
         .sort((a, b) => scoreOption(b) - scoreOption(a))[0] || null;
       if (popupOption instanceof HTMLElement && scoreOption(popupOption) > 0) {
         clickLikeHuman(popupOption);
+        closeTransientPopups();
         return {
           ok: true,
           step: "model-selected-popup",
@@ -567,6 +585,7 @@ export function buildSetModelScript(targetModel: string): string {
       }
 
       clickLikeHuman(option);
+      closeTransientPopups();
       return {
         ok: true,
         step: "model-selected",
@@ -677,6 +696,7 @@ export function buildSetDurationScript(targetDuration: string): string {
       option.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: 1, pointerType: "mouse", clientX: cx, clientY: cy }));
       option.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
       option.click();
+      closeTransientPopups();
       return { ok: true, step: "duration-selected", debug: textOf(option) };
     })()
   `;
@@ -1169,6 +1189,7 @@ export function buildComposePromptWithReferenceMentionsScript(
           const selectedText = readOptionText(target);
           insertedMentions.push(selectedText);
           await wait(mentionPickedDelayMs);
+          closeTransientPopups();
           const promptAfterMention = normalize(getTextboxValue(textbox));
           if (promptAfterMention.endsWith("@") || !selectedText) {
             return { ok: false, step: "mention-not-applied", insertedMentions };

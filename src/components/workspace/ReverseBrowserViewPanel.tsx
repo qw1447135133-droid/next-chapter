@@ -462,8 +462,8 @@ export default function ReverseBrowserViewPanel({
     return () => {
       window.removeEventListener("resize", onResize);
       window.removeEventListener("scroll", onResize, true);
-      // Hide browser when component unmounts (navigating away from reverse mode)
-      void api.hide();
+      // CRITICAL: Hide and close browser when component unmounts (navigating away from reverse mode)
+      void api.hide().then(() => api.close()).catch(() => {});
     };
   }, [appendLog, showBrowser, syncBrowserBounds]);
 
@@ -915,6 +915,17 @@ export default function ReverseBrowserViewPanel({
       }
 
       appendLog(`片段 ${definition.segmentKey} 提示词写入完成`);
+
+      await executeNamed<{ ok: boolean }>(
+        "close-transient-popups",
+        `(() => {
+          try {
+            document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+            document.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape", bubbles: true }));
+          } catch (e) {}
+          return { ok: true };
+        })()`,
+      ).catch(() => null);
 
       return promptTarget;
     },

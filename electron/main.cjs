@@ -223,6 +223,21 @@ function sharedHelpers() {
       node.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowDown", bubbles: true }));
       return clicked;
     };
+    const closeTransientPopups = () => {
+      try {
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        document.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape", bubbles: true }));
+      } catch (e0) {}
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) {
+        try { active.blur(); } catch (e1) {}
+      }
+      const textbox = findPromptTextbox();
+      if (textbox instanceof HTMLElement) {
+        try { textbox.focus(); } catch (e2) {}
+      }
+      return true;
+    };
     const readToolbarTexts = () => toolbarNodes().map((node) => textOf(node)).filter(Boolean);
     const readScope = (textboxIndex = 0) => {
       const textboxes = promptTextboxes();

@@ -60,29 +60,29 @@ const API_ROWS: Array<{
     id: "gemini",
     title: "Gemini",
     endpointPlaceholder: "https://api.tu-zi.com/v1beta",
-    endpointHint: "Gemini-compatible gateway base URL.",
-    keyHint: "Bearer token for the Gemini-compatible gateway.",
+    endpointHint: "Gemini 兼容网关的根地址。",
+    keyHint: "Gemini 兼容网关对应的 Bearer Token。",
   },
   {
     id: "jimeng",
-    title: "Jimeng / Seedance",
+    title: "即梦 / Seedance",
     endpointPlaceholder: "https://api.tu-zi.com/v1beta",
-    endpointHint: "Seedance video gateway base URL. Leave blank to reuse the Gemini endpoint.",
-    keyHint: "API key for Seedance video. If blank, Gemini key will be reused.",
+    endpointHint: "Seedance 视频网关根地址。留空时复用 Gemini 端点。",
+    keyHint: "Seedance 视频 API Key。留空时复用 Gemini Key。",
   },
   {
     id: "vidu",
     title: "Vidu",
     endpointPlaceholder: "https://api.vidu.cn/ent/v2",
-    endpointHint: "Vidu API base URL.",
-    keyHint: "Vidu API key.",
+    endpointHint: "Vidu API 根地址。",
+    keyHint: "Vidu API Key。",
   },
   {
     id: "kling",
     title: "Kling",
     endpointPlaceholder: "https://api.klingai.com",
-    endpointHint: "Kling API base URL.",
-    keyHint: "Kling API key.",
+    endpointHint: "Kling API 根地址。",
+    keyHint: "Kling API Key。",
   },
 ];
 
@@ -126,7 +126,7 @@ export default function Settings() {
         setDefaultStoragePath(paths.files);
         setDefaultDownloadPath(paths.files);
       } catch (error) {
-        console.error("Failed to load default paths:", error);
+        console.error("加载默认路径失败:", error);
       }
     };
     void loadDefaultPath();
@@ -171,13 +171,13 @@ export default function Settings() {
 
   const handleSave = () => {
     saveApiConfig(config);
-    toast({ title: "Saved", description: "Settings have been saved locally." });
+    toast({ title: "已保存", description: "设置已保存到本地。" });
   };
 
   const handleClear = () => {
     clearApiConfig();
     setConfig({ ...DEFAULT_API_CONFIG });
-    toast({ title: "Cleared", description: "All settings were reset to defaults." });
+    toast({ title: "已清除", description: "所有设置已恢复默认值。" });
   };
 
   const handleExportCustomConfig = () => {
@@ -204,10 +204,10 @@ export default function Settings() {
           ...(parsed.modelMappings || {}),
         },
       }));
-      toast({ title: "Imported", description: `Loaded ${file.name}` });
+      toast({ title: "已导入", description: `已读取 ${file.name}` });
     } catch (error) {
       toast({
-        title: "Import failed",
+        title: "导入失败",
         description: error instanceof Error ? error.message : String(error),
         variant: "destructive",
       });
@@ -217,7 +217,7 @@ export default function Settings() {
   };
   const handleTestProvider = async (provider: ProviderId) => {
     const stateKey = `provider:${provider}`;
-    updateTestState(stateKey, "testing", "Testing...");
+    updateTestState(stateKey, "testing", "测试中...");
     try {
       const runtimeConfig = resolveApiConfigForRuntime(config);
 
@@ -241,7 +241,7 @@ export default function Settings() {
           const text = await resp.text().catch(() => "");
           throw new Error(`${resp.status}: ${text.slice(0, 160)}`);
         }
-        updateTestState(stateKey, "success", "Gemini endpoint is reachable.");
+        updateTestState(stateKey, "success", "Gemini 端点可用。");
         return;
       }
 
@@ -258,7 +258,7 @@ export default function Settings() {
           const text = await resp.text().catch(() => "");
           throw new Error(`${resp.status}: ${text.slice(0, 160)}`);
         }
-        updateTestState(stateKey, "success", "Seedance endpoint is reachable.");
+        updateTestState(stateKey, "success", "Seedance 端点可用。");
         return;
       }
 
@@ -269,9 +269,9 @@ export default function Settings() {
           headers: { Authorization: `Bearer ${runtimeConfig.viduKey}` },
         });
         if (resp.status === 401 || resp.status === 403) {
-          throw new Error(`Auth failed (${resp.status})`);
+          throw new Error(`鉴权失败 (${resp.status})`);
         }
-        updateTestState(stateKey, "success", `Vidu responded (${resp.status}).`);
+        updateTestState(stateKey, "success", `Vidu 已连通 (${resp.status})。`);
         return;
       }
 
@@ -281,9 +281,9 @@ export default function Settings() {
         headers: { Authorization: `Bearer ${runtimeConfig.klingKey}` },
       });
       if (resp.status === 401 || resp.status === 403) {
-        throw new Error(`Auth failed (${resp.status})`);
+        throw new Error(`鉴权失败 (${resp.status})`);
       }
-      updateTestState(stateKey, "success", `Kling responded (${resp.status}).`);
+      updateTestState(stateKey, "success", `Kling 已连通 (${resp.status})。`);
     } catch (error) {
       updateTestState(stateKey, "error", error instanceof Error ? error.message : String(error));
     }
@@ -295,7 +295,7 @@ export default function Settings() {
     category: "text" | "image" | "video",
   ) => {
     const stateKey = `${provider}:${modelKey}`;
-    updateTestState(stateKey, "testing", "Testing...");
+    updateTestState(stateKey, "testing", "测试中...");
     try {
       const runtimeConfig = resolveApiConfigForRuntime(config);
       const mappedModel = resolveConfiguredModelNameFromConfig(runtimeConfig, modelKey);
@@ -319,7 +319,7 @@ export default function Settings() {
           const text = await resp.text().catch(() => "");
           throw new Error(`${resp.status}: ${text.slice(0, 160)}`);
         }
-        updateTestState(stateKey, "success", `Model OK: ${mappedModel}`);
+        updateTestState(stateKey, "success", `模型可用：${mappedModel}`);
         return;
       }
 
@@ -338,13 +338,13 @@ export default function Settings() {
         }
         const payload = await resp.json().catch(() => ({}));
         if (!JSON.stringify(payload).includes(mappedModel)) {
-          throw new Error(`Model not found in provider response: ${mappedModel}`);
+          throw new Error(`服务商返回结果中未找到模型：${mappedModel}`);
         }
-        updateTestState(stateKey, "success", `Model OK: ${mappedModel}`);
+        updateTestState(stateKey, "success", `模型可用：${mappedModel}`);
         return;
       }
 
-      updateTestState(stateKey, "error", "Only Gemini text and Seedance video models support online testing right now.");
+      updateTestState(stateKey, "error", "当前仅支持在线测试 Gemini 文本模型和 Seedance 视频模型。");
     } catch (error) {
       updateTestState(stateKey, "error", error instanceof Error ? error.message : String(error));
     }
@@ -357,16 +357,16 @@ export default function Settings() {
       if (!folderPath) return;
       saveApiConfig({ storagePath: folderPath });
       setConfig((prev) => ({ ...prev, storagePath: folderPath }));
-      toast({ title: "Saved", description: `Storage path: ${folderPath}` });
+      toast({ title: "已保存", description: `存储路径：${folderPath}` });
     } catch (error) {
-      toast({ title: "Select failed", description: String(error), variant: "destructive" });
+      toast({ title: "选择失败", description: String(error), variant: "destructive" });
     }
   };
 
   const handleResetStoragePath = () => {
     saveApiConfig({ storagePath: "" });
     setConfig((prev) => ({ ...prev, storagePath: "" }));
-    toast({ title: "Reset", description: "Storage path restored to default." });
+    toast({ title: "已重置", description: "存储路径已恢复默认值。" });
   };
 
   const handleSelectReverseDownloadPath = async () => {
@@ -376,16 +376,16 @@ export default function Settings() {
       if (!folderPath) return;
       saveApiConfig({ reverseDownloadPath: folderPath });
       setConfig((prev) => ({ ...prev, reverseDownloadPath: folderPath }));
-      toast({ title: "Saved", description: `Download path: ${folderPath}` });
+      toast({ title: "已保存", description: `下载路径：${folderPath}` });
     } catch (error) {
-      toast({ title: "Select failed", description: String(error), variant: "destructive" });
+      toast({ title: "选择失败", description: String(error), variant: "destructive" });
     }
   };
 
   const handleResetReverseDownloadPath = () => {
     saveApiConfig({ reverseDownloadPath: "" });
     setConfig((prev) => ({ ...prev, reverseDownloadPath: "" }));
-    toast({ title: "Reset", description: "Reverse download path restored to default." });
+    toast({ title: "已重置", description: "逆向下载目录已恢复默认值。" });
   };
 
   return (
@@ -394,40 +394,40 @@ export default function Settings() {
         <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <h1 className="text-lg font-semibold font-[Space_Grotesk]">Settings</h1>
+        <h1 className="text-lg font-semibold font-[Space_Grotesk]">设置</h1>
       </header>
 
       <main className="max-w-3xl mx-auto px-6 py-6 space-y-6">
         <div className="space-y-4">
           <h2 className="text-sm font-medium flex items-center gap-2">
             <Globe className="h-4 w-4" />
-            API Settings
+            API 设置
           </h2>
 
           <Card>
             <CardContent className="pt-6 space-y-4">
               <div>
-                <h3 className="text-sm font-medium">Mode</h3>
+                <h3 className="text-sm font-medium">模式</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Built-in API mode hides all custom API controls. Custom mode reveals provider and model details step by step.
+                  选择内置 API 时隐藏自定义 API 配置；选择自定义 API 时按层级展开服务商和模型详情。
                 </p>
               </div>
               <div className="inline-flex rounded-lg border border-border bg-muted p-1">
-                <button type="button" onClick={() => handleApiModeChange("builtin")} className={`px-4 py-1.5 rounded-md text-sm transition-colors ${config.apiMode === "builtin" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}>Built-in API</button>
-                <button type="button" onClick={() => handleApiModeChange("custom")} className={`px-4 py-1.5 rounded-md text-sm transition-colors ${config.apiMode === "custom" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}>Custom API</button>
+                <button type="button" onClick={() => handleApiModeChange("builtin")} className={`px-4 py-1.5 rounded-md text-sm transition-colors ${config.apiMode === "builtin" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}>内置 API</button>
+                <button type="button" onClick={() => handleApiModeChange("custom")} className={`px-4 py-1.5 rounded-md text-sm transition-colors ${config.apiMode === "custom" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"}`}>自定义 API</button>
               </div>
               {config.apiMode === "builtin" ? (
                 <div className="rounded-md border border-border/60 bg-muted/30 p-3 space-y-1">
-                  <p className="text-sm font-medium">Built-in config file</p>
-                  <p className="text-xs text-muted-foreground break-all">{builtinMeta.path || "Built-in config path not detected."}</p>
-                  <p className="text-xs text-muted-foreground">Status: {builtinMeta.loaded ? "Loaded" : "Not loaded"}</p>
-                  <p className="text-xs text-muted-foreground">This is the packaged JSON file used by built-in mode.</p>
+                  <p className="text-sm font-medium">内置配置文件</p>
+                  <p className="text-xs text-muted-foreground break-all">{builtinMeta.path || "未检测到内置配置文件路径。"}</p>
+                  <p className="text-xs text-muted-foreground">当前状态：{builtinMeta.loaded ? "已加载" : "未加载"}</p>
+                  <p className="text-xs text-muted-foreground">这是内置 API 模式使用的打包 JSON 配置文件。</p>
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-2">
                   <input ref={importRef} type="file" accept="application/json,.json" className="hidden" onChange={handleImportCustomConfig} />
-                  <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={handleExportCustomConfig}><Download className="h-4 w-4" />Export custom config</Button>
-                  <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => importRef.current?.click()}><Upload className="h-4 w-4" />Import custom config</Button>
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={handleExportCustomConfig}><Download className="h-4 w-4" />导出自定义配置</Button>
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => importRef.current?.click()}><Upload className="h-4 w-4" />导入自定义配置</Button>
                 </div>
               )}
             </CardContent>
@@ -438,8 +438,8 @@ export default function Settings() {
               <Card>
                 <CardContent className="pt-6 space-y-5">
                   <div>
-                    <h3 className="text-sm font-medium">Providers</h3>
-                    <p className="text-xs text-muted-foreground mt-0.5">Click a provider card to expand URL, key, and endpoint tests.</p>
+                    <h3 className="text-sm font-medium">服务商配置</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">点击服务商卡片后展开 URL、Key 和端点测试。</p>
                   </div>
                   {API_ROWS.map((row) => (
                     <Collapsible key={row.id} open={providerOpen[row.id]} onOpenChange={() => setProviderOpen((prev) => ({ ...prev, [row.id]: !prev[row.id] }))}>
@@ -450,34 +450,34 @@ export default function Settings() {
                               <div className="flex items-center gap-2 flex-wrap"><span className="text-sm font-medium">{row.title}</span><Badge variant="outline">{row.id}</Badge></div>
                               <p className="text-xs text-muted-foreground truncate">{String(config[ENDPOINT_FIELD_MAP[row.id]] || row.endpointPlaceholder)}</p>
                             </div>
-                            <div className="text-xs text-muted-foreground">{providerOpen[row.id] ? "Collapse" : "Expand"}</div>
+                            <div className="text-xs text-muted-foreground">{providerOpen[row.id] ? "收起" : "展开"}</div>
                           </button>
                         </CollapsibleTrigger>
                         <CollapsibleContent className="border-t border-border/40 px-4 py-4 space-y-4">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <Button type="button" variant="outline" size="sm" className="gap-1.5 h-7" onClick={() => handleTestProvider(row.id)} disabled={testState[`provider:${row.id}`]?.status === "testing"}>{testState[`provider:${row.id}`]?.status === "testing" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}Test endpoint</Button>
+                            <Button type="button" variant="outline" size="sm" className="gap-1.5 h-7" onClick={() => handleTestProvider(row.id)} disabled={testState[`provider:${row.id}`]?.status === "testing"}>{testState[`provider:${row.id}`]?.status === "testing" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}测试端点</Button>
                             {testState[`provider:${row.id}`]?.message ? <span className={`text-xs ${testState[`provider:${row.id}`]?.status === "success" ? "text-emerald-600" : "text-red-600"}`}>{testState[`provider:${row.id}`]?.message}</span> : null}
                           </div>
-                          <div className="space-y-1.5"><Label className="text-sm font-medium">API URL</Label><Input value={String(config[ENDPOINT_FIELD_MAP[row.id]] ?? "")} onChange={(e) => setProviderField(row.id, "endpoint", e.target.value)} placeholder={row.endpointPlaceholder} className="font-mono text-sm" /><p className="text-xs text-muted-foreground">{row.endpointHint}</p></div>
-                          <div className="space-y-1.5"><Label className="text-sm font-medium">API Key</Label><Input type="password" value={String(config[KEY_FIELD_MAP[row.id]] ?? "")} onChange={(e) => setProviderField(row.id, "key", e.target.value)} placeholder="Enter API key" className="font-mono text-sm" /><p className="text-xs text-muted-foreground">{row.keyHint}</p></div>
+                          <div className="space-y-1.5"><Label className="text-sm font-medium">API 地址</Label><Input value={String(config[ENDPOINT_FIELD_MAP[row.id]] ?? "")} onChange={(e) => setProviderField(row.id, "endpoint", e.target.value)} placeholder={row.endpointPlaceholder} className="font-mono text-sm" /><p className="text-xs text-muted-foreground">{row.endpointHint}</p></div>
+                          <div className="space-y-1.5"><Label className="text-sm font-medium">API Key</Label><Input type="password" value={String(config[KEY_FIELD_MAP[row.id]] ?? "")} onChange={(e) => setProviderField(row.id, "key", e.target.value)} placeholder="请输入 API Key" className="font-mono text-sm" /><p className="text-xs text-muted-foreground">{row.keyHint}</p></div>
                         </CollapsibleContent>
                       </div>
                     </Collapsible>
                   ))}
-                  <div className="space-y-1.5"><Label className="text-sm font-medium">Jimeng local automation service</Label><Input value={config.autoJimengApiBase || ""} onChange={(e) => setConfig((prev) => ({ ...prev, autoJimengApiBase: e.target.value }))} placeholder="http://localhost:8000" className="font-mono text-sm" /><p className="text-xs text-muted-foreground">Used by the local Python automation service, independent from the remote API gateway.</p></div>
+                  <div className="space-y-1.5"><Label className="text-sm font-medium">即梦本地自动化服务</Label><Input value={config.autoJimengApiBase || ""} onChange={(e) => setConfig((prev) => ({ ...prev, autoJimengApiBase: e.target.value }))} placeholder="http://localhost:8000" className="font-mono text-sm" /><p className="text-xs text-muted-foreground">桌面端连接本地 Python 自动化服务时使用，与远程 API 网关无关。</p></div>
                 </CardContent>
               </Card>
 
               <Card>
                 <CardContent className="pt-6 space-y-5">
                   <div>
-                    <h3 className="text-sm font-medium">Model mapping</h3>
-                    <p className="text-xs text-muted-foreground mt-0.5">Click an item such as Text Models &gt; Gemini 3.1 Pro to edit one model in a focused dialog.</p>
-                    <p className="text-xs text-muted-foreground mt-1">Online model testing currently supports Gemini text models and Seedance video models.</p>
+                    <h3 className="text-sm font-medium">模型映射</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">点击某一项，例如“文本模型 &gt; Gemini 3.1 Pro”，即可在弹窗中编辑这一项模型映射。</p>
+                    <p className="text-xs text-muted-foreground mt-1">当前在线测试支持 Gemini 文本模型和 Seedance 视频模型。</p>
                   </div>
                   {(["text", "image", "video"] as const).map((category) => {
                     const items = groupedModelMappings[category];
-                    const categoryLabel = category === "text" ? "Text Models" : category === "image" ? "Image Models" : "Video Models";
+                    const categoryLabel = category === "text" ? "文本模型" : category === "image" ? "图片模型" : "视频模型";
                     return (
                       <div key={category} className="space-y-3 pb-5 border-b border-border/40 last:border-0 last:pb-0">
                         <Label className="text-sm font-medium">{categoryLabel}</Label>
@@ -490,7 +490,7 @@ export default function Settings() {
                                   <div className="flex items-center gap-2 flex-wrap"><span className="text-sm font-medium">{item.label}</span><Badge variant="outline">{item.provider}</Badge></div>
                                   <p className="text-xs text-muted-foreground truncate">{currentValue}</p>
                                 </div>
-                                <div className="text-xs text-muted-foreground">Open</div>
+                                <div className="text-xs text-muted-foreground">进入</div>
                               </button>
                             );
                           })}
@@ -507,40 +507,40 @@ export default function Settings() {
         <Dialog open={modelDialogOpen} onOpenChange={setModelDialogOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{selectedModel?.label || "Model Mapping"}</DialogTitle>
-              <DialogDescription>{selectedModel ? `Internal model ID: ${selectedModel.key}` : "Select a model to edit its mapping."}</DialogDescription>
+              <DialogTitle>{selectedModel?.label || "模型映射"}</DialogTitle>
+              <DialogDescription>{selectedModel ? `内部模型 ID：${selectedModel.key}` : "请选择一个模型进行编辑。"}</DialogDescription>
             </DialogHeader>
             {selectedModel ? (
               <div className="space-y-4">
                 <div className="flex items-center gap-2 flex-wrap"><Badge variant="outline">{selectedModel.provider}</Badge><Badge variant="secondary">{selectedModel.category}</Badge><Badge variant="outline">{selectedModel.key}</Badge></div>
-                <div className="space-y-1.5"><Label className="text-sm font-medium">Real model name</Label><Input value={config.modelMappings?.[selectedModel.key] ?? ""} onChange={(e) => updateModelMapping(selectedModel.key, e.target.value)} placeholder={selectedModel.defaultModelName} className="font-mono text-sm" /></div>
-                <div className="flex items-center gap-2 flex-wrap"><Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={testState[`${selectedModel.provider}:${selectedModel.key}`]?.status === "testing"} onClick={() => handleTestModelMapping(selectedModel.key, selectedModel.provider, selectedModel.category)}>{testState[`${selectedModel.provider}:${selectedModel.key}`]?.status === "testing" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}Test model</Button>{testState[`${selectedModel.provider}:${selectedModel.key}`]?.message ? <span className={`text-xs ${testState[`${selectedModel.provider}:${selectedModel.key}`]?.status === "success" ? "text-emerald-600" : "text-red-600"}`}>{testState[`${selectedModel.provider}:${selectedModel.key}`]?.message}</span> : null}</div>
+                <div className="space-y-1.5"><Label className="text-sm font-medium">真实模型名</Label><Input value={config.modelMappings?.[selectedModel.key] ?? ""} onChange={(e) => updateModelMapping(selectedModel.key, e.target.value)} placeholder={selectedModel.defaultModelName} className="font-mono text-sm" /></div>
+                <div className="flex items-center gap-2 flex-wrap"><Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={testState[`${selectedModel.provider}:${selectedModel.key}`]?.status === "testing"} onClick={() => handleTestModelMapping(selectedModel.key, selectedModel.provider, selectedModel.category)}>{testState[`${selectedModel.provider}:${selectedModel.key}`]?.status === "testing" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}测试该模型</Button>{testState[`${selectedModel.provider}:${selectedModel.key}`]?.message ? <span className={`text-xs ${testState[`${selectedModel.provider}:${selectedModel.key}`]?.status === "success" ? "text-emerald-600" : "text-red-600"}`}>{testState[`${selectedModel.provider}:${selectedModel.key}`]?.message}</span> : null}</div>
               </div>
             ) : null}
-            <DialogFooter><Button type="button" onClick={() => setModelDialogOpen(false)}>Done</Button></DialogFooter>
+            <DialogFooter><Button type="button" onClick={() => setModelDialogOpen(false)}>完成</Button></DialogFooter>
           </DialogContent>
         </Dialog>
 
         <div className="space-y-4">
-          <h2 className="text-sm font-medium flex items-center gap-2">{theme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}Appearance</h2>
-          <Card><CardContent className="pt-6"><div className="flex items-center justify-between"><div className="space-y-1"><Label className="text-sm font-medium">Dark mode</Label><p className="text-xs text-muted-foreground">Switch between light and dark UI themes.</p></div><Switch checked={theme === "dark"} onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")} /></div></CardContent></Card>
+          <h2 className="text-sm font-medium flex items-center gap-2">{theme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}外观设置</h2>
+          <Card><CardContent className="pt-6"><div className="flex items-center justify-between"><div className="space-y-1"><Label className="text-sm font-medium">深色模式</Label><p className="text-xs text-muted-foreground">切换亮色 / 深色界面主题。</p></div><Switch checked={theme === "dark"} onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")} /></div></CardContent></Card>
         </div>
 
         <div className="space-y-4">
-          <h2 className="text-sm font-medium flex items-center gap-2"><FolderOpen className="h-4 w-4" />Storage</h2>
+          <h2 className="text-sm font-medium flex items-center gap-2"><FolderOpen className="h-4 w-4" />存储位置</h2>
           <Card><CardContent className="pt-6 space-y-4">
-            <div><Label className="text-sm">Cache storage path</Label><div className="flex gap-2 mt-1.5"><Input value={config.storagePath || defaultStoragePath || (window.electronAPI?.storage ? "Loading path..." : "Desktop-only path")} readOnly className="font-mono text-sm flex-1" /><Button variant="outline" className="shrink-0 gap-1.5" onClick={handleSelectStoragePath} disabled={!window.electronAPI?.storage?.selectFolder}><FolderCog className="h-4 w-4" />Set path</Button></div>{config.storagePath ? <Button variant="ghost" size="sm" className="mt-2 text-xs text-muted-foreground" onClick={handleResetStoragePath}>Reset to default</Button> : null}</div>
-            <div><Label className="text-sm">Reverse download path</Label><div className="flex gap-2 mt-1.5"><Input value={config.reverseDownloadPath || defaultDownloadPath || (window.electronAPI?.storage ? "Loading path..." : "Desktop-only path")} readOnly className="font-mono text-sm flex-1" /><Button variant="outline" className="shrink-0 gap-1.5" onClick={handleSelectReverseDownloadPath} disabled={!window.electronAPI?.storage?.selectFolder}><FolderCog className="h-4 w-4" />Set path</Button></div>{config.reverseDownloadPath ? <Button variant="ghost" size="sm" className="mt-2 text-xs text-muted-foreground" onClick={handleResetReverseDownloadPath}>Reset to default</Button> : null}</div>
+            <div><Label className="text-sm">缓存存储路径</Label><div className="flex gap-2 mt-1.5"><Input value={config.storagePath || defaultStoragePath || (window.electronAPI?.storage ? "正在获取路径..." : "仅桌面端可显示本地路径")} readOnly className="font-mono text-sm flex-1" /><Button variant="outline" className="shrink-0 gap-1.5" onClick={handleSelectStoragePath} disabled={!window.electronAPI?.storage?.selectFolder}><FolderCog className="h-4 w-4" />设置路径</Button></div>{config.storagePath ? <Button variant="ghost" size="sm" className="mt-2 text-xs text-muted-foreground" onClick={handleResetStoragePath}>恢复默认</Button> : null}</div>
+            <div><Label className="text-sm">逆向下载路径</Label><div className="flex gap-2 mt-1.5"><Input value={config.reverseDownloadPath || defaultDownloadPath || (window.electronAPI?.storage ? "正在获取路径..." : "仅桌面端可显示本地路径")} readOnly className="font-mono text-sm flex-1" /><Button variant="outline" className="shrink-0 gap-1.5" onClick={handleSelectReverseDownloadPath} disabled={!window.electronAPI?.storage?.selectFolder}><FolderCog className="h-4 w-4" />设置路径</Button></div>{config.reverseDownloadPath ? <Button variant="ghost" size="sm" className="mt-2 text-xs text-muted-foreground" onClick={handleResetReverseDownloadPath}>恢复默认</Button> : null}</div>
           </CardContent></Card>
         </div>
 
-        <div className="space-y-4"><h2 className="text-sm font-medium">First-frame compression</h2><Card><CardContent className="pt-6"><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div><Label className="text-sm">Max dimension</Label><Input type="number" min={256} max={2048} step={64} value={config.firstFrameMaxDim ?? 2048} onChange={(e) => setConfig((prev) => ({ ...prev, firstFrameMaxDim: Number(e.target.value) || 2048 }))} className="font-mono text-sm mt-1" /></div><div><Label className="text-sm">Max file size (KB)</Label><Input type="number" min={100} max={5000} step={100} value={config.firstFrameMaxKB ?? 1024} onChange={(e) => setConfig((prev) => ({ ...prev, firstFrameMaxKB: Number(e.target.value) || 1024 }))} className="font-mono text-sm mt-1" /></div></div></CardContent></Card></div>
+        <div className="space-y-4"><h2 className="text-sm font-medium">首帧图片压缩</h2><Card><CardContent className="pt-6"><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div><Label className="text-sm">最大尺寸</Label><Input type="number" min={256} max={2048} step={64} value={config.firstFrameMaxDim ?? 2048} onChange={(e) => setConfig((prev) => ({ ...prev, firstFrameMaxDim: Number(e.target.value) || 2048 }))} className="font-mono text-sm mt-1" /></div><div><Label className="text-sm">最大文件大小（KB）</Label><Input type="number" min={100} max={5000} step={100} value={config.firstFrameMaxKB ?? 1024} onChange={(e) => setConfig((prev) => ({ ...prev, firstFrameMaxKB: Number(e.target.value) || 1024 }))} className="font-mono text-sm mt-1" /></div></div></CardContent></Card></div>
 
-        <div className="space-y-4"><h2 className="text-sm font-medium">Network retry</h2><Card><CardContent className="pt-6"><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div><Label className="text-sm">Max retries</Label><Input type="number" min={0} max={5} step={1} value={config.retryCount ?? 2} onChange={(e) => setConfig((prev) => ({ ...prev, retryCount: Number(e.target.value) || 0 }))} className="font-mono text-sm mt-1" /></div><div><Label className="text-sm">Retry delay (ms)</Label><Input type="number" min={500} max={30000} step={500} value={config.retryDelayMs ?? 3000} onChange={(e) => setConfig((prev) => ({ ...prev, retryDelayMs: Number(e.target.value) || 3000 }))} className="font-mono text-sm mt-1" /></div></div></CardContent></Card></div>
+        <div className="space-y-4"><h2 className="text-sm font-medium">网络重试</h2><Card><CardContent className="pt-6"><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div><Label className="text-sm">最大重试次数</Label><Input type="number" min={0} max={5} step={1} value={config.retryCount ?? 2} onChange={(e) => setConfig((prev) => ({ ...prev, retryCount: Number(e.target.value) || 0 }))} className="font-mono text-sm mt-1" /></div><div><Label className="text-sm">重试间隔（毫秒）</Label><Input type="number" min={500} max={30000} step={500} value={config.retryDelayMs ?? 3000} onChange={(e) => setConfig((prev) => ({ ...prev, retryDelayMs: Number(e.target.value) || 3000 }))} className="font-mono text-sm mt-1" /></div></div></CardContent></Card></div>
 
-        <Card className="bg-muted/50"><CardContent className="pt-6"><h3 className="font-medium mb-2">Notes</h3><ul className="text-sm text-muted-foreground space-y-1"><li>Built-in API mode hides all custom URL, key, and model mapping controls.</li><li>Custom mode works best when you test the provider first, then test a specific model mapping.</li><li>Jimeng / Seedance can reuse the Gemini gateway and key by default.</li></ul></CardContent></Card>
+        <Card className="bg-muted/50"><CardContent className="pt-6"><h3 className="font-medium mb-2">说明</h3><ul className="text-sm text-muted-foreground space-y-1"><li>内置 API 模式下会隐藏所有自定义 URL、Key 和模型映射编辑项。</li><li>自定义模式下建议先测试服务商端点，再测试具体模型映射。</li><li>即梦 / Seedance 默认可复用 Gemini 网关与 Key。</li></ul></CardContent></Card>
 
-        <div className="flex gap-3"><Button onClick={handleSave} className="flex-1 gap-2"><Save className="h-4 w-4" />Save settings</Button><Button variant="destructive" className="gap-2" onClick={handleClear}><Trash2 className="h-4 w-4" />Clear local cache</Button></div>
+        <div className="flex gap-3"><Button onClick={handleSave} className="flex-1 gap-2"><Save className="h-4 w-4" />保存设置</Button><Button variant="destructive" className="gap-2" onClick={handleClear}><Trash2 className="h-4 w-4" />清除本地缓存</Button></div>
       </main>
     </div>
   );
