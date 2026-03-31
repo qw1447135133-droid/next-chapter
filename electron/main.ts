@@ -622,7 +622,7 @@ function setupIPC() {
       if (!embeddedBrowserView) {
         return { ok: false, error: "浏览器视图尚未创建" };
       }
-      if (!Array.isArray(files) || files.length === 0) {
+      if (!Array.isArray(files)) {
         return { ok: false, error: "没有可上传的文件" };
       }
 

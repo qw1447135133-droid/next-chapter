@@ -758,6 +758,76 @@ export function buildLocatePromptAreaScript(): string {
   `;
 }
 
+export function buildResetPromptAreaScript(textboxIndex = 0): string {
+  return `
+    (() => {
+      ${sharedHelpers()}
+      const textboxes = promptTextboxes();
+      const textbox = textboxes[Math.max(0, ${q(textboxIndex)})] || findPromptTextbox();
+      if (!(textbox instanceof HTMLElement)) {
+        return { ok: false, step: "textbox-not-found", removedRefs: 0 };
+      }
+
+      setTextboxValue(textbox, "", false);
+      textbox.dispatchEvent(new Event("input", { bubbles: true }));
+      textbox.dispatchEvent(new Event("change", { bubbles: true }));
+
+      const scope = resolvePromptScope(textbox);
+      const promptRect = rectOf(textbox);
+      const candidates = Array.from(
+        (scope instanceof Element ? scope : document).querySelectorAll(
+          "button, [role='button'], [role='tab'], [role='menuitem'], label, li, a, div, span",
+        ),
+      )
+        .filter(isVisible)
+        .filter((node) => {
+          if (!(node instanceof HTMLElement)) return false;
+          const text = textOf(node);
+          const aria = normalize(node.getAttribute("aria-label") || "");
+          const title = normalize(node.getAttribute("title") || "");
+          const cls = normalize(node.className || "");
+          const rect = rectOf(node);
+          const nearPrompt =
+            rect.right >= promptRect.left - 240 &&
+            rect.left <= promptRect.right + 240 &&
+            rect.top >= promptRect.top - 140 &&
+            rect.bottom <= promptRect.bottom + 240;
+          if (!nearPrompt) return false;
+          const explicitRemove = /删除|移除|清空|关闭|remove|delete|clear|close/.test(
+            [text, aria, title, cls].join(" "),
+          );
+          const compactIconLike =
+            !text &&
+            rect.width > 0 &&
+            rect.width <= 40 &&
+            rect.height > 0 &&
+            rect.height <= 40 &&
+            /close|remove|delete|clear|icon|btn|button/.test(cls);
+          return explicitRemove || compactIconLike;
+        });
+
+      const clicked = [];
+      for (const node of candidates) {
+        const marker =
+          textOf(node) ||
+          normalize(node.getAttribute("aria-label") || "") ||
+          normalize(node.getAttribute("title") || "") ||
+          normalize(node.className || "");
+        clickLikeHuman(node);
+        clicked.push(marker || "(icon)");
+      }
+
+      return {
+        ok: true,
+        step: "prompt-area-reset",
+        removedRefs: clicked.length,
+        currentValue: getTextboxValue(textbox),
+        debug: clicked.slice(0, 8).join(" | "),
+      };
+    })()
+  `;
+}
+
 export function buildFillPromptScript(
   prompt: string,
   files: Array<{ dataUrl: string; fileName: string }> = [],

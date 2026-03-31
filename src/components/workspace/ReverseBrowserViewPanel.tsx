@@ -26,6 +26,7 @@ import {
   buildInsertLineBreakScript,
   buildLocatePromptAreaScript,
   buildReadPromptScopeStateScript,
+  buildResetPromptAreaScript,
   buildReadPromptValueScript,
   buildReadToolbarStateScript,
   buildSetAspectRatioScript,
@@ -781,6 +782,30 @@ export default function ReverseBrowserViewPanel({
       appendLog(
         `?? ${definition.segmentKey} ??????textbox=${promptTarget.textboxIndex} / fileInput=${promptTarget.fileInputIndex}`,
       );
+
+      const resetResult = await executeNamed<{
+        ok: boolean;
+        step: string;
+        removedRefs?: number;
+        currentValue?: string;
+        debug?: string;
+      }>(
+        "reset-prompt-area",
+        buildResetPromptAreaScript(promptTarget.textboxIndex),
+      ).catch(() => null);
+      appendLog(
+        `片段 ${definition.segmentKey} 重置编辑器: ok=${resetResult?.ok ?? "null"} step=${resetResult?.step ?? "null"} removedRefs=${resetResult?.removedRefs ?? 0}${resetResult?.debug ? ` / ${resetResult.debug}` : ""}`,
+      );
+
+      const clearUploadResult = await browserView.setFileInputFiles({
+        selector: "input[type='file']",
+        index: promptTarget.fileInputIndex,
+        files: [],
+      });
+      if (!clearUploadResult?.ok) {
+        throw new Error(clearUploadResult.error || "清空参考图失败");
+      }
+      await sleep(300);
 
       if (uploadReferences.length > 0) {
         const uploadResult = await browserView.setFileInputFiles({

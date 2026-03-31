@@ -2348,7 +2348,7 @@ function setupIPC() {
       if (!embeddedBrowserView) {
         return { ok: false, error: "\u6D4F\u89C8\u5668\u89C6\u56FE\u5C1A\u672A\u521B\u5EFA" };
       }
-      if (!Array.isArray(files) || files.length === 0) {
+      if (!Array.isArray(files)) {
         return { ok: false, error: "\u6CA1\u6709\u53EF\u4E0A\u4F20\u7684\u6587\u4EF6" };
       }
       const tempDir = path2.join(
