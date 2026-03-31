@@ -22,6 +22,7 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildStructureTransformPrompt } from "@/lib/drama-prompts";
+import { readStoredDecomposeModel } from "@/lib/gemini-text-models";
 import { FRAMEWORK_STYLES, TARGET_MARKETS } from "@/types/drama";
 import type { DramaSetup } from "@/types/drama";
 import {
@@ -144,7 +145,7 @@ const StepStructureTransform = ({
         transformMarket,
       );
       const model =
-        localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+        readStoredDecomposeModel();
       const finalText = await callGeminiStream(
         model,
         [{ role: "user", parts: [{ text: prompt }] }],

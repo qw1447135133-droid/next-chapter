@@ -7,6 +7,7 @@ import { ArrowRight, RefreshCw, Pencil, Eye, Loader2, ShieldCheck } from "lucide
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildCompliancePrompt } from "@/lib/drama-prompts";
+import { readStoredDecomposeModel } from "@/lib/gemini-text-models";
 import type { DramaSetup, EpisodeScript } from "@/types/drama";
 import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "./TranslateButton";
 
@@ -38,7 +39,7 @@ const StepCompliance = ({ setup, creativePlan, characters, episodes, complianceR
     abortRef.current = new AbortController();
     try {
       const prompt = buildCompliancePrompt(setup, creativePlan, characters, episodes, reviewMode);
-      const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+      const model = readStoredDecomposeModel();
       const finalText = await callGeminiStream(
         model,
         [{ role: "user", parts: [{ text: prompt }] }],

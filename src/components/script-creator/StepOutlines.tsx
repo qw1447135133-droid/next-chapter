@@ -7,6 +7,7 @@ import { ArrowRight, Loader2, RefreshCw, FileText, CheckCircle2, XCircle, Rotate
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildOutlinePrompt } from "@/lib/drama-prompts";
+import { readStoredDecomposeModel } from "@/lib/gemini-text-models";
 import type { DramaSetup, EpisodeEntry } from "@/types/drama";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "./TranslateButton";
@@ -163,7 +164,7 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
     const batches = buildBatches();
     setOutlineBatches(batches.map(b => b.status === "done" ? b : { ...b, status: "pending" as const }));
 
-    const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+    const model = readStoredDecomposeModel();
     const updatedDirectory = [...directory];
 
     for (let bIdx = 0; bIdx < batches.length; bIdx++) {
@@ -265,7 +266,7 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
     outlineAbortRef.current = new AbortController();
     setOutlineBatches(prev => prev.map((b, i) => i === batchIndex ? { ...b, status: "processing", error: undefined } : b));
 
-    const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+    const model = readStoredDecomposeModel();
     const batchEpisodes = directory.filter(ep => ep.number >= batch.startEp && ep.number <= batch.endEp);
     const prompt = buildOutlinePrompt(
       setup, creativePlan, characters,
@@ -309,7 +310,7 @@ const StepOutlines = ({ setup, creativePlan, characters, directory, directoryRaw
     setRegenEpNum(epNum);
     singleAbortRef.current = new AbortController();
 
-    const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+    const model = readStoredDecomposeModel();
     const instruction = regenInstructions[epNum]?.trim();
     
     // Build prompt for single episode with optional instruction

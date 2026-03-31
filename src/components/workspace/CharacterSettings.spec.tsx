@@ -80,7 +80,7 @@ describe("CharacterSettings", () => {
         onScenesChange={() => {}}
         onNext={() => {}}
         script="测试剧本"
-        decomposeModel="gemini-3.1-pro-preview"
+        decomposeModel="gemini-3-pro"
         isAutoDetectingAll={false}
         setIsAutoDetectingAll={() => {}}
         isAbortingAutoDetect={false}

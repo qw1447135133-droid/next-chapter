@@ -1,6 +1,8 @@
+var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
@@ -10,12 +12,43 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // electron/preload.ts
 var preload_exports = {};
 module.exports = __toCommonJS(preload_exports);
 var import_electron = require("electron");
+var import_node_fs = __toESM(require("node:fs"), 1);
+var import_node_path = __toESM(require("node:path"), 1);
+function getBuiltinApiBundlePath() {
+  if (process.defaultApp) {
+    return import_node_path.default.resolve(__dirname, "..", "config", "builtin-api.json");
+  }
+  return import_node_path.default.join(process.resourcesPath, "config", "builtin-api.json");
+}
+function readBuiltinApiBundle() {
+  const filePath = getBuiltinApiBundlePath();
+  if (!import_node_fs.default.existsSync(filePath)) return null;
+  try {
+    return JSON.parse(import_node_fs.default.readFileSync(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+var builtinApiBundle = readBuiltinApiBundle();
+var builtinApiBundlePath = getBuiltinApiBundlePath();
+var runtimeAPI = {
+  builtinApiBundle,
+  builtinApiBundlePath
+};
 var jimengAPI = {
   start: () => import_electron.ipcRenderer.invoke("jimeng:start"),
   stop: () => import_electron.ipcRenderer.invoke("jimeng:stop"),
@@ -63,6 +96,7 @@ var reversePlaywrightAPI = {
 };
 import_electron.contextBridge.exposeInMainWorld("electronAPI", {
   jimeng: jimengAPI,
+  runtime: runtimeAPI,
   storage: {
     getDefaultPath: () => import_electron.ipcRenderer.invoke("storage:getDefaultPath"),
     selectFolder: () => import_electron.ipcRenderer.invoke("storage:selectFolder"),

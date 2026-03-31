@@ -7,6 +7,7 @@ import { ArrowRight, RefreshCw, Pencil, Eye, Loader2, GitBranch } from "lucide-r
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildCharacterTransformPrompt } from "@/lib/drama-prompts";
+import { readStoredDecomposeModel } from "@/lib/gemini-text-models";
 import type { DramaSetup } from "@/types/drama";
 import { useTranslation, InterleavedText, TranslateToggle, TranslationProgress, isNonChineseText } from "./TranslateButton";
 
@@ -119,7 +120,7 @@ const StepCharacterTransform = ({
     abortRef.current = new AbortController();
     try {
       const prompt = buildCharacterTransformPrompt(setup, referenceScript, frameworkStyle, structureTransform);
-      const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+      const model = readStoredDecomposeModel();
       const finalText = await callGeminiStream(
         model,
         [{ role: "user", parts: [{ text: prompt }] }],

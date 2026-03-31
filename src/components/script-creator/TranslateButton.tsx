@@ -4,6 +4,7 @@ import { Progress } from "@/components/ui/progress";
 import { Languages, Loader2, X, CheckCircle2, PlayCircle } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
+import { readStoredDecomposeModel } from "@/lib/gemini-text-models";
 import { motion, AnimatePresence } from "framer-motion";
 
 const TRANSLATION_CACHE_KEY = "storyforge_translation_cache";
@@ -137,7 +138,7 @@ export function useTranslation() {
 
   const runTranslation = async (text: string, startBatch: number, existingResults?: string[]) => {
     const key = hashText(text);
-    const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+    const model = readStoredDecomposeModel();
     const originalLines = text.split("\n");
     const totalLines = originalLines.length;
     const resultLines = existingResults || new Array<string>(totalLines).fill("");

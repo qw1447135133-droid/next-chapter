@@ -2,7 +2,7 @@
  * 函数调用封装
  * 直接调用各服务 API，使用设置中配置的 API Key
  */
-import { getApiConfig } from "@/lib/api-config";
+import { getApiConfig, resolveConfiguredModelName } from "@/lib/api-config";
 import { getNetworkRetrySettings } from "@/lib/network-retry-settings";
 import {
   callGemini,
@@ -21,6 +21,10 @@ import {
   STORYBOARD_STYLE_MAP,
   DEFAULT_GEMINI_BASE_URL,
 } from "@/lib/gemini-client";
+import {
+  DEFAULT_DECOMPOSE_MODEL,
+  readStoredDecomposeModel,
+} from "@/lib/gemini-text-models";
 import { compressImage } from "@/lib/image-compress";
 
 const KLINE_BASE_URL = "https://api.klingai.com";
@@ -396,7 +400,7 @@ async function localExtract(body: any, onStreamText?: (text: string) => void) {
   const { script, model: requestedModel } = body;
   if (!script) throw new Error("缺少剧本内容");
 
-  const model = requestedModel || "gemini-3.1-pro-preview";
+  const model = requestedModel || readStoredDecomposeModel() || DEFAULT_DECOMPOSE_MODEL;
 
   // Pre-scan: extract CONFIRMED character names from costume-annotated brackets
   // These are highly reliable — only brackets with · separator like [Name·Age·Costume]
@@ -561,7 +565,7 @@ async function localDecompose(
   } = body;
   if (!script) throw new Error("缺少剧本内容");
 
-  const model = requestedModel || "gemini-3.1-pro-preview";
+  const model = requestedModel || readStoredDecomposeModel() || DEFAULT_DECOMPOSE_MODEL;
 
   // Build costume context if available
   let costumeContext = "";
@@ -1762,7 +1766,7 @@ async function localGenerateVideo(body: any) {
         ? body.prompt.substring(0, 4900)
         : body.prompt;
     const payload: any = {
-      model: model || "viduq3-pro",
+      model: resolveConfiguredModelName(model || "viduq3-pro"),
       prompt: truncatedPrompt,
       duration: Math.max(1, Math.min(16, body.duration || 5)),
       resolution: "1080p",
@@ -1812,7 +1816,7 @@ async function localGenerateVideo(body: any) {
     const klingUrl = `${klingBase}/v1/videos/${klingTaskType}`;
 
     const payload: any = {
-      model_name: model || "kling-v3",
+      model_name: resolveConfiguredModelName(model || "kling-v3"),
       prompt: truncatedPrompt,
       duration: String(Math.max(3, Math.min(15, body.duration || 5))),
       mode: "pro",
@@ -1860,7 +1864,7 @@ async function localGenerateVideo(body: any) {
   } else {
     // Build multipart/form-data as the API requires
     const textFields: Record<string, string> = {
-      model: model || "doubao-seedance-1-5-pro_1080p",
+      model: resolveConfiguredModelName(model || "doubao-seedance-1-5-pro_1080p"),
       prompt: body.prompt,
       seconds: String(Math.max(4, Math.min(15, Number(body.duration) || 5))),
       size: body.aspectRatio || "16:9",

@@ -19,6 +19,18 @@ interface BrowserViewState {
   error?: string;
 }
 
+interface BuiltinApiBundle {
+  geminiEndpoint?: string;
+  geminiKey?: string;
+  jimengEndpoint?: string;
+  jimengKey?: string;
+  viduEndpoint?: string;
+  viduKey?: string;
+  klingEndpoint?: string;
+  klingKey?: string;
+  modelMappings?: Record<string, string>;
+}
+
 interface ElectronAPI {
   jimeng: {
     start: () => Promise<{
@@ -76,6 +88,10 @@ interface ElectronAPI {
       mimeType?: string;
       error?: string;
     }>;
+  };
+  runtime: {
+    builtinApiBundle: BuiltinApiBundle | null;
+    builtinApiBundlePath: string;
   };
   browserView: {
     create: (params?: { url?: string; bounds?: BrowserViewBounds }) => Promise<{

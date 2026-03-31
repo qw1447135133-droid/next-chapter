@@ -1131,10 +1131,12 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
+    icon: path.join(__dirname, "../build/icon.ico"),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: false,
     },
     show: false,
     title: "Infinio",
@@ -1214,8 +1216,8 @@ function createWindow() {
 }
 
 function createTray() {
-  // 创建简单的托盘图标（空白 16x16）
-  const icon = nativeImage.createEmpty();
+  // 加载图标
+  const icon = nativeImage.createFromPath(path.join(__dirname, "../build/icon.ico"));
   tray = new Tray(icon);
 
   const contextMenu = Menu.buildFromTemplate([

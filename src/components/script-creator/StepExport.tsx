@@ -6,6 +6,7 @@ import { Copy, Check, Download, Film, Loader2, FileText } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildExportPrompt } from "@/lib/drama-prompts";
+import { readStoredDecomposeModel } from "@/lib/gemini-text-models";
 import type { DramaSetup, EpisodeScript } from "@/types/drama";
 import { exportToDocx } from "@/lib/export-docx";
 
@@ -44,7 +45,7 @@ const StepExport = ({ setup, dramaTitle, creativePlan, characters, episodes }: S
     abortRef.current = new AbortController();
     try {
       const prompt = buildExportPrompt(setup, dramaTitle, creativePlan, characters, episodes);
-      const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+      const model = readStoredDecomposeModel();
       const finalText = await callGeminiStream(
         model,
         [{ role: "user", parts: [{ text: prompt }] }],

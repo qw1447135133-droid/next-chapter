@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { readStoredDecomposeModel } from "@/lib/gemini-text-models";
 import {
   ArrowRight,
   Loader2,
@@ -283,7 +284,7 @@ const StepEpisode = ({
         nextEp?.content,
       );
       const model =
-        localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+        readStoredDecomposeModel();
       const finalText = await callGeminiStream(
         model,
         [{ role: "user", parts: [{ text: prompt }] }],
@@ -330,7 +331,7 @@ const StepEpisode = ({
 
     const results = new Map<number, ReviewResult>();
     const model =
-      localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+      readStoredDecomposeModel();
 
     for (let i = 0; i < completedEps.length; i++) {
       if (batchAbortRef.current?.signal.aborted) break;
@@ -448,7 +449,7 @@ const StepEpisode = ({
         ? parseInt(customDuration) || 90
         : parseInt(durationOption);
     const model =
-      localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+      readStoredDecomposeModel();
     const customInstruction = instruction.trim() || undefined;
 
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -613,7 +614,7 @@ const StepEpisode = ({
         (sceneRegenInstructions[sceneIndex] || "").trim() || undefined,
       );
       const model =
-        localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+        readStoredDecomposeModel();
       const newSceneText = await callGeminiStream(
         model,
         [{ role: "user", parts: [{ text: prompt }] }],

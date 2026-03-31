@@ -3,10 +3,10 @@
  *
  * 直接调用各服务 API，使用设置中配置的 API Key
  */
-import { getApiConfig } from "@/lib/api-config";
+import { getApiConfig, resolveConfiguredModelName } from "@/lib/api-config";
 import { getNetworkRetrySettings } from "@/lib/network-retry-settings";
 
-export const DEFAULT_GEMINI_BASE_URL = "http://202.90.21.53:13003/v1beta";
+export const DEFAULT_GEMINI_BASE_URL = "https://api.tu-zi.com/v1beta";
 
 /** 全局 Gemini 并发控制：同一时间最多 N 个请求打到 OneAPI */
 const MAX_CONCURRENT_GEMINI = 2;
@@ -190,10 +190,11 @@ export async function callGemini(
   signal?: AbortSignal,
 ): Promise<any> {
   const config = getApiConfig();
+  const resolvedModel = resolveConfiguredModelName(model);
   const baseUrl = (config.geminiEndpoint || DEFAULT_GEMINI_BASE_URL)
     .replace(/\/v1beta(\/.*)?$/, "")
     .replace(/\/v1(\/.*)?$/, "");
-  const url = `${baseUrl}/v1beta/models/${model}:generateContent`;
+  const url = `${baseUrl}/v1beta/models/${resolvedModel}:generateContent`;
   const body: any = { contents };
   if (generationConfig && Object.keys(generationConfig).length > 0) {
     body.generationConfig = generationConfig;
@@ -283,10 +284,11 @@ export async function callGeminiStream(
   signal?: AbortSignal,
 ): Promise<string> {
   const config = getApiConfig();
+  const resolvedModel = resolveConfiguredModelName(model);
   const baseUrl = (config.geminiEndpoint || DEFAULT_GEMINI_BASE_URL)
     .replace(/\/v1beta(\/.*)?$/, "")
     .replace(/\/v1(\/.*)?$/, "");
-  const url = `${baseUrl}/v1beta/models/${model}:streamGenerateContent?alt=sse`;
+  const url = `${baseUrl}/v1beta/models/${resolvedModel}:streamGenerateContent?alt=sse`;
   const body: any = { contents };
   if (generationConfig && Object.keys(generationConfig).length > 0) {
     body.generationConfig = generationConfig;
@@ -498,7 +500,7 @@ export async function callSeedreamImage(
     .replace(/\/v1(\/.*)?$/, "");
 
   const payload: any = {
-    model: options.model || "doubao-seedream-3-0",
+    model: resolveConfiguredModelName(options.model || "doubao-seedream-3-0"),
     prompt,
     size: options.size || "2560x1440",
     watermark: false,

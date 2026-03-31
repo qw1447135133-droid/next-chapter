@@ -1,7 +1,11 @@
 import { generateId } from "@/lib/generate-id";
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { DecomposeModel } from "@/components/workspace/ScriptInput";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import {
+  type DecomposeModel,
+  DEFAULT_DECOMPOSE_MODEL,
+  readStoredDecomposeModel,
+} from "@/lib/gemini-text-models";
 import { ArrowLeft, Film, Settings } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -419,11 +423,11 @@ const Workspace = () => {
     () => {
       try {
         return (
-          (localStorage.getItem("decompose-model") as DecomposeModel) ||
-          "gemini-3.1-pro-preview"
+          readStoredDecomposeModel() ||
+          DEFAULT_DECOMPOSE_MODEL
         );
       } catch {
-        return "gemini-3.1-pro-preview";
+        return DEFAULT_DECOMPOSE_MODEL;
       }
     },
   );

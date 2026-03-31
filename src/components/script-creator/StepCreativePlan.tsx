@@ -7,6 +7,7 @@ import { ArrowRight, Loader2, RefreshCw, Pencil, Eye } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildCreativePlanPrompt } from "@/lib/drama-prompts";
+import { readStoredDecomposeModel } from "@/lib/gemini-text-models";
 import type { DramaSetup } from "@/types/drama";
 
 interface StepCreativePlanProps {
@@ -28,7 +29,7 @@ const StepCreativePlan = ({ setup, plan, onUpdate, onNext }: StepCreativePlanPro
     abortRef.current = new AbortController();
     try {
       const prompt = buildCreativePlanPrompt(setup);
-      const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+      const model = readStoredDecomposeModel();
       const finalText = await callGeminiStream(
         model,
         [{ role: "user", parts: [{ text: prompt }] }],

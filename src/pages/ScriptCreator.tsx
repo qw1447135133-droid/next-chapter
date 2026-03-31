@@ -27,15 +27,15 @@ import StepCompliance from "@/components/script-creator/StepCompliance";
 import StepReferenceScript from "@/components/script-creator/StepReferenceScript";
 import StepStructureTransform from "@/components/script-creator/StepStructureTransform";
 import StepCharacterTransform from "@/components/script-creator/StepCharacterTransform";
+import {
+  DECOMPOSE_MODEL_OPTIONS,
+  DEFAULT_DECOMPOSE_MODEL,
+  readStoredDecomposeModel,
+} from "@/lib/gemini-text-models";
 
 const DRAMA_PROJECTS_KEY = "storyforge_drama_projects";
 
-const MODEL_OPTIONS = [
-  { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
-  { value: "gemini-3-pro-preview", label: "Gemini 3 Pro" },
-  { value: "gemini-3-pro-preview-thinking", label: "Gemini 3 Pro (Thinking)" },
-  { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
-];
+const MODEL_OPTIONS = DECOMPOSE_MODEL_OPTIONS;
 
 function getDramaProjects(): DramaProject[] {
   try {
@@ -156,7 +156,9 @@ const ScriptCreator = () => {
     return !resumeId && !modeParam;
   });
 
-  const [model, setModel] = useState(() => localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview");
+  const [model, setModel] = useState(
+    () => readStoredDecomposeModel() || DEFAULT_DECOMPOSE_MODEL,
+  );
   const [setupMode, setSetupMode] = useState<SetupMode>(() => project.setup?.setupMode || "topic");
 
   const handleModelChange = (value: string) => {

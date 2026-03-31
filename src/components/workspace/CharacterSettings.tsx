@@ -29,12 +29,13 @@ import { friendlyError } from "@/lib/friendly-error";
 import { ensureStorageUrl } from "@/lib/upload-base64-to-storage";
 import { compressImage } from "@/lib/image-compress";
 import { callGemini, explainGeminiNoText, extractText } from "@/lib/gemini-client";
+import { DEFAULT_DECOMPOSE_MODEL } from "@/lib/gemini-text-models";
 
 
 const CHAR_IMAGE_TIMEOUT_MS = 180_000;
 const SCENE_IMAGE_TIMEOUT_MS = 300_000;
 /** 多模态画风提取单独用 Pro，避免与「剧本拆解」共用 Flash 时在网关/多模态下长时间无响应 */
-const ART_STYLE_EXTRACT_MODEL = "gemini-3.1-pro-preview";
+const ART_STYLE_EXTRACT_MODEL = DEFAULT_DECOMPOSE_MODEL;
 const ART_STYLE_EXTRACT_TIMEOUT_MS = 120_000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label = "图像生成"): Promise<T> {

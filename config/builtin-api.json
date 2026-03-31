@@ -1,0 +1,22 @@
+{
+  "geminiEndpoint": "https://api.tu-zi.com/v1beta",
+  "geminiKey": "",
+  "jimengEndpoint": "https://api.tu-zi.com/v1beta",
+  "jimengKey": "",
+  "viduEndpoint": "",
+  "viduKey": "",
+  "klingEndpoint": "",
+  "klingKey": "",
+  "modelMappings": {
+    "gemini-3-pro": "gemini-3-pro",
+    "gemini-3-pro-preview": "gemini-3-pro-preview",
+    "gemini-3-pro-thinking": "gemini-3-pro-thinking",
+    "gemini-3-flash-preview": "gemini-3-flash-preview",
+    "gemini-3-pro-image-preview": "gemini-3-pro-image-preview",
+    "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image-preview",
+    "doubao-seedream-5-0-260128": "doubao-seedream-5-0-260128",
+    "doubao-seedance-1-5-pro_1080p": "doubao-seedance-1-5-pro_1080p",
+    "viduq3-pro": "viduq3-pro",
+    "kling-v3": "kling-v3"
+  }
+}

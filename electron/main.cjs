@@ -2727,10 +2727,12 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
+    icon: path2.join(__dirname, "../build/icon.ico"),
     webPreferences: {
       preload: path2.join(__dirname, "preload.cjs"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: false
     },
     show: false,
     title: "Infinio"
@@ -2793,7 +2795,7 @@ function createWindow() {
   }
 }
 function createTray() {
-  const icon = nativeImage.createEmpty();
+  const icon = nativeImage.createFromPath(path2.join(__dirname, "../build/icon.ico"));
   tray = new Tray(icon);
   const contextMenu = Menu.buildFromTemplate([
     { label: "\u663E\u793A\u7A97\u53E3", click: () => mainWindow?.show() },

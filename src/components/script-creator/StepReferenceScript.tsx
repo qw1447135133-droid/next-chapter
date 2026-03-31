@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowRight, FileText, Upload, Sparkles, Loader2, CheckCircle2, PlayCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { callGemini, callGeminiStream, extractText } from "@/lib/gemini-client";
+import { readStoredDecomposeModel } from "@/lib/gemini-text-models";
 import { toast } from "@/hooks/use-toast";
 import { parseDocument } from "@/lib/document-parser";
 import { TARGET_MARKETS, EPISODE_COUNTS, AUDIENCES, TONES, ENDINGS } from "@/types/drama";
@@ -213,7 +214,7 @@ const StepReferenceScript = ({ referenceScript, setup, onComplete }: StepReferen
     if (!resumeFrom) setExtractedStructure("");
     abortRef.current = new AbortController();
     resumeRef.current = null;
-    const model = localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+    const model = readStoredDecomposeModel();
 
     let chunks: string[];
     let structureParts: string[];

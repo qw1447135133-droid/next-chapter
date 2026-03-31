@@ -7,6 +7,7 @@ import { ArrowRight, RefreshCw, Pencil, Eye, Loader2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { callGeminiStream } from "@/lib/gemini-client";
 import { buildDirectoryPrompt } from "@/lib/drama-prompts";
+import { readStoredDecomposeModel } from "@/lib/gemini-text-models";
 import type { DramaSetup, EpisodeEntry } from "@/types/drama";
 import {
   useTranslation,
@@ -96,7 +97,7 @@ const StepDirectory = ({
     try {
       const prompt = buildDirectoryPrompt(setup, creativePlan, characters);
       const model =
-        localStorage.getItem("decompose-model") || "gemini-3.1-pro-preview";
+        readStoredDecomposeModel();
       const finalText = await callGeminiStream(
         model,
         [{ role: "user", parts: [{ text: prompt }] }],

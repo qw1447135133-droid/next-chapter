@@ -1,0 +1,84 @@
+export type DecomposeModel =
+  | "gemini-3-pro"
+  | "gemini-3-pro-preview"
+  | "gemini-3-pro-thinking"
+  | "gemini-3-flash-preview";
+
+export type ComplianceModel =
+  | "gemini-3-pro"
+  | "gemini-3-pro-preview"
+  | "gemini-3-flash-preview";
+
+export const DEFAULT_DECOMPOSE_MODEL: DecomposeModel = "gemini-3-pro";
+export const DEFAULT_COMPLIANCE_MODEL: ComplianceModel = "gemini-3-pro";
+
+export const DECOMPOSE_MODEL_OPTIONS: Array<{
+  value: DecomposeModel;
+  label: string;
+}> = [
+  { value: "gemini-3-pro", label: "Gemini 3.1 Pro" },
+  { value: "gemini-3-pro-preview", label: "Gemini 3.0 Pro" },
+  { value: "gemini-3-pro-thinking", label: "Gemini 3 Pro Thinking" },
+  { value: "gemini-3-flash-preview", label: "Gemini 3.0 Flash" },
+];
+
+export const COMPLIANCE_MODEL_OPTIONS: Array<{
+  value: ComplianceModel;
+  label: string;
+}> = DECOMPOSE_MODEL_OPTIONS.filter(
+  (option): option is { value: ComplianceModel; label: string } =>
+    option.value !== "gemini-3-pro-thinking",
+);
+
+const LEGACY_MODEL_MAP: Record<string, DecomposeModel> = {
+  "gemini-3.1-pro-preview": "gemini-3-pro",
+  "gemini-3-pro-preview-thinking": "gemini-3-pro-thinking",
+  "gemini-3-pro-preview": "gemini-3-pro-preview",
+  "gemini-3-flash-preview": "gemini-3-flash-preview",
+  "gemini-3-pro": "gemini-3-pro",
+  "gemini-3-pro-thinking": "gemini-3-pro-thinking",
+};
+
+export function normalizeDecomposeModel(
+  value: string | null | undefined,
+): DecomposeModel {
+  const normalized = value ? LEGACY_MODEL_MAP[value] || value : "";
+  return DECOMPOSE_MODEL_OPTIONS.some((option) => option.value === normalized)
+    ? (normalized as DecomposeModel)
+    : DEFAULT_DECOMPOSE_MODEL;
+}
+
+export function normalizeComplianceModel(
+  value: string | null | undefined,
+): ComplianceModel {
+  const normalized = normalizeDecomposeModel(value);
+  return normalized === "gemini-3-pro-thinking"
+    ? DEFAULT_COMPLIANCE_MODEL
+    : normalized;
+}
+
+export function readStoredDecomposeModel(): DecomposeModel {
+  try {
+    const raw = localStorage.getItem("decompose-model");
+    const normalized = normalizeDecomposeModel(raw);
+    if (raw !== normalized) {
+      localStorage.setItem("decompose-model", normalized);
+    }
+    return normalized;
+  } catch {
+    return DEFAULT_DECOMPOSE_MODEL;
+  }
+}
+
+export function readStoredComplianceModel(): ComplianceModel {
+  try {
+    const raw = localStorage.getItem("compliance-model");
+    const normalized = normalizeComplianceModel(raw);
+    if (raw !== normalized) {
+      localStorage.setItem("compliance-model", normalized);
+    }
+    return normalized;
+  } catch {
+    return DEFAULT_COMPLIANCE_MODEL;
+  }
+}

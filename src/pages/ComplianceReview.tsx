@@ -25,16 +25,14 @@ import {
   loadComplianceStandaloneRestore,
 } from "@/lib/task-history";
 import { TaskHistoryMenu } from "@/components/TaskHistoryMenu";
-
-type ComplianceModel = "gemini-3.1-pro-preview" | "gemini-3-pro-preview" | "gemini-3-flash-preview";
+import {
+  type ComplianceModel,
+  COMPLIANCE_MODEL_OPTIONS as MODEL_OPTIONS,
+  DEFAULT_COMPLIANCE_MODEL,
+  readStoredComplianceModel,
+} from "@/lib/gemini-text-models";
 type ReviewMode = "text" | "script";
 type StrictnessLevel = "standard" | "strict" | "extreme";
-
-const MODEL_OPTIONS: { value: ComplianceModel; label: string }[] = [
-  { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
-  { value: "gemini-3-pro-preview", label: "Gemini 3 Pro" },
-  { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
-];
 
 // 严格程度配置
 const STRICTNESS_CONFIG: Record<StrictnessLevel, { label: string; desc: string; promptSuffix: string }> = {
@@ -516,7 +514,7 @@ const ComplianceReview = () => {
   // 严格程度
   const [strictness, setStrictness] = useState<StrictnessLevel>("standard");
   const [model, setModel] = useState<ComplianceModel>(
-    () => (localStorage.getItem("compliance-model") as ComplianceModel) || "gemini-3.1-pro-preview"
+    () => readStoredComplianceModel() || DEFAULT_COMPLIANCE_MODEL,
   );
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);

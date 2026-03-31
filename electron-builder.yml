@@ -21,6 +21,8 @@ extraResources:
     to: files
     filter:
       - "**/*"
+  - from: config/builtin-api.json
+    to: config/builtin-api.json
 
 asar: true
 compression: maximum

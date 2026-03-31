@@ -6,15 +6,10 @@ import { parseDocument } from "@/lib/document-parser";
 import { toast } from "@/hooks/use-toast";
 import { VideoPace, VIDEO_PACE_OPTIONS, EpisodeDuration, EPISODE_DURATION_OPTIONS } from "@/types/project";
 import { Input } from "@/components/ui/input";
-
-export type DecomposeModel = "gemini-3.1-pro-preview" | "gemini-3-pro-preview" | "gemini-3-pro-preview-thinking" | "gemini-3-flash-preview";
-
-const DECOMPOSE_MODEL_OPTIONS: { value: DecomposeModel; label: string }[] = [
-  { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
-  { value: "gemini-3-pro-preview", label: "Gemini 3 Pro" },
-  { value: "gemini-3-pro-preview-thinking", label: "Gemini 3 Pro Thinking" },
-  { value: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
-];
+import {
+  type DecomposeModel,
+  DECOMPOSE_MODEL_OPTIONS,
+} from "@/lib/gemini-text-models";
 
 interface ScriptInputProps {
   script: string;

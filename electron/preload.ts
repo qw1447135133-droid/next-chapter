@@ -6,6 +6,20 @@
  */
 
 import { contextBridge, ipcRenderer } from "electron";
+import fs from "node:fs";
+import path from "node:path";
+
+type BuiltinApiBundle = {
+  geminiEndpoint?: string;
+  geminiKey?: string;
+  jimengEndpoint?: string;
+  jimengKey?: string;
+  viduEndpoint?: string;
+  viduKey?: string;
+  klingEndpoint?: string;
+  klingKey?: string;
+  modelMappings?: Record<string, string>;
+};
 
 export interface BrowserViewBounds {
   x: number;
@@ -197,6 +211,35 @@ export interface ReversePlaywrightAPI {
   close: () => Promise<{ ok: boolean }>;
 }
 
+export interface RuntimeAPI {
+  builtinApiBundle: BuiltinApiBundle | null;
+  builtinApiBundlePath: string;
+}
+
+function getBuiltinApiBundlePath(): string {
+  if (process.defaultApp) {
+    return path.resolve(__dirname, "..", "config", "builtin-api.json");
+  }
+  return path.join(process.resourcesPath, "config", "builtin-api.json");
+}
+
+function readBuiltinApiBundle(): BuiltinApiBundle | null {
+  const filePath = getBuiltinApiBundlePath();
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf8")) as BuiltinApiBundle;
+  } catch {
+    return null;
+  }
+}
+
+const builtinApiBundle = readBuiltinApiBundle();
+const builtinApiBundlePath = getBuiltinApiBundlePath();
+const runtimeAPI: RuntimeAPI = {
+  builtinApiBundle,
+  builtinApiBundlePath,
+};
+
 const jimengAPI: JimengAPI = {
   start: () => ipcRenderer.invoke("jimeng:start"),
   stop: () => ipcRenderer.invoke("jimeng:stop"),
@@ -254,6 +297,7 @@ const reversePlaywrightAPI: ReversePlaywrightAPI = {
 
 contextBridge.exposeInMainWorld("electronAPI", {
   jimeng: jimengAPI,
+  runtime: runtimeAPI,
   storage: {
     getDefaultPath: () => ipcRenderer.invoke("storage:getDefaultPath"),
     selectFolder: () => ipcRenderer.invoke("storage:selectFolder"),
