@@ -51,13 +51,16 @@ type AspectRatio = "16:9" | "9:16" | "3:2" | "2:3";
 type ReverseModel = "Seedance 2.0" | "Seedance 2.0 Fast";
 type ReverseDuration = "5s" | "10s" | "15s";
 type ReverseReferenceKind = "character" | "scene";
+type ReverseReferenceAttachment = "setting-image" | "audio";
 type ReverseRepeatCount = "1" | "2" | "3" | "4" | "5";
 type ReverseBatchWaitMinutes = "5" | "10" | "15" | "20" | "30";
 
 interface ReverseReference {
   kind: ReverseReferenceKind;
+  attachment: ReverseReferenceAttachment;
   label: string;
   source: string;
+  sourceFileName?: string;
 }
 
 interface UploadReadyReference extends ReverseReference {
@@ -139,6 +142,11 @@ function inferExtensionFromSource(source: string): string {
   if (lower.includes(".png")) return ".png";
   if (lower.includes(".webp")) return ".webp";
   if (lower.includes(".gif")) return ".gif";
+  if (lower.includes(".mp3")) return ".mp3";
+  if (lower.includes(".wav")) return ".wav";
+  if (lower.includes(".ogg")) return ".ogg";
+  if (lower.includes(".m4a")) return ".m4a";
+  if (lower.includes(".aac")) return ".aac";
   return ".jpg";
 }
 
@@ -148,7 +156,16 @@ function inferExtensionFromDataUrl(dataUrl: string, fallback: string): string {
   if (mime.includes("png")) return ".png";
   if (mime.includes("webp")) return ".webp";
   if (mime.includes("gif")) return ".gif";
+  if (mime.includes("mpeg") || mime.includes("mp3")) return ".mp3";
+  if (mime.includes("wav")) return ".wav";
+  if (mime.includes("ogg")) return ".ogg";
+  if (mime.includes("mp4") || mime.includes("m4a") || mime.includes("aac")) return ".m4a";
   return fallback;
+}
+
+function inferExtensionFromFileName(fileName: string | undefined): string | null {
+  const match = String(fileName || "").match(/(\.[a-z0-9]{1,8})(?:$|[?#])/i);
+  return match?.[1]?.toLowerCase() || null;
 }
 
 function normalizeText(value: string): string {
@@ -172,10 +189,61 @@ function cleanCameraDirection(value: string): string {
   return cleanPromptFragment(value).replace(/^(镜头|运镜)[:：]\s*/i, "");
 }
 
+function getReferenceKey(reference: Pick<ReverseReference, "kind" | "label" | "attachment">): string {
+  return `${reference.kind}:${reference.label}:${reference.attachment}`;
+}
+
+function getReferenceGroupKey(reference: Pick<ReverseReference, "kind" | "label">): string {
+  return `${reference.kind}:${reference.label}`;
+}
+
+function getReferenceMentionLabel(reference: Pick<ReverseReference, "attachment">): "@设定图" | "@音频" {
+  return reference.attachment === "audio" ? "@音频" : "@设定图";
+}
+
+function getReferenceFileSuffix(reference: Pick<ReverseReference, "attachment">): string {
+  return reference.attachment === "audio" ? "音频" : "设定图";
+}
+
+function groupPromptReferences<T extends ReverseReference>(references: T[]): Array<{
+  kind: ReverseReferenceKind;
+  label: string;
+  items: T[];
+}> {
+  const grouped = new Map<string, { kind: ReverseReferenceKind; label: string; items: T[] }>();
+
+  for (const reference of references) {
+    const key = getReferenceGroupKey(reference);
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.items.push(reference);
+      continue;
+    }
+
+    grouped.set(key, {
+      kind: reference.kind,
+      label: reference.label,
+      items: [reference],
+    });
+  }
+
+  return Array.from(grouped.values());
+}
+
+function getReferenceMentionLabelSafe(
+  reference: Pick<ReverseReference, "attachment">,
+): "@\u8bbe\u5b9a\u56fe" | "@\u97f3\u9891" {
+  return reference.attachment === "audio" ? "@\u97f3\u9891" : "@\u8bbe\u5b9a\u56fe";
+}
+
+function getReferenceFileSuffixSafe(reference: Pick<ReverseReference, "attachment">): string {
+  return reference.attachment === "audio" ? "\u97f3\u9891" : "\u8bbe\u5b9a\u56fe";
+}
+
 function buildPromptForSegment(segmentScenes: Scene[], references: ReverseReference[]): string {
   const sceneTags = uniqueByKey(
     references.filter((item) => item.kind === "scene"),
-    (item) => `${item.kind}:${item.label}`,
+    (item) => getReferenceGroupKey(item),
   ).map((item) => `【${item.label}】`);
 
   const characterTags = uniqueByKey(
@@ -202,11 +270,11 @@ function buildPromptForSegment(segmentScenes: Scene[], references: ReverseRefere
 function buildOrderedPromptReferences(references: ReverseReference[]): ReverseReference[] {
   const sceneReferences = uniqueByKey(
     references.filter((item) => item.kind === "scene"),
-    (item) => `${item.kind}:${item.label}`,
+    (item) => getReferenceKey(item),
   );
   const characterReferences = uniqueByKey(
     references.filter((item) => item.kind === "character"),
-    (item) => `${item.kind}:${item.label}`,
+    (item) => getReferenceKey(item),
   );
   return [...sceneReferences, ...characterReferences];
 }
@@ -242,6 +310,7 @@ function buildPromptForSegmentStable(
 ): string {
   const orderedReferences = buildOrderedPromptReferences(references);
   const lines: string[] = [];
+  const groupedReferences = groupPromptReferences(orderedReferences);
 
   if (orderedReferences.length > 0) {
     lines.push(
@@ -249,6 +318,53 @@ function buildPromptForSegmentStable(
         .map((item) => `【${item.label} @设定图】`)
         .join(" ")}`,
     );
+  }
+
+  lines.push(...buildPromptBodyLinesStable(segmentScenes));
+  return lines.filter(Boolean).join("\n");
+}
+
+/*
+function buildPromptForSegmentWithGroupedReferences(
+  segmentScenes: Scene[],
+  references: ReverseReference[],
+): string {
+  const orderedReferences = buildOrderedPromptReferences(references);
+  const groupedReferences = groupPromptReferences(orderedReferences);
+  const lines: string[] = [];
+
+  if (groupedReferences.length > 0) {
+    lines.push(
+      `鍦烘櫙/浜虹墿鏍囩锛?{groupedReferences
+        .map((group) => `銆?{group.label} ${group.items.map((item) => getReferenceMentionLabel(item)).join(" ")}銆慲)
+        .join(" ")}`,
+    );
+  }
+
+  lines.push(...buildPromptBodyLinesStable(segmentScenes));
+  return lines.filter(Boolean).join("\n");
+}
+
+*/
+
+function buildPromptForSegmentWithGroupedReferences(
+  segmentScenes: Scene[],
+  references: ReverseReference[],
+): string {
+  const orderedReferences = buildOrderedPromptReferences(references);
+  const groupedReferences = groupPromptReferences(orderedReferences);
+  const lines: string[] = [];
+
+  if (groupedReferences.length > 0) {
+    const tags = groupedReferences
+      .map(
+        (group) =>
+          `\u3010${group.label} ${group.items
+            .map((item) => getReferenceMentionLabel(item))
+            .join(" ")}\u3011`,
+      )
+      .join(" ");
+    lines.push(`\u573a\u666f/\u4eba\u7269\u6807\u7b7e\uff1a${tags}`);
   }
 
   lines.push(...buildPromptBodyLinesStable(segmentScenes));
@@ -379,7 +495,22 @@ export default function ReverseBrowserViewPanel({
             continue;
           }
 
-          characterRefs.push({ kind: "character", label: refLabel, source: imageUrl });
+          characterRefs.push({
+            kind: "character",
+            attachment: "setting-image",
+            label: refLabel,
+            source: imageUrl,
+          });
+
+          if (character.audioUrl) {
+            characterRefs.push({
+              kind: "character",
+              attachment: "audio",
+              label: refLabel,
+              source: character.audioUrl,
+              sourceFileName: character.audioFileName,
+            });
+          }
         }
       }
 
@@ -399,7 +530,12 @@ export default function ReverseBrowserViewPanel({
           const imageUrl = variant?.imageUrl || matchedScene.imageUrl;
 
           if (imageUrl) {
-            sceneRefs.push({ kind: "scene", label: sceneLabel, source: imageUrl });
+            sceneRefs.push({
+              kind: "scene",
+              attachment: "setting-image",
+              label: sceneLabel,
+              source: imageUrl,
+            });
           } else {
             console.log(`[${segmentKey}] 场景 "${sceneLabel}" 没有图片`);
           }
@@ -410,14 +546,14 @@ export default function ReverseBrowserViewPanel({
 
       const references = uniqueByKey(
         [...sceneRefs, ...characterRefs],
-        (item) => `${item.kind}:${item.label}`,
+        (item) => getReferenceKey(item),
       ).slice(0, 12);
 
       return {
         segmentKey,
         episodeKey: episodeKeyOf(segmentKey),
         scenes: segmentScenes,
-        prompt: buildPromptForSegmentStable(segmentScenes, references),
+        prompt: buildPromptForSegmentWithGroupedReferences(segmentScenes, references),
         references,
       };
     });
@@ -564,15 +700,21 @@ export default function ReverseBrowserViewPanel({
       for (let index = 0; index < orderedReferences.length; index += 1) {
         const reference = orderedReferences[index];
         try {
-          const dataUrl = await compressImage(reference.source, 400 * 1024, { maxDim: 1280 });
+          const dataUrl =
+            reference.attachment === "audio"
+              ? String(reference.source || "")
+              : await compressImage(reference.source, 400 * 1024, { maxDim: 1280 });
           if (!dataUrl.startsWith("data:")) continue;
 
           const extension = inferExtensionFromDataUrl(
             dataUrl,
-            inferExtensionFromSource(reference.source),
+            inferExtensionFromFileName(reference.sourceFileName) ||
+              inferExtensionFromSource(reference.source),
           );
           const baseName =
-            sanitizeFileName(reference.label || `${definition.segmentKey}-${index + 1}`) ||
+            sanitizeFileName(
+              `${reference.label || `${definition.segmentKey}-${index + 1}`} ${getReferenceFileSuffix(reference)}`,
+            ) ||
             `ref-${index + 1}`;
 
           prepared.push({
@@ -797,7 +939,9 @@ export default function ReverseBrowserViewPanel({
 
       appendLog(
         `?? ${definition.segmentKey} ???? ${uploadReferences.length} ???: ${
-          uploadReferences.map((item) => `${item.kind}:${item.label}`).join(", ") || "?"
+          uploadReferences
+            .map((item) => `${item.kind}:${item.label}:${getReferenceMentionLabel(item)}`)
+            .join(", ") || "?"
         }`,
       );
 
@@ -879,7 +1023,8 @@ export default function ReverseBrowserViewPanel({
           throw new Error(`片段 ${definition.segmentKey} 标签前缀写入失败${prefixWrite.error ? `: ${prefixWrite.error}` : ""}`);
         }
 
-        for (let index = 0; index < uploadReferences.length; index += 1) {
+        const useLegacySingleMentionInsertion = false;
+        for (let index = 0; useLegacySingleMentionInsertion && index < uploadReferences.length; index += 1) {
           const item = uploadReferences[index];
           const leadText = `${index === 0 ? "" : " "}【${item.label} `;
           const leadWrite = await executeNamed<{ ok: boolean; error?: string }>(
@@ -918,6 +1063,162 @@ export default function ReverseBrowserViewPanel({
           );
           if (!tailWrite.ok) {
             throw new Error(`片段 ${definition.segmentKey} 标签尾部写入失败 ${item.label}${tailWrite.error ? `: ${tailWrite.error}` : ""}`);
+          }
+        }
+
+        if (false) {
+        const groupedUploadReferences = groupPromptReferences(uploadReferences);
+        let uploadIndex = 0;
+
+        for (let groupIndex = 0; groupIndex < groupedUploadReferences.length; groupIndex += 1) {
+          const group = groupedUploadReferences[groupIndex];
+          const openingText = `${groupIndex === 0 ? "" : " "}銆?{group.label} `;
+          const openingWrite = await executeNamed<{ ok: boolean; error?: string }>(
+            `鍐欏叆鏍囩 ${group.label}`,
+            buildTypePromptScript(openingText, promptTarget.textboxIndex, 35, true),
+            { prompt: openingText },
+          );
+          if (!openingWrite.ok) {
+            throw new Error(`鐗囨 ${definition.segmentKey} 鏍囩鍐欏叆澶辫触 ${group.label}${openingWrite.error ? `: ${openingWrite.error}` : ""}`);
+          }
+
+          for (let itemIndex = 0; itemIndex < group.items.length; itemIndex += 1) {
+            const item = group.items[itemIndex];
+            if (itemIndex > 0) {
+              const spacerWrite = await executeNamed<{ ok: boolean; error?: string }>(
+                `琛ュ叏鏍囩绌烘牸 ${group.label}`,
+                buildTypePromptScript(" ", promptTarget.textboxIndex, 35, true),
+                { prompt: " " },
+              );
+              if (!spacerWrite.ok) {
+                throw new Error(`鐗囨 ${definition.segmentKey} 鏍囩绌烘牸鍐欏叆澶辫触 ${group.label}${spacerWrite.error ? `: ${spacerWrite.error}` : ""}`);
+              }
+            }
+
+            const mentionLabel = getReferenceMentionLabel(item);
+            const mentionResult = await executeNamed<{
+              ok: boolean;
+              step: string;
+              selectedText?: string;
+              optionCount?: number;
+              debug?: string;
+              error?: string;
+            }>(
+              `鎻掑叆${mentionLabel} ${item.label}`,
+              buildTypeAtMentionScript(item.label, uploadIndex, promptTarget.textboxIndex),
+            );
+            if (!mentionResult.ok) {
+              throw new Error(
+                `鐗囨 ${definition.segmentKey} ${mentionLabel}鎻掑叆澶辫触 ${item.label}: ${mentionResult.step}${
+                  mentionResult.debug ? ` / ${mentionResult.debug}` : ""
+                }${mentionResult.error ? ` / ${mentionResult.error}` : ""}`,
+              );
+            }
+            appendLog(
+              `鐗囨 ${definition.segmentKey} 宸叉彃鍏?${mentionLabel}[${uploadIndex}]: ${item.label} -> ${
+                mentionResult.selectedText || ""
+              }`,
+            );
+            uploadIndex += 1;
+          }
+
+          /* const closingWrite = await executeNamed<{ ok: boolean; error?: string }>(
+            `琛ュ叏鏍囩灏鹃儴 ${group.label}`,
+            buildTypePromptScript("銆?, promptTarget.textboxIndex, 35, true),
+            { prompt: "銆? },
+          );
+          */
+          const closingWrite = await executeNamed<{ ok: boolean; error?: string }>(
+            `琛ュ叏鏍囩灏鹃儴 ${group.label}`,
+            buildTypePromptScript("\u3011", promptTarget.textboxIndex, 35, true),
+            { prompt: "\u3011" },
+          );
+          if (!closingWrite.ok) {
+            throw new Error(`鐗囨 ${definition.segmentKey} 鏍囩灏鹃儴鍐欏叆澶辫触 ${group.label}${closingWrite.error ? `: ${closingWrite.error}` : ""}`);
+          }
+        }
+
+        }
+
+        const groupedUploadReferences = groupPromptReferences(uploadReferences);
+        let uploadIndex = 0;
+
+        for (let groupIndex = 0; groupIndex < groupedUploadReferences.length; groupIndex += 1) {
+          const group = groupedUploadReferences[groupIndex];
+          const openingText = `${groupIndex === 0 ? "" : " "}\u3010${group.label} `;
+          const openingWrite = await executeNamed<{ ok: boolean; error?: string }>(
+            `\u5199\u5165\u6807\u7b7e ${group.label}`,
+            buildTypePromptScript(openingText, promptTarget.textboxIndex, 35, true),
+            { prompt: openingText },
+          );
+          if (!openingWrite.ok) {
+            throw new Error(
+              `\u7247\u6bb5 ${definition.segmentKey} \u6807\u7b7e\u5199\u5165\u5931\u8d25 ${group.label}${
+                openingWrite.error ? `: ${openingWrite.error}` : ""
+              }`,
+            );
+          }
+
+          for (let itemIndex = 0; itemIndex < group.items.length; itemIndex += 1) {
+            const item = group.items[itemIndex];
+            if (itemIndex > 0) {
+              const spacerWrite = await executeNamed<{ ok: boolean; error?: string }>(
+                `\u8865\u5168\u6807\u7b7e\u7a7a\u683c ${group.label}`,
+                buildTypePromptScript(" ", promptTarget.textboxIndex, 35, true),
+                { prompt: " " },
+              );
+              if (!spacerWrite.ok) {
+                throw new Error(
+                  `\u7247\u6bb5 ${definition.segmentKey} \u6807\u7b7e\u7a7a\u683c\u5199\u5165\u5931\u8d25 ${group.label}${
+                    spacerWrite.error ? `: ${spacerWrite.error}` : ""
+                  }`,
+                );
+              }
+            }
+
+            const mentionLabel = getReferenceMentionLabelSafe(item);
+            const mentionResult = await executeNamed<{
+              ok: boolean;
+              step: string;
+              selectedText?: string;
+              optionCount?: number;
+              debug?: string;
+              error?: string;
+            }>(
+              `\u63d2\u5165${mentionLabel} ${item.label}`,
+              buildTypeAtMentionScript(
+                item.label,
+                uploadIndex,
+                promptTarget.textboxIndex,
+                item.attachment === "audio" ? "audio" : "image",
+              ),
+            );
+            if (!mentionResult.ok) {
+              throw new Error(
+                `\u7247\u6bb5 ${definition.segmentKey} ${mentionLabel}\u63d2\u5165\u5931\u8d25 ${item.label}: ${mentionResult.step}${
+                  mentionResult.debug ? ` / ${mentionResult.debug}` : ""
+                }${mentionResult.error ? ` / ${mentionResult.error}` : ""}`,
+              );
+            }
+            appendLog(
+              `\u7247\u6bb5 ${definition.segmentKey} \u5df2\u63d2\u5165${mentionLabel}[${uploadIndex}]: ${item.label} -> ${
+                mentionResult.selectedText || ""
+              }`,
+            );
+            uploadIndex += 1;
+          }
+
+          const closingWrite = await executeNamed<{ ok: boolean; error?: string }>(
+            `\u8865\u5168\u6807\u7b7e\u5c3e\u90e8 ${group.label}`,
+            buildTypePromptScript("\u3011", promptTarget.textboxIndex, 35, true),
+            { prompt: "\u3011" },
+          );
+          if (!closingWrite.ok) {
+            throw new Error(
+              `\u7247\u6bb5 ${definition.segmentKey} \u6807\u7b7e\u5c3e\u90e8\u5199\u5165\u5931\u8d25 ${group.label}${
+                closingWrite.error ? `: ${closingWrite.error}` : ""
+              }`,
+            );
           }
         }
 

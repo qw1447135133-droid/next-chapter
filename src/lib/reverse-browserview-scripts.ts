@@ -1265,6 +1265,7 @@ export function buildTypeAtMentionScript(
   label: string,
   optionIndex: number,
   textboxIndex = 0,
+  expectedMentionType: "image" | "audio" = "image",
 ): string {
   return `
     (async () => {
@@ -1272,6 +1273,7 @@ export function buildTypeAtMentionScript(
         ${sharedHelpers()}
         const label = ${q(label)};
         const optionIndex = ${q(optionIndex)};
+        const expectedMentionType = ${q(expectedMentionType)};
         const textboxes = promptTextboxes();
         const textbox = textboxes[Math.max(0, ${q(textboxIndex)})] || findPromptTextbox();
         if (!(textbox instanceof HTMLElement)) {
@@ -1332,9 +1334,19 @@ export function buildTypeAtMentionScript(
         };
         const indexedImagePattern = new RegExp("^(?:\\u56fe\\u7247|image)\\s*" + (optionIndex + 1) + "$", "i");
         const isIndexedImageText = (text) => indexedImagePattern.test(String(text || ""));
-        const isGenericImageText = (text) => /^(?:\u56fe\u7247|image)\s*\d+$/i.test(String(text || ""));
+        const isGenericImageText = (text) => /^(?:\u56fe\u7247|image)\\s*\\d+$/i.test(String(text || ""));
+        const isAudioText = (text) => /(?:^|\\s)(?:\u97f3\u9891|audio)(?:\\s*\\d+)?(?:$|\\s)/i.test(String(text || ""));
         const candidatePriority = (node) => {
           const text = readOptionText(node);
+          if (expectedMentionType === "audio") {
+            if (isAudioText(text)) return 10;
+            if (text === label) return 8;
+            if (text && text.includes(label)) return 7;
+            if (isIndexedImageText(text)) return 2;
+            if (isGenericImageText(text)) return 1;
+            if (hasVisualPayload(node)) return 0;
+            return -1;
+          }
           if (text === label) return 6;
           if (text && text.includes(label)) return 5;
           if (isIndexedImageText(text)) return 4;
@@ -1366,7 +1378,10 @@ export function buildTypeAtMentionScript(
               return nearTextbox && sizeOk && (!!text || visual);
             })
             .map((node) => {
-              const clickable = node.closest("[role='option'], [role='menuitem'], li, button, [role='button']") || node;
+              const clickable =
+                node.closest(
+                  "[role='option'], [role='menuitem'], li, button, [role='button'], [class*='item'], [class*='option'], [class*='card'], [class*='mention'], [class*='reference'], [class*='asset'], [class*='thumb']",
+                ) || node;
               return clickable instanceof HTMLElement ? clickable : node;
             })
             .filter((node, index, arr) => arr.indexOf(node) === index)
@@ -1435,10 +1450,13 @@ export function buildTypeAtMentionScript(
 
         const preview = options.slice(0, 8).map((node, idx) => readOptionText(node) || ("[image-option-" + (idx + 1) + "]")).join(" | ");
         const exactOption = options.find((node) => readOptionText(node) === label) || options.find((node) => readOptionText(node).includes(label));
+        const audioCandidates = options.filter((node) => isAudioText(readOptionText(node)));
+        const audioOption = audioCandidates[0];
         const indexedImageOption = options.find((node) => isIndexedImageText(readOptionText(node)));
         const textualImageOptions = options.filter((node) => isGenericImageText(readOptionText(node)));
         const visualOnlyOption = options.find((node) => hasVisualPayload(node));
         const target =
+          (expectedMentionType === "audio" ? audioOption : null) ||
           exactOption ||
           indexedImageOption ||
           textualImageOptions[Math.max(0, Math.min(optionIndex, textualImageOptions.length - 1))] ||
@@ -1450,29 +1468,50 @@ export function buildTypeAtMentionScript(
 
         const tryApply = async () => {
           const valueBeforeApply = normalize(getTextboxValue(textbox));
-          const waitForMentionApplied = async () => {
+          const waitForMentionApplied = async (targetText) => {
             const settleDeadline = Date.now() + 1800;
             while (Date.now() < settleDeadline) {
               await wait(150);
               const afterValue = normalize(getTextboxValue(textbox));
-              if (afterValue !== valueBeforeApply && !afterValue.endsWith("@")) return true;
+              const currentOptions = collectCandidates();
+              const hasTrailingAt = afterValue.endsWith("@");
+              if (afterValue !== valueBeforeApply && !hasTrailingAt) return true;
+              if (targetText && afterValue.includes(targetText)) return true;
+              if (!hasTrailingAt && currentOptions.length === 0) return true;
+              if (expectedMentionType === "audio" && audioCandidates.length > 0) {
+                const remainingAudio = currentOptions.filter((node) => isAudioText(readOptionText(node)));
+                if (!hasTrailingAt && remainingAudio.length === 0) return true;
+              }
             }
             return false;
           };
-          const clickTargets = [
-            target,
-            target.querySelector("img, picture, canvas, video"),
-            Array.from(target.querySelectorAll("*")).find((child) => child instanceof HTMLElement && !!readOptionText(child)),
-          ].filter(Boolean);
-          for (const candidate of clickTargets) {
-            if (!(candidate instanceof HTMLElement)) continue;
-            clickLikeHuman(candidate);
-            if (await waitForMentionApplied()) return true;
+          const targetsToTry = expectedMentionType === "audio" && audioCandidates.length > 0
+            ? audioCandidates
+            : [target];
+          for (const node of targetsToTry) {
+            if (!(node instanceof HTMLElement)) continue;
+            const targetText = readOptionText(node);
+            const clickTargets = [
+              node,
+              node.parentElement,
+              node.closest("[class*='item'], [class*='option'], [class*='card'], [class*='mention'], [class*='reference'], [class*='asset'], [class*='thumb']"),
+              Array.from(node.querySelectorAll("*")).find((child) => child instanceof HTMLElement && !!readOptionText(child)),
+              node.querySelector("img, picture, canvas, video, svg"),
+            ].filter(Boolean);
+            for (const candidate of clickTargets) {
+              if (!(candidate instanceof HTMLElement)) continue;
+              clickLikeHuman(candidate);
+              if (await waitForMentionApplied(targetText)) return true;
+            }
+            node.focus?.();
+            node.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+            node.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }));
+            if (await waitForMentionApplied(targetText)) return true;
+            node.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+            node.dispatchEvent(new KeyboardEvent("keyup", { key: " ", bubbles: true }));
+            if (await waitForMentionApplied(targetText)) return true;
           }
-          target.focus?.();
-          target.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-          target.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }));
-          return await waitForMentionApplied();
+          return false;
         };
 
         const applied = await tryApply();

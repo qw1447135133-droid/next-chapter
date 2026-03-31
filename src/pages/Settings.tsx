@@ -47,7 +47,7 @@ import {
 } from "@/lib/api-config";
 import { DEFAULT_GEMINI_BASE_URL } from "@/lib/gemini-client";
 
-type ProviderId = "gemini" | "jimeng" | "vidu" | "kling";
+type ProviderId = "gemini" | "jimeng" | "tuzi";
 type TestStatus = "idle" | "testing" | "success" | "error";
 type TestStateMap = Record<string, { status: TestStatus; message?: string }>;
 
@@ -60,44 +60,37 @@ const API_ROWS: Array<{
 }> = [
   {
     id: "gemini",
-    title: "Gemini",
+    title: "Gemini / GPT / Claude / Grok",
     endpointPlaceholder: "https://api.tu-zi.com/v1beta",
-    endpointHint: "Gemini 兼容网关的根地址。",
-    keyHint: "Gemini 兼容网关对应的 Bearer Token。",
+    endpointHint: "文本模型和图片生成的 API 根地址。留空使用默认值（仅限内置 API）。",
+    keyHint: "对应的 Bearer Token。",
   },
   {
     id: "jimeng",
     title: "即梦 / Seedance",
     endpointPlaceholder: "https://api.tu-zi.com/v1beta",
-    endpointHint: "Seedance 视频网关根地址。留空时复用 Gemini 端点。",
+    endpointHint: "Seedance 视频生成 API 根地址。留空时复用 Gemini 端点。",
     keyHint: "Seedance 视频 API Key。留空时复用 Gemini Key。",
   },
   {
-    id: "vidu",
-    title: "Vidu",
-    endpointPlaceholder: "https://api.vidu.cn/ent/v2",
-    endpointHint: "Vidu API 根地址。",
-    keyHint: "Vidu API Key。",
-  },
-  {
-    id: "kling",
-    title: "Kling",
-    endpointPlaceholder: "https://api.klingai.com",
-    endpointHint: "Kling API 根地址。",
-    keyHint: "Kling API Key。",
+    id: "tuzi",
+    title: "Tuzi / Sora 2",
+    endpointPlaceholder: "https://api.tuziapi.com",
+    endpointHint: "Sora 2 视频生成 API 根地址。留空使用默认值（仅限内置 API）。",
+    keyHint: "Tuzi API Key。",
   },
 ];
 
 const ENDPOINT_FIELD_MAP = {
   gemini: "geminiEndpoint",
   jimeng: "jimengEndpoint",
-  vidu: "viduEndpoint",
-  kling: "klingEndpoint",
+  tuzi: "tuziEndpoint",
 } as const;
 
 const KEY_FIELD_MAP = {
   gemini: "geminiKey",
   jimeng: "jimengKey",
+  tuzi: "tuziKey",
   vidu: "viduKey",
   kling: "klingKey",
 } as const;
@@ -111,8 +104,7 @@ export default function Settings() {
   const [providerOpen, setProviderOpen] = useState<Record<ProviderId, boolean>>({
     gemini: true,
     jimeng: false,
-    vidu: false,
-    kling: false,
+    tuzi: false,
   });
   const [testState, setTestState] = useState<TestStateMap>({});
   const [selectedModelKey, setSelectedModelKey] = useState<string | null>(null);
@@ -650,7 +642,9 @@ export default function Settings() {
           <DialogContent className="sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle>修改内置 API</DialogTitle>
-              <DialogDescription>保存后会直接写入内置配置文件，不需要再手动编辑 JSON。</DialogDescription>
+              <DialogDescription>
+                保存后会直接写入内置配置文件。API 地址留空将使用默认值。
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
               {API_ROWS.map((row) => {
@@ -670,6 +664,7 @@ export default function Settings() {
                         placeholder={row.endpointPlaceholder}
                         className="font-mono text-sm"
                       />
+                      <p className="text-xs text-muted-foreground">{row.endpointHint}</p>
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-sm font-medium">API Key</Label>
@@ -680,6 +675,7 @@ export default function Settings() {
                         placeholder="请输入 API Key"
                         className="font-mono text-sm"
                       />
+                      <p className="text-xs text-muted-foreground">{row.keyHint}</p>
                     </div>
                   </div>
                 );

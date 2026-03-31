@@ -576,4 +576,46 @@ describe("reverse-browserview-scripts", () => {
     expect(result.step).toBe("mention-inserted");
     expect(result.selectedText).toBe("Ava 医疗服");
   });
+
+  it("prefers audio options and treats picker dismissal as applied for audio mentions", async () => {
+    document.body.innerHTML = `
+      <div class="section-generator-panel">
+        <textarea role="textbox"></textarea>
+        <div role="option" id="image-1">图片1</div>
+        <div role="option" id="audio-1">音频1</div>
+      </div>
+    `;
+
+    const textbox = document.querySelector("textarea") as HTMLTextAreaElement;
+    const imageOption = document.getElementById("image-1") as HTMLDivElement;
+    const audioOption = document.getElementById("audio-1") as HTMLDivElement;
+
+    imageOption.addEventListener("click", () => {
+      const value = textbox.value || "";
+      textbox.value = `${value}图片1`;
+      textbox.setSelectionRange(textbox.value.length, textbox.value.length);
+    });
+
+    audioOption.addEventListener("click", () => {
+      const value = textbox.value || "";
+      textbox.value = `${value}[audio-chip]`;
+      textbox.setSelectionRange(textbox.value.length, textbox.value.length);
+      audioOption.style.display = "none";
+      imageOption.style.display = "none";
+    });
+
+    const result = await evalScript<{
+      ok: boolean;
+      step: string;
+      selectedText?: string;
+      optionCount?: number;
+      debug?: string;
+    }>(buildTypeAtMentionScript("Ava 医疗服", 0, 0, "audio"));
+
+    expect(result.ok).toBe(true);
+    expect(result.step).toBe("mention-inserted");
+    expect(result.selectedText).toBe("音频1");
+    expect(textbox.value).toContain("[audio-chip]");
+    expect(textbox.value).not.toContain("图片1");
+  });
 });

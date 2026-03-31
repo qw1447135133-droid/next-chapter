@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Download, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { readCachedThumbnailDataUrl } from "@/lib/upload-base64-to-storage";
 
 // --- IndexedDB-backed thumbnail cache ---
@@ -758,6 +758,10 @@ const ImageThumbnail = ({ src, alt, className = "", maxBytes = 500 * 1024, maxDi
           className="h-screen w-screen max-w-none border-0 bg-black/85 p-0 shadow-none"
           onClick={() => setEnlarged(false)}
         >
+          <DialogTitle className="sr-only">{alt || "图片预览"}</DialogTitle>
+          <DialogDescription className="sr-only">
+            查看图片的大图预览。
+          </DialogDescription>
           <Button
             variant="ghost"
             size="icon"

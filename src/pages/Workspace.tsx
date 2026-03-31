@@ -498,10 +498,10 @@ const Workspace = () => {
     try {
       return (
         (localStorage.getItem("workspace-video-model") as VideoModel) ||
-        "jimeng-1.5-pro"
+        "seedance-1.5-pro"
       );
     } catch {
-      return "jimeng-1.5-pro";
+      return "seedance-1.5-pro";
     }
   });
   const setVideoModel = (m: VideoModel) => {
@@ -1775,9 +1775,9 @@ const Workspace = () => {
 
     // --- Step 1: Enhance prompt via AI ---
     let enhancedDescription = cleanBrackets(scene.description);
-    // Sora 2 models only support 10s and 15s
-    const maxDuration = videoModel === "sora-2" || videoModel === "sora-2-pro" ? 15 : 15;
-    const minDuration = videoModel === "sora-2" || videoModel === "sora-2-pro" ? 10 : 4;
+    // Sora 2 supports 4-12 seconds
+    const maxDuration = videoModel === "sora-2" ? 12 : 15;
+    const minDuration = 4;
     // If user manually set duration, use that; otherwise use AI recommendation
     const isManual = scene.isManualDuration && scene.recommendedDuration;
     let recommendedDuration: number = isManual
@@ -1869,6 +1869,13 @@ const Workspace = () => {
             return "16:9";
           }
         })(),
+        resolution: (() => {
+          try {
+            return localStorage.getItem("video-resolution") || "1080p";
+          } catch {
+            return "1080p";
+          }
+        })(),
       };
       if (!skipStoryboard && scene.storyboardUrl) {
         // Compress image to under 10MB before sending
@@ -1881,7 +1888,7 @@ const Workspace = () => {
       if (error) throw error;
 
       const taskId = data.task_id;
-      const provider = data.provider; // "vidu" or "jimeng" or "kling"
+      const provider = data.provider; // "tuzi" or "jimeng"
       const klingTaskType = data.klingTaskType; // "text2video" or "image2video" for kling
       if (!taskId) throw new Error("未返回 task_id");
 

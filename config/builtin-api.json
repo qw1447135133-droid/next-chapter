@@ -3,25 +3,24 @@
   "geminiKey": "",
   "jimengEndpoint": "https://api.tu-zi.com/v1beta",
   "jimengKey": "",
-  "viduEndpoint": "",
-  "viduKey": "",
-  "klingEndpoint": "",
-  "klingKey": "",
+  "tuziEndpoint": "https://api.tuziapi.com",
+  "tuziKey": "",
   "modelMappings": {
-    "gemini-3-pro": "gemini-3-pro",
     "gemini-3-pro-preview": "gemini-3-pro-preview",
     "gemini-3-pro-thinking": "gemini-3-pro-thinking",
-    "gemini-3-flash-preview": "gemini-3-pro",
+    "gemini-3-flash-preview": "gemini-3-flash-preview",
     "gpt-5.4": "gpt-5.4",
     "gpt-5.4-mini": "gpt-5.4-mini",
+    "grok-4.1": "grok-4.1",
     "claude-sonnet-4-6": "claude-sonnet-4-6",
     "claude-sonnet-4-6-thinking": "claude-sonnet-4-6-thinking",
     "claude-opus-4-6": "claude-opus-4-6",
     "gemini-3-pro-image-preview": "gemini-3-pro-image-preview",
     "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image-preview",
     "doubao-seedream-5-0-260128": "doubao-seedream-5-0-260128",
+    "doubao-seedance-1-5-pro_720p": "doubao-seedance-1-5-pro_720p",
     "doubao-seedance-1-5-pro_1080p": "doubao-seedance-1-5-pro_1080p",
-    "viduq3-pro": "viduq3-pro",
-    "kling-v3": "kling-v3"
+    "sora-2": "sora-2",
+    "sora-2-pro": "sora-2-pro"
   }
 }

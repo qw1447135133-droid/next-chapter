@@ -37,21 +37,16 @@ function releaseGeminiSlot() {
 }
 
 // ===== 服务名称映射 =====
-export type AiService = "gemini" | "jimeng" | "vidu" | "kling";
+export type AiService = "gemini" | "jimeng" | "tuzi";
 
 // ===== 按服务解析密钥 =====
 
 export function resolveDirectApiKey(service: AiService | null): string {
   const c = getApiConfig();
-  if (service === "kling") {
-    if (!c.klingKey?.trim())
-      throw new Error("请先在设置中配置可灵 Kling API Key");
-    return c.klingKey.trim();
-  }
-  if (service === "vidu") {
-    if (!c.viduKey?.trim())
-      throw new Error("请先在设置中配置 Vidu API Key");
-    return c.viduKey.trim();
+  if (service === "tuzi") {
+    if (!c.tuziKey?.trim())
+      throw new Error("请先在设置中配置 Tuzi API Key");
+    return c.tuziKey.trim();
   }
   if (service === "jimeng") {
     const k = c.jimengKey?.trim() || c.geminiKey?.trim();
@@ -194,7 +189,7 @@ export { directFetch as getFetchMethod };
 const smartDirectOrProxyFetch = directFetch;
 
 function isChatCompletionsModel(model: string): boolean {
-  return /^gpt-/i.test(String(model || "").trim());
+  return /^(gpt-|grok-)/i.test(String(model || "").trim());
 }
 
 function isMessagesApiModel(model: string): boolean {

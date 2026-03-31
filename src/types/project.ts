@@ -109,18 +109,16 @@ export const ART_STYLE_LABELS: Record<ArtStyle, string> = {
   'custom': '自定义',
 };
 
-export type VideoModel = 'jimeng-1.5-pro' | 'sora-2' | 'sora-2-pro';
+export type VideoModel = 'seedance-1.5-pro' | 'sora-2';
 
 export const VIDEO_MODEL_LABELS: Record<VideoModel, string> = {
-  'jimeng-1.5-pro': '即梦 1.5 Pro',
+  'seedance-1.5-pro': '即梦 1.5 Pro',
   'sora-2': 'Sora 2',
-  'sora-2-pro': 'Sora 2 Pro',
 };
 
 export const VIDEO_MODEL_API_MAP: Record<VideoModel, string> = {
-  'jimeng-1.5-pro': 'doubao-seedance-1-5-pro_1080p',
-  'sora-2': 'sora-2',
-  'sora-2-pro': 'sora-2-pro',
+  'seedance-1.5-pro': 'doubao-seedance-1-5-pro', // Will be mapped based on resolution
+  'sora-2': 'sora-2', // Will be mapped to sora-2 or sora-2-pro based on resolution
 };
 
 export type EpisodeDuration = '60' | '90' | '120' | 'custom';

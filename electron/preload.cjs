@@ -51,21 +51,7 @@ var runtimeAPI = {
   verifyBuiltinApiAdminPassword: (password) => import_electron.ipcRenderer.invoke("runtime:verifyBuiltinApiAdminPassword", password)
 };
 var jimengAPI = {
-  start: () => import_electron.ipcRenderer.invoke("jimeng:start"),
-  stop: () => import_electron.ipcRenderer.invoke("jimeng:stop"),
-  status: () => import_electron.ipcRenderer.invoke("jimeng:status"),
-  getApiBase: () => import_electron.ipcRenderer.invoke("jimeng:getApiBase"),
-  openSetup: () => import_electron.ipcRenderer.invoke("jimeng:openSetup"),
-  openBrowserData: () => import_electron.ipcRenderer.invoke("jimeng:openBrowserData"),
-  writeFile: (filePath, content) => import_electron.ipcRenderer.invoke("jimeng:writeFile", { filePath, content }),
-  prepareXlsx: (params) => import_electron.ipcRenderer.invoke("jimeng:prepareXlsx", params),
-  onStatusChange: (callback) => {
-    const handler = (_, status) => callback(status);
-    import_electron.ipcRenderer.on("jimeng:status", handler);
-    return () => {
-      import_electron.ipcRenderer.removeListener("jimeng:status", handler);
-    };
-  }
+  writeFile: (filePath, content) => import_electron.ipcRenderer.invoke("jimeng:writeFile", { filePath, content })
 };
 var browserViewAPI = {
   create: (params) => import_electron.ipcRenderer.invoke("browserView:create", params),

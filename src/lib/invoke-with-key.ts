@@ -9,6 +9,7 @@ import {
   callGeminiStream,
   extractText,
   extractImageBase64,
+  explainGeminiNoText,
   getInlineData,
   fetchImageAsBase64,
   uploadImageToStorage,
@@ -29,8 +30,7 @@ import {
 } from "@/lib/gemini-text-models";
 import { compressImage } from "@/lib/image-compress";
 
-const KLINE_BASE_URL = "https://api.klingai.com";
-const VIDU_BASE_URL = "https://api.vidu.cn/ent/v2";
+const TUZI_BASE_URL = "https://api.tuziapi.com";
 
 /** 剧本识别（阶段一）单次请求上限 */
 const SCRIPT_EXTRACT_TIMEOUT_MS = 20 * 60_000;
@@ -42,12 +42,8 @@ function trimApiBase(raw: string | undefined, fallback: string): string {
   return t || fallback;
 }
 
-function getKlingBaseUrl(): string {
-  return trimApiBase(getApiConfig().klingEndpoint, KLINE_BASE_URL);
-}
-
-function getViduBaseUrl(): string {
-  return trimApiBase(getApiConfig().viduEndpoint, VIDU_BASE_URL);
+function getTuziBaseUrl(): string {
+  return trimApiBase(getApiConfig().tuziEndpoint, TUZI_BASE_URL);
 }
 
 function getSeedanceBaseUrl(): string {
@@ -61,7 +57,7 @@ function videoHttp(
   headers: Record<string, string>,
   body?: string,
   signal?: AbortSignal,
-  service: "kling" | "vidu" | "jimeng" = "jimeng",
+  service: "tuzi" | "jimeng" = "jimeng",
 ) {
   return directFetch(url, headers, body, signal, service);
 }
@@ -130,6 +126,18 @@ function summarizeUploadImagePayload(imageBase64: string, mimeType: string) {
     imageBase64Length: imageBase64?.length ?? 0,
     mimeType,
   };
+}
+
+function resolveImageFallbackModel(model: string): string | null {
+  const fallbackMap: Record<string, string> = {
+    "gemini-3-pro-image-preview-async": "gemini-3-pro-image-preview",
+    "gemini-3-pro-image-preview-2k-async": "gemini-3-pro-image-preview-2k",
+    "gemini-3-pro-image-preview-4k-async": "gemini-3-pro-image-preview-4k",
+    "nano-banana-2": "gemini-3-pro-image-preview",
+    "nano-banana-2-2k": "gemini-3-pro-image-preview-2k",
+    "nano-banana-2-4k": "gemini-3-pro-image-preview-4k",
+  };
+  return fallbackMap[model] || null;
 }
 
 // ===== PROMPTS =====
@@ -1458,12 +1466,12 @@ CRITICAL: The character's clothing, armor, and accessories MUST match the era an
           );
           const match = compressed.match(/^data:([^;]+);base64,(.+)$/);
           if (match) {
-            parts.unshift({
+            parts.push({
               inlineData: { mimeType: match[1], data: match[2] },
             });
           }
         } else {
-          parts.unshift({
+          parts.push({
             inlineData: {
               mimeType: inlineData.mimeType,
               data: inlineData.data,
@@ -1473,15 +1481,33 @@ CRITICAL: The character's clothing, armor, and accessories MUST match the era an
       }
     }
 
-    const data = await callGemini(selectedModel, [{ role: "user", parts }], {
+    let data = await callGemini(selectedModel, [{ role: "user", parts }], {
       responseModalities: ["IMAGE", "TEXT"],
       imageConfig: { aspectRatio, imageSize: "2K" },
     });
 
-    const img = await extractImageBase64(data);
+    let img = await extractImageBase64(data);
+    if (!img) {
+      const fallbackModel = resolveImageFallbackModel(selectedModel);
+      if (fallbackModel && fallbackModel !== selectedModel) {
+        console.warn(
+          "Primary character image model returned text-only output, retrying fallback:",
+          fallbackModel,
+          summarizeGeminiImageResponse(data),
+        );
+        data = await callGemini(fallbackModel, [{ role: "user", parts }], {
+          responseModalities: ["IMAGE", "TEXT"],
+          imageConfig: { aspectRatio, imageSize: "2K" },
+        });
+        img = await extractImageBase64(data);
+      }
+    }
     if (!img) {
       console.error("extractImageBase64 returned null, response summary:", summarizeGeminiImageResponse(data));
       throw new Error("AI 未返回角色图");
+    }
+    if (!img) {
+      throw new Error(explainGeminiNoText(data) || "AI 未返回角色图");
     }
     if (!img.base64 || img.base64.trim().length === 0) {
       console.error("extractImageBase64 returned empty base64, img summary:", summarizeExtractedImage(img));
@@ -1712,12 +1738,12 @@ This is a wide establishing shot showing the full environment. Focus on atmosphe
           );
           const match = compressed.match(/^data:([^;]+);base64,(.+)$/);
           if (match) {
-            parts.unshift({
+            parts.push({
               inlineData: { mimeType: match[1], data: match[2] },
             });
           }
         } else {
-          parts.unshift({
+          parts.push({
             inlineData: {
               mimeType: inlineData.mimeType,
               data: inlineData.data,
@@ -2112,62 +2138,35 @@ ${narrativeContext}
 
 async function localGenerateVideo(body: any) {
   const { action, model, taskId, provider } = body;
-  const isVidu = model?.startsWith("viduq") || model?.startsWith("vidu2");
-  const isKling = model?.startsWith("kling-") || provider === "kling";
+  const isSora2 = model?.startsWith("sora-2") || provider === "tuzi";
   const seedanceBaseUrl = getSeedanceBaseUrl();
-  const klingBase = getKlingBaseUrl();
-  const viduBase = getViduBaseUrl();
+  const tuziBase = getTuziBaseUrl();
 
   if (action === "status") {
     if (!taskId) throw new Error("缺少 taskId");
-    if (provider === "kling") {
-      const queryType = body.klingTaskType || "text2video";
+    if (provider === "tuzi") {
+      // Query Sora 2 task status
       const res = await videoHttp(
-        `${klingBase}/v1/videos/${queryType}/${taskId}`,
+        `${tuziBase}/doubao/api/v3/contents/generations/tasks/${taskId}`,
         {
           "Content-Type": "application/json",
         },
         undefined,
         undefined,
-        "kling",
+        "tuzi",
       );
-      if (!res.ok) throw new Error(`查询可灵状态失败 (${res.status})`);
-      const data = await res.json();
-      const taskData = data.data || data;
-      const taskStatus = taskData.task_status;
-      let status =
-        taskStatus === "succeed"
-          ? "succeeded"
-          : taskStatus === "failed"
-            ? "failed"
-            : "processing";
-      let videoUrl =
-        taskStatus === "succeed" && taskData.task_result?.videos?.length > 0
-          ? taskData.task_result.videos[0].url
-          : undefined;
-      return { status, video_url: videoUrl, state: taskStatus };
-    } else if (provider === "vidu") {
-      const res = await videoHttp(
-        `${viduBase}/tasks/${taskId}/creations`,
-        {},
-        undefined,
-        undefined,
-        "vidu",
-      );
-      if (!res.ok) throw new Error(`查询 Vidu 状态失败 (${res.status})`);
+      if (!res.ok) throw new Error(`查询 Sora 2 状态失败 (${res.status})`);
       const data = await res.json();
       let status =
-        data.state === "success"
+        data.status === "completed"
           ? "succeeded"
-          : data.state === "failed"
+          : data.status === "failed"
             ? "failed"
             : "processing";
-      let videoUrl =
-        data.state === "success" && data.creations?.length > 0
-          ? data.creations[0]?.url
-          : undefined;
-      return { status, video_url: videoUrl, state: data.state };
+      let videoUrl = data.status === "completed" && data.video_url ? data.video_url : undefined;
+      return { status, video_url: videoUrl, state: data.status };
     } else {
+      // Jimeng status query
       const res = await videoHttp(
         `${seedanceBaseUrl}/videos/${taskId}`,
         {},
@@ -2195,21 +2194,16 @@ async function localGenerateVideo(body: any) {
   // Create video
   if (!body.prompt) throw new Error("缺少视频描述 (prompt)");
 
-  if (isVidu) {
-    const viduUrl = body.imageUrl
-      ? `${viduBase}/img2video`
-      : `${viduBase}/text2video`;
-    const truncatedPrompt =
-      (body.prompt || "").length > 4900
-        ? body.prompt.substring(0, 4900)
-        : body.prompt;
-    const payload: any = {
-      model: resolveConfiguredModelName(model || "viduq3-pro"),
-      prompt: truncatedPrompt,
-      duration: Math.max(1, Math.min(16, body.duration || 5)),
-      resolution: "1080p",
-      audio: true,
-    };
+  if (isSora2) {
+    // Sora 2 API implementation
+    const content: any[] = [
+      {
+        type: "text",
+        text: body.prompt,
+      },
+    ];
+
+    // Add image if provided
     if (body.imageUrl) {
       let imageUrl = body.imageUrl as string;
       if (imageUrl.startsWith("data:")) {
@@ -2222,87 +2216,68 @@ async function localGenerateVideo(body: any) {
           );
         }
       }
-      payload.images = [imageUrl];
+      content.push({
+        type: "image_url",
+        image_url: {
+          url: imageUrl,
+        },
+        role: "first_frame",
+      });
     }
 
-    const res = await videoHttp(
-      viduUrl,
-      {
-        "Content-Type": "application/json",
-      },
-      JSON.stringify(payload),
-      undefined,
-      "vidu",
-    );
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Vidu 视频生成任务创建失败 (${res.status}): ${errText}`);
-    }
-    const data = await res.json();
-    return {
-      task_id: data.task_id,
-      status: data.state || "created",
-      provider: "vidu",
+    // Map aspect ratio
+    const aspectRatioMap: Record<string, string> = {
+      "16:9": "16:9",
+      "9:16": "9:16",
+      "1:1": "1:1",
+      "4:3": "4:3",
+      "3:4": "3:4",
     };
-  } else if (isKling) {
-    const truncatedPrompt =
-      (body.prompt || "").length > 2500
-        ? body.prompt.substring(0, 2500)
-        : body.prompt;
-    const hasImage = body.imageUrl && typeof body.imageUrl === "string";
-    const klingTaskType = hasImage ? "image2video" : "text2video";
-    const klingUrl = `${klingBase}/v1/videos/${klingTaskType}`;
+
+    // Determine resolution and model based on body.resolution
+    // 720p -> sora-2, 1080p -> sora-2-pro
+    const resolution = body.resolution || "1080p";
+    const actualModel = resolution === "720p" ? "sora-2" : "sora-2-pro";
 
     const payload: any = {
-      model_name: resolveConfiguredModelName(model || "kling-v3"),
-      prompt: truncatedPrompt,
-      duration: String(Math.max(3, Math.min(15, body.duration || 5))),
-      mode: "pro",
-      sound: "on",
-      aspect_ratio: body.aspectRatio || "16:9",
+      model: resolveConfiguredModelName(actualModel),
+      content,
+      resolution,
+      duration: Math.max(4, Math.min(12, body.duration || 5)), // Sora 2 supports 4-12 seconds
+      ratio: aspectRatioMap[body.aspectRatio] || "16:9",
+      watermark: false,
     };
 
-    if (hasImage) {
-      // Kling requires raw base64 without data: prefix, or a URL
-      if (body.imageUrl.startsWith("data:")) {
-        const match = body.imageUrl.match(/^data:[^;]+;base64,(.+)$/);
-        payload.image = match ? match[1] : body.imageUrl;
-      } else {
-        // If it's a URL, try to use it directly; if it's a private storage URL, convert to base64
-        const fetched = await fetchImageAsBase64(body.imageUrl);
-        if (fetched) {
-          payload.image = fetched.data; // raw base64, no prefix
-        } else {
-          payload.image = body.imageUrl; // try URL directly
-        }
-      }
-    }
-
     const res = await videoHttp(
-      klingUrl,
+      `${tuziBase}/doubao/api/v3/contents/generations/tasks`,
       {
         "Content-Type": "application/json",
       },
       JSON.stringify(payload),
       undefined,
-      "kling",
+      "tuzi",
     );
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error(`可灵视频生成任务创建失败 (${res.status}): ${errText}`);
+      throw new Error(`Sora 2 视频生成任务创建失败 (${res.status}): ${errText}`);
     }
     const data = await res.json();
-    const taskId2 = data.data?.task_id || data.task_id;
     return {
-      task_id: taskId2,
-      status: data.data?.task_status || "submitted",
-      provider: "kling",
-      klingTaskType,
+      task_id: data.id,
+      status: data.status || "queued",
+      provider: "tuzi",
     };
   } else {
+    // Jimeng (Seedance) implementation
+    // Determine model based on resolution: 720p -> doubao-seedance-1-5-pro_720p, 1080p -> doubao-seedance-1-5-pro_1080p
+    const resolution = body.resolution || "1080p";
+    const actualModel = resolution === "720p"
+      ? "doubao-seedance-1-5-pro_720p"
+      : "doubao-seedance-1-5-pro_1080p";
+
     // Build multipart/form-data as the API requires
     const textFields: Record<string, string> = {
-      model: resolveConfiguredModelName(model || "doubao-seedance-1-5-pro_1080p"),
+      model: resolveConfiguredModelName(actualModel),
       prompt: body.prompt,
       seconds: String(Math.max(4, Math.min(15, Number(body.duration) || 5))),
       size: body.aspectRatio || "16:9",

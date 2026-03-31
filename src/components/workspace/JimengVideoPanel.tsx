@@ -217,7 +217,7 @@ const JimengVideoPanel = ({ scenes, characters, aspectRatio }: JimengVideoPanelP
   const serverCfg = (() => {
     const base = SERVER_STATUS_CONFIG[serverStatus];
     if (!isElectronApp() && serverStatus === "idle") {
-      return { ...base, desc: `请手动启动服务：cd C:\\Users\\admin\\Downloads\\auto_jimeng\\auto_jimeng && uv run python start_api.py` };
+      return { ...base, desc: `请手动启动服务` };
     }
     return base;
   })();
@@ -481,10 +481,6 @@ const JimengVideoPanel = ({ scenes, characters, aspectRatio }: JimengVideoPanelP
           <p>2. 即梦自动化将根据分镜描述和角色信息生成 xlsx 并写入临时目录</p>
           <p>3. 参考图片放入集数文件夹内的 <code className="font-mono text-xs bg-muted px-1 rounded">场景/</code> 和 <code className="font-mono text-xs bg-muted px-1 rounded">角色/</code> 子目录</p>
           <p>4. 点击「开始生成」，即梦浏览器自动化将自动启动并执行</p>
-          <p className="text-xs opacity-70 mt-2">
-            即梦自动化服务源码：
-            <code className="font-mono">C:\Users\admin\Downloads\auto_jimeng\auto_jimeng</code>
-          </p>
         </div>
       )}
     </div>

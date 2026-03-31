@@ -121,6 +121,13 @@ export const SUPPORTED_MODEL_MAPPINGS: SupportedModelMapping[] = [
     defaultModelName: "doubao-seedream-5-0-260128",
   },
   {
+    key: "doubao-seedance-1-5-pro_720p",
+    label: "Seedance 1.5 Pro 720P",
+    provider: "jimeng",
+    category: "video",
+    defaultModelName: "doubao-seedance-1-5-pro_720p",
+  },
+  {
     key: "doubao-seedance-1-5-pro_1080p",
     label: "Seedance 1.5 Pro 1080P",
     provider: "jimeng",
@@ -129,14 +136,14 @@ export const SUPPORTED_MODEL_MAPPINGS: SupportedModelMapping[] = [
   },
   {
     key: "sora-2",
-    label: "Sora 2",
+    label: "Sora 2 (720p)",
     provider: "tuzi",
     category: "video",
     defaultModelName: "sora-2",
   },
   {
     key: "sora-2-pro",
-    label: "Sora 2 Pro",
+    label: "Sora 2 Pro (1080p)",
     provider: "tuzi",
     category: "video",
     defaultModelName: "sora-2-pro",

@@ -1,18 +1,11 @@
 /**
  * 即梦逆向自动化 API 客户端
  *
- * 与 auto_jimeng Python FastAPI 服务通信。
- *
- * 启动方式（优先级）：
- *  1. Electron 环境 → 通过 preload IPC 调用主进程自动启动 Python 服务
- *  2. Web 环境 → 使用配置的 API 地址（需用户手动启动 Python 服务）
- *
  * 核心流程：
  *  1. 健康检查              → GET /api/health
- *  2. 启动/检查 Python 服务（Electron only）
- *  3. 提交视频生成任务      → POST /api/generate
- *  4. 轮询任务状态        → GET /api/task/{task_id}
- *  5. 触发视频下载         → POST /api/download
+ *  2. 提交视频生成任务      → POST /api/generate
+ *  3. 轮询任务状态        → GET /api/task/{task_id}
+ *  4. 触发视频下载         → POST /api/download
  */
 
 import { getResolvedFilesStoragePath } from "@/lib/storage-path";
@@ -63,30 +56,10 @@ export interface GenerateParams {
 // =========================== Electron IPC 桥接 ===========================
 
 interface JimengElectronAPI {
-  start: () => Promise<{
+  writeFile: (filePath: string, content: string) => Promise<{
     ok: boolean;
-    status: string;
-    apiBase?: string;
-    logs: string[];
+    error?: string;
   }>;
-  stop: () => Promise<{ ok: boolean }>;
-  status: () => Promise<{
-    status: string;
-    apiBase?: string;
-    message?: string;
-    logs?: string[];
-  }>;
-  getApiBase: () => Promise<string | null>;
-  openSetup: () => Promise<{ ok: boolean }>;
-  openBrowserData: () => Promise<void>;
-  onStatusChange: (
-    callback: (status: {
-      status: string;
-      apiBase?: string;
-      message?: string;
-      logs?: string[];
-    }) => void,
-  ) => () => void;
 }
 
 interface StorageAPI {
@@ -111,7 +84,7 @@ function isElectron(): boolean {
 // =========================== HTTP 请求层 ===========================
 
 function getWebBaseUrl(): string {
-  // Legacy fallback for old Python automation service (no longer used)
+  // Legacy fallback (no longer actively used)
   return "http://localhost:8000";
 }
 
@@ -139,56 +112,30 @@ async function request<T>(
 
 // =========================== Electron 模式 ===========================
 
-async function electronStartServer(): Promise<string> {
-  if (!window.electronAPI?.jimeng) throw new Error("Electron API 不可用");
-  const result = await window.electronAPI.jimeng.start();
-  if (!result.ok) throw new Error(result.status || "服务启动失败");
-  if (!result.apiBase) throw new Error("未返回 API 地址");
-  return result.apiBase;
-}
-
-async function electronGetApiBase(): Promise<string | null> {
-  if (!window.electronAPI?.jimeng) return null;
-  return window.electronAPI.jimeng.getApiBase();
-}
+// Legacy: Electron mode no longer auto-starts Python service
 
 // =========================== 公开 API（自动选择模式）===========================
 
 /** 健康检查 */
 export async function jimengHealth(): Promise<JimengHealth> {
-  let base: string;
-
-  if (isElectron()) {
-    const url = await electronGetApiBase();
-    if (!url) throw new Error("即梦服务尚未启动，请先启动服务");
-    base = url;
-  } else {
-    base = getWebBaseUrl();
-  }
-
+  const base = getWebBaseUrl();
   return request<JimengHealth>(base, "/api/health");
 }
 
 /**
- * 启动即梦 Python 服务（Electron 模式：调用主进程自动启动）
+ * 启动即梦 Python 服务（已废弃）
  * 返回 API 基础地址
  */
 export async function jimengEnsureStarted(): Promise<string> {
-  if (!isElectron()) {
-    // Web 模式：尝试直接 ping 健康检查，若失败则报错
-    const base = getWebBaseUrl();
-    try {
-      await request<JimengHealth>(base, "/api/health");
-      return base;
-    } catch {
-      throw new Error(
-        `无法连接到即梦服务 (${base})，请确保 Python 服务已启动：\nuv run python start_api.py`,
-      );
-    }
+  const base = getWebBaseUrl();
+  try {
+    await request<JimengHealth>(base, "/api/health");
+    return base;
+  } catch {
+    throw new Error(
+      `无法连接到即梦服务 (${base})，请确保服务已启动`,
+    );
   }
-
-  // Electron 模式：自动启动服务
-  return electronStartServer();
 }
 
 /** 提交视频生成任务 */
@@ -286,27 +233,23 @@ export async function jimengPollUntilDone(
   return jimengGetTask(taskId);
 }
 
-/** 获取当前服务状态（Electron IPC） */
+/** 获取当前服务状态（已废弃） */
 export async function jimengGetStatus(): Promise<{
   status: string;
   apiBase?: string;
   message?: string;
   logs?: string[];
 }> {
-  if (!isElectron()) {
-    // Web 模式：直接 ping 健康检查
-    const base = getWebBaseUrl();
-    try {
-      await request<JimengHealth>(base, "/api/health");
-      return { status: "running", apiBase: base };
-    } catch {
-      return { status: "stopped" };
-    }
+  const base = getWebBaseUrl();
+  try {
+    await request<JimengHealth>(base, "/api/health");
+    return { status: "running", apiBase: base };
+  } catch {
+    return { status: "stopped" };
   }
-  return window.electronAPI!.jimeng.status();
 }
 
-/** 监听服务状态变化（Electron IPC） */
+/** 监听服务状态变化（已废弃） */
 export function jimengOnStatusChange(
   callback: (status: {
     status: string;
@@ -315,23 +258,17 @@ export function jimengOnStatusChange(
     logs?: string[];
   }) => void,
 ): () => void {
-  if (!isElectron()) return () => {};
-  return window.electronAPI!.jimeng.onStatusChange(callback);
+  return () => {};
 }
 
-/** 打开即梦登录页（Electron IPC） */
+/** 打开即梦登录页（已废弃） */
 export async function jimengOpenSetup(): Promise<void> {
-  if (!isElectron()) {
-    window.open("https://jimeng.jianying.com/ai-tool/home");
-    return;
-  }
-  await window.electronAPI!.jimeng.openSetup();
+  window.open("https://jimeng.jianying.com/ai-tool/home");
 }
 
-/** 打开浏览器数据目录（Electron IPC） */
+/** 打开浏览器数据目录（已废弃） */
 export async function jimengOpenBrowserData(): Promise<void> {
-  if (!isElectron()) return;
-  await window.electronAPI!.jimeng.openBrowserData();
+  // No-op
 }
 
 // =========================== xlsx 生成 & 写入 ===========================
@@ -340,7 +277,7 @@ function isElectronBridge(): boolean {
   return typeof window !== "undefined" && !!window.electronAPI?.jimeng;
 }
 
-/** 写入 xlsx 文件并返回即梦目录信息（Electron IPC） */
+/** 写入 xlsx 文件（已废弃 - prepareXlsx 功能已移除） */
 async function prepareXlsxFile(params: {
   episodeLabel: string;
   base64Content: string;
@@ -352,14 +289,7 @@ async function prepareXlsxFile(params: {
   xlsxFile?: string;
   error?: string;
 }> {
-  if (!isElectronBridge()) {
-    return { ok: false, error: "Web 模式请手动下载 xlsx 文件" };
-  }
-  const storageRoot = await getResolvedFilesStoragePath();
-  return window.electronAPI!.jimeng.prepareXlsx({
-    ...params,
-    ...(storageRoot ? { storageRoot } : {}),
-  });
+  return { ok: false, error: "Web 模式请手动下载 xlsx 文件" };
 }
 
 /** 生成即梦 xlsx ArrayBuffer */

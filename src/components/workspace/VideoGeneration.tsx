@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Scene, CharacterSetting, SceneSetting, VideoModel, VIDEO_MODEL_LABELS, VideoHistoryEntry } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -95,6 +95,16 @@ const VideoGeneration = ({
   const isPortrait = aspectRatio === "9:16" || aspectRatio === "2:3";
   const aspectCssClass = aspectRatio === "9:16" ? "aspect-[9/16]" : aspectRatio === "2:3" ? "aspect-[2/3]" : aspectRatio === "3:2" ? "aspect-[3/2]" : "aspect-video";
   const gridClass = isPortrait ? "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3" : "grid grid-cols-1 md:grid-cols-2 gap-4";
+
+  // Resolution state (for Sora 2: 720p or 1080p)
+  const [resolution, setResolutionState] = useState<"720p" | "1080p">(() => {
+    try { return (localStorage.getItem("video-resolution") as "720p" | "1080p") || "1080p"; } catch { return "1080p"; }
+  });
+  const setResolution = (v: "720p" | "1080p") => {
+    setResolutionState(v);
+    try { localStorage.setItem("video-resolution", v); } catch { /* ignore */ }
+  };
+  const [resOpen, setResOpen] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -224,6 +234,40 @@ const VideoGeneration = ({
                   >
                     <opt.icon className="h-3.5 w-3.5 shrink-0" />
                     {opt.label}
+                  </button>
+                ))}
+              </PopoverContent>
+            </Popover>
+          )}
+
+          {videoMode === "api" && (
+            <Popover open={resOpen} onOpenChange={setResOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 h-9 text-xs"
+                  disabled={isGenerating || anyProcessing}
+                >
+                  {resolution}
+                  <ChevronDown className="h-3 w-3 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-32 p-1" align="end">
+                {["720p", "1080p"].map((res) => (
+                  <button
+                    key={res}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-sm text-xs transition-colors ${
+                      resolution === res
+                        ? "bg-primary/10 text-primary font-medium"
+                        : "hover:bg-muted text-foreground"
+                    }`}
+                    onClick={() => {
+                      setResolution(res as "720p" | "1080p");
+                      setResOpen(false);
+                    }}
+                  >
+                    {res}
                   </button>
                 ))}
               </PopoverContent>
@@ -360,93 +404,60 @@ const VideoGeneration = ({
                             )}
                           </div>
                           {(() => {
-                            // Sora 2 models only support 10s and 15s
-                            const isSora2 = videoModel === "sora-2" || videoModel === "sora-2-pro";
-                            const maxVal = 15;
-                            const minVal = isSora2 ? 10 : 4;
+                            // Sora 2 supports 4-12 seconds
+                            const isSora2 = videoModel === "sora-2";
+                            const maxVal = isSora2 ? 12 : 15;
+                            const minVal = 4;
                             const currentVal = scene.recommendedDuration || scene.duration || 5;
-                            const allowedValues = isSora2 ? [10, 15] : Array.from({ length: maxVal - minVal + 1 }, (_, i) => i + minVal);
+                            const allowedValues = Array.from({ length: maxVal - minVal + 1 }, (_, i) => i + minVal);
 
                             return (
                               <>
-                                {isSora2 ? (
-                                  // For Sora 2: show only 10s and 15s buttons
-                                  <div className="flex gap-2 justify-center py-2">
-                                    {allowedValues.map((d) => (
-                                      <button
-                                        key={d}
-                                        type="button"
-                                        onClick={() => {
-                                          if (onScenesChange) {
-                                            onScenesChange(
-                                              scenes.map((s) =>
-                                                s.id === scene.id
-                                                  ? { ...s, recommendedDuration: d, isManualDuration: true }
-                                                  : s
-                                              )
-                                            );
-                                          }
-                                        }}
-                                        className={`text-sm px-4 py-2 rounded-lg font-medium transition-colors ${
-                                          d === currentVal
-                                            ? "bg-emerald-500 text-white"
-                                            : "bg-muted text-muted-foreground hover:text-foreground hover:bg-accent"
-                                        }`}
-                                      >
-                                        {d}s
-                                      </button>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  // For other models: show slider
-                                  <>
-                                    <Slider
-                                      min={minVal}
-                                      max={maxVal}
-                                      step={1}
-                                      value={[currentVal]}
-                                      onValueChange={([val]) => {
+                                <Slider
+                                  min={minVal}
+                                  max={maxVal}
+                                  step={1}
+                                  value={[currentVal]}
+                                  onValueChange={([val]) => {
+                                    if (onScenesChange) {
+                                      onScenesChange(
+                                        scenes.map((s) =>
+                                          s.id === scene.id
+                                            ? { ...s, recommendedDuration: val, isManualDuration: true }
+                                            : s
+                                        )
+                                      );
+                                    }
+                                  }}
+                                  className="[&_[role=slider]]:bg-emerald-500 [&_[role=slider]]:border-emerald-500 [&_[role=slider]]:w-5 [&_[role=slider]]:h-5 [&_.relative>.absolute]:bg-emerald-500"
+                                />
+                                <div className="flex justify-between mt-2">
+                                  {allowedValues.map((d) => (
+                                    <button
+                                      key={d}
+                                      type="button"
+                                      onClick={() => {
                                         if (onScenesChange) {
                                           onScenesChange(
                                             scenes.map((s) =>
                                               s.id === scene.id
-                                                ? { ...s, recommendedDuration: val, isManualDuration: true }
+                                                ? { ...s, recommendedDuration: d, isManualDuration: true }
                                                 : s
                                             )
                                           );
                                         }
                                       }}
-                                      className="[&_[role=slider]]:bg-emerald-500 [&_[role=slider]]:border-emerald-500 [&_[role=slider]]:w-5 [&_[role=slider]]:h-5 [&_.relative>.absolute]:bg-emerald-500"
-                                    />
-                                    <div className="flex justify-between mt-2">
-                                      {allowedValues.map((d) => (
-                                        <button
-                                          key={d}
-                                          type="button"
-                                          onClick={() => {
-                                            if (onScenesChange) {
-                                              onScenesChange(
-                                                scenes.map((s) =>
-                                                  s.id === scene.id
-                                                    ? { ...s, recommendedDuration: d, isManualDuration: true }
-                                                    : s
-                                                )
-                                              );
-                                            }
-                                          }}
-                                          className={`text-xs w-5 h-5 rounded-full flex items-center justify-center transition-colors ${
-                                            d === currentVal
-                                              ? "bg-emerald-500 text-white font-bold"
-                                              : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                                          }`}
-                                        >
-                                          {d}
-                                        </button>
+                                      className={`text-xs w-5 h-5 rounded-full flex items-center justify-center transition-colors ${
+                                        d === currentVal
+                                          ? "bg-emerald-500 text-white font-bold"
+                                          : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                                      }`}
+                                    >
+                                      {d}
+                                    </button>
                                   ))}
                                 </div>
                               </>
-                            )}
-                          </>
                             );
                           })()}
                         </PopoverContent>
@@ -537,6 +548,10 @@ const VideoGeneration = ({
       {/* Enlarged video dialog */}
       <Dialog open={!!enlargedVideo} onOpenChange={(open) => !open && setEnlargedVideo(null)}>
         <DialogContent className="max-w-[95vw] max-h-[95vh] p-1 flex items-center justify-center bg-black/80 border border-border/30">
+          <DialogTitle className="sr-only">视频预览</DialogTitle>
+          <DialogDescription className="sr-only">
+            查看当前分镜生成视频的大图预览。
+          </DialogDescription>
           {enlargedVideo && (
             <video src={enlargedVideo} controls autoPlay className="max-w-full max-h-[92vh] object-contain rounded-md" />
           )}

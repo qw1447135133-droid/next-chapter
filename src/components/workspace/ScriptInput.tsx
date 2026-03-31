@@ -114,19 +114,36 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
                 <ChevronDown className={`h-3 w-3 transition-transform ${modelOpen ? "rotate-180" : ""}`} />
               </button>
               {modelOpen && (
-                <div className="absolute left-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border bg-popover shadow-lg py-1">
-                  {DECOMPOSE_MODEL_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => { onDecomposeModelChange(opt.value); setModelOpen(false); }}
-                      className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent ${
-                        opt.value === decomposeModel ? "text-primary font-semibold" : "text-popover-foreground"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+                <div className="absolute left-0 top-full mt-1 z-50 min-w-[200px] rounded-lg border border-border bg-popover shadow-lg py-1">
+                  {(() => {
+                    // Group models by category
+                    const groups = DECOMPOSE_MODEL_OPTIONS.reduce((acc, opt) => {
+                      if (!acc[opt.group]) acc[opt.group] = [];
+                      acc[opt.group].push(opt);
+                      return acc;
+                    }, {} as Record<string, typeof DECOMPOSE_MODEL_OPTIONS>);
+
+                    return Object.entries(groups).map(([groupName, models], groupIdx) => (
+                      <div key={groupName}>
+                        {groupIdx > 0 && <div className="h-px bg-border my-1" />}
+                        <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                          {groupName}
+                        </div>
+                        {models.map((opt) => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => { onDecomposeModelChange(opt.value); setModelOpen(false); }}
+                            className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-accent ${
+                              opt.value === decomposeModel ? "text-primary font-semibold" : "text-popover-foreground"
+                            }`}
+                          >
+                            {opt.label.replace(groupName + ' ', '')}
+                          </button>
+                        ))}
+                      </div>
+                    ));
+                  })()}
                 </div>
               )}
             </div>

@@ -2187,16 +2187,33 @@ ${JSON.stringify(uniqueOverLimit.map((line, i) => ({ id: i + 1, text: line })), 
                       <ChevronDown className="h-3.5 w-3.5 shrink-0" />
                     </Button>
                     {modelDropdownOpen && (
-                      <div className="absolute right-0 top-full mt-1 z-50 bg-popover border border-border rounded-md shadow-lg py-1 min-w-[160px]">
-                        {MODEL_OPTIONS.map((opt) => (
-                          <button
-                            key={opt.value}
-                            onClick={() => handleModelChange(opt.value)}
-                            className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors ${opt.value === model ? "bg-primary/10 text-primary font-semibold" : "text-popover-foreground hover:text-foreground"}`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
+                      <div className="absolute right-0 top-full mt-1 z-50 bg-popover border border-border rounded-md shadow-lg py-1 min-w-[200px]">
+                        {(() => {
+                          // Group models by category
+                          const groups = MODEL_OPTIONS.reduce((acc, opt) => {
+                            if (!acc[opt.group]) acc[opt.group] = [];
+                            acc[opt.group].push(opt);
+                            return acc;
+                          }, {} as Record<string, typeof MODEL_OPTIONS>);
+
+                          return Object.entries(groups).map(([groupName, models], groupIdx) => (
+                            <div key={groupName}>
+                              {groupIdx > 0 && <div className="h-px bg-border my-1" />}
+                              <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                                {groupName}
+                              </div>
+                              {models.map((opt) => (
+                                <button
+                                  key={opt.value}
+                                  onClick={() => handleModelChange(opt.value)}
+                                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors ${opt.value === model ? "bg-primary/10 text-primary font-semibold" : "text-popover-foreground hover:text-foreground"}`}
+                                >
+                                  {opt.label.replace(groupName + ' ', '')}
+                                </button>
+                              ))}
+                            </div>
+                          ));
+                        })()}
                       </div>
                     )}
                   </div>
