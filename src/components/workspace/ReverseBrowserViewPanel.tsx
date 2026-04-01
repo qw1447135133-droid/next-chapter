@@ -1329,11 +1329,6 @@ export default function ReverseBrowserViewPanel({
             : ""
         }`,
       );
-      pendingGenerationTasksRef.current.push({
-        taskKey: `${definition.segmentKey}#${submissionIndex}`,
-        segmentKey: definition.segmentKey,
-        episodeKey: definition.episodeKey,
-      });
       setSegmentRunStatus(definition.segmentKey, {
         state: "submitted",
         detail: `已提交 ${submissionIndex}/${totalSubmissions}`,
@@ -1574,17 +1569,12 @@ export default function ReverseBrowserViewPanel({
           setProgress(Math.round((completedRuns / Math.max(1, totalRuns)) * 100));
         }
 
-        if (false && mode === "auto" && index < targets.length - 1) {
-          appendLog(`片段 ${definition.segmentKey} 已提交，下一段前重新进入视频生成页`);
+        // 在处理下一个片段之前刷新页面，避免误触音频等元素
+        if (index < targets.length - 1) {
+          appendLog(`片段 ${definition.segmentKey} 已提交，刷新页面准备下一段`);
           await api.navigate(JIMENG_VIDEO_URL);
-          await sleep(1800);
+          await sleep(2000);
         }
-      }
-
-      if (false && pendingGenerationTasksRef.current.length > 0) {
-        setCurrentAction("监控生成结果");
-        appendLog(`开始监控生成结果，待观察 ${pendingGenerationTasksRef.current.length} 个任务`);
-        await sleep(batchWaitMs);
       }
 
       setProgress(100);

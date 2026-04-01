@@ -81,6 +81,8 @@ const VideoGeneration = ({
   const [historyOpen, setHistoryOpen] = useState<string | null>(null);
   const [enlargedVideo, setEnlargedVideo] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const arDropdownRef = useRef<HTMLDivElement>(null);
+  const resDropdownRef = useRef<HTMLDivElement>(null);
 
   // Aspect ratio state (shared with StoryboardPreview via localStorage)
   const [aspectRatio, setAspectRatioState] = useState<StoryboardAspectRatio>(() => {
@@ -111,10 +113,18 @@ const VideoGeneration = ({
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setModelOpen(false);
       }
+      if (arDropdownRef.current && !arDropdownRef.current.contains(e.target as Node)) {
+        setArOpen(false);
+      }
+      if (resDropdownRef.current && !resDropdownRef.current.contains(e.target as Node)) {
+        setResOpen(false);
+      }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    if (modelOpen || arOpen || resOpen) {
+      document.addEventListener("mousedown", handleClickOutside, true);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside, true);
+  }, [modelOpen, arOpen, resOpen]);
 
   const restoreFromHistory = (sceneId: string, entry: VideoHistoryEntry) => {
     if (!onScenesChange) return;
@@ -151,7 +161,12 @@ const VideoGeneration = ({
             <div className="relative" ref={dropdownRef}>
               <button
                 type="button"
-                onClick={() => setModelOpen((v) => !v)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setModelOpen((v) => !v);
+                  setArOpen(false);
+                  setResOpen(false);
+                }}
                 className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
               >
                 {VIDEO_MODEL_LABELS[videoModel]}
@@ -205,73 +220,89 @@ const VideoGeneration = ({
           </div>
 
           {videoMode === "api" && (
-            <Popover open={arOpen} onOpenChange={setArOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 h-9 text-xs"
-                  disabled={isGenerating || anyProcessing}
-                >
-                  <currentAR.icon className="h-3.5 w-3.5" />
-                  {currentAR.value}
-                  <ChevronDown className="h-3 w-3 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-40 p-1" align="end">
-                {ASPECT_RATIO_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-sm text-xs transition-colors ${
-                      aspectRatio === opt.value
-                        ? "bg-primary/10 text-primary font-medium"
-                        : "hover:bg-muted text-foreground"
-                    }`}
-                    onClick={() => {
-                      setAspectRatio(opt.value);
-                      setArOpen(false);
-                    }}
+            <div ref={arDropdownRef}>
+              <Popover open={arOpen} onOpenChange={(open) => {
+                setArOpen(open);
+                if (open) {
+                  setModelOpen(false);
+                  setResOpen(false);
+                }
+              }}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 h-9 text-xs"
+                    disabled={isGenerating || anyProcessing}
                   >
-                    <opt.icon className="h-3.5 w-3.5 shrink-0" />
-                    {opt.label}
-                  </button>
-                ))}
-              </PopoverContent>
-            </Popover>
+                    <currentAR.icon className="h-3.5 w-3.5" />
+                    {currentAR.value}
+                    <ChevronDown className="h-3 w-3 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-40 p-1" align="end">
+                  {ASPECT_RATIO_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-sm text-xs transition-colors ${
+                        aspectRatio === opt.value
+                          ? "bg-primary/10 text-primary font-medium"
+                          : "hover:bg-muted text-foreground"
+                      }`}
+                      onClick={() => {
+                        setAspectRatio(opt.value);
+                        setArOpen(false);
+                      }}
+                    >
+                      <opt.icon className="h-3.5 w-3.5 shrink-0" />
+                      {opt.label}
+                    </button>
+                  ))}
+                </PopoverContent>
+              </Popover>
+            </div>
           )}
 
           {videoMode === "api" && (
-            <Popover open={resOpen} onOpenChange={setResOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 h-9 text-xs"
-                  disabled={isGenerating || anyProcessing}
-                >
-                  {resolution}
-                  <ChevronDown className="h-3 w-3 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-32 p-1" align="end">
-                {["720p", "1080p"].map((res) => (
-                  <button
-                    key={res}
-                    className={`w-full text-left px-2.5 py-1.5 rounded-sm text-xs transition-colors ${
-                      resolution === res
-                        ? "bg-primary/10 text-primary font-medium"
-                        : "hover:bg-muted text-foreground"
-                    }`}
-                    onClick={() => {
-                      setResolution(res as "720p" | "1080p");
-                      setResOpen(false);
-                    }}
+            <div ref={resDropdownRef}>
+              <Popover open={resOpen} onOpenChange={(open) => {
+                setResOpen(open);
+                if (open) {
+                  setModelOpen(false);
+                  setArOpen(false);
+                }
+              }}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 h-9 text-xs"
+                    disabled={isGenerating || anyProcessing}
                   >
-                    {res}
-                  </button>
-                ))}
-              </PopoverContent>
-            </Popover>
+                    {resolution}
+                    <ChevronDown className="h-3 w-3 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-32 p-1" align="end">
+                  {["720p", "1080p"].map((res) => (
+                    <button
+                      key={res}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-sm text-xs transition-colors ${
+                        resolution === res
+                          ? "bg-primary/10 text-primary font-medium"
+                          : "hover:bg-muted text-foreground"
+                      }`}
+                      onClick={() => {
+                        setResolution(res as "720p" | "1080p");
+                        setResOpen(false);
+                      }}
+                    >
+                      {res}
+                    </button>
+                  ))}
+                </PopoverContent>
+              </Popover>
+            </div>
           )}
 
           {videoMode === "api" && (isGenerating || anyProcessing ? (

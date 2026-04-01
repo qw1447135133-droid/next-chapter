@@ -45,8 +45,11 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
       if (paceDropdownRef.current && !paceDropdownRef.current.contains(e.target as Node)) setPaceOpen(false);
       if (durationDropdownRef.current && !durationDropdownRef.current.contains(e.target as Node)) setDurationOpen(false);
     };
-    if (modelOpen || paceOpen || durationOpen) document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    if (modelOpen || paceOpen || durationOpen) {
+      // Use capture phase to handle clicks before they bubble
+      document.addEventListener("mousedown", handleClickOutside, true);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside, true);
   }, [modelOpen, paceOpen, durationOpen]);
 
   const currentModel = DECOMPOSE_MODEL_OPTIONS.find((o) => o.value === decomposeModel)!;
@@ -106,7 +109,12 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
             <div className="relative" ref={modelDropdownRef}>
               <button
                 type="button"
-                onClick={() => setModelOpen((v) => !v)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setModelOpen((v) => !v);
+                  setPaceOpen(false);
+                  setDurationOpen(false);
+                }}
                 disabled={isAnalyzing}
                 className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
               >
@@ -188,7 +196,12 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
           <div className="relative" ref={durationDropdownRef}>
             <button
               type="button"
-              onClick={() => setDurationOpen((v) => !v)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setDurationOpen((v) => !v);
+                setModelOpen(false);
+                setPaceOpen(false);
+              }}
               disabled={isAnalyzing}
               className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
             >
@@ -231,7 +244,12 @@ const ScriptInput = ({ script, onScriptChange, onAnalyze, onCancelAnalyze, isAna
           <div className="relative" ref={paceDropdownRef}>
             <button
               type="button"
-              onClick={() => setPaceOpen((v) => !v)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setPaceOpen((v) => !v);
+                setModelOpen(false);
+                setDurationOpen(false);
+              }}
               disabled={isAnalyzing}
               className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
             >

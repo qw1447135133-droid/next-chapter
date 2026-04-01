@@ -273,30 +273,18 @@ const CharacterSettings = ({
       if (charViewModeDropdownRef.current && !charViewModeDropdownRef.current.contains(e.target as Node)) {
         setCharViewModeOpen(false);
       }
-    };
-    if (charViewModeOpen) document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [charViewModeOpen]);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
       if (charModelDropdownRef.current && !charModelDropdownRef.current.contains(e.target as Node)) {
         setCharModelOpen(false);
       }
-    };
-    if (charModelOpen) document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [charModelOpen]);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
       if (resolutionDropdownRef.current && !resolutionDropdownRef.current.contains(e.target as Node)) {
         setResolutionOpen(false);
       }
     };
-    if (resolutionOpen) document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [resolutionOpen]);
+    if (charViewModeOpen || charModelOpen || resolutionOpen) {
+      document.addEventListener("mousedown", handleClickOutside, true);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside, true);
+  }, [charViewModeOpen, charModelOpen, resolutionOpen]);
 
   const currentCharModel = CHAR_IMAGE_MODEL_OPTIONS.find((o) => o.value === charImageModel) || CHAR_IMAGE_MODEL_OPTIONS[0];
 
@@ -1779,7 +1767,12 @@ const CharacterSettings = ({
             <div className="relative" ref={charModelDropdownRef}>
               <button
                 type="button"
-                onClick={() => setCharModelOpen((v) => !v)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCharModelOpen((v) => !v);
+                  setResolutionOpen(false);
+                  setCharViewModeOpen(false);
+                }}
                 disabled={isAutoDetectingAll}
                 className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
               >
@@ -1807,7 +1800,12 @@ const CharacterSettings = ({
             <div className="relative" ref={resolutionDropdownRef}>
               <button
                 type="button"
-                onClick={() => setResolutionOpen((v) => !v)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setResolutionOpen((v) => !v);
+                  setCharModelOpen(false);
+                  setCharViewModeOpen(false);
+                }}
                 disabled={isAutoDetectingAll}
                 className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
               >
@@ -2056,7 +2054,12 @@ const CharacterSettings = ({
             <div className="relative" ref={charViewModeDropdownRef}>
               <button
                 type="button"
-                onClick={() => setCharViewModeOpen((v) => !v)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCharViewModeOpen((v) => !v);
+                  setCharModelOpen(false);
+                  setResolutionOpen(false);
+                }}
                 disabled={isAutoDetectingAll}
                 className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-3 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
               >
