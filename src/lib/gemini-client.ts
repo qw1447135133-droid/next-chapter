@@ -37,7 +37,7 @@ function releaseGeminiSlot() {
 }
 
 // ===== 服务名称映射 =====
-export type AiService = "gemini" | "jimeng" | "tuzi";
+export type AiService = "gemini" | "gpt" | "claude" | "grok" | "seedream" | "jimeng" | "tuzi";
 
 // ===== 按服务解析密钥 =====
 
@@ -45,15 +45,33 @@ export function resolveDirectApiKey(service: AiService | null): string {
   const c = getApiConfig();
   if (service === "tuzi") {
     if (!c.tuziKey?.trim())
-      throw new Error("请先在设置中配置 Tuzi API Key");
+      throw new Error("请先在设置中配置 Sora API Key");
     return c.tuziKey.trim();
   }
   if (service === "jimeng") {
     const k = c.jimengKey?.trim() || c.geminiKey?.trim();
     if (!k)
-      throw new Error(
-        "请先在设置中配置即梦视频 API Key，或与 Gemini 共用同一密钥",
-      );
+      throw new Error("请先在设置中配置 Seedance API Key，或与 Gemini 共用同一密钥");
+    return k;
+  }
+  if (service === "gpt") {
+    const k = c.gptKey?.trim() || c.geminiKey?.trim();
+    if (!k) throw new Error("请先在设置中配置 GPT API Key");
+    return k;
+  }
+  if (service === "claude") {
+    const k = c.claudeKey?.trim() || c.geminiKey?.trim();
+    if (!k) throw new Error("请先在设置中配置 Claude API Key");
+    return k;
+  }
+  if (service === "grok") {
+    const k = c.grokKey?.trim() || c.geminiKey?.trim();
+    if (!k) throw new Error("请先在设置中配置 Grok API Key");
+    return k;
+  }
+  if (service === "seedream") {
+    const k = c.seedreamKey?.trim() || c.geminiKey?.trim();
+    if (!k) throw new Error("请先在设置中配置 Seedream API Key");
     return k;
   }
   if (!c.geminiKey?.trim())
@@ -304,13 +322,14 @@ export async function callGemini(
   const config = getApiConfig();
   const resolvedModel = resolveConfiguredModelName(model);
   if (isMessagesApiModel(model) || isMessagesApiModel(resolvedModel)) {
-    const response = await geminiFetch(
-      buildMessagesApiUrl(config.geminiEndpoint || DEFAULT_GEMINI_BASE_URL),
+    const response = await directFetch(
+      buildMessagesApiUrl(config.claudeEndpoint || DEFAULT_GEMINI_BASE_URL),
       { "Content-Type": "application/json" },
       JSON.stringify(
         buildMessagesApiBody(resolvedModel, contents, generationConfig, false),
       ),
       signal,
+      "claude",
     );
     if (!response.ok) {
       const text = await response.text().catch(() => "");
@@ -321,13 +340,16 @@ export async function callGemini(
     return response.json();
   }
   if (isChatCompletionsModel(model) || isChatCompletionsModel(resolvedModel)) {
-    const response = await geminiFetch(
-      buildChatCompletionsUrl(config.geminiEndpoint || DEFAULT_GEMINI_BASE_URL),
+    const service: AiService = /^grok-/i.test(String(resolvedModel || model)) ? "grok" : "gpt";
+    const endpointBase = service === "grok" ? config.grokEndpoint : config.gptEndpoint;
+    const response = await directFetch(
+      buildChatCompletionsUrl(endpointBase || DEFAULT_GEMINI_BASE_URL),
       { "Content-Type": "application/json" },
       JSON.stringify(
         buildChatCompletionsBody(resolvedModel, contents, generationConfig, false),
       ),
       signal,
+      service,
     );
     if (!response.ok) {
       const text = await response.text().catch(() => "");
@@ -432,13 +454,14 @@ export async function callGeminiStream(
   const config = getApiConfig();
   const resolvedModel = resolveConfiguredModelName(model);
   if (isMessagesApiModel(model) || isMessagesApiModel(resolvedModel)) {
-    const response = await geminiFetch(
-      buildMessagesApiUrl(config.geminiEndpoint || DEFAULT_GEMINI_BASE_URL),
+    const response = await directFetch(
+      buildMessagesApiUrl(config.claudeEndpoint || DEFAULT_GEMINI_BASE_URL),
       { "Content-Type": "application/json" },
       JSON.stringify(
         buildMessagesApiBody(resolvedModel, contents, generationConfig, true),
       ),
       signal,
+      "claude",
     );
 
     if (!response.ok) {
@@ -486,13 +509,16 @@ export async function callGeminiStream(
     return accumulated.trim();
   }
   if (isChatCompletionsModel(model) || isChatCompletionsModel(resolvedModel)) {
-    const response = await geminiFetch(
-      buildChatCompletionsUrl(config.geminiEndpoint || DEFAULT_GEMINI_BASE_URL),
+    const service: AiService = /^grok-/i.test(String(resolvedModel || model)) ? "grok" : "gpt";
+    const endpointBase = service === "grok" ? config.grokEndpoint : config.gptEndpoint;
+    const response = await directFetch(
+      buildChatCompletionsUrl(endpointBase || DEFAULT_GEMINI_BASE_URL),
       { "Content-Type": "application/json" },
       JSON.stringify(
         buildChatCompletionsBody(resolvedModel, contents, generationConfig, true),
       ),
       signal,
+      service,
     );
 
     if (!response.ok) {
@@ -831,7 +857,7 @@ export async function callSeedreamImage(
   } = {},
 ): Promise<{ base64: string; mimeType: string }> {
   const config = getApiConfig();
-  const baseUrl = (config.geminiEndpoint || DEFAULT_GEMINI_BASE_URL)
+  const baseUrl = (config.seedreamEndpoint || DEFAULT_GEMINI_BASE_URL)
     .replace(/\/v1beta(\/.*)?$/, "")
     .replace(/\/v1(\/.*)?$/, "");
 
@@ -872,7 +898,7 @@ export async function callSeedreamImage(
     },
     JSON.stringify(payload),
     options.signal,
-    "gemini",
+    "seedream",
   );
 
   if (!resp.ok) {

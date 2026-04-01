@@ -33,6 +33,10 @@ const { reversePlaywrightRunner } = require("./reverse-playwright-runner");
 
 const BUILTIN_API_ADMIN_PASSWORD_HASH =
   "d4f31b6def1e6e11148cbab15b400e91528ab18880b25225d9a9f840d4d0d192";
+const STARTUP_LOG_PATH = path.join(
+  process.env.TEMP || process.cwd(),
+  "infinio-startup.log",
+);
 
 // =========================== 状态 ===========================
 
@@ -201,7 +205,30 @@ function log(level: string, msg: string) {
   const ts = new Date().toISOString().slice(11, 23);
   const line = `[${ts}] [${level}] ${msg}`;
   console.log(line);
+  try {
+    fs.appendFileSync(STARTUP_LOG_PATH, `${new Date().toISOString()} ${line}\n`);
+  } catch {
+    /* ignore */
+  }
 }
+
+process.on("uncaughtException", (error) => {
+  log(
+    "fatal",
+    `uncaughtException: ${
+      error instanceof Error ? error.stack || error.message : String(error)
+    }`,
+  );
+});
+
+process.on("unhandledRejection", (reason) => {
+  log(
+    "fatal",
+    `unhandledRejection: ${
+      reason instanceof Error ? reason.stack || reason.message : String(reason)
+    }`,
+  );
+});
 
 function resolveUniqueDownloadPath(targetPath: string): string {
   const parsed = path.parse(targetPath);
@@ -808,6 +835,7 @@ function setupIPC() {
 // =========================== 窗口 & 托盘 ===========================
 
 function createWindow() {
+  log("info", "createWindow start");
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -825,7 +853,16 @@ function createWindow() {
   });
 
   mainWindow.once("ready-to-show", () => {
+    log("info", "main window ready-to-show");
     mainWindow?.show();
+  });
+
+  mainWindow.webContents.on("did-finish-load", () => {
+    log("info", "main window did-finish-load");
+  });
+
+  mainWindow.webContents.on("did-fail-load", (_event, code, description, url) => {
+    log("error", `main window did-fail-load code=${code} description=${description} url=${url}`);
   });
 
   // 🛡️ 监听渲染进程崩溃
@@ -882,18 +919,22 @@ function createWindow() {
 
   // 加载 Vite dev server 或打包后的 index.html
   if (process.env.VITE_DEV_SERVER_URL) {
+    log("info", `loading dev url: ${process.env.VITE_DEV_SERVER_URL}`);
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     if (process.env.ELECTRON_OPEN_DEVTOOLS === "1") {
       mainWindow.webContents.openDevTools();
     }
   } else {
-    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+    const indexPath = path.join(__dirname, "../dist/index.html");
+    log("info", `loading file: ${indexPath}`);
+    mainWindow.loadFile(indexPath);
   }
 }
 
 function createTray() {
   // 加载图标
   const icon = nativeImage.createFromPath(path.join(__dirname, "../build/icon.ico"));
+  log("info", `createTray icon empty=${icon.isEmpty()}`);
   tray = new Tray(icon);
 
   const contextMenu = Menu.buildFromTemplate([

@@ -81,7 +81,7 @@ try {
           foreach ($index in 0..($frameStreams.Count - 1)) {
             $size = $iconSizes[$index]
             $stream = $frameStreams[$index]
-            $dimensionByte = if ($size -ge 256) { 0 } else { [byte]$size }
+            $dimensionByte = if ($size -ge 256) { [byte]0 } else { [byte]$size }
 
             $writer.Write($dimensionByte)
             $writer.Write($dimensionByte)
@@ -95,6 +95,7 @@ try {
             $dataOffset += [int]$stream.Length
           }
 
+          $writer.Flush()
           foreach ($stream in $frameStreams) {
             $stream.Position = 0
             $stream.CopyTo($fileStream)

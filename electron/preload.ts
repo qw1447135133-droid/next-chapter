@@ -12,12 +12,18 @@ import path from "node:path";
 type BuiltinApiBundle = {
   geminiEndpoint?: string;
   geminiKey?: string;
+  gptEndpoint?: string;
+  gptKey?: string;
+  claudeEndpoint?: string;
+  claudeKey?: string;
+  grokEndpoint?: string;
+  grokKey?: string;
+  seedreamEndpoint?: string;
+  seedreamKey?: string;
   jimengEndpoint?: string;
   jimengKey?: string;
-  viduEndpoint?: string;
-  viduKey?: string;
-  klingEndpoint?: string;
-  klingKey?: string;
+  tuziEndpoint?: string;
+  tuziKey?: string;
   modelMappings?: Record<string, string>;
 };
 
@@ -177,21 +183,39 @@ export interface RuntimeAPI {
   verifyBuiltinApiAdminPassword: (password: string) => Promise<boolean>;
 }
 
-function getBuiltinApiBundlePath(): string {
+function getEmbeddedBuiltinApiBundlePath(): string {
   if (process.defaultApp) {
     return path.resolve(__dirname, "..", "config", "builtin-api.json");
   }
   return path.join(process.resourcesPath, "config", "builtin-api.json");
 }
 
+function getPortableBuiltinApiBundlePath(): string | null {
+  const portableDir = process.env.PORTABLE_EXECUTABLE_DIR;
+  if (!portableDir) return null;
+  return path.join(portableDir, "config", "builtin-api.json");
+}
+
+function getBuiltinApiBundlePath(): string {
+  return getPortableBuiltinApiBundlePath() || getEmbeddedBuiltinApiBundlePath();
+}
+
+function getBuiltinApiBundleCandidatePaths(): string[] {
+  const portablePath = getPortableBuiltinApiBundlePath();
+  const embeddedPath = getEmbeddedBuiltinApiBundlePath();
+  return portablePath ? [portablePath, embeddedPath] : [embeddedPath];
+}
+
 function readBuiltinApiBundle(): BuiltinApiBundle | null {
-  const filePath = getBuiltinApiBundlePath();
-  if (!fs.existsSync(filePath)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8")) as BuiltinApiBundle;
-  } catch {
-    return null;
+  for (const filePath of getBuiltinApiBundleCandidatePaths()) {
+    if (!fs.existsSync(filePath)) continue;
+    try {
+      return JSON.parse(fs.readFileSync(filePath, "utf8")) as BuiltinApiBundle;
+    } catch {
+      continue;
+    }
   }
+  return null;
 }
 
 const builtinApiBundle = readBuiltinApiBundle();

@@ -124,17 +124,7 @@ const History = () => {
               <Clock className="h-7 w-7 text-muted-foreground" />
             </div>
             <h2 className="text-xl font-semibold font-[Space_Grotesk] mb-2">暂无项目</h2>
-            <p className="text-sm text-muted-foreground mb-6">创建你的第一个项目</p>
-            <div className="flex gap-3">
-              <Button onClick={() => navigate("/workspace")} className="gap-2">
-                <Film className="h-4 w-4" />
-                视频创作
-              </Button>
-              <Button onClick={() => navigate("/script-creator")} variant="outline" className="gap-2">
-                <PenTool className="h-4 w-4" />
-                剧本创作
-              </Button>
-            </div>
+            <p className="text-sm text-muted-foreground">创建你的第一个项目</p>
           </div>
         ) : (
           <div className="space-y-3">

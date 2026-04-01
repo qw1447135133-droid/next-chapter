@@ -1,8 +1,16 @@
-export type ApiMode = "builtin" | "custom";
+export type ApiMode = "builtin";
 
 export interface BuiltinApiBundle {
   geminiEndpoint?: string;
   geminiKey?: string;
+  gptEndpoint?: string;
+  gptKey?: string;
+  claudeEndpoint?: string;
+  claudeKey?: string;
+  grokEndpoint?: string;
+  grokKey?: string;
+  seedreamEndpoint?: string;
+  seedreamKey?: string;
   jimengEndpoint?: string;
   jimengKey?: string;
   tuziEndpoint?: string;
@@ -13,7 +21,7 @@ export interface BuiltinApiBundle {
 export interface SupportedModelMapping {
   key: string;
   label: string;
-  provider: "gemini" | "jimeng" | "tuzi";
+  provider: "gemini" | "gpt" | "claude" | "grok" | "seedream" | "jimeng" | "tuzi";
   category: "text" | "image" | "video";
   defaultModelName: string;
 }
@@ -22,6 +30,14 @@ export interface ApiConfig {
   apiMode: ApiMode;
   geminiEndpoint: string;
   geminiKey: string;
+  gptEndpoint: string;
+  gptKey: string;
+  claudeEndpoint: string;
+  claudeKey: string;
+  grokEndpoint: string;
+  grokKey: string;
+  seedreamEndpoint: string;
+  seedreamKey: string;
   jimengEndpoint: string;
   jimengKey: string;
   tuziEndpoint: string;
@@ -67,37 +83,44 @@ export const SUPPORTED_MODEL_MAPPINGS: SupportedModelMapping[] = [
   {
     key: "gpt-5.4",
     label: "GPT-5.4",
-    provider: "gemini",
+    provider: "gpt",
     category: "text",
     defaultModelName: "gpt-5.4",
   },
   {
     key: "gpt-5.4-mini",
     label: "GPT-5.4 Mini",
-    provider: "gemini",
+    provider: "gpt",
     category: "text",
     defaultModelName: "gpt-5.4-mini",
   },
   {
     key: "claude-sonnet-4-6",
     label: "Claude Sonnet 4.6",
-    provider: "gemini",
+    provider: "claude",
     category: "text",
     defaultModelName: "claude-sonnet-4-6",
   },
   {
     key: "claude-sonnet-4-6-thinking",
     label: "Claude Sonnet 4.6 Thinking",
-    provider: "gemini",
+    provider: "claude",
     category: "text",
     defaultModelName: "claude-sonnet-4-6-thinking",
   },
   {
     key: "claude-opus-4-6",
     label: "Claude Opus 4.6",
-    provider: "gemini",
+    provider: "claude",
     category: "text",
     defaultModelName: "claude-opus-4-6",
+  },
+  {
+    key: "grok-4.1",
+    label: "Grok 4.1",
+    provider: "grok",
+    category: "text",
+    defaultModelName: "grok-4.1",
   },
   {
     key: "gemini-3-pro-image-preview",
@@ -116,7 +139,7 @@ export const SUPPORTED_MODEL_MAPPINGS: SupportedModelMapping[] = [
   {
     key: "doubao-seedream-5-0-260128",
     label: "Seedream 5.0",
-    provider: "gemini",
+    provider: "seedream",
     category: "image",
     defaultModelName: "doubao-seedream-5-0-260128",
   },
@@ -176,6 +199,10 @@ function deobfuscate(value: string): string {
 
 const SENSITIVE_KEYS: (keyof ApiConfig)[] = [
   "geminiKey",
+  "gptKey",
+  "claudeKey",
+  "grokKey",
+  "seedreamKey",
   "jimengKey",
   "tuziKey",
 ];
@@ -184,6 +211,14 @@ export const DEFAULT_API_CONFIG: ApiConfig = {
   apiMode: "builtin",
   geminiEndpoint: "",
   geminiKey: "",
+  gptEndpoint: "",
+  gptKey: "",
+  claudeEndpoint: "",
+  claudeKey: "",
+  grokEndpoint: "",
+  grokKey: "",
+  seedreamEndpoint: "",
+  seedreamKey: "",
   jimengEndpoint: "",
   jimengKey: "",
   tuziEndpoint: "",
@@ -196,6 +231,29 @@ export const DEFAULT_API_CONFIG: ApiConfig = {
   storagePath: "",
   reverseDownloadPath: "",
 };
+
+function normalizeStoredConfig(config: Partial<ApiConfig>): ApiConfig {
+  return {
+    ...DEFAULT_API_CONFIG,
+    ...config,
+    apiMode: "builtin",
+    geminiEndpoint: "",
+    geminiKey: "",
+    gptEndpoint: "",
+    gptKey: "",
+    claudeEndpoint: "",
+    claudeKey: "",
+    grokEndpoint: "",
+    grokKey: "",
+    seedreamEndpoint: "",
+    seedreamKey: "",
+    jimengEndpoint: "",
+    jimengKey: "",
+    tuziEndpoint: "",
+    tuziKey: "",
+    modelMappings: {},
+  };
+}
 
 function getBuiltinApiBundle(): BuiltinApiBundle | null {
   if (builtinApiBundleCache !== undefined) {
@@ -213,6 +271,14 @@ function sanitizeBuiltinApiBundle(input: Partial<BuiltinApiBundle>): BuiltinApiB
   return {
     geminiEndpoint: typeof input.geminiEndpoint === "string" ? input.geminiEndpoint.trim() : "",
     geminiKey: typeof input.geminiKey === "string" ? input.geminiKey.trim() : "",
+    gptEndpoint: typeof input.gptEndpoint === "string" ? input.gptEndpoint.trim() : "",
+    gptKey: typeof input.gptKey === "string" ? input.gptKey.trim() : "",
+    claudeEndpoint: typeof input.claudeEndpoint === "string" ? input.claudeEndpoint.trim() : "",
+    claudeKey: typeof input.claudeKey === "string" ? input.claudeKey.trim() : "",
+    grokEndpoint: typeof input.grokEndpoint === "string" ? input.grokEndpoint.trim() : "",
+    grokKey: typeof input.grokKey === "string" ? input.grokKey.trim() : "",
+    seedreamEndpoint: typeof input.seedreamEndpoint === "string" ? input.seedreamEndpoint.trim() : "",
+    seedreamKey: typeof input.seedreamKey === "string" ? input.seedreamKey.trim() : "",
     jimengEndpoint: typeof input.jimengEndpoint === "string" ? input.jimengEndpoint.trim() : "",
     jimengKey: typeof input.jimengKey === "string" ? input.jimengKey.trim() : "",
     tuziEndpoint: typeof input.tuziEndpoint === "string" ? input.tuziEndpoint.trim() : "",
@@ -277,7 +343,7 @@ export function getStoredApiConfig(): ApiConfig {
     } as ApiConfig;
     merged = applyLegacyCompatibility(parsed, merged);
     merged = decodeSensitiveFields(merged);
-    return merged;
+    return normalizeStoredConfig(merged);
   } catch {
     return DEFAULT_API_CONFIG;
   }
@@ -326,31 +392,33 @@ function decodeSensitiveFields(config: ApiConfig): ApiConfig {
 }
 
 function applyBuiltinOverlay(config: ApiConfig): ApiConfig {
-  if (config.apiMode !== "builtin") return config;
+  const normalizedConfig = normalizeStoredConfig(config);
   const builtin = getBuiltinApiBundle();
-  if (!builtin) return config;
+  if (!builtin) return normalizedConfig;
   const builtinMappings = normalizeModelMappings(builtin.modelMappings);
-  const geminiEndpoint =
-    typeof builtin.geminiEndpoint === "string" ? builtin.geminiEndpoint.trim() : "";
-  const geminiKey =
-    typeof builtin.geminiKey === "string" ? builtin.geminiKey.trim() : "";
-  const jimengEndpointRaw =
-    typeof builtin.jimengEndpoint === "string" ? builtin.jimengEndpoint.trim() : "";
-  const jimengKeyRaw =
-    typeof builtin.jimengKey === "string" ? builtin.jimengKey.trim() : "";
-  const tuziEndpoint =
-    typeof builtin.tuziEndpoint === "string" ? builtin.tuziEndpoint.trim() : "";
-  const tuziKey =
-    typeof builtin.tuziKey === "string" ? builtin.tuziKey.trim() : "";
+
+  const g = (field: keyof BuiltinApiBundle) =>
+    typeof builtin[field] === "string" ? (builtin[field] as string).trim() : "";
+
+  const geminiEndpoint = g("geminiEndpoint");
+  const geminiKey = g("geminiKey");
 
   return {
-    ...config,
+    ...normalizedConfig,
     geminiEndpoint,
     geminiKey,
-    jimengEndpoint: jimengEndpointRaw || geminiEndpoint,
-    jimengKey: jimengKeyRaw || geminiKey,
-    tuziEndpoint,
-    tuziKey,
+    gptEndpoint: g("gptEndpoint") || geminiEndpoint,
+    gptKey: g("gptKey") || geminiKey,
+    claudeEndpoint: g("claudeEndpoint") || geminiEndpoint,
+    claudeKey: g("claudeKey") || geminiKey,
+    grokEndpoint: g("grokEndpoint") || geminiEndpoint,
+    grokKey: g("grokKey") || geminiKey,
+    seedreamEndpoint: g("seedreamEndpoint") || geminiEndpoint,
+    seedreamKey: g("seedreamKey") || geminiKey,
+    jimengEndpoint: g("jimengEndpoint") || geminiEndpoint,
+    jimengKey: g("jimengKey") || geminiKey,
+    tuziEndpoint: g("tuziEndpoint"),
+    tuziKey: g("tuziKey"),
     modelMappings: builtinMappings,
   };
 }
@@ -368,28 +436,11 @@ export function getApiConfig(): ApiConfig {
 }
 
 export function saveApiConfig(config: Partial<ApiConfig>): void {
-  const saved = (() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-    } catch {
-      return {};
-    }
-  })();
-
-  const currentRaw = decodeSensitiveFields({
-    ...DEFAULT_API_CONFIG,
-    ...saved,
-    modelMappings: normalizeModelMappings(saved.modelMappings),
-  } as ApiConfig);
-  const updated = {
-    ...currentRaw,
+  const current = getStoredApiConfig();
+  const updated = normalizeStoredConfig({
+    ...current,
     ...config,
-    modelMappings: {
-      ...currentRaw.modelMappings,
-      ...normalizeModelMappings(config.modelMappings),
-    },
-  };
+  });
   const toStore = { ...updated } as Record<string, unknown>;
   for (const key of SENSITIVE_KEYS) {
     const value = toStore[key];

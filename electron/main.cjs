@@ -1889,6 +1889,10 @@ var {
 var fs2 = require("node:fs");
 var { reversePlaywrightRunner: reversePlaywrightRunner2 } = (init_reverse_playwright_runner(), __toCommonJS(reverse_playwright_runner_exports));
 var BUILTIN_API_ADMIN_PASSWORD_HASH = "d4f31b6def1e6e11148cbab15b400e91528ab18880b25225d9a9f840d4d0d192";
+var STARTUP_LOG_PATH = path2.join(
+  process.env.TEMP || process.cwd(),
+  "infinio-startup.log"
+);
 var mainWindow = null;
 var tray = null;
 var embeddedBrowserView = null;
@@ -2027,7 +2031,24 @@ function log(level, msg) {
   const ts = (/* @__PURE__ */ new Date()).toISOString().slice(11, 23);
   const line = `[${ts}] [${level}] ${msg}`;
   console.log(line);
+  try {
+    fs2.appendFileSync(STARTUP_LOG_PATH, `${(/* @__PURE__ */ new Date()).toISOString()} ${line}
+`);
+  } catch {
+  }
 }
+process.on("uncaughtException", (error) => {
+  log(
+    "fatal",
+    `uncaughtException: ${error instanceof Error ? error.stack || error.message : String(error)}`
+  );
+});
+process.on("unhandledRejection", (reason) => {
+  log(
+    "fatal",
+    `unhandledRejection: ${reason instanceof Error ? reason.stack || reason.message : String(reason)}`
+  );
+});
 function resolveUniqueDownloadPath(targetPath) {
   const parsed = path2.parse(targetPath);
   let attempt = 1;
@@ -2491,6 +2512,7 @@ function setupIPC() {
   );
 }
 function createWindow() {
+  log("info", "createWindow start");
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -2507,7 +2529,14 @@ function createWindow() {
     title: "Infinio"
   });
   mainWindow.once("ready-to-show", () => {
+    log("info", "main window ready-to-show");
     mainWindow?.show();
+  });
+  mainWindow.webContents.on("did-finish-load", () => {
+    log("info", "main window did-finish-load");
+  });
+  mainWindow.webContents.on("did-fail-load", (_event, code, description, url) => {
+    log("error", `main window did-fail-load code=${code} description=${description} url=${url}`);
   });
   mainWindow.webContents.on("render-process-gone", (event, details) => {
     log("error", `========== \u6E32\u67D3\u8FDB\u7A0B\u5D29\u6E83 ==========`);
@@ -2551,16 +2580,20 @@ function createWindow() {
     }
   });
   if (process.env.VITE_DEV_SERVER_URL) {
+    log("info", `loading dev url: ${process.env.VITE_DEV_SERVER_URL}`);
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     if (process.env.ELECTRON_OPEN_DEVTOOLS === "1") {
       mainWindow.webContents.openDevTools();
     }
   } else {
-    mainWindow.loadFile(path2.join(__dirname, "../dist/index.html"));
+    const indexPath = path2.join(__dirname, "../dist/index.html");
+    log("info", `loading file: ${indexPath}`);
+    mainWindow.loadFile(indexPath);
   }
 }
 function createTray() {
   const icon = nativeImage.createFromPath(path2.join(__dirname, "../build/icon.ico"));
+  log("info", `createTray icon empty=${icon.isEmpty()}`);
   tray = new Tray(icon);
   const contextMenu = Menu.buildFromTemplate([
     { label: "\u663E\u793A\u7A97\u53E3", click: () => mainWindow?.show() },

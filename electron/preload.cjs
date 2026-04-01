@@ -28,20 +28,35 @@ module.exports = __toCommonJS(preload_exports);
 var import_electron = require("electron");
 var import_node_fs = __toESM(require("node:fs"), 1);
 var import_node_path = __toESM(require("node:path"), 1);
-function getBuiltinApiBundlePath() {
+function getEmbeddedBuiltinApiBundlePath() {
   if (process.defaultApp) {
     return import_node_path.default.resolve(__dirname, "..", "config", "builtin-api.json");
   }
   return import_node_path.default.join(process.resourcesPath, "config", "builtin-api.json");
 }
+function getPortableBuiltinApiBundlePath() {
+  const portableDir = process.env.PORTABLE_EXECUTABLE_DIR;
+  if (!portableDir) return null;
+  return import_node_path.default.join(portableDir, "config", "builtin-api.json");
+}
+function getBuiltinApiBundlePath() {
+  return getPortableBuiltinApiBundlePath() || getEmbeddedBuiltinApiBundlePath();
+}
+function getBuiltinApiBundleCandidatePaths() {
+  const portablePath = getPortableBuiltinApiBundlePath();
+  const embeddedPath = getEmbeddedBuiltinApiBundlePath();
+  return portablePath ? [portablePath, embeddedPath] : [embeddedPath];
+}
 function readBuiltinApiBundle() {
-  const filePath = getBuiltinApiBundlePath();
-  if (!import_node_fs.default.existsSync(filePath)) return null;
-  try {
-    return JSON.parse(import_node_fs.default.readFileSync(filePath, "utf8"));
-  } catch {
-    return null;
+  for (const filePath of getBuiltinApiBundleCandidatePaths()) {
+    if (!import_node_fs.default.existsSync(filePath)) continue;
+    try {
+      return JSON.parse(import_node_fs.default.readFileSync(filePath, "utf8"));
+    } catch {
+      continue;
+    }
   }
+  return null;
 }
 var builtinApiBundle = readBuiltinApiBundle();
 var builtinApiBundlePath = getBuiltinApiBundlePath();
