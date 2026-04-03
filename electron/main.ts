@@ -830,6 +830,364 @@ function setupIPC() {
       }
     },
   );
+
+  // =========================== Agent IPC ===========================
+  // Manages QueryEngine instances keyed by sessionId.
+  // Renders invoke agent:submitMessage → receives streamed agent:event messages.
+
+  const { QueryEngine } = require("../src/lib/agent/query-engine");
+
+  const agentSessions = new Map<string, InstanceType<typeof QueryEngine>>();
+
+  ipcMain.handle(
+    "agent:submitMessage",
+    async (
+      event,
+      {
+        sessionId,
+        prompt,
+        config,
+      }: {
+        sessionId: string;
+        prompt: string;
+        config: {
+          apiKey: string;
+          baseUrl?: string;
+          model?: string;
+          systemPrompt?: string;
+          appendSystemPrompt?: string;
+          maxTurns?: number;
+          maxBudgetUsd?: number;
+        };
+      },
+    ) => {
+      // Reuse existing session or create a new one
+      let engine = agentSessions.get(sessionId);
+      if (!engine) {
+        engine = new QueryEngine(config);
+        agentSessions.set(sessionId, engine);
+      } else {
+        // Update API key / model if provided
+        if (config.apiKey) engine["config"].apiKey = config.apiKey;
+        if (config.model) engine.setModel(config.model);
+      }
+
+      try {
+        for await (const sdkMsg of engine.submitMessage(prompt)) {
+          if (event.sender.isDestroyed()) break;
+          event.sender.send("agent:event", { sessionId, message: sdkMsg });
+        }
+      } catch (err) {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send("agent:event", {
+            sessionId,
+            message: {
+              type: "result",
+              subtype: "success",
+              isError: true,
+              result: String(err),
+              durationMs: 0,
+              numTurns: 0,
+              sessionId,
+              totalCostUsd: 0,
+              usage: { inputTokens: 0, outputTokens: 0 },
+              uuid: crypto.randomUUID(),
+            },
+          });
+        }
+      }
+
+      return { ok: true };
+    },
+  );
+
+  ipcMain.handle("agent:interrupt", (_event, { sessionId }: { sessionId: string }) => {
+    agentSessions.get(sessionId)?.interrupt();
+    return { ok: true };
+  });
+
+  ipcMain.handle("agent:clearSession", (_event, { sessionId }: { sessionId: string }) => {
+    agentSessions.delete(sessionId);
+    return { ok: true };
+  });
+
+  // =========================== Tool Execute IPC ===========================
+  // Unified handler for all built-in tools that require main-process access.
+
+  const glob = require("fast-glob");
+  const { exec } = require("node:child_process");
+  const { promisify } = require("node:util");
+  const execAsync = promisify(exec);
+
+  ipcMain.handle(
+    "tool:execute",
+    async (_event, { toolName, args }: { toolName: string; args: Record<string, unknown> }) => {
+      try {
+        switch (toolName) {
+          // ── FileRead ──────────────────────────────────────────────────
+          case "FileRead": {
+            const filePath = String(args.filePath);
+            const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico"]);
+            const ext = path.extname(filePath).toLowerCase();
+            if (IMAGE_EXTS.has(ext)) {
+              if (!fs.existsSync(filePath)) return { error: `File not found: ${filePath}` };
+              const base64 = fs.readFileSync(filePath).toString("base64");
+              return { content: `[Image: data:image/${ext.slice(1)};base64,${base64}]` };
+            }
+            if (!fs.existsSync(filePath)) return { error: `File not found: ${filePath}` };
+            const raw = fs.readFileSync(filePath, "utf8");
+            const lines = raw.split("\n");
+            const offset = Number(args.offset ?? 0);
+            const limit = args.limit ? Number(args.limit) : undefined;
+            const slice = limit ? lines.slice(offset, offset + limit) : lines.slice(offset);
+            const numbered = slice
+              .map((line: string, i: number) => `${offset + i + 1}\t${line}`)
+              .join("\n");
+            return { content: numbered };
+          }
+
+          // ── FileWrite ─────────────────────────────────────────────────
+          case "FileWrite": {
+            const filePath = String(args.filePath);
+            const content = String(args.content ?? "");
+            fs.mkdirSync(path.dirname(filePath), { recursive: true });
+            fs.writeFileSync(filePath, content, "utf8");
+            return { ok: true };
+          }
+
+          // ── FileEdit ──────────────────────────────────────────────────
+          case "FileEdit": {
+            const filePath = String(args.filePath);
+            if (!fs.existsSync(filePath)) return { error: `File not found: ${filePath}` };
+            let content = fs.readFileSync(filePath, "utf8");
+            const oldStr = String(args.oldString);
+            const newStr = String(args.newString ?? "");
+            const replaceAll = Boolean(args.replaceAll);
+            if (!content.includes(oldStr)) {
+              return { error: `old_string not found in ${filePath}` };
+            }
+            if (replaceAll) {
+              content = content.split(oldStr).join(newStr);
+            } else {
+              const idx = content.indexOf(oldStr);
+              content = content.slice(0, idx) + newStr + content.slice(idx + oldStr.length);
+            }
+            fs.writeFileSync(filePath, content, "utf8");
+            return { ok: true, message: `Edited ${filePath}` };
+          }
+
+          // ── Glob ──────────────────────────────────────────────────────
+          case "Glob": {
+            const pattern = String(args.pattern);
+            const cwd = args.path ? String(args.path) : process.cwd();
+            const files: string[] = await glob(pattern, {
+              cwd,
+              absolute: true,
+              dot: false,
+              ignore: ["**/node_modules/**", "**/.git/**"],
+            });
+            // Sort by mtime descending
+            const withStat = files.map((f: string) => ({
+              f,
+              mtime: fs.statSync(f).mtimeMs,
+            }));
+            withStat.sort((a: { mtime: number }, b: { mtime: number }) => b.mtime - a.mtime);
+            return { files: withStat.map((x: { f: string }) => x.f) };
+          }
+
+          // ── Grep ──────────────────────────────────────────────────────
+          case "Grep": {
+            const pattern = String(args.pattern);
+            const searchPath = args.path ? String(args.path) : process.cwd();
+            const globFilter = args.glob ? String(args.glob) : undefined;
+            const outputMode = String(args.output_mode ?? "files_with_matches");
+            const caseInsensitive = Boolean(args["-i"]);
+            const contextLines = Number(args.context ?? 0);
+            const headLimit = Number(args.head_limit ?? 250);
+
+            // Use ripgrep if available, else fallback to node regex
+            let rgCmd = `rg --no-heading`;
+            if (caseInsensitive) rgCmd += ` -i`;
+            if (contextLines > 0) rgCmd += ` -C ${contextLines}`;
+            if (globFilter) rgCmd += ` --glob "${globFilter}"`;
+            if (outputMode === "files_with_matches") rgCmd += ` -l`;
+            else if (outputMode === "count") rgCmd += ` --count`;
+            else rgCmd += ` -n`;
+            rgCmd += ` "${pattern.replace(/"/g, '\\"')}" "${searchPath}"`;
+
+            try {
+              const { stdout } = await execAsync(rgCmd, { maxBuffer: 10 * 1024 * 1024 });
+              const lines = stdout.split("\n").filter(Boolean).slice(0, headLimit);
+              return { output: lines.join("\n") };
+            } catch (e: unknown) {
+              // ripgrep exits 1 when no matches, that's fine
+              const exitCode = (e as { code?: number }).code;
+              if (exitCode === 1) return { output: "" };
+              // rg not found – fallback
+              const { stdout } = await execAsync(
+                `grep -r ${caseInsensitive ? "-i" : ""} -l "${pattern.replace(/"/g, '\\"')}" "${searchPath}"`,
+                { maxBuffer: 5 * 1024 * 1024 },
+              ).catch(() => ({ stdout: "" }));
+              return { output: stdout.trim() };
+            }
+          }
+
+          // ── Bash ──────────────────────────────────────────────────────
+          case "Bash": {
+            const command = String(args.command);
+            const timeout = Math.min(Number(args.timeout ?? 120_000), 600_000);
+            const cwd = args.cwd ? String(args.cwd) : process.cwd();
+            try {
+              const { stdout, stderr } = await execAsync(command, {
+                cwd,
+                timeout,
+                maxBuffer: 10 * 1024 * 1024,
+                shell: process.platform === "win32" ? "powershell.exe" : "/bin/bash",
+              });
+              const output = [stdout, stderr].filter(Boolean).join("\n").trimEnd();
+              return { output: output || "(no output)" };
+            } catch (e: unknown) {
+              const err = e as { stdout?: string; stderr?: string; message?: string };
+              const output = [err.stdout, err.stderr, err.message]
+                .filter(Boolean)
+                .join("\n")
+                .trimEnd();
+              return { output: output || "Command failed" };
+            }
+          }
+
+          default:
+            return { error: `Unknown tool: ${toolName}` };
+        }
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
+
+  // =========================== MCP IPC ===========================
+  // Manages stdio MCP server subprocesses.
+
+  const { spawn } = require("node:child_process");
+  const mcpProcesses = new Map<string, {
+    proc: ReturnType<typeof spawn>;
+    pending: Map<number, { resolve: Function; reject: Function }>;
+    nextId: number;
+  }>();
+
+  function sendMcpRequest(
+    name: string,
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
+    const session = mcpProcesses.get(name);
+    if (!session) throw new Error(`MCP server "${name}" not connected`);
+    const id = session.nextId++;
+    return new Promise((resolve, reject) => {
+      session.pending.set(id, { resolve, reject });
+      const msg = JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n";
+      session.proc.stdin.write(msg);
+      setTimeout(() => {
+        if (session.pending.has(id)) {
+          session.pending.delete(id);
+          reject(new Error(`MCP request timeout: ${method}`));
+        }
+      }, 30_000);
+    });
+  }
+
+  ipcMain.handle("mcp:connect", async (_event, { config }: { config: {
+    name: string; transport: string; command?: string; args?: string[]; env?: Record<string, string>;
+  }}) => {
+    try {
+      if (config.transport !== "stdio" || !config.command) {
+        return { error: "Only stdio transport supported currently" };
+      }
+      if (mcpProcesses.has(config.name)) {
+        mcpProcesses.get(config.name)?.proc.kill();
+        mcpProcesses.delete(config.name);
+      }
+      const proc = spawn(config.command, config.args ?? [], {
+        env: { ...process.env, ...(config.env ?? {}) },
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      const session = { proc, pending: new Map<number, { resolve: Function; reject: Function }>(), nextId: 1 };
+      mcpProcesses.set(config.name, session);
+
+      let buffer = "";
+      proc.stdout.on("data", (chunk: Buffer) => {
+        buffer += chunk.toString();
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          try {
+            const msg = JSON.parse(line);
+            const pend = session.pending.get(msg.id);
+            if (pend) {
+              session.pending.delete(msg.id);
+              if (msg.error) pend.reject(new Error(msg.error.message));
+              else pend.resolve(msg.result);
+            }
+          } catch {}
+        }
+      });
+
+      // Initialize
+      await sendMcpRequest(config.name, "initialize", {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "next-chapter", version: "1.0.0" },
+      });
+
+      // List tools
+      const toolsResult = await sendMcpRequest(config.name, "tools/list", {}) as { tools?: unknown[] };
+      const tools = (toolsResult?.tools ?? []).map((t: unknown) => {
+        const tool = t as { name: string; description?: string; inputSchema?: unknown };
+        return { serverName: config.name, name: tool.name, description: tool.description ?? "", inputSchema: tool.inputSchema ?? {} };
+      });
+
+      // List resources
+      const resResult = await sendMcpRequest(config.name, "resources/list", {}) as { resources?: unknown[] };
+      const resources = (resResult?.resources ?? []).map((r: unknown) => {
+        const res = r as { uri: string; name: string; description?: string; mimeType?: string };
+        return { serverName: config.name, uri: res.uri, name: res.name, description: res.description, mimeType: res.mimeType };
+      });
+
+      return { ok: true, tools, resources };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle("mcp:disconnect", (_event, { name }: { name: string }) => {
+    mcpProcesses.get(name)?.proc.kill();
+    mcpProcesses.delete(name);
+    return { ok: true };
+  });
+
+  ipcMain.handle("mcp:call-tool", async (_event, {
+    serverName, toolName, args,
+  }: { serverName: string; toolName: string; args: Record<string, unknown> }) => {
+    try {
+      const result = await sendMcpRequest(serverName, "tools/call", { name: toolName, arguments: args });
+      const content = (result as { content?: unknown })?.content;
+      return { ok: true, content };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle("mcp:read-resource", async (_event, {
+    serverName, uri,
+  }: { serverName: string; uri: string }) => {
+    try {
+      const result = await sendMcpRequest(serverName, "resources/read", { uri });
+      const content = (result as { contents?: Array<{ text?: string }> })?.contents?.[0]?.text ?? "";
+      return { ok: true, content };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
 }
 
 // =========================== 窗口 & 托盘 ===========================
@@ -849,7 +1207,7 @@ function createWindow() {
       sandbox: false,
     },
     show: false,
-    title: "Infinio",
+    title: "InFinio-一站式智能体自动化平台",
   });
 
   mainWindow.once("ready-to-show", () => {
@@ -943,7 +1301,7 @@ function createTray() {
     { label: "退出", click: () => app.quit() },
   ]);
 
-  tray.setToolTip("Infinio");
+  tray.setToolTip("InFinio-一站式智能体自动化平台");
   tray.setContextMenu(contextMenu);
   tray.on("click", () => mainWindow?.show());
 }

@@ -8,10 +8,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { getTaskHistory, removeComplianceTask, type ComplianceTaskHistoryEntry, type TaskHistoryStatus } from "@/lib/task-history";
+import {
+  getTaskHistory,
+  loadComplianceStandaloneRestore,
+  removeComplianceTask,
+  type ComplianceTaskHistoryEntry,
+  type TaskHistoryStatus,
+} from "@/lib/task-history";
+import { buildAgentHandoff, saveAgentHandoff } from "@/lib/agent-intake";
 
-function statusLabel(s: TaskHistoryStatus) {
-  switch (s) {
+function statusLabel(status: TaskHistoryStatus) {
+  switch (status) {
     case "running":
       return "进行中";
     case "completed":
@@ -19,22 +26,22 @@ function statusLabel(s: TaskHistoryStatus) {
     case "failed":
       return "失败";
     case "cancelled":
-      return "已停止";
+      return "已取消";
     default:
-      return s;
+      return status;
   }
 }
 
 function StatusIcon({ status }: { status: TaskHistoryStatus }) {
   switch (status) {
     case "running":
-      return <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />;
+      return <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />;
     case "completed":
-      return <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />;
+      return <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-600" />;
     case "failed":
-      return <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />;
+      return <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />;
     case "cancelled":
-      return <Ban className="h-3.5 w-3.5 text-muted-foreground shrink-0" />;
+      return <Ban className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />;
     default:
       return null;
   }
@@ -46,26 +53,44 @@ export function TaskHistoryMenu() {
 
   useEffect(() => {
     const load = () => {
-      const all = getTaskHistory().filter((e): e is ComplianceTaskHistoryEntry => e.kind === "compliance");
+      const all = getTaskHistory().filter((entry): entry is ComplianceTaskHistoryEntry => entry.kind === "compliance");
       setItems(all);
     };
+
     load();
     window.addEventListener("storyforge-task-history-updated", load);
     return () => window.removeEventListener("storyforge-task-history-updated", load);
   }, []);
 
-  const running = items.filter((i) => i.status === "running").length;
+  const running = items.filter((item) => item.status === "running").length;
 
   const openTask = (entry: ComplianceTaskHistoryEntry) => {
-    if (entry.source === "script-creator") {
-      if (entry.projectId) {
-        navigate(`/script-creator?id=${encodeURIComponent(entry.projectId)}&step=compliance`);
-      } else {
-        navigate("/script-creator");
-      }
+    if (entry.source === "script-creator" && entry.projectId) {
+      saveAgentHandoff(
+        buildAgentHandoff("恢复这个项目，并优先继续处理合规审查。", {
+          route: "script-creator",
+          title: "已把历史合规任务收口到首页会话",
+          subtitle: "我会直接恢复项目上下文，并在首页继续合规分析和修订建议。",
+          resumeProjectId: entry.projectId,
+        }),
+      );
+      navigate("/");
       return;
     }
-    navigate(`/compliance-review?task=${encodeURIComponent(entry.id)}`);
+
+    const restore = loadComplianceStandaloneRestore(entry.id);
+    const prompt = restore?.scriptText?.trim()
+      ? `请在首页继续这个合规审查任务，并先基于以下内容给出风险分析：\n\n${restore.scriptText}`
+      : "请在首页继续这个合规审查任务，并先告诉我需要补充哪些上下文。";
+
+    saveAgentHandoff(
+      buildAgentHandoff(prompt, {
+        route: "script-creator",
+        title: "已把历史合规任务收口到首页会话",
+        subtitle: "后续的审查、追问和修订建议都会在首页会话里完成。",
+      }),
+    );
+    navigate("/");
   };
 
   return (
@@ -74,69 +99,84 @@ export function TaskHistoryMenu() {
         <Button variant="ghost" size="sm" className="gap-1.5 text-xs">
           <History className="h-4 w-4" />
           任务历史
-          {running > 0 && (
+          {running > 0 ? (
             <span className="ml-0.5 rounded-full bg-primary px-1.5 py-0 text-[10px] text-primary-foreground tabular-nums">
               {running}
             </span>
-          )}
+          ) : null}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[min(100vw-2rem,22rem)] p-0" onCloseAutoFocus={(e) => e.preventDefault()}>
-        <div className="px-3 py-2 border-b border-border text-xs font-medium text-muted-foreground">合规审核任务</div>
+
+      <DropdownMenuContent
+        align="end"
+        className="w-[min(100vw-2rem,22rem)] p-0"
+        onCloseAutoFocus={(event) => event.preventDefault()}
+      >
+        <div className="border-b border-border px-3 py-2 text-xs font-medium text-muted-foreground">
+          合规审查任务
+        </div>
         <div className="max-h-[min(70vh,320px)] overflow-y-auto overscroll-contain">
           {items.length === 0 ? (
             <div className="px-3 py-8 text-center text-xs text-muted-foreground">暂无记录</div>
           ) : (
-            <div className="p-1.5 space-y-1">
-              {items.map((e) => {
-                const t = new Date(e.updatedAt);
-                const timeStr = t.toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-                const mode = e.reviewMode === "script" ? "情节" : "文字";
-                const src = e.source === "script-creator" ? "剧本创作" : "合规审核";
-                const seg =
-                  e.status === "running" && e.segmentProgress
-                    ? ` 第 ${e.segmentProgress.current}/${e.segmentProgress.total} 段`
+            <div className="space-y-1 p-1.5">
+              {items.map((entry) => {
+                const time = new Date(entry.updatedAt);
+                const timeLabel = time.toLocaleString("zh-CN", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                });
+                const modeLabel = entry.reviewMode === "script" ? "剧情审查" : "文本审查";
+                const sourceLabel =
+                  entry.source === "script-creator" ? "剧本创作项目" : "独立合规任务";
+                const segmentLabel =
+                  entry.status === "running" && entry.segmentProgress
+                    ? `第 ${entry.segmentProgress.current}/${entry.segmentProgress.total} 段`
                     : "";
+
                 return (
                   <DropdownMenuItem
-                    key={e.id}
-                    className="cursor-pointer rounded-md p-0 text-xs bg-muted/40 hover:bg-muted/70 focus:bg-muted/70 data-[highlighted]:bg-muted/70"
-                    onSelect={() => openTask(e)}
+                    key={entry.id}
+                    className="cursor-pointer rounded-md bg-muted/40 p-0 text-xs hover:bg-muted/70 focus:bg-muted/70 data-[highlighted]:bg-muted/70"
+                    onSelect={() => openTask(entry)}
                   >
-                    <div className="flex items-start gap-1 w-full min-w-0 pr-1">
-                      <div className="flex items-start gap-2 flex-1 min-w-0 px-2 py-2">
-                        <StatusIcon status={e.status} />
+                    <div className="flex min-w-0 w-full items-start gap-1 pr-1">
+                      <div className="flex min-w-0 flex-1 items-start gap-2 px-2 py-2">
+                        <StatusIcon status={entry.status} />
                         <div className="min-w-0 flex-1 text-left">
-                          <div className="font-medium text-foreground truncate" title={e.title}>
-                            {e.title || "合规审核"}
+                          <div className="truncate font-medium text-foreground" title={entry.title}>
+                            {entry.title || "合规审查"}
                           </div>
-                          <div className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap gap-x-1.5 gap-y-0.5">
-                            <span>{src}</span>
+                          <div className="mt-0.5 flex flex-wrap gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
+                            <span>{sourceLabel}</span>
                             <span>·</span>
-                            <span>{mode}</span>
+                            <span>{modeLabel}</span>
                             <span>·</span>
-                            <span>{statusLabel(e.status)}</span>
-                            {seg && <span className="text-primary">{seg}</span>}
+                            <span>{statusLabel(entry.status)}</span>
+                            {segmentLabel ? <span className="text-primary">{segmentLabel}</span> : null}
                           </div>
-                          {e.detail && (
-                            <div className="text-[11px] text-muted-foreground mt-1 line-clamp-2" title={e.detail}>
-                              {e.detail}
+                          {entry.detail ? (
+                            <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground" title={entry.detail}>
+                              {entry.detail}
                             </div>
-                          )}
-                          <div className="text-[10px] text-muted-foreground/80 mt-1">{timeStr}</div>
+                          ) : null}
+                          <div className="mt-1 text-[10px] text-muted-foreground/80">{timeLabel}</div>
                         </div>
                       </div>
+
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-                        aria-label="删除此条记录"
-                        onPointerDown={(ev) => ev.stopPropagation()}
-                        onClick={(ev) => {
-                          ev.preventDefault();
-                          ev.stopPropagation();
-                          removeComplianceTask(e.id);
+                        aria-label="删除这条记录"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          removeComplianceTask(entry.id);
                         }}
                       >
                         <Trash2 className="h-3.5 w-3.5" />

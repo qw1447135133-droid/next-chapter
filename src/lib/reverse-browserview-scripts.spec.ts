@@ -67,8 +67,8 @@ describe("reverse-browserview-scripts", () => {
   it("enters the page in the order left generate then bottom video generate", async () => {
     const callOrder: string[] = [];
     document.body.innerHTML = `
-      <button id="left-generate">鐢熸垚</button>
-      <button id="video-entry">瑙嗛鐢熸垚</button>
+      <button id="left-generate">生成</button>
+      <button id="video-entry">视频生成</button>
       <div id="toolbar"></div>
     `;
 
@@ -95,10 +95,10 @@ describe("reverse-browserview-scripts", () => {
   it("reads toolbar state from combobox values only", async () => {
     document.body.innerHTML = `
       <div role="combobox">Seedance 2.0 Fast</div>
-      <div role="combobox">鍏ㄨ兘鍙傝€?/div>
+      <div role="combobox">全能参考</div>
       <div role="combobox">16:9</div>
       <div role="combobox">15s</div>
-      <div>椤甸潰涓婂埆鐨勬枃妗堥噷涔熸湁鍏ㄨ兘鍙傝€?/div>
+      <div>页面其他地方也写着全能参考</div>
     `;
 
     const result = await evalScript<{
@@ -114,7 +114,7 @@ describe("reverse-browserview-scripts", () => {
 
     expect(result.currentModel).toBe("Seedance 2.0 Fast");
     expect(result.currentDuration).toBe("15s");
-    expect(result.currentReference).toBe("鍏ㄨ兘鍙傝€?");
+    expect(result.currentReference).toBe("全能参考");
     expect(result.currentAspectRatio).toBe("16:9");
     expect(result.hasTargetModel).toBe(true);
     expect(result.hasTargetDuration).toBe(true);
@@ -125,11 +125,11 @@ describe("reverse-browserview-scripts", () => {
   it("updates controls in the intended order", async () => {
     const callOrder: string[] = [];
     document.body.innerHTML = `
-      <div role="combobox" id="reference-combo">棣栧熬甯?/div>
+      <div role="combobox" id="reference-combo">首尾帧</div>
       <div role="combobox" id="model-combo">Seedance 2.0 Fast</div>
       <div role="combobox" id="ratio-combo">9:16</div>
       <div role="combobox" id="duration-combo">4s</div>
-      <div role="option" id="reference-option">鍏ㄨ兘鍙傝€?/div>
+      <div role="option" id="reference-option">全能参考</div>
       <div role="option" id="model-option">Seedance 2.0</div>
       <div role="option" id="ratio-option">16:9</div>
       <div role="option" id="duration-option">15s</div>
@@ -137,7 +137,7 @@ describe("reverse-browserview-scripts", () => {
 
     document.getElementById("reference-option")?.addEventListener("click", () => {
       callOrder.push("reference");
-      document.getElementById("reference-combo")!.textContent = "鍏ㄨ兘鍙傝€?";
+      document.getElementById("reference-combo")!.textContent = "全能参考";
     });
     document.getElementById("model-option")?.addEventListener("click", () => {
       callOrder.push("model");
@@ -166,7 +166,7 @@ describe("reverse-browserview-scripts", () => {
     );
 
     expect(referenceResult.ok).toBe(true);
-    expect(referenceResult.currentReference).toBe("鍏ㄨ兘鍙傝€?");
+    expect(referenceResult.currentReference).toBe("全能参考");
     expect(modelResult.ok).toBe(true);
     expect(ratioResult.ok).toBe(true);
     expect(durationResult.ok).toBe(true);
@@ -223,7 +223,7 @@ describe("reverse-browserview-scripts", () => {
   it("ignores oversized page cards when selecting the target model", async () => {
     document.body.innerHTML = `
       <div role="combobox" id="model-combo">Seedance 2.0 Fast</div>
-      <div id="misleading-card">Agent 妯″紡 S2.0瑙嗛鍒涗綔 Seedance 2.0 鍏ㄨ兘瑙嗛鍒涗綔</div>
+      <div id="misleading-card">Agent 模式 S2.0 视频创作 Seedance 2.0 全能视频创作</div>
       <div role="option" id="model-option">Seedance 2.0</div>
     `;
 
@@ -309,7 +309,7 @@ describe("reverse-browserview-scripts", () => {
   it("locates prompt area and fills the entire prompt", async () => {
     document.body.innerHTML = `
       <div class="section-generator-panel">
-        <textarea role="textbox" placeholder="缁撳悎鍥剧墖锛屾弿杩颁綘鎯崇敓鎴愮殑鐢婚潰鍜屽姩浣?></textarea>
+        <textarea role="textbox" placeholder="结合图片，描述你想生成的画面和动作"></textarea>
         <input type="file" />
       </div>
       <input type="file" />
@@ -319,10 +319,10 @@ describe("reverse-browserview-scripts", () => {
       buildLocatePromptAreaScript(),
     );
     const prompt = [
-      "鍦烘櫙/浜虹墿鏍囩:",
-      "銆怉va@锛堝搴旂殑璁惧畾鍥撅級銆戙€愬簾寮冨尰鐤楄埍@锛堝搴旂殑璁惧畾鍥撅級銆?,
-      "鍒嗛暅1:鍐板喎鐨勫簾寮冨尰鐤楄埍閲岋紝Ava鐚涘湴鐫佸紑鍙岀溂锛岀溂绁炴儕鎭愯€岃糠鑼€?,
-      "鏃犲瓧骞曘€佹棤姘村嵃銆佹棤鑳屾櫙闊充箰",
+      "场景/人物标签:",
+      "【Ava@（对应的设定图）】【废弃医疗舱@（对应的设定图）】",
+      "分镜1: 冰冷的废弃医疗舱里，Ava 猛地睁开双眼，眼神惊惧而迷茫。",
+      "无字幕、无水印、无背景音乐",
     ].join("\n");
 
     const fillResult = await evalScript<{ ok: boolean; promptLength: number }>(
@@ -340,9 +340,9 @@ describe("reverse-browserview-scripts", () => {
   it("prefers the reference-content upload input over unrelated file inputs", async () => {
     document.body.innerHTML = `
       <div class="section-generator-panel">
-        <textarea role="textbox" placeholder="缁撳悎鍥剧墖锛屾弿杩颁綘鎯崇敓鎴愮殑鐢婚潰鍜屽姩浣?></textarea>
-        <div class="toolbar-upload">鏅€氫笂浼?input id="generic-input" type="file" /></div>
-        <div class="reference-upload">鍙傝€冨唴瀹?input id="reference-input" type="file" /></div>
+        <textarea role="textbox" placeholder="结合图片，描述你想生成的画面和动作"></textarea>
+        <div class="toolbar-upload">普通上传<input id="generic-input" type="file" /></div>
+        <div class="reference-upload">参考内容<input id="reference-input" type="file" /></div>
       </div>
       <input id="outside-input" type="file" />
     `;
@@ -360,35 +360,35 @@ describe("reverse-browserview-scripts", () => {
       <div class="section-generator-panel">
         <div role="textbox" contenteditable="true"></div>
         <button id="mention-trigger">@</button>
-        <div class="mention-popup">鍙兘@鐨勫唴瀹?div role="option" id="ref-1">鍥剧墖1</div><div role="option" id="ref-2">鍥剧墖2</div></div>
+        <div class="mention-popup">可 @ 的内容<div role="option" id="ref-1">图片1</div><div role="option" id="ref-2">图片2</div></div>
       </div>
     `;
 
     const textbox = document.querySelector('[role="textbox"]') as HTMLDivElement;
     const selected: string[] = [];
     document.getElementById("ref-1")?.addEventListener("click", () => {
-      textbox.textContent = (textbox.textContent || "") + "鍥剧墖1";
-      selected.push("鍥剧墖1");
+      textbox.textContent = (textbox.textContent || "") + "图片1";
+      selected.push("图片1");
     });
     document.getElementById("ref-2")?.addEventListener("click", () => {
-      textbox.textContent = (textbox.textContent || "") + "鍥剧墖2";
-      selected.push("鍥剧墖2");
+      textbox.textContent = (textbox.textContent || "") + "图片2";
+      selected.push("图片2");
     });
 
-    const prompt = ["鍦烘櫙/浜虹墿鏍囩:", "銆怉va銆戙€愬簾寮冨尰鐤楄埍銆?, "鍒嗛暅1:娴嬭瘯鍐呭"].join("\n");
+    const prompt = ["场景/人物标签:", "【Ava】【废弃医疗舱】", "分镜1: 测试内容"].join("\n");
     const result = await evalScript<{
       ok: boolean;
       insertedRefs: number;
       selectedRefs: string[];
     }>(
-      buildFillPromptWithReferenceMentionsScript(prompt, ["Ava", "搴熷純鍖荤枟鑸?]),
+      buildFillPromptWithReferenceMentionsScript(prompt, ["Ava", "废弃医疗舱"]),
     );
 
     expect(result.ok).toBe(true);
     expect(result.insertedRefs).toBe(2);
-    expect(result.selectedRefs).toEqual(["鍥剧墖1", "鍥剧墖2"]);
-    expect(textbox.textContent || "").toContain("Ava@鍥剧墖1");
-    expect(textbox.textContent || "").toContain("搴熷純鍖荤枟鑸盄鍥剧墖2");
+    expect(result.selectedRefs).toEqual(["图片1", "图片2"]);
+    expect(textbox.textContent || "").toContain("Ava@图片1");
+    expect(textbox.textContent || "").toContain("废弃医疗舱@图片2");
   });
 
   it("moves the caret to the end before opening the @ picker", async () => {
@@ -396,7 +396,7 @@ describe("reverse-browserview-scripts", () => {
       <div class="section-generator-panel">
         <textarea role="textbox"></textarea>
         <button id="mention-trigger">@</button>
-        <div class="mention-popup">鍙兘@鐨勫唴瀹?div role="option" id="ref-1">鍥剧墖1</div></div>
+        <div class="mention-popup">可 @ 的内容<div role="option" id="ref-1">图片1</div></div>
       </div>
     `;
 
@@ -413,12 +413,12 @@ describe("reverse-browserview-scripts", () => {
       const start = textbox.selectionStart ?? textbox.value.length;
       const end = textbox.selectionEnd ?? start;
       const value = textbox.value || "";
-      textbox.value = `${value.slice(0, start)}鍥剧墖1${value.slice(end)}`;
-      const next = start + "鍥剧墖1".length;
+      textbox.value = `${value.slice(0, start)}图片1${value.slice(end)}`;
+      const next = start + "图片1".length;
       textbox.setSelectionRange(next, next);
     });
 
-    const prompt = ["鍦烘櫙/浜虹墿鏍囩:", "銆怉va銆?, "鍒嗛暅1:娴嬭瘯鍐呭"].join("\n");
+    const prompt = ["场景/人物标签:", "【Ava】", "分镜1: 测试内容"].join("\n");
     const result = await evalScript<{
       ok: boolean;
       insertedRefs: number;
@@ -428,7 +428,7 @@ describe("reverse-browserview-scripts", () => {
 
     expect(result.ok).toBe(true);
     expect(result.insertedRefs).toBe(1);
-    expect(textbox.value).toContain("銆怉va@鍥剧墖1銆?);
+    expect(textbox.value).toContain("【Ava@图片1】");
     expect(textbox.value.startsWith("@")).toBe(false);
   });
 
@@ -437,7 +437,7 @@ describe("reverse-browserview-scripts", () => {
       <div class="section-generator-panel">
         <textarea role="textbox"></textarea>
         <button id="mention-trigger">@</button>
-        <div class="mention-popup">鍙兘@鐨勫唴瀹?div role="option" id="ref-1">鍥剧墖1</div></div>
+        <div class="mention-popup">可 @ 的内容<div role="option" id="ref-1">图片1</div></div>
       </div>
     `;
 
@@ -459,12 +459,12 @@ describe("reverse-browserview-scripts", () => {
       const start = textbox.selectionStart ?? textbox.value.length;
       const end = textbox.selectionEnd ?? start;
       const value = textbox.value || "";
-      textbox.value = `${value.slice(0, start)}鍥剧墖1${value.slice(end)}`;
-      const next = start + "鍥剧墖1".length;
+      textbox.value = `${value.slice(0, start)}图片1${value.slice(end)}`;
+      const next = start + "图片1".length;
       textbox.setSelectionRange(next, next);
     });
 
-    const prompt = ["鍦烘櫙/浜虹墿鏍囩:", "銆怉va銆?, "鍒嗛暅1:娴嬭瘯鍐呭"].join("\n");
+    const prompt = ["场景/人物标签:", "【Ava】", "分镜1: 测试内容"].join("\n");
     const result = await evalScript<{
       ok: boolean;
       insertedRefs: number;
@@ -473,7 +473,7 @@ describe("reverse-browserview-scripts", () => {
     expect(result.ok).toBe(true);
     expect(result.insertedRefs).toBe(1);
     expect(pickerOpened).toBe(true);
-    expect(textbox.value).toContain("銆怉va@鍥剧墖1銆?);
+    expect(textbox.value).toContain("【Ava@图片1】");
   });
 
   it("selects an image-only reference option from the global visible candidates", async () => {

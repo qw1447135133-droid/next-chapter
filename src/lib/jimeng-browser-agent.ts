@@ -1,10 +1,9 @@
 ﻿import { callGemini, extractText } from "@/lib/gemini-client";
 
-import {
-  classifyJimengNegativePattern,
-  getJimengNegativeExamplesForStage,
-} from "@/lib/jimeng-agent-negative-memory";
-import { JIMENG_AUTOMATION_SKILL_PROMPT } from "@/lib/jimeng-agent-skill";
+// Inline stubs replacing removed legacy modules
+const classifyJimengNegativePattern = (_text: string): string | null => null;
+const getJimengNegativeExamplesForStage = (_stage: string): string => "";
+const JIMENG_AUTOMATION_SKILL_PROMPT = "";
 
 export interface JimengAgentControl {
   id: number;

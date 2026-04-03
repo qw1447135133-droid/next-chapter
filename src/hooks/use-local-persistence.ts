@@ -10,12 +10,20 @@ import { getProjectsFilePath, readJsonFile, writeJsonFile } from "@/lib/file-cac
 interface ProjectData {
   title: string;
   script: string;
+  targetPlatform?: string;
+  shotStyle?: string;
+  outputGoal?: string;
+  productionNotes?: string;
   scenes: Scene[];
   characters: CharacterSetting[];
   sceneSettings: SceneSetting[];
   artStyle: ArtStyle;
   currentStep: number;
   systemPrompt: string;
+  analysisSummary?: string;
+  storyboardPlan?: string;
+  videoPromptBatch?: string;
+  sourceProjectId?: string;
 }
 
 const STORAGE_KEY = "storyforge_projects";
@@ -26,6 +34,8 @@ interface StoredProject extends ProjectData {
   createdAt: string;
   updatedAt: string;
 }
+
+export type PersistedVideoProject = StoredProject;
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -67,6 +77,69 @@ async function saveProjects(projects: StoredProject[]): Promise<boolean> {
   return saveProjectsToLocalStorage(projects);
 }
 
+export async function loadStoredVideoProjectById(id: string): Promise<PersistedVideoProject | null> {
+  const projects = await getProjects();
+  return projects.find((project) => project.id === id) || null;
+}
+
+export async function listStoredVideoProjects(): Promise<PersistedVideoProject[]> {
+  const projects = await getProjects();
+  return [...projects].sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+  );
+}
+
+export async function createStoredVideoProject(data: Partial<ProjectData>): Promise<PersistedVideoProject> {
+  const projects = await getProjects();
+  const now = new Date().toISOString();
+  const project: StoredProject = {
+    id: generateId(),
+    title: data.title || "未命名视频项目",
+    targetPlatform: data.targetPlatform || "",
+    shotStyle: data.shotStyle || "",
+    outputGoal: data.outputGoal || "",
+    productionNotes: data.productionNotes || "",
+    scenes: data.scenes || [],
+    characters: data.characters || [],
+    sceneSettings: data.sceneSettings || [],
+    artStyle: data.artStyle || "live-action",
+    currentStep: data.currentStep || 1,
+    systemPrompt: data.systemPrompt || "",
+    analysisSummary: data.analysisSummary || "",
+    storyboardPlan: data.storyboardPlan || "",
+    videoPromptBatch: data.videoPromptBatch || "",
+    sourceProjectId: data.sourceProjectId,
+    createdAt: now,
+    updatedAt: now,
+  };
+  projects.unshift(project);
+  await saveProjects(projects);
+  return project;
+}
+
+export async function upsertStoredVideoProject(project: PersistedVideoProject): Promise<PersistedVideoProject> {
+  const projects = await getProjects();
+  const nextProject: StoredProject = {
+    ...project,
+    targetPlatform: project.targetPlatform || "",
+    shotStyle: project.shotStyle || "",
+    outputGoal: project.outputGoal || "",
+    productionNotes: project.productionNotes || "",
+    analysisSummary: project.analysisSummary || "",
+    storyboardPlan: project.storyboardPlan || "",
+    videoPromptBatch: project.videoPromptBatch || "",
+    updatedAt: new Date().toISOString(),
+  };
+  const index = projects.findIndex((item) => item.id === project.id);
+  if (index >= 0) {
+    projects[index] = nextProject;
+  } else {
+    projects.unshift(nextProject);
+  }
+  await saveProjects(projects);
+  return nextProject;
+}
+
 export function useProjectPersistence() {
   const projectIdRef = useRef<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -84,23 +157,7 @@ export function useProjectPersistence() {
   const getProjectId = () => projectIdRef.current;
 
   const createProject = useCallback(async (data: Partial<ProjectData>) => {
-    const projects = await getProjects();
-    const now = new Date().toISOString();
-    const newProject: StoredProject = {
-      id: generateId(),
-      title: data.title || "未命名项目",
-      script: data.script || "",
-      scenes: data.scenes || [],
-      characters: data.characters || [],
-      sceneSettings: data.sceneSettings || [],
-      artStyle: data.artStyle || "live-action",
-      currentStep: data.currentStep || 1,
-      systemPrompt: data.systemPrompt || "",
-      createdAt: now,
-      updatedAt: now,
-    };
-    projects.unshift(newProject);
-    await saveProjects(projects);
+    const newProject = await createStoredVideoProject(data);
     setProjectId(newProject.id);
     return newProject.id;
   }, []);
@@ -131,12 +188,20 @@ export function useProjectPersistence() {
     return {
       title: project.title,
       script: project.script,
+      targetPlatform: project.targetPlatform,
+      shotStyle: project.shotStyle,
+      outputGoal: project.outputGoal,
+      productionNotes: project.productionNotes,
       scenes: project.scenes,
       characters: project.characters,
       sceneSettings: project.sceneSettings,
       artStyle: project.artStyle,
       currentStep: project.currentStep,
       systemPrompt: project.systemPrompt,
+      analysisSummary: project.analysisSummary,
+      storyboardPlan: project.storyboardPlan,
+      videoPromptBatch: project.videoPromptBatch,
+      sourceProjectId: project.sourceProjectId,
     };
   }, []);
 
@@ -186,3 +251,4 @@ export function useProjectPersistence() {
     getProjectId,
   };
 }
+

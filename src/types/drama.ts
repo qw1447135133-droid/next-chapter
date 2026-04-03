@@ -339,6 +339,7 @@ export interface DramaProject {
   frameworkStyle?: string;
   structureTransform?: string;
   characterTransform?: string;
+  exportDocument?: string;
 }
 
 export function createEmptyDramaProject(mode: DramaMode = "traditional"): DramaProject {
@@ -361,5 +362,6 @@ export function createEmptyDramaProject(mode: DramaMode = "traditional"): DramaP
     frameworkStyle: "",
     structureTransform: "",
     characterTransform: "",
+    exportDocument: "",
   };
 }

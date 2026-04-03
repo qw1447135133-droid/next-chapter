@@ -21,6 +21,7 @@
     "electron:preview": "npm run build && npm run electron:sync-icon && node electron/build.mjs && env -u ELECTRON_RUN_AS_NODE electron ."
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.81.0",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.14",
@@ -49,7 +50,8 @@
     "@radix-ui/react-toggle": "^1.1.9",
     "@radix-ui/react-toggle-group": "^1.1.10",
     "@radix-ui/react-tooltip": "^1.2.7",
-    "@tanstack/react-query": "^5.83.0",
+    "@tanstack/query-core": "^5.91.2",
+    "@tanstack/react-query": "^5.91.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
