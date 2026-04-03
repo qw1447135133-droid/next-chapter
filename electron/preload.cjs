@@ -68,34 +68,6 @@ var runtimeAPI = {
 var jimengAPI = {
   writeFile: (filePath, content) => import_electron.ipcRenderer.invoke("jimeng:writeFile", { filePath, content })
 };
-var browserViewAPI = {
-  create: (params) => import_electron.ipcRenderer.invoke("browserView:create", params),
-  navigate: (url) => import_electron.ipcRenderer.invoke("browserView:navigate", { url }),
-  setBounds: (bounds) => import_electron.ipcRenderer.invoke("browserView:setBounds", bounds),
-  show: () => import_electron.ipcRenderer.invoke("browserView:show"),
-  hide: () => import_electron.ipcRenderer.invoke("browserView:hide"),
-  getState: () => import_electron.ipcRenderer.invoke("browserView:getState"),
-  execute: (params) => import_electron.ipcRenderer.invoke("browserView:execute", params),
-  capture: () => import_electron.ipcRenderer.invoke("browserView:capture"),
-  setFileInputFiles: (params) => import_electron.ipcRenderer.invoke("browserView:setFileInputFiles", params),
-  sendInputEvents: (events) => import_electron.ipcRenderer.invoke("browserView:sendInputEvents", { events }),
-  download: (params) => import_electron.ipcRenderer.invoke("browserView:download", params),
-  close: () => import_electron.ipcRenderer.invoke("browserView:close"),
-  setIgnoreMouseEvents: (ignore) => import_electron.ipcRenderer.invoke("browserView:setIgnoreMouseEvents", ignore),
-  onStateChange: (callback) => {
-    const handler = (_, state) => callback(state);
-    import_electron.ipcRenderer.on("browserView:state", handler);
-    return () => {
-      import_electron.ipcRenderer.removeListener("browserView:state", handler);
-    };
-  }
-};
-var reversePlaywrightAPI = {
-  runSegments: (params) => import_electron.ipcRenderer.invoke("reversePlaywright:runSegments", params),
-  prepareSegment: (params) => import_electron.ipcRenderer.invoke("reversePlaywright:prepareSegment", params),
-  capture: () => import_electron.ipcRenderer.invoke("reversePlaywright:capture"),
-  close: () => import_electron.ipcRenderer.invoke("reversePlaywright:close")
-};
 import_electron.contextBridge.exposeInMainWorld("electronAPI", {
   jimeng: jimengAPI,
   runtime: runtimeAPI,
@@ -107,8 +79,5 @@ import_electron.contextBridge.exposeInMainWorld("electronAPI", {
     readText: (filePath) => import_electron.ipcRenderer.invoke("storage:readText", { filePath }),
     readBase64: (filePath) => import_electron.ipcRenderer.invoke("storage:readBase64", { filePath })
   },
-  browserView: browserViewAPI,
-  reversePlaywright: reversePlaywrightAPI,
-  // 🛡️ 崩溃日志 API
   invoke: (channel, ...args) => import_electron.ipcRenderer.invoke(channel, ...args)
 });

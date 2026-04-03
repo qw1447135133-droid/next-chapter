@@ -37,17 +37,38 @@ import {
 } from "./services/video-workflow-service";
 
 function buildContextSummary(runtime: StudioRuntimeState): string {
-  return JSON.stringify(
-    {
-      sessionId: runtime.sessionId,
-      currentProject: runtime.currentProjectSnapshot,
-      recentMessageSummary: runtime.recentMessageSummary,
-      pendingSkillDrafts: runtime.skillDrafts.filter((draft) => draft.status === "pending").length,
-      recentMaintenanceReports: runtime.maintenanceReports.slice(0, 2),
-    },
-    null,
-    2,
-  );
+  const snapshot = runtime.currentProjectSnapshot;
+  const pendingSkillDrafts = runtime.skillDrafts.filter((draft) => draft.status === "pending").length;
+  const latestReport = runtime.maintenanceReports[0];
+  const artifactSummary = snapshot?.artifacts.length
+    ? snapshot.artifacts
+        .slice(0, 4)
+        .map((artifact) => `${artifact.label}: ${artifact.summary || "已生成"}`)
+        .join("\n- ")
+    : "";
+
+  return [
+    `sessionId: ${runtime.sessionId}`,
+    snapshot
+      ? `当前项目：${snapshot.title} / ${snapshot.projectKind} / ${snapshot.derivedStage}`
+      : "当前项目：无",
+    snapshot ? `当前目标：${snapshot.currentObjective}` : "",
+    snapshot ? `项目摘要：${snapshot.agentSummary}` : "",
+    artifactSummary ? `可用产物：\n- ${artifactSummary}` : "",
+    snapshot?.recommendedActions.length
+      ? `推荐动作：\n- ${snapshot.recommendedActions.slice(0, 3).join("\n- ")}`
+      : "",
+    runtime.recentMessageSummary ? `最近会话摘要：${runtime.recentMessageSummary}` : "",
+    pendingSkillDrafts ? `待审核技能草案：${pendingSkillDrafts}` : "待审核技能草案：0",
+    latestReport
+      ? [
+          `最近维护：${latestReport.summary}`,
+          `维护计数：压缩 ${latestReport.compressedConversationCount} / 归档 ${latestReport.archivedProjectCount} / 归并 ${latestReport.mergedDraftCount}`,
+        ].join("\n")
+      : "最近维护：无",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function resolveContinuationKind(

@@ -139,7 +139,6 @@ export default function Settings({ embedded = false, onClose }: SettingsProps) {
   const { theme, setTheme } = useTheme();
   const [config, setConfig] = useState<ApiConfig>(() => getStoredApiConfig());
   const [defaultStoragePath, setDefaultStoragePath] = useState("");
-  const [defaultDownloadPath, setDefaultDownloadPath] = useState("");
   const [adminPasswordDialogOpen, setAdminPasswordDialogOpen] = useState(false);
   const [builtinEditorOpen, setBuiltinEditorOpen] = useState(false);
   const [adminPassword, setAdminPassword] = useState("");
@@ -168,7 +167,6 @@ export default function Settings({ embedded = false, onClose }: SettingsProps) {
       try {
         const paths = await window.electronAPI.storage.getDefaultPath();
         setDefaultStoragePath(paths.files);
-        setDefaultDownloadPath(paths.files);
       } catch (error) {
         console.error("加载默认路径失败:", error);
       }
@@ -276,25 +274,6 @@ export default function Settings({ embedded = false, onClose }: SettingsProps) {
     saveApiConfig({ storagePath: "" });
     setConfig((prev) => ({ ...prev, storagePath: "" }));
     toast({ title: "已重置", description: "存储路径已恢复默认值。" });
-  };
-
-  const handleSelectReverseDownloadPath = async () => {
-    if (!window.electronAPI?.storage?.selectFolder) return;
-    try {
-      const folderPath = await window.electronAPI.storage.selectFolder();
-      if (!folderPath) return;
-      saveApiConfig({ reverseDownloadPath: folderPath });
-      setConfig((prev) => ({ ...prev, reverseDownloadPath: folderPath }));
-      toast({ title: "已保存", description: `下载路径：${folderPath}` });
-    } catch (error) {
-      toast({ title: "选择失败", description: String(error), variant: "destructive" });
-    }
-  };
-
-  const handleResetReverseDownloadPath = () => {
-    saveApiConfig({ reverseDownloadPath: "" });
-    setConfig((prev) => ({ ...prev, reverseDownloadPath: "" }));
-    toast({ title: "已重置", description: "逆向下载目录已恢复默认值。" });
   };
 
   const sectionTitleClass = embedded ? "text-[12px] font-medium flex items-center gap-2 text-slate-700" : "text-sm font-medium flex items-center gap-2";
@@ -517,43 +496,6 @@ export default function Settings({ embedded = false, onClose }: SettingsProps) {
                     size="sm"
                     className={cn("mt-2 text-xs text-muted-foreground", embedded && "px-0 hover:bg-transparent")}
                     onClick={handleResetStoragePath}
-                  >
-                    恢复默认
-                  </Button>
-                ) : null}
-              </div>
-              <div>
-                <Label className="text-sm">逆向下载路径</Label>
-                <div className={embedded ? "mt-1.5 space-y-2" : "mt-1.5 flex gap-2"}>
-                  <Input
-                    value={
-                      config.reverseDownloadPath ||
-                      defaultDownloadPath ||
-                      (window.electronAPI?.storage ? "正在获取路径..." : "仅桌面端可显示本地路径")
-                    }
-                    readOnly
-                    className={cn(compactInputClass, !embedded && "flex-1")}
-                  />
-                  <Button
-                    variant="outline"
-                    className={cn(
-                      embedded
-                        ? "h-9 w-full justify-center gap-1.5 rounded-full border-[#ddd5c9] bg-white/80 px-3 text-[12.5px] hover:bg-white"
-                        : "shrink-0 gap-1.5",
-                    )}
-                    onClick={handleSelectReverseDownloadPath}
-                    disabled={!window.electronAPI?.storage?.selectFolder}
-                  >
-                    <FolderCog className="h-4 w-4" />
-                    设置路径
-                  </Button>
-                </div>
-                {config.reverseDownloadPath ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={cn("mt-2 text-xs text-muted-foreground", embedded && "px-0 hover:bg-transparent")}
-                    onClick={handleResetReverseDownloadPath}
                   >
                     恢复默认
                   </Button>

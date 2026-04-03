@@ -243,29 +243,113 @@ function deriveDramaObjective(project: DramaProject): string {
   }
 }
 
+function listMissingDramaSetupFields(setup: DramaSetup | null): string[] {
+  if (!setup) return ["目标市场", "受众", "风格", "结局", "总集数", "题材"];
+
+  const missing: string[] = [];
+  if (!setup.targetMarket.trim()) missing.push("目标市场");
+  if (!setup.audience.trim()) missing.push("受众");
+  if (!setup.tone.trim()) missing.push("风格");
+  if (!setup.ending.trim()) missing.push("结局");
+  if (!setup.totalEpisodes) missing.push("总集数");
+  if (!setup.genres.length && !setup.customTopic.trim()) missing.push("题材");
+  return missing;
+}
+
+function findNextOutlineEpisode(project: DramaProject): number | null {
+  const nextEntry = project.directory
+    .filter((entry) => !entry.outline?.trim())
+    .sort((a, b) => a.number - b.number)[0];
+
+  return nextEntry?.number ?? null;
+}
+
+function findNextEpisodeNumber(project: DramaProject): number | null {
+  const completed = new Set(project.episodes.map((episode) => episode.number));
+  const nextDirectoryEntry = project.directory
+    .filter((entry) => !completed.has(entry.number))
+    .sort((a, b) => a.number - b.number)[0];
+
+  if (nextDirectoryEntry) return nextDirectoryEntry.number;
+  if (project.directory.length) return project.directory.length + 1;
+  return project.episodes.length ? project.episodes.length + 1 : null;
+}
+
+function summarizeArtifactLabels(labels: string[], limit = 2): string {
+  const visible = labels.filter(Boolean).slice(0, limit);
+  if (!visible.length) return "";
+  return visible.join("、");
+}
+
 function buildDramaRecommendations(project: DramaProject): string[] {
+  const missingSetup = listMissingDramaSetupFields(project.setup);
+  const nextOutlineEpisode = findNextOutlineEpisode(project);
+  const nextEpisodeNumber = findNextEpisodeNumber(project);
+
   switch (project.currentStep) {
     case "setup":
-      return ["补齐目标市场与风格", "让 Agent 生成创意方案", "直接输入你的核心想法"];
+      return [
+        missingSetup.length
+          ? `补齐${missingSetup.slice(0, 2).join("和")}`
+          : "确认立项设定并进入创意方案",
+        project.setup?.creativeInput.trim() ? "基于当前创意输入生成方案" : "直接输入你的核心想法",
+        "让 Agent 先整理立项摘要",
+      ];
     case "reference-script":
-      return ["继续分析参考内容", "锁定改编目标市场", "补充你的改编要求"];
+      return [
+        project.referenceScript.trim() ? "继续分析参考内容" : "先补充参考文本",
+        project.setup?.targetMarket.trim() ? "细化改编方向" : "锁定改编目标市场",
+        "补充你的改编要求",
+      ];
     case "creative-plan":
-      return ["生成角色设定", "微调创意方案", "继续推进到分集目录"];
+      return [
+        project.creativePlan.trim() ? "微调创意方案" : "生成创意方案",
+        project.characters.trim() ? "继续推进到分集目录" : "生成角色设定",
+        "补充卖点、反转或人物关系要求",
+      ];
     case "structure-transform":
-      return ["生成角色转译方案", "调整世界观映射", "继续推进到分集目录"];
+      return [
+        project.structureTransform.trim() ? "调整世界观映射" : "生成结构转译",
+        project.characterTransform.trim() ? "继续推进到分集目录" : "生成角色转译方案",
+        "补充改编边界和保留元素",
+      ];
     case "characters":
     case "character-transform":
-      return ["生成分集目录", "强化角色冲突", "补充人物口吻要求"];
+      return [
+        project.directory.length ? "继续完善分集目录" : "生成分集目录",
+        "强化角色冲突",
+        "补充人物口吻要求",
+      ];
     case "directory":
-      return ["生成单集细纲", "重新分配高潮与钩子", "直接开始写第一集"];
+      return [
+        nextOutlineEpisode ? `先生成第 ${nextOutlineEpisode} 集细纲` : "生成单集细纲",
+        "重新分配高潮与钩子",
+        nextEpisodeNumber ? `直接开始写第 ${nextEpisodeNumber} 集` : "直接开始写第一集",
+      ];
     case "outlines":
-      return ["生成分集正文", "重写指定集细纲", "准备合规预检"];
+      return [
+        nextEpisodeNumber ? `生成第 ${nextEpisodeNumber} 集正文` : "生成分集正文",
+        nextOutlineEpisode ? `重写第 ${nextOutlineEpisode} 集细纲` : "重写指定集细纲",
+        "准备合规预检",
+      ];
     case "episodes":
-      return ["继续生成下一集", "做一轮批量质检", "准备合规审查"];
+      return [
+        nextEpisodeNumber ? `继续生成第 ${nextEpisodeNumber} 集` : "继续生成下一集",
+        `做一轮已完成 ${project.episodes.length} 集的批量质检`,
+        "准备合规审查",
+      ];
     case "compliance":
-      return ["运行合规审查", "根据建议修订", "准备导出并衔接视频"];
+      return [
+        project.complianceReport.trim() ? "根据建议修订" : "运行合规审查",
+        "准备导出并衔接视频",
+        "继续对话补充风险规避要求",
+      ];
     case "export":
-      return ["导出整合文档", "接入视频工作流", "继续对话修改"];
+      return [
+        project.exportDocument?.trim() ? "继续对话修改导出稿" : "导出整合文档",
+        "接入视频工作流",
+        "回头补写缺失章节或集数",
+      ];
     default:
       return ["继续当前任务", "查看最近产物", "输入新的推进指令"];
   }
@@ -473,6 +557,8 @@ export function createDramaSnapshot(project: DramaProject): ConversationProjectS
     project.dramaTitle ||
     (project.mode === "adaptation" ? "未命名改编项目" : "未命名剧本项目");
   const stage = deriveDramaStage(project);
+  const artifactLabels = summarizeArtifactLabels(artifacts.map((artifact) => artifact.label));
+  const nextAction = buildDramaRecommendations(project)[0];
 
   return {
     projectId: project.id,
@@ -482,8 +568,8 @@ export function createDramaSnapshot(project: DramaProject): ConversationProjectS
     derivedStage: stage,
     agentSummary:
       artifacts.length > 0
-        ? `项目当前位于“${stage}”，已整理出 ${artifacts.length} 份关键产物，可以直接在首页会话里继续推进。`
-        : `项目当前位于“${stage}”，但还缺少第一份可复用产物，适合先由 Agent 帮你补齐基础内容。`,
+        ? `项目当前位于“${stage}”，已整理出 ${artifacts.length} 份关键产物${artifactLabels ? `，包括${artifactLabels}` : ""}。建议下一步先${nextAction}。`
+        : `项目当前位于“${stage}”，但还缺少第一份可复用产物。建议先${nextAction}。`,
     recommendedActions: buildDramaRecommendations(project),
     artifacts,
   };
@@ -506,18 +592,40 @@ function mapVideoStage(step: number): string {
 
 function buildVideoRecommendations(project: PersistedVideoProject): string[] {
   const step = Math.min(Math.max(project.currentStep || 1, 1), 5);
+  const generatedVideoCount = project.scenes.filter((scene) => scene.videoUrl).length;
+  const storyboardedSceneCount = project.scenes.filter((scene) => scene.storyboardUrl).length;
 
   switch (step) {
     case 1:
-      return ["梳理脚本拆解结果", "补充镜头风格偏好", "继续提取角色与场景"];
+      return [
+        project.script?.trim() ? "梳理脚本拆解结果" : "导入脚本开始拆解",
+        project.targetPlatform?.trim() ? "补充镜头风格偏好" : "先补充目标平台",
+        project.scenes.length ? "继续提取角色与场景" : "先完成第一轮镜头拆解",
+      ];
     case 2:
-      return ["完善角色和场景资产", "整理分镜批次", "补充额外镜头要求"];
+      return [
+        project.characters.length || project.sceneSettings.length ? "完善角色和场景资产" : "先生成角色和场景资产",
+        storyboardedSceneCount ? "继续整理分镜批次" : "开始整理分镜批次",
+        "补充额外镜头要求",
+      ];
     case 3:
-      return ["继续生成分镜批次", "整理镜头说明", "准备视频提示词批次"];
+      return [
+        storyboardedSceneCount ? `继续补齐剩余分镜批次` : "继续生成分镜批次",
+        "整理镜头说明",
+        project.videoPromptBatch?.trim() ? "微调视频提示词批次" : "准备视频提示词批次",
+      ];
     case 4:
-      return ["准备视频生成", "检查已生成资产", "继续下一批镜头"];
+      return [
+        generatedVideoCount ? `继续生成剩余镜头视频` : "准备视频生成",
+        `检查已生成的 ${generatedVideoCount} 条视频资产`,
+        "继续下一批镜头",
+      ];
     default:
-      return ["预览并继续出片", "导出当前视频资产", "回到对话里继续微调"];
+      return [
+        generatedVideoCount ? "预览并继续出片" : "检查导出前缺失的镜头",
+        "导出当前视频资产",
+        "回到对话里继续微调",
+      ];
   }
 }
 
@@ -649,6 +757,8 @@ export function createVideoSnapshot(project: PersistedVideoProject): Conversatio
   ]
     .filter(Boolean)
     .join("，");
+  const artifactLabels = summarizeArtifactLabels(artifacts.map((artifact) => artifact.label));
+  const nextAction = buildVideoRecommendations(project)[0];
 
   return {
     projectId: project.id,
@@ -667,8 +777,8 @@ export function createVideoSnapshot(project: PersistedVideoProject): Conversatio
     derivedStage: stage,
     agentSummary:
       artifacts.length > 0
-        ? `视频项目当前位于“${stage}”，已整理 ${project.scenes.length} 个镜头、${project.characters.length} 个角色和 ${project.sceneSettings.length} 个场景。${contextSummary ? `当前${contextSummary}。` : ""}`
-        : `视频项目当前位于“${stage}”，适合先从脚本拆解或镜头规划开始。${contextSummary ? `当前${contextSummary}。` : ""}`,
+        ? `视频项目当前位于“${stage}”，已整理 ${project.scenes.length} 个镜头、${project.characters.length} 个角色和 ${project.sceneSettings.length} 个场景${artifactLabels ? `，当前可直接使用${artifactLabels}` : ""}。${contextSummary ? `当前${contextSummary}。` : ""}建议下一步先${nextAction}。`
+        : `视频项目当前位于“${stage}”，适合先${nextAction}。${contextSummary ? `当前${contextSummary}。` : ""}`,
     recommendedActions: buildVideoRecommendations(project),
     artifacts,
   };

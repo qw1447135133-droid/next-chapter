@@ -30,6 +30,7 @@ import {
   writeStudioSession,
 } from "@/lib/home-agent/session-store";
 import type {
+  AgentConversationMode,
   ComposerQuestion,
   ConversationProjectSnapshot,
   HomeAgentMessage,
@@ -188,11 +189,40 @@ function createInitialStudioSeed(): {
   };
 }
 
+function summarizeRecoveryArtifacts(snapshot: ConversationProjectSnapshot): string {
+  const labels = snapshot.artifacts
+    .slice(0, 3)
+    .map((artifact) => artifact.label)
+    .filter(Boolean);
+
+  return labels.length
+    ? `我已对照当前项目产物做了恢复分析，最近可直接承接的内容是：${labels.join("、")}。`
+    : "我已对照当前项目状态做了恢复分析，当前更适合先补齐一份可复用的核心产物。";
+}
+
+function buildRecoveryActionRationale(
+  snapshot: ConversationProjectSnapshot,
+  action: string,
+  index: number,
+): string {
+  const artifact = snapshot.artifacts[index] ?? snapshot.artifacts[0];
+  if (artifact) {
+    return `优先围绕「${artifact.label}」继续推进，保持在${snapshot.derivedStage}阶段内完成。`;
+  }
+
+  if (snapshot.currentObjective.trim()) {
+    return `会先围绕当前目标“${snapshot.currentObjective}”推进，不需要跳出首页。`;
+  }
+
+  return `继续留在${snapshot.derivedStage}阶段里推进这一步，不需要跳出首页。`;
+}
+
 const brief = (snapshot: ConversationProjectSnapshot) =>
   [
     `已恢复项目《${snapshot.title}》。`,
     `当前阶段：${snapshot.derivedStage}`,
     `当前目标：${snapshot.currentObjective}`,
+    summarizeRecoveryArtifacts(snapshot),
     snapshot.agentSummary,
     snapshot.recommendedActions.length
       ? `建议下一步：\n${snapshot.recommendedActions
@@ -208,13 +238,13 @@ const recQuestion = (snapshot: ConversationProjectSnapshot): ComposerQuestion | 
   snapshot.recommendedActions.length
     ? {
         id: `r-${snapshot.projectId}`,
-        title: "接下来要从哪一步继续？",
-        description: `我已经根据《${snapshot.title}》的当前状态整理好推荐动作，你也可以直接输入自定义指令。`,
+        title: `我已分析《${snapshot.title}》的当前状态，下一步先推进哪一块？`,
+        description: `${summarizeRecoveryArtifacts(snapshot)} 你也可以直接输入自定义指令。`,
         options: snapshot.recommendedActions.slice(0, 3).map((action, index) => ({
           id: `${snapshot.projectId}-${index}`,
           label: action,
           value: action,
-          rationale: "点击后会在当前首页会话里直接继续，不会跳转到其他页面。",
+          rationale: buildRecoveryActionRationale(snapshot, action, index),
         })),
         allowCustomInput: true,
         submissionMode: "immediate",
@@ -434,24 +464,23 @@ const SidebarAssetRow = memo(function SidebarAssetRow({
     <button
       type="button"
       onClick={() => onOpen(asset.url)}
-      className="flex w-full items-center gap-2 rounded-[14px] px-3 py-1.5 text-left transition-colors hover:bg-white/[0.035]"
+      className="flex w-full items-center gap-2.5 rounded-[14px] px-2.5 py-2 text-left transition-colors hover:bg-white/[0.04]"
     >
       {asset.kind === "image" ? (
-        <span className="relative h-8 w-8 shrink-0 overflow-hidden rounded-[10px] bg-white/[0.05]">
+        <span className="relative h-9 w-9 shrink-0 overflow-hidden rounded-[11px] bg-white/[0.05]">
           <img src={asset.url} alt={asset.label} className="h-full w-full object-cover" loading="lazy" />
-          <span className="absolute inset-0 rounded-[10px] ring-1 ring-inset ring-white/[0.08]" />
+          <span className="absolute inset-0 rounded-[11px] ring-1 ring-inset ring-white/[0.08]" />
         </span>
       ) : (
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/[0.04] text-slate-200">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] bg-white/[0.04] text-slate-200">
           <Clapperboard className="h-3.5 w-3.5" />
         </span>
       )}
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12px] text-slate-100">{asset.label}</span>
-        <span className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-slate-500">
-          <span className="rounded-full border border-white/[0.08] px-1.5 py-0.5 uppercase tracking-[0.18em] text-[9px] text-slate-400">
-            {asset.kind}
-          </span>
+        <span className="block truncate text-[11.5px] text-slate-100">{asset.label}</span>
+        <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-slate-500">
+          <span className="uppercase tracking-[0.16em] text-slate-400">{asset.kind}</span>
+          <span className="h-1 w-1 rounded-full bg-slate-600" />
           <span className="truncate">{asset.meta}</span>
         </span>
       </span>
@@ -470,7 +499,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const animateFromIndex = Math.max(messages.length - 4, 0);
 
   return (
-    <div className="space-y-3.5 pb-7 pt-2.5 sm:space-y-4 sm:pb-8 sm:pt-3 [content-visibility:auto]">
+    <div className="space-y-5 pb-7 pt-3 sm:space-y-5.5 sm:pb-8 sm:pt-4 [content-visibility:auto]">
       {messages.map((message, index) => (
         <motion.div
           key={message.id}
@@ -488,18 +517,18 @@ const ConversationTimeline = memo(function ConversationTimeline({
           className={cn("flex", message.role === "user" ? "justify-end" : "justify-start")}
         >
           {message.role === "assistant" ? (
-            <div className="max-w-[748px]">
-              <div className="flex gap-2.5">
-                <div className="mt-1.5 flex h-5.5 w-5.5 shrink-0 items-center justify-center rounded-full bg-white/[0.04] text-white/68">
-                  <Sparkles className="h-3 w-3" />
+            <div className="max-w-[780px] pr-5 sm:pr-7">
+              <div className="flex gap-3">
+                <div className="mt-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/[0.035] text-white/58">
+                  <Sparkles className="h-2.5 w-2.5" />
                 </div>
-                <div className="whitespace-pre-wrap break-words pt-0.5 text-[13.5px] leading-[1.72] text-white/80 sm:text-[14px] sm:leading-[1.8]">
+                <div className="whitespace-pre-wrap break-words pt-0.5 text-[13.5px] leading-[1.82] text-white/78 sm:text-[14px] sm:leading-[1.9]">
                   {message.content}
                 </div>
               </div>
             </div>
           ) : (
-            <div className="max-w-[80%] rounded-[18px] bg-white/[0.045] px-3.5 py-2.5 text-[13.5px] leading-[1.65] text-white/84 sm:max-w-[72%] sm:text-[14px] sm:leading-[1.72]">
+            <div className="max-w-[78%] rounded-[20px] border border-white/[0.05] bg-white/[0.04] px-4 py-2.5 text-[13.5px] leading-[1.68] text-white/82 sm:max-w-[70%] sm:text-[14px] sm:leading-[1.74]">
               {message.content}
             </div>
           )}
@@ -507,6 +536,462 @@ const ConversationTimeline = memo(function ConversationTimeline({
       ))}
       <div ref={endRef} />
     </div>
+  );
+});
+
+interface HomeComposerProps {
+  idle: boolean;
+  currentProjectLabel?: string;
+  draft: string;
+  setDraft: (value: string) => void;
+  placeholder: string;
+  question: ComposerQuestion | null;
+  qState: QState | null;
+  selectedValues: string[];
+  streaming: boolean;
+  reduceMotion: boolean;
+  composerShellClass: string;
+  activeTheme: boolean;
+  onSelectChoice: (value: string, label: string) => void;
+  onConfirmQuestion?: () => void;
+  onSubmit: () => void;
+  onInterrupt: () => void;
+}
+
+const HomeComposer = memo(function HomeComposer({
+  idle,
+  currentProjectLabel,
+  draft,
+  setDraft,
+  placeholder,
+  question,
+  qState,
+  selectedValues,
+  streaming,
+  reduceMotion,
+  composerShellClass,
+  activeTheme,
+  onSelectChoice,
+  onConfirmQuestion,
+  onSubmit,
+  onInterrupt,
+}: HomeComposerProps) {
+  return (
+    <motion.div
+      layoutId="home-studio-composer"
+      transition={
+        reduceMotion
+          ? { duration: 0 }
+          : {
+              type: "spring",
+              stiffness: 340,
+              damping: 34,
+              mass: 0.9,
+            }
+      }
+      className={cn(
+        "pointer-events-auto relative w-full",
+        idle ? IDLE_TRACK_CLASS : ACTIVE_TRACK_CLASS,
+      )}
+    >
+      <ComposerChoicePopover
+        question={question}
+        onSelect={onSelectChoice}
+        onConfirm={qState ? onConfirmQuestion : undefined}
+        canConfirm={selectedValues.length > 0 || !!draft.trim()}
+        tone={activeTheme ? "dark" : "light"}
+      />
+      <motion.div
+        layout
+        initial={reduceMotion ? false : { opacity: 0.92, y: idle ? 0 : 14 }}
+        animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
+        transition={
+          reduceMotion
+            ? undefined
+            : {
+                duration: idle ? 0.16 : 0.22,
+                ease: [0.22, 1, 0.36, 1],
+              }
+        }
+        className={composerShellClass}
+      >
+        {idle ? (
+          <div className="flex items-center gap-2.5 px-4 pb-0 pt-3 text-[10px] text-white/38 md:px-6">
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-white/88">
+              <Sparkles className="h-3 w-3" />
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-[11px] font-medium text-white/72">首页主控会话</div>
+              <div className="truncate text-[10px] text-white/38">未会话时居中，会话开始后同一个输入框沉到底部。</div>
+            </div>
+          </div>
+        ) : currentProjectLabel ? (
+          <div className="flex items-center justify-between gap-3 px-4 pb-0 pt-2 text-[10px] tracking-[0.02em] text-white/34 md:px-6">
+            <div className="truncate">{currentProjectLabel}</div>
+          </div>
+        ) : null}
+        <div className={cn("px-3.5 pb-3.5 pt-2 sm:px-4 sm:pb-4 md:px-6 md:pb-5", !idle && "pt-2")}>
+          <Textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={placeholder}
+            rows={idle ? 5 : 3}
+            className={cn(
+              "resize-none border-none bg-transparent px-0 pb-3 pt-2 text-[14.5px] leading-7 shadow-none ring-0 focus-visible:ring-0 sm:text-[15px]",
+              activeTheme
+                ? "min-h-[88px] text-white placeholder:text-white/28 sm:min-h-[100px]"
+                : "min-h-[116px] text-slate-900 placeholder:text-slate-400",
+              idle && "min-h-[144px] sm:min-h-[168px] md:min-h-[208px]",
+            )}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                onSubmit();
+              }
+            }}
+          />
+          <div className="flex items-end justify-end gap-2.5">
+            <div className="flex items-center gap-2">
+              {streaming && !qState ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className={cn(
+                    "h-10 w-10 rounded-full sm:h-11 sm:w-11",
+                    activeTheme
+                      ? "bg-white/[0.06] text-white hover:bg-white/[0.1]"
+                      : "bg-black/5 text-slate-700 hover:bg-black/10",
+                  )}
+                  onClick={onInterrupt}
+                >
+                  <Square className="h-4 w-4 fill-current" />
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                size="icon"
+                disabled={(!draft.trim() && !(qState && selectedValues.length > 0)) || (streaming && !qState)}
+                className={cn(
+                  "h-10 w-10 rounded-full shadow-none sm:h-11 sm:w-11",
+                  activeTheme ? "bg-white text-slate-950 hover:bg-white/90" : "bg-slate-950 text-white hover:bg-slate-900",
+                )}
+                onClick={onSubmit}
+              >
+                {streaming && !qState ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+});
+
+const IdleLanding = memo(function IdleLanding({
+  composerProps,
+  reduceMotion,
+}: {
+  composerProps: HomeComposerProps;
+  reduceMotion: boolean;
+}) {
+  return (
+    <motion.div
+      layout
+      transition={
+        reduceMotion
+          ? { duration: 0 }
+          : {
+              type: "spring",
+              stiffness: 300,
+              damping: 32,
+              mass: 0.95,
+            }
+      }
+      className="mx-auto flex min-h-[calc(100vh-112px)] w-full max-w-[1180px] flex-col justify-center pb-16 pt-6 sm:pb-20"
+    >
+      <motion.div
+        initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+        animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
+        transition={reduceMotion ? undefined : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+        className="mx-auto w-full max-w-[860px]"
+      >
+        <div className="mb-5 space-y-2 text-center">
+          <div className="inline-flex items-center gap-2 rounded-full bg-white/[0.04] px-3 py-1.5 text-[11px] text-white/56">
+            <Bot className="h-3.5 w-3.5" />
+            单首页会话
+          </div>
+          <h1 className="text-[22px] font-medium tracking-[-0.04em] text-white md:text-[30px]">{TITLE}</h1>
+          <p className="mx-auto max-w-[560px] text-[13px] leading-6 text-white/42 sm:text-sm">
+            直接开始说目标。会话启动后，同一个输入框会在这一页自然沉到底部，继续推进完整工作流。
+          </p>
+        </div>
+        <div className={cn("mx-auto w-full", IDLE_TRACK_CLASS)}>
+          <HomeComposer {...composerProps} />
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+});
+
+const ActiveConversationShell = memo(function ActiveConversationShell({
+  messages,
+  endRef,
+  composerProps,
+  reduceMotion,
+}: {
+  messages: HomeAgentMessage[];
+  endRef: RefObject<HTMLDivElement | null>;
+  composerProps: HomeComposerProps;
+  reduceMotion: boolean;
+}) {
+  return (
+    <motion.div
+      layout
+      transition={
+        reduceMotion
+          ? { duration: 0 }
+          : {
+              type: "spring",
+              stiffness: 300,
+              damping: 32,
+              mass: 0.95,
+            }
+      }
+      className="mx-auto flex min-h-[calc(100vh-112px)] w-full flex-col"
+    >
+      <div className={cn("mx-auto w-full flex-1", ACTIVE_TRACK_CLASS)}>
+        <ConversationTimeline messages={messages} endRef={endRef} />
+      </div>
+      <motion.div
+        layout
+        transition={
+          reduceMotion
+            ? { duration: 0 }
+            : {
+                type: "spring",
+                stiffness: 320,
+                damping: 34,
+                mass: 0.92,
+              }
+        }
+        className={cn("sticky bottom-0 z-20 mx-auto w-full pb-[calc(16px+env(safe-area-inset-bottom))] pt-5", ACTIVE_TRACK_CLASS)}
+      >
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-[linear-gradient(180deg,rgba(19,19,20,0),rgba(19,19,20,0.92)_38%,rgba(19,19,20,0.98))]" />
+        <div className="relative">
+          <HomeComposer {...composerProps} />
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+});
+
+const HomeSurfaceBackdrop = memo(function HomeSurfaceBackdrop({ idle }: { idle: boolean }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      {idle ? (
+        <>
+          <div className="absolute left-[-8%] top-[-10%] h-[24rem] w-[24rem] rounded-full bg-[radial-gradient(circle,rgba(76,94,255,0.12),rgba(76,94,255,0))]" />
+          <div className="absolute right-[-6%] top-[14%] h-[20rem] w-[20rem] rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.04),rgba(255,255,255,0))]" />
+        </>
+      ) : (
+        <>
+          <div className="absolute inset-x-0 top-0 h-32 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0))]" />
+          <div className="absolute right-[-8%] top-[18%] h-[22rem] w-[22rem] rounded-full bg-[radial-gradient(circle,rgba(91,111,255,0.1),rgba(91,111,255,0))]" />
+        </>
+      )}
+    </div>
+  );
+});
+
+const MobileTopbar = memo(function MobileTopbar({
+  idle,
+  onOpenNavigation,
+}: {
+  idle: boolean;
+  onOpenNavigation: () => void;
+}) {
+  return (
+    <header
+      className={cn(
+        "px-4 md:px-8 lg:pl-[320px] lg:hidden",
+        idle ? "flex items-center justify-between pb-2 pt-4" : "flex items-center justify-between pb-0 pt-2.5",
+      )}
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <BrandMark className="h-8" />
+        <div className="min-w-0">
+          <div className="truncate text-[15px] font-semibold tracking-[0.02em] text-white">{SIDEBAR_BRAND}</div>
+          <div className="hidden truncate text-[11px] text-white/38 sm:block">首页主控会话</div>
+        </div>
+      </div>
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        className="h-9 w-9 rounded-full bg-white/[0.05] text-white hover:bg-white/[0.08] sm:h-10 sm:w-10"
+        onClick={onOpenNavigation}
+      >
+        <Menu className="h-4.5 w-4.5" />
+      </Button>
+    </header>
+  );
+});
+
+const SidebarBrandHeader = memo(function SidebarBrandHeader({ idle }: { idle: boolean }) {
+  return (
+    <div className="flex h-[72px] items-center border-b border-white/[0.06] px-5">
+      <BrandMark className="h-8" />
+      <div className="ml-3 min-w-0">
+        <div className="truncate text-[13px] font-semibold tracking-[0.02em] text-slate-100">{SIDEBAR_BRAND}</div>
+        <div className="truncate text-[10px] text-slate-500">{idle ? "开始一段新会话" : "当前首页会话"}</div>
+      </div>
+    </div>
+  );
+});
+
+const SidebarPrimaryAction = memo(function SidebarPrimaryAction({
+  idle,
+  onClick,
+}: {
+  idle: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mb-3.5 flex w-full items-center gap-3 rounded-[16px] px-3 py-2 text-left text-[12.5px] text-slate-100 transition-colors hover:bg-white/[0.04]"
+    >
+      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/[0.92] text-slate-950">
+        <Plus className="h-4 w-4 shrink-0" />
+      </span>
+      <span>{idle ? "开始新项目" : "新建项目"}</span>
+    </button>
+  );
+});
+
+const SidebarQuickTasks = memo(function SidebarQuickTasks({
+  templates,
+  onLaunch,
+  bordered = false,
+}: {
+  templates: typeof templates;
+  onLaunch: (template: (typeof templates)[number]) => void;
+  bordered?: boolean;
+}) {
+  return (
+    <section className={cn("px-2 pb-3", bordered && "border-b border-white/[0.06]")}>
+      <div className="mb-2 px-1 text-[10px] uppercase tracking-[0.18em] text-slate-500">快捷任务</div>
+      <div className="space-y-1">
+        {templates.map((template) => (
+          <button
+            key={template.id}
+            type="button"
+            onClick={() => onLaunch(template)}
+            className="flex w-full items-center justify-between gap-3 rounded-[14px] px-3 py-2 text-left transition-colors hover:bg-white/[0.05]"
+          >
+            <span className="min-w-0">
+              <span className="block truncate text-[12px] text-slate-100">{template.title}</span>
+              <span className="block truncate text-[10.5px] text-slate-500">{truncateCopy(template.description, 36)}</span>
+            </span>
+            <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-slate-600" />
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+});
+
+const SidebarProjectHistory = memo(function SidebarProjectHistory({
+  recentProjects,
+  recentProjectsReady,
+  currentProjectId,
+  onOpenProject,
+  emptyClassName,
+  limit = 10,
+  bordered = false,
+}: {
+  recentProjects: ConversationProjectSnapshot[];
+  recentProjectsReady: boolean;
+  currentProjectId?: string;
+  onOpenProject: (projectId: string) => void;
+  emptyClassName?: string;
+  limit?: number;
+  bordered?: boolean;
+}) {
+  return (
+    <section className={cn("px-2 py-4", bordered && "border-b border-white/[0.06]")}>
+      <div className="mb-2 flex items-center gap-2 px-1 text-[10px] uppercase tracking-[0.22em] text-slate-500">
+        <History className="h-3.5 w-3.5" />
+        对话历史
+      </div>
+      <div className="space-y-1">
+        {recentProjects.slice(0, limit).map((project) => {
+          const active = currentProjectId === project.projectId;
+
+          return (
+            <button
+              key={project.projectId}
+              type="button"
+              onClick={() => onOpenProject(project.projectId)}
+              className={cn(
+                "flex w-full items-start gap-2 rounded-[14px] px-3 py-2 text-left transition-colors hover:bg-white/[0.04]",
+                active && "bg-white/[0.05]",
+              )}
+            >
+              <span className={cn("mt-1 h-2 w-2 shrink-0 rounded-full bg-white/[0.12]", active && "bg-[#7c92ff]")} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12px] font-medium text-slate-100">{project.title}</span>
+                <span className="mt-0.5 block truncate text-[10px] text-slate-500">
+                  {projectKindLabel(project.projectKind)} · {project.derivedStage} · {formatDateLabel(project.updatedAt)}
+                </span>
+                <span className={cn("mt-0.5 block truncate text-[10px]", active ? "text-slate-400" : "text-slate-600")}>
+                  {truncateCopy(project.currentObjective || project.agentSummary, active ? 52 : 30)}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+        {!recentProjects.length ? (
+          <div className={cn("px-3 py-2 text-[12.5px] leading-6 text-slate-500", emptyClassName)}>
+            {recentProjectsReady ? "还没有历史项目。" : "正在整理最近项目…"}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+});
+
+const SidebarAssetLibrary = memo(function SidebarAssetLibrary({
+  assets,
+  onOpenAsset,
+  emptyClassName,
+}: {
+  assets: SidebarAssetItem[];
+  onOpenAsset: (url: string) => void;
+  emptyClassName?: string;
+}) {
+  return (
+    <section className="px-2 pb-2 pt-4">
+      <div className="mb-2 flex items-center gap-2 px-1 text-[10px] uppercase tracking-[0.22em] text-slate-500">
+        <Image className="h-3.5 w-3.5" />
+        素材库
+      </div>
+      <div className="space-y-1">
+        {assets.length ? (
+          assets.map((asset) => <SidebarAssetRow key={asset.id} asset={asset} onOpen={onOpenAsset} />)
+        ) : (
+          <div className={cn("px-3 py-2 text-[12.5px] leading-6 text-slate-500", emptyClassName)}>
+            当前对话还没有图像或视频素材。
+          </div>
+        )}
+      </div>
+    </section>
   );
 });
 
@@ -533,120 +1018,40 @@ const DesktopSidebar = memo(function DesktopSidebar({
   onNewProject: () => void;
   onOpenSettings: () => void;
 }) {
+  const handleOpenAsset = useCallback((url: string) => {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, []);
+
+  const handleLaunchTemplate = useCallback(
+    (template: (typeof templates)[number]) => {
+      onTemplateLaunch(template.prompt, template.title);
+    },
+    [onTemplateLaunch],
+  );
+
   return (
     <aside className="hidden lg:block">
       <div
         className="fixed inset-y-0 left-0 z-40 border-r border-white/[0.06] bg-[#141518] [contain:layout_paint]"
         style={{ width: DESKTOP_SIDEBAR_WIDTH }}
       >
-        <div className="flex h-[72px] items-center border-b border-white/[0.06] px-5">
-          <BrandMark className="h-8" />
-          <div className="ml-3 min-w-0">
-            <div className="truncate text-[13px] font-semibold tracking-[0.02em] text-slate-100">{SIDEBAR_BRAND}</div>
-            <div className="truncate text-[10px] text-slate-500">{idle ? "开始一段新会话" : "当前首页会话"}</div>
-          </div>
-        </div>
+        <SidebarBrandHeader idle={idle} />
 
         <div className="flex h-[calc(100vh-72px)] flex-col">
           <div className="flex-1 overflow-y-auto px-3 py-4">
-          <button
-            type="button"
-            onClick={onNewProject}
-            className="mb-4 flex w-full items-center gap-3 rounded-[16px] px-3 py-2 text-left text-[12.5px] text-slate-100 transition-colors hover:bg-white/[0.04]"
-          >
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/[0.9] text-slate-950">
-              <Plus className="h-4 w-4 shrink-0" />
-            </span>
-            <span>{idle ? "开始新项目" : "新建项目"}</span>
-          </button>
+            <SidebarPrimaryAction idle={idle} onClick={onNewProject} />
 
-          {idle ? (
-            <section className="px-2 pb-3">
-              <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-slate-500">快捷任务</div>
-              <div className="grid grid-cols-2 gap-1.5">
-                {templates.map((template) => (
-                  <button
-                    key={template.id}
-                    type="button"
-                    onClick={() => onTemplateLaunch(template.prompt, template.title)}
-                    className="rounded-[14px] border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-left text-[11.5px] text-slate-300 transition-colors hover:bg-white/[0.05] hover:text-slate-100"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate">{template.title}</span>
-                      <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-slate-600" />
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </section>
-          ) : null}
+            {idle ? <SidebarQuickTasks templates={templates} onLaunch={handleLaunchTemplate} /> : null}
 
-          <section className="px-2 py-4">
-            <div className="mb-2 flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-slate-500">
-              <History className="h-3.5 w-3.5" />
-              对话历史
-            </div>
-            <div className="space-y-0.5">
-              {recentProjects.slice(0, 10).map((project) => (
-                <button
-                  key={project.projectId}
-                  type="button"
-                  onClick={() => onOpenProject(project.projectId)}
-                  className={cn(
-                    "flex w-full items-start gap-2 rounded-[14px] px-3 py-1.5 text-left transition-colors hover:bg-white/[0.035]",
-                    currentProjectId === project.projectId && "bg-white/[0.05]",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "mt-1 h-2 w-2 shrink-0 rounded-full bg-white/[0.12]",
-                      currentProjectId === project.projectId && "bg-[#7c92ff]",
-                    )}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[12px] font-medium text-slate-100">{project.title}</div>
-                    <div className="mt-0.5 truncate text-[10px] text-slate-500">
-                      {projectKindLabel(project.projectKind)} · {project.derivedStage} · {formatDateLabel(project.updatedAt)}
-                    </div>
-                    {currentProjectId === project.projectId ? (
-                      <div className="mt-0.5 truncate text-[10px] text-slate-400">
-                        {truncateCopy(project.currentObjective || project.agentSummary, 44)}
-                      </div>
-                    ) : null}
-                  </div>
-                </button>
-              ))}
-              {!recentProjects.length ? (
-                <div className="px-3 py-2 text-[12.5px] leading-6 text-slate-500">
-                  {recentProjectsReady ? "还没有历史项目。" : "正在整理最近项目…"}
-                </div>
-              ) : null}
-            </div>
-          </section>
+            <SidebarProjectHistory
+              recentProjects={recentProjects}
+              recentProjectsReady={recentProjectsReady}
+              currentProjectId={currentProjectId}
+              onOpenProject={onOpenProject}
+              limit={10}
+            />
 
-          {!idle ? (
-            <section className="px-2 pb-2 pt-4">
-              <div className="mb-2 flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-slate-500">
-                <Image className="h-3.5 w-3.5" />
-                素材库
-              </div>
-              <div className="space-y-0.5">
-                {assets.length ? (
-                  assets.map((asset) => (
-                    <SidebarAssetRow
-                      key={asset.id}
-                      asset={asset}
-                      onOpen={(url) => window.open(url, "_blank", "noopener,noreferrer")}
-                    />
-                  ))
-                ) : (
-                  <div className="px-3 py-2 text-[12.5px] leading-6 text-slate-500">
-                    当前对话还没有图像或视频素材。
-                  </div>
-                )}
-              </div>
-            </section>
-          ) : null}
+            {!idle ? <SidebarAssetLibrary assets={assets} onOpenAsset={handleOpenAsset} /> : null}
           </div>
           <SidebarFooter onOpenSettings={onOpenSettings} />
         </div>
@@ -682,6 +1087,35 @@ const MobileSidebarSheet = memo(function MobileSidebarSheet({
   onNewProject: () => void;
   onOpenSettings: () => void;
 }) {
+  const handleLaunchTemplate = useCallback(
+    (template: (typeof templates)[number]) => {
+      onTemplateLaunch(template.prompt, template.title);
+      onOpenChange(false);
+    },
+    [onOpenChange, onTemplateLaunch],
+  );
+
+  const handleOpenProjectFromSheet = useCallback(
+    (projectId: string) => {
+      onOpenProject(projectId);
+      onOpenChange(false);
+    },
+    [onOpenChange, onOpenProject],
+  );
+
+  const handleNewProjectFromSheet = useCallback(() => {
+    onNewProject();
+    onOpenChange(false);
+  }, [onNewProject, onOpenChange]);
+
+  const handleOpenAsset = useCallback(
+    (url: string) => {
+      window.open(url, "_blank", "noopener,noreferrer");
+      onOpenChange(false);
+    },
+    [onOpenChange],
+  );
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="left" className={cn(MOBILE_NAV_SHEET, "lg:hidden")}>
@@ -689,123 +1123,31 @@ const MobileSidebarSheet = memo(function MobileSidebarSheet({
           <SheetTitle>导航</SheetTitle>
           <SheetDescription>当前首页会话的导航、历史项目和素材库。</SheetDescription>
         </SheetHeader>
-        <div className="flex h-[72px] items-center border-b border-white/[0.06] px-5">
-          <BrandMark className="h-8" />
-          <div className="ml-3 min-w-0">
-            <div className="truncate text-[13px] font-semibold tracking-[0.02em] text-slate-100">{SIDEBAR_BRAND}</div>
-            <div className="truncate text-[10px] text-slate-500">{idle ? "开始一段新会话" : "当前首页会话"}</div>
-          </div>
-        </div>
+        <SidebarBrandHeader idle={idle} />
 
         <div className="flex h-[calc(100vh-72px)] flex-col">
           <div className="flex-1 overflow-y-auto px-3 py-4">
-          <button
-            type="button"
-            onClick={() => {
-              onNewProject();
-              onOpenChange(false);
-            }}
-            className="mb-4 flex w-full items-center gap-3 rounded-[16px] px-3 py-2 text-left text-[12.5px] text-slate-100 transition-colors hover:bg-white/[0.04]"
-          >
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/[0.9] text-slate-950">
-              <Plus className="h-4 w-4 shrink-0" />
-            </span>
-            <span>{idle ? "开始新项目" : "新建项目"}</span>
-          </button>
+            <SidebarPrimaryAction idle={idle} onClick={handleNewProjectFromSheet} />
 
-          {idle ? (
-            <section className="border-b border-white/[0.06] px-2 pb-3">
-              <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-slate-500">快捷任务</div>
-              <div className="grid grid-cols-2 gap-1.5">
-                {templates.map((template) => (
-                  <button
-                    key={template.id}
-                    type="button"
-                    onClick={() => {
-                      onTemplateLaunch(template.prompt, template.title);
-                      onOpenChange(false);
-                    }}
-                    className="rounded-[14px] border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-left text-[11.5px] text-slate-300 transition-colors hover:bg-white/[0.05] hover:text-slate-100"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate">{template.title}</span>
-                      <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-slate-600" />
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </section>
-          ) : null}
+            {idle ? <SidebarQuickTasks templates={templates} onLaunch={handleLaunchTemplate} bordered /> : null}
 
-          <section className="border-b border-white/[0.06] px-2 py-4">
-            <div className="mb-2 flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-slate-500">
-              <History className="h-3.5 w-3.5" />
-              对话历史
-            </div>
-            <div className="space-y-0.5">
-              {recentProjects.slice(0, 10).map((project) => (
-                <button
-                  key={project.projectId}
-                  type="button"
-                  onClick={() => {
-                    onOpenProject(project.projectId);
-                    onOpenChange(false);
-                  }}
-                  className={cn(
-                    "flex w-full items-start gap-2 rounded-[14px] px-3 py-1.5 text-left transition-colors hover:bg-white/[0.035]",
-                    currentProjectId === project.projectId && "bg-white/[0.05]",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "mt-1 h-2 w-2 shrink-0 rounded-full bg-white/[0.12]",
-                      currentProjectId === project.projectId && "bg-[#7c92ff]",
-                    )}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[12px] font-medium text-slate-100">{project.title}</div>
-                    <div className="mt-0.5 truncate text-[10px] text-slate-500">
-                      {projectKindLabel(project.projectKind)} · {project.derivedStage} · {formatDateLabel(project.updatedAt)}
-                    </div>
-                    {currentProjectId === project.projectId ? (
-                      <div className="mt-0.5 truncate text-[10px] text-slate-400">
-                        {truncateCopy(project.currentObjective || project.agentSummary, 40)}
-                      </div>
-                    ) : null}
-                  </div>
-                </button>
-              ))}
-              {!recentProjects.length ? (
-                <div className="px-3 py-2.5 text-[13px] leading-6 text-slate-500">
-                  {recentProjectsReady ? "还没有历史项目。" : "正在整理最近项目…"}
-                </div>
-              ) : null}
-            </div>
-          </section>
+            <SidebarProjectHistory
+              recentProjects={recentProjects}
+              recentProjectsReady={recentProjectsReady}
+              currentProjectId={currentProjectId}
+              onOpenProject={handleOpenProjectFromSheet}
+              emptyClassName="py-2.5 text-[13px]"
+              limit={10}
+              bordered
+            />
 
-          {!idle ? (
-            <section className="px-2 py-4">
-              <div className="mb-2 flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-slate-500">
-                <Image className="h-3.5 w-3.5" />
-                素材库
-              </div>
-              <div className="space-y-0.5">
-                {assets.length ? (
-                  assets.map((asset) => (
-                    <SidebarAssetRow
-                      key={asset.id}
-                      asset={asset}
-                      onOpen={(url) => window.open(url, "_blank", "noopener,noreferrer")}
-                    />
-                  ))
-                ) : (
-                  <div className="px-3 py-2.5 text-[13px] leading-6 text-slate-500">
-                    当前对话还没有图像或视频素材。
-                  </div>
-                )}
-              </div>
-            </section>
-          ) : null}
+            {!idle ? (
+              <SidebarAssetLibrary
+                assets={assets}
+                onOpenAsset={handleOpenAsset}
+                emptyClassName="py-2.5 text-[13px]"
+              />
+            ) : null}
           </div>
           <SidebarFooter
             onOpenSettings={() => {
@@ -889,8 +1231,12 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   const hasInitialSession = hasSavedSessionContent(session) || !!session?.currentProjectSnapshot;
   const [runtime, setRuntime] = useState(seedRef.current.runtime);
   const [messages, setMessages] = useState<HomeAgentMessage[]>(session?.messages ?? []);
-  const [mode, setMode] = useState<"idle" | "active" | "recovering">(
-    session?.mode === "recovering" ? "recovering" : hasInitialSession ? "active" : "idle",
+  const [mode, setMode] = useState<AgentConversationMode>(
+    session?.mode === "recovering" || session?.mode === "maintenance-review"
+      ? session.mode
+      : hasInitialSession
+        ? "active"
+        : "idle",
   );
   const [draft, setDraft] = useState(session?.draft ?? "");
   const [streaming, setStreaming] = useState(false);
@@ -906,6 +1252,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   );
 
   const runtimeRef = useRef(runtime);
+  const messagesRef = useRef(messages);
   const engineRef = useRef<QueryEngineClass | null>(null);
   const engineDepsRef = useRef<Promise<EngineDeps> | null>(null);
   const projectStoreRef = useRef<Promise<ProjectStoreModule> | null>(null);
@@ -962,6 +1309,10 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   useEffect(() => {
     runtimeRef.current = runtime;
   }, [runtime]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     setUtilityPanel(initialUtility);
@@ -1159,7 +1510,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   }, []);
 
   const getEngine = useCallback(
-    async (seed: HomeAgentMessage[]) => {
+    async () => {
       if (engineRef.current) return engineRef.current;
 
       const deps = await loadEngineDeps();
@@ -1181,7 +1532,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         model: apiConfig.resolveConfiguredModelName("claude-sonnet-4-6"),
         tools,
         systemPrompt: PROMPT,
-        initialMessages: toQuery(seed),
+        initialMessages: toQuery(messagesRef.current),
         maxTurns: 12,
         getAppState: () => runtimeRef.current,
         setAppState: (updater) => setRuntime((prev) => updater(prev) as StudioRuntimeState),
@@ -1204,7 +1555,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
       setStreaming(true);
 
       try {
-        const activeEngine = await getEngine(messages);
+        const activeEngine = await getEngine();
         for await (const event of activeEngine.submitMessage(cleaned)) {
           if (event.type === "assistant") {
             const parser = await loadStructuredQuestionParser();
@@ -1223,7 +1574,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         setStreaming(false);
       }
     },
-    [getEngine, loadStructuredQuestionParser, messages, push],
+    [getEngine, loadStructuredQuestionParser, push],
   );
 
   const reset = useCallback(() => {
@@ -1266,39 +1617,45 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
       if (!snapshot) return;
 
       engineRef.current = null;
-      setActiveProjectId(projectId);
+      startTransition(() => {
+        setActiveProjectId(projectId);
 
-      if (savedSession) {
-        setQState(savedSession.qState ?? null);
-        setSuggested(null);
-        setSelectedValues(savedSession.selectedValues ?? []);
-        setMode(savedSession.mode === "recovering" ? "recovering" : "active");
-        setMessages(savedSession.messages.length ? savedSession.messages : [mk("assistant", brief(snapshot))]);
-        setDraft(savedSession.draft ?? "");
-        previousQuestionStepRef.current = savedSession.qState
-          ? `${savedSession.qState.request.id}:${savedSession.qState.currentIndex}`
-          : null;
-      } else {
-        setQState(null);
-        setSuggested(recQuestion(snapshot));
-        setSelectedValues([]);
-        setMode("active");
-        setMessages([mk("assistant", brief(snapshot))]);
-        setDraft("");
-        previousQuestionStepRef.current = null;
-      }
+        if (savedSession) {
+          setQState(savedSession.qState ?? null);
+          setSuggested(null);
+          setSelectedValues(savedSession.selectedValues ?? []);
+          setMode(
+            savedSession.mode === "recovering" || savedSession.mode === "maintenance-review"
+              ? savedSession.mode
+              : "active",
+          );
+          setMessages(savedSession.messages.length ? savedSession.messages : [mk("assistant", brief(snapshot))]);
+          setDraft(savedSession.draft ?? "");
+          previousQuestionStepRef.current = savedSession.qState
+            ? `${savedSession.qState.request.id}:${savedSession.qState.currentIndex}`
+            : null;
+        } else {
+          setQState(null);
+          setSuggested(recQuestion(snapshot));
+          setSelectedValues([]);
+          setMode("active");
+          setMessages([mk("assistant", brief(snapshot))]);
+          setDraft("");
+          previousQuestionStepRef.current = null;
+        }
 
-      setRuntime((prev) => ({
-        ...prev,
-        sessionId: crypto.randomUUID(),
-        currentProjectSnapshot: snapshot,
-        currentDramaProject: source.dramaProject,
-        currentVideoProject: source.videoProject,
-        recentProjects: [
-          snapshot,
-          ...prev.recentProjects.filter((item) => item.projectId !== snapshot.projectId),
-        ].slice(0, 8),
-      }));
+        setRuntime((prev) => ({
+          ...prev,
+          sessionId: crypto.randomUUID(),
+          currentProjectSnapshot: snapshot,
+          currentDramaProject: source.dramaProject,
+          currentVideoProject: source.videoProject,
+          recentProjects: [
+            snapshot,
+            ...prev.recentProjects.filter((item) => item.projectId !== snapshot.projectId),
+          ].slice(0, 8),
+        }));
+      });
       setMetaReady(false);
     },
     [loadProjectStore],
@@ -1323,11 +1680,13 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     const onAsk = (event: Event) => {
       const detail = (event as CustomEvent<AskUserQuestionRequest>).detail;
       if (!detail?.questions?.length) return;
-      setSuggested(null);
-      setQState(createQState(detail));
-      setSelectedValues([]);
-      setDraft("");
-      setMode("active");
+      startTransition(() => {
+        setSuggested(null);
+        setQState(createQState(detail));
+        setSelectedValues([]);
+        setDraft("");
+        setMode("active");
+      });
     };
 
     window.addEventListener("agent:ask-user-question", onAsk);
@@ -1417,6 +1776,10 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     onUtilityChange?.("settings");
   }, [onUtilityChange]);
 
+  const handleOpenMobileNavigation = useCallback(() => {
+    setMobileNavOpen(true);
+  }, []);
+
   const handleSettingsOpenChange = useCallback(
     (open: boolean) => {
       const next = open ? "settings" : undefined;
@@ -1473,290 +1836,112 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     answer(submittedValue, displayValue || submittedValue || activeQuestion.question);
   }, [answer, draft, qState, question, selectedValues]);
 
-  const composer = (
-    <motion.div
-      layoutId="home-studio-composer"
-      transition={
-        reduceMotion
-          ? { duration: 0 }
-          : {
-              type: "spring",
-              stiffness: 340,
-              damping: 34,
-              mass: 0.9,
-            }
-      }
-      className={cn(
-        "pointer-events-auto relative w-full",
-        idle ? IDLE_TRACK_CLASS : ACTIVE_TRACK_CLASS,
-      )}
-    >
-      <ComposerChoicePopover
-        question={question}
-        onSelect={handleChoiceSelect}
-        onConfirm={qState ? confirmStructuredAnswer : undefined}
-        canConfirm={selectedValues.length > 0 || !!draft.trim()}
-        tone={activeTheme ? "dark" : "light"}
-      />
-      <motion.div
-        layout
-        initial={reduceMotion ? false : { opacity: 0.92, y: idle ? 0 : 14 }}
-        animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
-        transition={
-          reduceMotion
-            ? undefined
-            : {
-                duration: idle ? 0.16 : 0.22,
-                ease: [0.22, 1, 0.36, 1],
-              }
-        }
-        className={composerShellClass}
-      >
-        {idle ? (
-          <div className="flex items-center gap-2.5 px-4 pb-0 pt-3 text-[10px] text-white/38 md:px-6">
-            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-white/88">
-              <Sparkles className="h-3 w-3" />
-            </div>
-            <div className="min-w-0">
-              <div className="truncate text-[11px] font-medium text-white/72">首页主控会话</div>
-              <div className="truncate text-[10px] text-white/38">未会话时居中，会话开始后同一个输入框沉到底部。</div>
-            </div>
-          </div>
-        ) : currentProject ? (
-          <div className="flex items-center justify-between gap-3 px-4 pb-0 pt-2 text-[10px] tracking-[0.02em] text-white/34 md:px-6">
-            <div className="truncate">{`${currentProject.title} · ${currentProject.derivedStage}`}</div>
-          </div>
-        ) : null}
-        <div className={cn("px-3.5 pb-3.5 pt-2 sm:px-4 sm:pb-4 md:px-6 md:pb-5", !idle && "pt-2")}>
-          <Textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder={placeholder}
-            rows={idle ? 5 : 3}
-            className={cn(
-              "resize-none border-none bg-transparent px-0 pb-3 pt-2 text-[14.5px] leading-7 shadow-none ring-0 focus-visible:ring-0 sm:text-[15px]",
-              activeTheme
-                ? "min-h-[88px] text-white placeholder:text-white/28 sm:min-h-[100px]"
-                : "min-h-[116px] text-slate-900 placeholder:text-slate-400",
-              idle && "min-h-[144px] sm:min-h-[168px] md:min-h-[208px]",
-            )}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                if (qState && (question?.submissionMode === "confirm" || question?.multiSelect)) {
-                  confirmStructuredAnswer();
-                  return;
-                }
-                if (qState) {
-                  answer(draft);
-                } else {
-                  void send(draft);
-                }
-              }
-            }}
-          />
-          <div className="flex items-end justify-end gap-2.5">
-            <div className="flex items-center gap-2">
-              {streaming && !qState ? (
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className={cn(
-                    "h-10 w-10 rounded-full sm:h-11 sm:w-11",
-                    activeTheme
-                      ? "bg-white/[0.06] text-white hover:bg-white/[0.1]"
-                      : "bg-black/5 text-slate-700 hover:bg-black/10",
-                  )}
-                  onClick={() => {
-                    engineRef.current?.interrupt();
-                    setStreaming(false);
-                  }}
-                >
-                  <Square className="h-4 w-4 fill-current" />
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                size="icon"
-                disabled={(!draft.trim() && !(qState && selectedValues.length > 0)) || (streaming && !qState)}
-                className={cn(
-                  "h-10 w-10 rounded-full shadow-none sm:h-11 sm:w-11",
-                  activeTheme ? "bg-white text-slate-950 hover:bg-white/90" : "bg-slate-950 text-white hover:bg-slate-900",
-                )}
-                onClick={() => {
-                  if (qState && (question?.submissionMode === "confirm" || question?.multiSelect)) {
-                    confirmStructuredAnswer();
-                    return;
-                  }
-                  if (qState) {
-                    answer(draft);
-                  } else {
-                    void send(draft);
-                  }
-                }}
-              >
-                {streaming && !qState ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </motion.div>
-    </motion.div>
+  const submitComposer = useCallback(() => {
+    if (qState && (question?.submissionMode === "confirm" || question?.multiSelect)) {
+      confirmStructuredAnswer();
+      return;
+    }
+
+    if (qState) {
+      answer(draft);
+      return;
+    }
+
+    void send(draft);
+  }, [answer, confirmStructuredAnswer, draft, qState, question, send]);
+  const composerProps = useMemo<HomeComposerProps>(
+    () => ({
+      idle,
+      currentProjectLabel: currentProject ? `${currentProject.title} · ${currentProject.derivedStage}` : undefined,
+      draft,
+      setDraft,
+      placeholder,
+      question,
+      qState,
+      selectedValues,
+      streaming,
+      reduceMotion,
+      composerShellClass,
+      activeTheme,
+      onSelectChoice: handleChoiceSelect,
+      onConfirmQuestion: qState ? confirmStructuredAnswer : undefined,
+      onSubmit: submitComposer,
+      onInterrupt: () => {
+        engineRef.current?.interrupt();
+        setStreaming(false);
+      },
+    }),
+    [
+      activeTheme,
+      composerShellClass,
+      confirmStructuredAnswer,
+      currentProject,
+      draft,
+      handleChoiceSelect,
+      idle,
+      placeholder,
+      qState,
+      question,
+      reduceMotion,
+      selectedValues,
+      streaming,
+      submitComposer,
+    ],
   );
 
   return (
     <LayoutGroup id="home-agent-shell">
       <div className="relative min-h-screen overflow-hidden bg-[#131314] text-white">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        {idle ? (
-          <>
-            <div className="absolute left-[-8%] top-[-10%] h-[24rem] w-[24rem] rounded-full bg-[radial-gradient(circle,rgba(76,94,255,0.12),rgba(76,94,255,0))]" />
-            <div className="absolute right-[-6%] top-[14%] h-[20rem] w-[20rem] rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.04),rgba(255,255,255,0))]" />
-          </>
-        ) : (
-          <>
-            <div className="absolute inset-x-0 top-0 h-32 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0))]" />
-            <div className="absolute right-[-8%] top-[18%] h-[22rem] w-[22rem] rounded-full bg-[radial-gradient(circle,rgba(91,111,255,0.1),rgba(91,111,255,0))]" />
-          </>
-        )}
-      </div>
-      <DesktopSidebar
-        idle={idle}
-        recentProjects={deferredRecentProjects}
-        recentProjectsReady={recentProjectsReady}
-        templates={templates}
-        assets={deferredSidebarAssets}
-        currentProjectId={activeProjectId}
-        onTemplateLaunch={handleTemplateLaunch}
-        onOpenProject={handleOpenProject}
-        onNewProject={handleReset}
-        onOpenSettings={handleOpenSettings}
-      />
-      <MobileSidebarSheet
-        open={mobileNavOpen}
-        onOpenChange={setMobileNavOpen}
-        idle={idle}
-        recentProjects={deferredRecentProjects}
-        recentProjectsReady={recentProjectsReady}
-        templates={templates}
-        assets={deferredSidebarAssets}
-        currentProjectId={activeProjectId}
-        onTemplateLaunch={handleTemplateLaunch}
-        onOpenProject={handleOpenProject}
-        onNewProject={handleReset}
-        onOpenSettings={handleOpenSettings}
-      />
-      <DesktopSettingsPanel open={settingsOpen} onClose={() => handleSettingsOpenChange(false)} />
-      <MobileSettingsSheet open={settingsOpen} onOpenChange={handleSettingsOpenChange} />
+        <HomeSurfaceBackdrop idle={idle} />
+        <DesktopSidebar
+          idle={idle}
+          recentProjects={deferredRecentProjects}
+          recentProjectsReady={recentProjectsReady}
+          templates={templates}
+          assets={deferredSidebarAssets}
+          currentProjectId={activeProjectId}
+          onTemplateLaunch={handleTemplateLaunch}
+          onOpenProject={handleOpenProject}
+          onNewProject={handleReset}
+          onOpenSettings={handleOpenSettings}
+        />
+        <MobileSidebarSheet
+          open={mobileNavOpen}
+          onOpenChange={setMobileNavOpen}
+          idle={idle}
+          recentProjects={deferredRecentProjects}
+          recentProjectsReady={recentProjectsReady}
+          templates={templates}
+          assets={deferredSidebarAssets}
+          currentProjectId={activeProjectId}
+          onTemplateLaunch={handleTemplateLaunch}
+          onOpenProject={handleOpenProject}
+          onNewProject={handleReset}
+          onOpenSettings={handleOpenSettings}
+        />
+        <DesktopSettingsPanel open={settingsOpen} onClose={() => handleSettingsOpenChange(false)} />
+        <MobileSettingsSheet open={settingsOpen} onOpenChange={handleSettingsOpenChange} />
 
-      <div className="relative z-10 flex min-h-screen flex-col">
-        <header
-          className={cn(
-            "px-4 md:px-8 lg:pl-[320px] lg:hidden",
-            idle ? "flex items-center justify-between pb-2 pt-4" : "flex items-center justify-between pb-0 pt-2.5",
-          )}
-        >
-          <div className="flex min-w-0 items-center gap-2">
-            <BrandMark className="h-8" />
-            <div className="min-w-0">
-              <div className="truncate text-[15px] font-semibold tracking-[0.02em] text-white">{SIDEBAR_BRAND}</div>
-              <div className="hidden truncate text-[11px] text-white/38 sm:block">首页主控会话</div>
-            </div>
-          </div>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="h-9 w-9 rounded-full bg-white/[0.05] text-white hover:bg-white/[0.08] sm:h-10 sm:w-10"
-            onClick={() => setMobileNavOpen(true)}
+        <div className="relative z-10 flex min-h-screen flex-col">
+          <MobileTopbar idle={idle} onOpenNavigation={handleOpenMobileNavigation} />
+          <main
+            className={cn(
+              "relative flex-1 overflow-x-clip px-3.5 sm:px-4 md:px-8",
+              idle ? "pb-0 pt-4 lg:pl-[320px]" : "pb-0 pt-2 lg:pl-[320px]",
+            )}
           >
-            <Menu className="h-4.5 w-4.5" />
-          </Button>
-        </header>
-        <main
-          className={cn(
-            "relative flex-1 overflow-x-clip px-3.5 sm:px-4 md:px-8",
-            idle ? "pb-0 pt-4 lg:pl-[320px]" : "pb-0 pt-2 lg:pl-[320px]",
-          )}
-        >
-          {idle ? (
-            <motion.div
-              layout
-              transition={
-                reduceMotion
-                  ? { duration: 0 }
-                  : {
-                      type: "spring",
-                      stiffness: 300,
-                      damping: 32,
-                      mass: 0.95,
-                    }
-              }
-              className="mx-auto flex min-h-[calc(100vh-112px)] w-full max-w-[1180px] flex-col justify-center pb-16 pt-6 sm:pb-20"
-            >
-              <motion.div
-                initial={reduceMotion ? false : { opacity: 0, y: 10 }}
-                animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
-                transition={reduceMotion ? undefined : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-                className="mx-auto w-full max-w-[860px]"
-              >
-                <div className="mb-5 space-y-2 text-center">
-                  <div className="inline-flex items-center gap-2 rounded-full bg-white/[0.04] px-3 py-1.5 text-[11px] text-white/56">
-                    <Bot className="h-3.5 w-3.5" />
-                    单首页会话
-                  </div>
-                  <h1 className="text-[22px] font-medium tracking-[-0.04em] text-white md:text-[30px]">{TITLE}</h1>
-                  <p className="mx-auto max-w-[560px] text-[13px] leading-6 text-white/42 sm:text-sm">
-                    直接开始说目标。会话启动后，同一个输入框会在这一页自然沉到底部，继续推进完整工作流。
-                  </p>
-                </div>
-                <div className={cn("mx-auto w-full", IDLE_TRACK_CLASS)}>{composer}</div>
-              </motion.div>
-            </motion.div>
-          ) : (
-            <motion.div
-              layout
-              transition={
-                reduceMotion
-                  ? { duration: 0 }
-                  : {
-                      type: "spring",
-                      stiffness: 300,
-                      damping: 32,
-                      mass: 0.95,
-                    }
-              }
-              className="mx-auto flex min-h-[calc(100vh-112px)] w-full flex-col"
-            >
-              <div className={cn("mx-auto w-full flex-1", ACTIVE_TRACK_CLASS)}>
-                <ConversationTimeline messages={deferredMessages} endRef={endRef} />
-              </div>
-              <motion.div
-                layout
-                transition={
-                  reduceMotion
-                    ? { duration: 0 }
-                    : {
-                        type: "spring",
-                        stiffness: 320,
-                        damping: 34,
-                        mass: 0.92,
-                      }
-                }
-                className={cn("sticky bottom-0 z-20 mx-auto w-full pb-[calc(16px+env(safe-area-inset-bottom))] pt-5", ACTIVE_TRACK_CLASS)}
-              >
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-[linear-gradient(180deg,rgba(19,19,20,0),rgba(19,19,20,0.92)_38%,rgba(19,19,20,0.98))]" />
-                <div className="relative">{composer}</div>
-              </motion.div>
-            </motion.div>
-          )}
-        </main>
-      </div>
+            {idle ? (
+              <IdleLanding composerProps={composerProps} reduceMotion={reduceMotion} />
+            ) : (
+              <ActiveConversationShell
+                messages={deferredMessages}
+                endRef={endRef}
+                composerProps={composerProps}
+                reduceMotion={reduceMotion}
+              />
+            )}
+          </main>
+        </div>
       </div>
     </LayoutGroup>
   );

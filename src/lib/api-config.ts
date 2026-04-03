@@ -48,7 +48,6 @@ export interface ApiConfig {
   retryCount: number;
   retryDelayMs: number;
   storagePath?: string;
-  reverseDownloadPath?: string;
 }
 
 export const SUPPORTED_MODEL_MAPPINGS: SupportedModelMapping[] = [
@@ -229,7 +228,6 @@ export const DEFAULT_API_CONFIG: ApiConfig = {
   retryCount: 2,
   retryDelayMs: 3000,
   storagePath: "",
-  reverseDownloadPath: "",
 };
 
 function readEnvString(name: string): string {

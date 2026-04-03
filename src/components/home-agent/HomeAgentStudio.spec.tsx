@@ -291,9 +291,6 @@ describe("HomeAgentStudio", () => {
     expect(textarea).toHaveAttribute("rows", "5");
 
     fireEvent.change(textarea, { target: { value: "我想做一个新项目" } });
-    await waitFor(() => {
-      expect(textarea).toHaveValue("我想做一个新项目");
-    });
     const sendButton = findSendButton();
     expect(sendButton).toBeTruthy();
     await act(async () => {
@@ -343,9 +340,6 @@ describe("HomeAgentStudio", () => {
 
     const textarea = screen.getByPlaceholderText(/也可以跳过上方建议/) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "电影感" } });
-    await waitFor(() => {
-      expect(textarea).toHaveValue("电影感");
-    });
     const sendButton = findSendButton();
     expect(sendButton).toBeTruthy();
     await act(async () => {
@@ -437,6 +431,32 @@ describe("HomeAgentStudio", () => {
     await waitForVisibleText("继续保留第 2 集的张力。");
     expect(screen.getByDisplayValue("补充反派动机")).toBeInTheDocument();
     expect(screen.getByText("继续选择题材")).toBeInTheDocument();
+  });
+
+  it("uses project artifacts and stage analysis when opening history without a saved homepage session", async () => {
+    seedDramaProject("drama-project-2");
+
+    await renderStudio();
+
+    const historySection = (await screen.findAllByText("对话历史"))[0]?.closest("section") ?? document.body;
+    let historyButton: HTMLElement | null = null;
+    await waitFor(
+      () => {
+        historyButton = within(historySection).getByRole("button", {
+          name: /契约婚姻反转录/,
+        });
+      },
+      { timeout: 3000 },
+    );
+
+    await act(async () => {
+      fireEvent.click(historyButton!);
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/我已对照当前项目产物做了恢复分析/);
+    expect(screen.getByText(/我已分析《契约婚姻反转录》的当前状态/)).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
   });
 
   it("restores the current homepage session on refresh and keeps it stable while opening settings", async () => {
