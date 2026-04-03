@@ -84,6 +84,117 @@ export interface SceneSetting {
   activeTimeVariantId?: string;
 }
 
+export type ProductionAssetKind =
+  | "character-reference"
+  | "costume-reference"
+  | "scene-reference"
+  | "time-variant"
+  | "storyboard-frame"
+  | "video-segment";
+
+export type ProductionAssetStatus = "ready" | "needs-review" | "failed";
+
+export interface ProductionAssetRecord {
+  id: string;
+  kind: ProductionAssetKind;
+  label: string;
+  url: string;
+  meta: string;
+  reusable: boolean;
+  status: ProductionAssetStatus;
+  sourceEntityId?: string;
+  sceneId?: string;
+  sceneNumber?: number;
+  version: number;
+  createdAt: string;
+}
+
+export interface ProductionAssetManifest {
+  version: string;
+  summary: string;
+  items: ProductionAssetRecord[];
+}
+
+export interface VideoStyleLock {
+  genre: string[];
+  tone: string;
+  visualStyle: string;
+  colorMood: string;
+  cinematography: string;
+  forbidden: string[];
+  referencePromptTemplate: string;
+}
+
+export interface VideoWorldModelCharacter {
+  id: string;
+  name: string;
+  description: string;
+  aliases: string[];
+  currentState: string;
+  constraints: string[];
+  referenceAssetIds: string[];
+}
+
+export interface VideoWorldModelScene {
+  id: string;
+  name: string;
+  description: string;
+  timeVariantLabels: string[];
+  referenceAssetIds: string[];
+}
+
+export interface VideoWorldModel {
+  version: string;
+  synopsis: string;
+  continuityRules: string[];
+  characters: VideoWorldModelCharacter[];
+  scenes: VideoWorldModelScene[];
+}
+
+export interface ShotPacketCharacterRef {
+  characterId: string;
+  name: string;
+  assetIds: string[];
+  mustPreserve: string[];
+}
+
+export interface ShotPacketBackgroundRef {
+  sceneSettingId?: string;
+  name: string;
+  assetIds: string[];
+  timeVariant?: string;
+}
+
+export interface VideoShotPacket {
+  id: string;
+  sceneId: string;
+  sceneNumber: number;
+  title: string;
+  durationSec: number;
+  camera: {
+    shotSize: string;
+    movement: string;
+  };
+  characterRefs: ShotPacketCharacterRef[];
+  backgroundRef?: ShotPacketBackgroundRef;
+  sourceAssetIds: string[];
+  promptSeed: string;
+  forbiddenChanges: string[];
+  renderMode: "img2video" | "text2video";
+  reviewStatus: "pending" | "approved" | "redo";
+}
+
+export interface VideoReviewItem {
+  id: string;
+  title: string;
+  summary: string;
+  targetIds: string[];
+  status: "pending" | "approved" | "redo";
+  reason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Project {
   id: string;
   title: string;

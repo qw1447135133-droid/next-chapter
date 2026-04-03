@@ -20,12 +20,20 @@ function buildWorkflowProgressLabel(actionName: string): string {
     generate_outlines: "生成单集细纲",
     generate_episode: "生成分集正文",
     run_compliance_review: "执行合规审查",
+    lock_character_cards: "锁定角色状态卡",
+    lock_story_beats: "锁定剧情 beat",
+    resolve_compliance_revisions: "标记修订已处理",
+    reopen_compliance_revisions: "重新打开修订项",
     prepare_video_generation: "接管视频项目",
     advance_video_workflow: "继续视频工作流",
     analyze_script_for_video: "拆解视频脚本",
     extract_video_entities: "整理角色与场景",
     prepare_storyboard_batch: "整理分镜批次",
+    compile_video_shot_packets: "编译镜头指令包",
     prepare_video_prompt_batch: "生成视频提示词批次",
+    review_video_assets: "整理待审阅素材",
+    approve_video_assets: "通过审阅项",
+    redo_video_assets: "标记重做素材",
     continue_video_step: "定位视频阶段",
     create_video_bridge_artifact: "整理视频桥接摘要",
     export_project: "整理导出文档",
@@ -95,7 +103,7 @@ export class StudioWorkflowTool extends ToolBase {
         action: {
           type: "string",
           description:
-            "Workflow action: get_context, save_setup, continue_project, continue_drama_step, analyze_reference_script, generate_creative_plan, generate_structure_transform, generate_characters, generate_character_transform, generate_directory, generate_outlines, generate_episode, run_compliance_review, prepare_video_generation, advance_video_workflow, analyze_script_for_video, extract_video_entities, prepare_storyboard_batch, prepare_video_prompt_batch, continue_video_step, create_video_bridge_artifact, export_project, create_skill_draft, run_maintenance",
+            "Workflow action: get_context, save_setup, continue_project, continue_drama_step, analyze_reference_script, generate_creative_plan, generate_structure_transform, generate_characters, generate_character_transform, generate_directory, generate_outlines, generate_episode, run_compliance_review, lock_character_cards, lock_story_beats, resolve_compliance_revisions, reopen_compliance_revisions, prepare_video_generation, advance_video_workflow, analyze_script_for_video, extract_video_entities, prepare_storyboard_batch, compile_video_shot_packets, prepare_video_prompt_batch, review_video_assets, approve_video_assets, redo_video_assets, continue_video_step, create_video_bridge_artifact, export_project, create_skill_draft, run_maintenance",
         },
         projectKind: {
           type: "string",
@@ -237,6 +245,15 @@ export class StudioWorkflowTool extends ToolBase {
         customInstruction: {
           type: "string",
           description: "Extra instruction for rewriting or generation",
+        },
+        targetId: {
+          type: "string",
+          description: "Single asset, review, or shot packet id to approve or redo",
+        },
+        targetIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Multiple asset, review, or shot packet ids to approve or redo",
         },
         proposedSkillName: {
           type: "string",

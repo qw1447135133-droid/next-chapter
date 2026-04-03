@@ -6,12 +6,19 @@
 import { ToolBase, type ToolUseContext, type CanUseToolFn } from '../tool'
 import type { AssistantMessage, ToolResult } from '../types'
 import { QueryEngine } from '../query-engine'
+import {
+  clearTaskStopHandler,
+  getTask,
+  registerTaskStopHandler,
+  updateTask,
+  writeTask,
+} from './task-tools'
 
 // Background task registry
-const backgroundTasks = new Map<string, Promise<string>>()
+const backgroundTasks = new Map<string, { promise: Promise<string>; interrupt: () => void }>()
 
 export function getBackgroundTaskResult(id: string): Promise<string> | undefined {
-  return backgroundTasks.get(id)
+  return backgroundTasks.get(id)?.promise
 }
 
 export class AgentTool extends ToolBase {
@@ -47,17 +54,26 @@ export class AgentTool extends ToolBase {
     const prompt = args.prompt as string
     const model = (args.model as string) ?? context.options.model
     const runInBackground = (args.run_in_background as boolean) ?? false
+    const description = (args.description as string) ?? 'sub-task'
+    const subagentType = (args.subagent_type as string) ?? 'general-purpose'
 
-    // Inherit API key from parent context options
-    const apiKey = (context.options as Record<string, unknown>).apiKey as string
-    const baseUrl = (context.options as Record<string, unknown>).baseUrl as string | undefined
+    const apiKey = context.options.apiKey
+    const baseUrl = context.options.baseUrl
+    if (!apiKey) {
+      throw new Error('Agent tool requires an API key in the current tool context.')
+    }
 
     const subEngine = new QueryEngine({
       apiKey,
       baseUrl,
       model,
       tools: context.options.tools,
-      systemPrompt: 'You are a sub-agent. Complete the assigned task and return a concise result.',
+      systemPrompt: [
+        'You are a focused sub-agent.',
+        `Task type: ${subagentType}.`,
+        `Mission summary: ${description}.`,
+        'Complete the assigned task and return a concise, useful result for the parent agent.',
+      ].join(' '),
     })
 
     const runTask = async (): Promise<string> => {
@@ -72,7 +88,39 @@ export class AgentTool extends ToolBase {
 
     if (runInBackground) {
       const taskId = crypto.randomUUID()
-      backgroundTasks.set(taskId, runTask())
+      writeTask({
+        id: taskId,
+        prompt: `${description}: ${prompt}`,
+        status: 'running',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+
+      registerTaskStopHandler(taskId, () => {
+        subEngine.interrupt()
+        updateTask(taskId, { status: 'cancelled', output: 'Task cancelled by user.' })
+      })
+
+      const promise = runTask()
+        .then(result => {
+          const current = getTask(taskId)
+          if (current?.status !== 'cancelled') {
+            updateTask(taskId, { status: 'completed', output: result })
+          }
+          clearTaskStopHandler(taskId)
+          return result
+        })
+        .catch(error => {
+          const message = error instanceof Error ? error.message : String(error)
+          const current = getTask(taskId)
+          if (current?.status !== 'cancelled') {
+            updateTask(taskId, { status: 'failed', output: message })
+          }
+          clearTaskStopHandler(taskId)
+          throw error
+        })
+
+      backgroundTasks.set(taskId, { promise, interrupt: () => subEngine.interrupt() })
       return { data: `Background task started. Task ID: ${taskId}` }
     }
 

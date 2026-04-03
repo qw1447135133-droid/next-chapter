@@ -3,6 +3,8 @@ import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-m
 import {
   ArrowUpRight,
   Bot,
+  ChevronLeft,
+  ChevronRight,
   Clapperboard,
   History,
   Image,
@@ -37,6 +39,8 @@ import type {
   StudioQuestionState,
   StudioRuntimeState,
   StudioSessionState,
+  WorkflowActionResult,
+  WorkflowRuntimeDelta,
 } from "@/lib/home-agent/types";
 import { cn } from "@/lib/utils";
 import ComposerChoicePopover from "./ComposerChoicePopover";
@@ -68,7 +72,7 @@ interface Props {
 type QState = StudioQuestionState;
 
 const PROMPT =
-  "你是 InFinio 首页里的主控创作 Agent。整个产品只有一个首页工作表面，不允许把用户推回模块页、步骤页、工作台或手动表单。你必须先分析，再追问，再执行。需要结构化选择时调用 AskUserQuestion，并允许用户自定义输入。需要推进项目时调用 HomeStudioWorkflow。默认使用简体中文，保持简洁、克制、专业，一次只推进一个关键决策。";
+  "你是 InFinio 首页里的主控创作 Agent。整个产品只有一个首页工作表面，不允许把用户推回模块页、步骤页、工作台或手动表单。你必须先分析，再追问，再执行。需要结构化选择时调用 AskUserQuestion，并允许用户自定义输入。需要推进项目时调用 HomeStudioWorkflow。遇到明显适合并行研究、分工拆解或长任务处理的情况，可以调用 Agent 启动子任务，并用 TaskOutput / TaskStop 管理后台任务，但最终仍然要把结果收口回当前首页会话。默认使用简体中文，保持简洁、克制、专业，一次只推进一个关键决策。";
 const MOBILE_NAV_SHEET =
   "w-full border-r border-white/8 bg-[#17181b] p-0 text-slate-100 shadow-[18px_0_48px_rgba(0,0,0,0.3)] overscroll-contain sm:max-w-[360px]";
 const IDLE =
@@ -80,6 +84,11 @@ const TITLE = "InFinio-一站式智能体自动化平台";
 const SUBTITLE = "单首页、单会话、Agent 主导";
 const SIDEBAR_BRAND = "InFinio";
 const DESKTOP_SIDEBAR_WIDTH = 288;
+const DESKTOP_SIDEBAR_COLLAPSED_WIDTH = 88;
+const DESKTOP_SIDEBAR_OFFSET = 320;
+const DESKTOP_SIDEBAR_COLLAPSED_OFFSET = 120;
+const DESKTOP_SETTINGS_WIDTH = 456;
+const DESKTOP_SIDEBAR_COLLAPSE_KEY = "storyforge-home-agent-desktop-sidebar-collapsed-v1";
 const ACTIVE_TRACK_CLASS = "max-w-[960px]";
 const IDLE_TRACK_CLASS = "max-w-[920px]";
 const SETTINGS_PANEL_CLASS =
@@ -96,6 +105,7 @@ type ProjectStoreModule = typeof import("@/lib/home-agent/project-store");
 type ApiConfigModule = typeof import("@/lib/api-config");
 type AskUserQuestionModule = typeof import("@/lib/agent/tools/ask-user-question");
 type StructuredQuestionParserModule = typeof import("./structured-question-parser");
+type WorkflowActionsModule = typeof import("@/lib/home-agent/workflow-actions");
 
 function scheduleBackgroundTask(task: () => void, timeout = 500): () => void {
   if (typeof window === "undefined") return () => {};
@@ -107,6 +117,26 @@ function scheduleBackgroundTask(task: () => void, timeout = 500): () => void {
 
   const handle = window.setTimeout(task, Math.min(timeout, 180));
   return () => window.clearTimeout(handle);
+}
+
+function readDesktopSidebarCollapsed(): boolean {
+  if (typeof window === "undefined") return false;
+
+  try {
+    return JSON.parse(window.localStorage.getItem(DESKTOP_SIDEBAR_COLLAPSE_KEY) ?? "false") === true;
+  } catch {
+    return false;
+  }
+}
+
+function writeDesktopSidebarCollapsed(collapsed: boolean): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(DESKTOP_SIDEBAR_COLLAPSE_KEY, JSON.stringify(collapsed));
+}
+
+function compactSidebarLabel(value: string): string {
+  const trimmed = value.trim();
+  return Array.from(trimmed)[0] ?? "•";
 }
 
 const templates = [
@@ -217,6 +247,358 @@ function buildRecoveryActionRationale(
   return `继续留在${snapshot.derivedStage}阶段里推进这一步，不需要跳出首页。`;
 }
 
+function buildReviewQuestion(snapshot: ConversationProjectSnapshot): ComposerQuestion | null {
+  const reviewQueue = listPendingReviewItems(snapshot);
+  if (!reviewQueue?.length) return null;
+
+  return {
+    id: `review-${snapshot.projectId}`,
+    title: `我已恢复《${snapshot.title}》的待审阅素材，先怎么处理？`,
+    description: `当前有 ${reviewQueue.length} 条待审阅项，仍然可以直接输入自定义要求。`,
+    options: [
+      {
+        id: `${snapshot.projectId}-review-open`,
+        label: "整理待审阅项",
+        value: "review:queue",
+        rationale: "先同步待审阅状态，再决定具体通过还是重做。",
+      },
+      {
+        id: `${snapshot.projectId}-review-pass`,
+        label: "通过稳定项",
+        value: "review:approve-stable",
+        rationale: "先收口已经稳定的素材，减少后续反复。",
+      },
+      {
+        id: `${snapshot.projectId}-review-redo`,
+        label: "只重做风险项",
+        value: "review:redo-risk",
+        rationale: "先把风险镜头统一退回重做。",
+      },
+      {
+        id: `${snapshot.projectId}-review-list`,
+        label: "逐条审阅",
+        value: "review:list",
+        rationale: "展开逐条处理入口，再决定每条素材的去留。",
+      },
+    ],
+    allowCustomInput: true,
+    submissionMode: "immediate",
+    multiSelect: false,
+    stepIndex: 0,
+    totalSteps: 1,
+    answerKey: "review-recovery",
+  };
+}
+
+function listUnlockedCharacterCards(snapshot: ConversationProjectSnapshot) {
+  return snapshot.memory?.characterStateCards?.filter((card) => card.status !== "locked") ?? [];
+}
+
+function findCharacterCard(snapshot: ConversationProjectSnapshot, cardId: string) {
+  return snapshot.memory?.characterStateCards?.find((card) => card.id === cardId) ?? null;
+}
+
+function buildCharacterCardQuestion(snapshot: ConversationProjectSnapshot): ComposerQuestion | null {
+  const cards = listUnlockedCharacterCards(snapshot);
+  if (!cards.length) return null;
+
+  const nextCard = cards[0];
+  return {
+    id: `script-character-${snapshot.projectId}`,
+    title: `《${snapshot.title}》还有 ${cards.length} 张角色状态卡待收口。`,
+    description: nextCard ? `建议优先锁定 ${nextCard.name}，避免后续剧情推进时角色动机漂移。` : "也可以直接输入自定义人物修订要求。",
+    options: [
+      {
+        id: `${snapshot.projectId}-character-next`,
+        label: nextCard ? `锁定 ${nextCard.name}` : "锁定下一张角色卡",
+        value: "script:character-lock-next",
+        rationale: "先锁定最关键的角色状态卡，保持人物关系稳定。",
+      },
+      {
+        id: `${snapshot.projectId}-character-list`,
+        label: "逐张检查角色卡",
+        value: "script:character-list",
+        rationale: "展开逐张入口，再决定锁定或继续完善。",
+      },
+    ],
+    allowCustomInput: true,
+    submissionMode: "immediate",
+    multiSelect: false,
+    stepIndex: 0,
+    totalSteps: 1,
+    answerKey: "script-character",
+  };
+}
+
+function buildCharacterCardListQuestion(snapshot: ConversationProjectSnapshot): ComposerQuestion | null {
+  const cards = listUnlockedCharacterCards(snapshot);
+  if (!cards.length) return null;
+
+  return {
+    id: `script-character-list-${snapshot.projectId}`,
+    title: `先处理《${snapshot.title}》里的哪张角色状态卡？`,
+    description: "选中后可以直接锁定，也可以继续围绕这张角色卡深化人物。",
+    options: cards.slice(0, 5).map((card) => ({
+      id: card.id,
+      label: card.name,
+      value: `script:character-item:${card.id}`,
+      rationale: `${card.role} · ${card.coreConflict}`,
+    })),
+    allowCustomInput: true,
+    submissionMode: "immediate",
+    multiSelect: false,
+    stepIndex: 0,
+    totalSteps: 1,
+    answerKey: "script-character-list",
+  };
+}
+
+function buildCharacterCardDecisionQuestion(
+  snapshot: ConversationProjectSnapshot,
+  cardId: string,
+): ComposerQuestion | null {
+  const card = findCharacterCard(snapshot, cardId);
+  if (!card) return null;
+
+  return {
+    id: `script-character-item-${snapshot.projectId}-${cardId}`,
+    title: `《${card.name}》这张角色状态卡怎么处理？`,
+    description: `${card.coreConflict} / 目标：${card.desire}`,
+    options: [
+      {
+        id: `${cardId}-lock`,
+        label: "锁定这张角色卡",
+        value: `script:character-lock:${cardId}`,
+        rationale: "确认这张角色卡已经稳定，后续剧情按它推进。",
+      },
+      {
+        id: `${cardId}-refine`,
+        label: "继续深化这个角色",
+        value: `script:character-refine:${cardId}`,
+        rationale: "继续围绕这张角色卡补充人物动机、冲突和关系。",
+      },
+    ],
+    allowCustomInput: true,
+    submissionMode: "immediate",
+    multiSelect: false,
+    stepIndex: 0,
+    totalSteps: 1,
+    answerKey: "script-character-decision",
+  };
+}
+
+function listPendingCompliancePackets(snapshot: ConversationProjectSnapshot) {
+  return snapshot.memory?.complianceRevisionPackets?.filter((item) => item.status !== "resolved") ?? [];
+}
+
+function listUnlockedBeatPackets(snapshot: ConversationProjectSnapshot) {
+  return snapshot.memory?.storyBeatPackets?.filter((item) => item.status !== "locked") ?? [];
+}
+
+function findCompliancePacket(snapshot: ConversationProjectSnapshot, packetId: string) {
+  return snapshot.memory?.complianceRevisionPackets?.find((item) => item.id === packetId) ?? null;
+}
+
+function findBeatPacket(snapshot: ConversationProjectSnapshot, packetId: string) {
+  return snapshot.memory?.storyBeatPackets?.find((item) => item.id === packetId) ?? null;
+}
+
+function buildComplianceQuestion(snapshot: ConversationProjectSnapshot): ComposerQuestion | null {
+  const packets = listPendingCompliancePackets(snapshot);
+  if (!packets.length) return null;
+
+  const highRiskCount = packets.filter((packet) => packet.riskLevel === "high").length;
+  return {
+    id: `script-compliance-${snapshot.projectId}`,
+    title: `《${snapshot.title}》还有 ${packets.length} 条合规修订包待处理。`,
+    description: highRiskCount
+      ? `其中 ${highRiskCount} 条属于高风险，建议优先处理。`
+      : "可以直接逐条确认，也可以继续输入自定义修订要求。",
+    options: [
+      {
+        id: `${snapshot.projectId}-compliance-high`,
+        label: highRiskCount ? "先处理高风险项" : "逐条处理修订包",
+        value: highRiskCount ? "script:compliance-resolve-high" : "script:compliance-list",
+        rationale: highRiskCount ? "先把高风险项收口，再继续后续导出。" : "先展开待处理修订包，再逐条确认。",
+      },
+      {
+        id: `${snapshot.projectId}-compliance-list`,
+        label: "逐条处理修订包",
+        value: "script:compliance-list",
+        rationale: "展开逐条处理入口，保留首页单会话体验。",
+      },
+      {
+        id: `${snapshot.projectId}-compliance-rerun`,
+        label: "重新跑合规审查",
+        value: "script:compliance-rerun",
+        rationale: "用当前最新正文重新生成一轮审查意见。",
+      },
+    ],
+    allowCustomInput: true,
+    submissionMode: "immediate",
+    multiSelect: false,
+    stepIndex: 0,
+    totalSteps: 1,
+    answerKey: "script-compliance",
+  };
+}
+
+function buildComplianceListQuestion(snapshot: ConversationProjectSnapshot): ComposerQuestion | null {
+  const packets = listPendingCompliancePackets(snapshot);
+  if (!packets.length) return null;
+
+  return {
+    id: `script-compliance-list-${snapshot.projectId}`,
+    title: `先处理《${snapshot.title}》里的哪条修订包？`,
+    description: "选中后我会直接帮你标记已处理，或者继续在首页里推进这条修订。",
+    options: packets.slice(0, 5).map((packet) => ({
+      id: packet.id,
+      label: packet.issueTitle,
+      value: `script:compliance-item:${packet.id}`,
+      rationale: `风险：${packet.riskLevel} · ${packet.recommendation}`,
+    })),
+    allowCustomInput: true,
+    submissionMode: "immediate",
+    multiSelect: false,
+    stepIndex: 0,
+    totalSteps: 1,
+    answerKey: "script-compliance-list",
+  };
+}
+
+function buildComplianceDecisionQuestion(
+  snapshot: ConversationProjectSnapshot,
+  packetId: string,
+): ComposerQuestion | null {
+  const packet = findCompliancePacket(snapshot, packetId);
+  if (!packet) return null;
+
+  return {
+    id: `script-compliance-item-${snapshot.projectId}-${packetId}`,
+    title: `《${packet.issueTitle}》这条修订包怎么处理？`,
+    description: packet.recommendation,
+    options: [
+      {
+        id: `${packetId}-resolve`,
+        label: "标记已处理",
+        value: `script:compliance-resolve:${packetId}`,
+        rationale: "确认这条修订已经落地，不再反复提示。",
+      },
+      {
+        id: `${packetId}-rewrite`,
+        label: "继续按这条改写",
+        value: `script:compliance-rewrite:${packetId}`,
+        rationale: "让 Agent 继续围绕这条修订推进文本改写。",
+      },
+    ],
+    allowCustomInput: true,
+    submissionMode: "immediate",
+    multiSelect: false,
+    stepIndex: 0,
+    totalSteps: 1,
+    answerKey: "script-compliance-decision",
+  };
+}
+
+function buildBeatPacketQuestion(snapshot: ConversationProjectSnapshot): ComposerQuestion | null {
+  const packets = listUnlockedBeatPackets(snapshot);
+  if (!packets.length) return null;
+
+  const nextPacket = packets[0];
+  return {
+    id: `script-beat-${snapshot.projectId}`,
+    title: `《${snapshot.title}》还有 ${packets.length} 条剧情 beat 可以继续收口。`,
+    description: nextPacket ? `建议优先处理第 ${nextPacket.episodeNumber} 集 · ${nextPacket.title}` : "也可以直接输入新的推进要求。",
+    options: [
+      {
+        id: `${snapshot.projectId}-beat-next`,
+        label: nextPacket ? `锁定第 ${nextPacket.episodeNumber} 集 beat` : "锁定下一条 beat",
+        value: "script:beat-lock-next",
+        rationale: "先把最靠前的一条剧情 beat 收口，保持节奏连续。",
+      },
+      {
+        id: `${snapshot.projectId}-beat-drafted`,
+        label: "批量锁定已成型 beat",
+        value: "script:beat-lock-drafted",
+        rationale: "把已有细纲支撑的 beat 先锁住，减少反复。",
+      },
+      {
+        id: `${snapshot.projectId}-beat-list`,
+        label: "逐条检查剧情 beat",
+        value: "script:beat-list",
+        rationale: "展开逐条入口，再决定锁定或继续扩写。",
+      },
+    ],
+    allowCustomInput: true,
+    submissionMode: "immediate",
+    multiSelect: false,
+    stepIndex: 0,
+    totalSteps: 1,
+    answerKey: "script-beat",
+  };
+}
+
+function buildBeatPacketListQuestion(snapshot: ConversationProjectSnapshot): ComposerQuestion | null {
+  const packets = listUnlockedBeatPackets(snapshot);
+  if (!packets.length) return null;
+
+  return {
+    id: `script-beat-list-${snapshot.projectId}`,
+    title: `先处理《${snapshot.title}》里的哪条剧情 beat？`,
+    description: "选中后可以直接锁定，也可以继续写这一集。",
+    options: packets.slice(0, 5).map((packet) => ({
+      id: packet.id,
+      label: `第 ${packet.episodeNumber} 集 · ${packet.title}`,
+      value: `script:beat-item:${packet.id}`,
+      rationale: packet.beatSummary,
+    })),
+    allowCustomInput: true,
+    submissionMode: "immediate",
+    multiSelect: false,
+    stepIndex: 0,
+    totalSteps: 1,
+    answerKey: "script-beat-list",
+  };
+}
+
+function buildBeatPacketDecisionQuestion(
+  snapshot: ConversationProjectSnapshot,
+  packetId: string,
+): ComposerQuestion | null {
+  const packet = findBeatPacket(snapshot, packetId);
+  if (!packet) return null;
+
+  return {
+    id: `script-beat-item-${snapshot.projectId}-${packetId}`,
+    title: `第 ${packet.episodeNumber} 集 · ${packet.title} 这条 beat 怎么处理？`,
+    description: packet.beatSummary,
+    options: [
+      {
+        id: `${packetId}-lock`,
+        label: "锁定这条 beat",
+        value: `script:beat-lock:${packetId}`,
+        rationale: "确认这条剧情节点已经成型，后续按它推进。",
+      },
+      {
+        id: `${packetId}-write`,
+        label: `继续写第 ${packet.episodeNumber} 集`,
+        value: `script:beat-write:${packet.episodeNumber}`,
+        rationale: "直接用当前 beat 去推进这一集正文。",
+      },
+    ],
+    allowCustomInput: true,
+    submissionMode: "immediate",
+    multiSelect: false,
+    stepIndex: 0,
+    totalSteps: 1,
+    answerKey: "script-beat-decision",
+  };
+}
+
+function buildScriptPacketQuestion(snapshot: ConversationProjectSnapshot): ComposerQuestion | null {
+  return buildComplianceQuestion(snapshot) ?? buildCharacterCardQuestion(snapshot) ?? buildBeatPacketQuestion(snapshot);
+}
+
 const brief = (snapshot: ConversationProjectSnapshot) =>
   [
     `已恢复项目《${snapshot.title}》。`,
@@ -235,7 +617,9 @@ const brief = (snapshot: ConversationProjectSnapshot) =>
     .join("\n\n");
 
 const recQuestion = (snapshot: ConversationProjectSnapshot): ComposerQuestion | null =>
-  snapshot.recommendedActions.length
+  buildReviewQuestion(snapshot) ??
+  buildScriptPacketQuestion(snapshot) ??
+  (snapshot.recommendedActions.length
     ? {
         id: `r-${snapshot.projectId}`,
         title: `我已分析《${snapshot.title}》的当前状态，下一步先推进哪一块？`,
@@ -253,7 +637,107 @@ const recQuestion = (snapshot: ConversationProjectSnapshot): ComposerQuestion | 
         totalSteps: 1,
         answerKey: "recovery",
       }
-    : null;
+    : null);
+
+function listPendingReviewItems(snapshot: ConversationProjectSnapshot) {
+  return snapshot.memory?.reviewQueue?.filter((item) => item.status === "pending" || item.status === "redo") ?? [];
+}
+
+function findReviewItem(snapshot: ConversationProjectSnapshot, reviewId: string) {
+  return listPendingReviewItems(snapshot).find((item) => item.id === reviewId) ?? null;
+}
+
+function collectReviewTargetIds(snapshot: ConversationProjectSnapshot, mode: "stable" | "risk"): string[] {
+  return listPendingReviewItems(snapshot)
+    .filter((item) => (mode === "stable" ? item.status === "pending" : item.status === "redo"))
+    .flatMap((item) => (item.targetIds.length ? item.targetIds : [item.id]));
+}
+
+function buildReviewListQuestion(snapshot: ConversationProjectSnapshot): ComposerQuestion | null {
+  const reviewQueue = listPendingReviewItems(snapshot);
+  if (!reviewQueue.length) return null;
+
+  return {
+    id: `review-list-${snapshot.projectId}`,
+    title: `先处理《${snapshot.title}》里的哪条待审阅项？`,
+    description: "选中后我会继续给出通过或重做动作，也可以直接输入自定义修订要求。",
+    options: reviewQueue.slice(0, 5).map((item) => ({
+      id: item.id,
+      label: item.title,
+      value: `review:item:${item.id}`,
+      rationale: item.summary,
+    })),
+    allowCustomInput: true,
+    submissionMode: "immediate",
+    multiSelect: false,
+    stepIndex: 0,
+    totalSteps: 1,
+    answerKey: "review-item-list",
+  };
+}
+
+function buildReviewDecisionQuestion(
+  snapshot: ConversationProjectSnapshot,
+  reviewId: string,
+): ComposerQuestion | null {
+  const item = findReviewItem(snapshot, reviewId);
+  if (!item) return null;
+
+  return {
+    id: `review-item-${snapshot.projectId}-${reviewId}`,
+    title: `《${item.title}》这条素材怎么处理？`,
+    description: item.summary,
+    options: [
+      {
+        id: `${reviewId}-approve`,
+        label: "通过这条素材",
+        value: `review:item-approve:${reviewId}`,
+        rationale: "确认这条素材已经可用，直接保留下来。",
+      },
+      {
+        id: `${reviewId}-redo`,
+        label: "标记这条重做",
+        value: `review:item-redo:${reviewId}`,
+        rationale: "保留当前判断，但把这条镜头退回重做。",
+      },
+    ],
+    allowCustomInput: true,
+    submissionMode: "immediate",
+    multiSelect: false,
+    stepIndex: 0,
+    totalSteps: 1,
+    answerKey: "review-item-decision",
+  };
+}
+
+function upsertRecentProject(
+  recentProjects: ConversationProjectSnapshot[],
+  snapshot: ConversationProjectSnapshot,
+): ConversationProjectSnapshot[] {
+  return [snapshot, ...recentProjects.filter((item) => item.projectId !== snapshot.projectId)].slice(0, 8);
+}
+
+function mergeRuntimeWithWorkflowDelta(
+  previous: StudioRuntimeState,
+  delta?: WorkflowRuntimeDelta,
+): StudioRuntimeState {
+  if (!delta) return previous;
+
+  const nextProjectSnapshot = delta.projectSnapshot ?? previous.currentProjectSnapshot;
+  return {
+    ...previous,
+    currentDramaProject: delta.dramaProject === undefined ? previous.currentDramaProject : delta.dramaProject,
+    currentVideoProject: delta.videoProject === undefined ? previous.currentVideoProject : delta.videoProject,
+    currentProjectSnapshot: nextProjectSnapshot,
+    skillDrafts: delta.skillDrafts ?? previous.skillDrafts,
+    maintenanceReports: delta.maintenanceReports ?? previous.maintenanceReports,
+    recentProjects: nextProjectSnapshot
+      ? upsertRecentProject(previous.recentProjects, nextProjectSnapshot)
+      : previous.recentProjects,
+    recentMessageSummary:
+      delta.recentMessageSummary === undefined ? previous.recentMessageSummary : delta.recentMessageSummary,
+  };
+}
 
 const createQState = (request: AskUserQuestionRequest): QState => ({
   request,
@@ -368,7 +852,21 @@ type SidebarAssetItem = {
 
 function collectConversationAssets(
   videoProject: StudioRuntimeState["currentVideoProject"],
+  projectSnapshot?: StudioRuntimeState["currentProjectSnapshot"] | null,
 ): SidebarAssetItem[] {
+  const manifest = projectSnapshot?.memory?.assetManifest;
+  if (manifest?.items.length) {
+    return manifest.items.slice(0, 18).map((item) => ({
+      id: item.id,
+      kind: item.kind === "video-segment" ? "video" : "image",
+      label: item.label,
+      url: item.url,
+      meta: [item.meta, item.reusable ? "可复用" : "当前镜头", item.status === "failed" ? "待修复" : ""]
+        .filter(Boolean)
+        .join(" · "),
+    }));
+  }
+
   if (!videoProject) return [];
 
   const items: SidebarAssetItem[] = [];
@@ -431,23 +929,32 @@ function collectConversationAssets(
 
 const SidebarFooter = memo(function SidebarFooter({
   onOpenSettings,
+  collapsed = false,
 }: {
   onOpenSettings: () => void;
+  collapsed?: boolean;
 }) {
   return (
-    <div className="border-t border-white/[0.05] px-3 pb-4 pt-3">
+    <div className={cn("border-t border-white/[0.05] pb-4 pt-3", collapsed ? "px-2.5" : "px-3")}>
       <button
         type="button"
         onClick={onOpenSettings}
-        className="flex w-full items-center gap-2 rounded-[14px] px-3 py-2 text-left text-[12px] text-slate-300 transition-colors hover:bg-white/[0.035] hover:text-slate-100"
+        aria-label="打开设置"
+        title="设置"
+        className={cn(
+          "flex w-full items-center rounded-[14px] px-3 py-2 text-left text-[12px] text-slate-300 transition-colors hover:bg-white/[0.035] hover:text-slate-100",
+          collapsed ? "justify-center" : "gap-2",
+        )}
       >
         <span className="flex h-7 w-7 items-center justify-center rounded-[10px] bg-white/[0.04] text-slate-200">
           <Settings2 className="h-3.5 w-3.5" />
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[12px] font-medium">设置</span>
-          <span className="block truncate text-[10.5px] text-slate-500">模型、密钥、路径与外观</span>
-        </span>
+        {!collapsed ? (
+          <span className="min-w-0 flex-1">
+            <span className="block text-[12px] font-medium">设置</span>
+            <span className="block truncate text-[10.5px] text-slate-500">模型、密钥、路径与外观</span>
+          </span>
+        ) : null}
       </button>
     </div>
   );
@@ -456,15 +963,22 @@ const SidebarFooter = memo(function SidebarFooter({
 const SidebarAssetRow = memo(function SidebarAssetRow({
   asset,
   onOpen,
+  collapsed = false,
 }: {
   asset: SidebarAssetItem;
   onOpen: (url: string) => void;
+  collapsed?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={() => onOpen(asset.url)}
-      className="flex w-full items-center gap-2.5 rounded-[14px] px-2.5 py-2 text-left transition-colors hover:bg-white/[0.04]"
+      aria-label={asset.label}
+      title={asset.label}
+      className={cn(
+        "flex w-full items-center rounded-[14px] py-2 text-left transition-colors hover:bg-white/[0.04]",
+        collapsed ? "justify-center px-0" : "gap-2.5 px-2.5",
+      )}
     >
       {asset.kind === "image" ? (
         <span className="relative h-9 w-9 shrink-0 overflow-hidden rounded-[11px] bg-white/[0.05]">
@@ -476,14 +990,16 @@ const SidebarAssetRow = memo(function SidebarAssetRow({
           <Clapperboard className="h-3.5 w-3.5" />
         </span>
       )}
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[11.5px] text-slate-100">{asset.label}</span>
-        <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-slate-500">
-          <span className="uppercase tracking-[0.16em] text-slate-400">{asset.kind}</span>
-          <span className="h-1 w-1 rounded-full bg-slate-600" />
-          <span className="truncate">{asset.meta}</span>
+      {!collapsed ? (
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[11.5px] text-slate-100">{asset.label}</span>
+          <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-slate-500">
+            <span className="uppercase tracking-[0.16em] text-slate-400">{asset.kind}</span>
+            <span className="h-1 w-1 rounded-full bg-slate-600" />
+            <span className="truncate">{asset.meta}</span>
+          </span>
         </span>
-      </span>
+      ) : null}
     </button>
   );
 });
@@ -842,14 +1358,40 @@ const MobileTopbar = memo(function MobileTopbar({
   );
 });
 
-const SidebarBrandHeader = memo(function SidebarBrandHeader({ idle }: { idle: boolean }) {
+const SidebarBrandHeader = memo(function SidebarBrandHeader({
+  idle,
+  collapsed = false,
+  onToggleCollapse,
+}: {
+  idle: boolean;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+}) {
   return (
-    <div className="flex h-[72px] items-center border-b border-white/[0.06] px-5">
-      <BrandMark className="h-8" />
-      <div className="ml-3 min-w-0">
-        <div className="truncate text-[13px] font-semibold tracking-[0.02em] text-slate-100">{SIDEBAR_BRAND}</div>
-        <div className="truncate text-[10px] text-slate-500">{idle ? "开始一段新会话" : "当前首页会话"}</div>
+    <div className={cn("relative flex h-[72px] items-center border-b border-white/[0.06]", collapsed ? "justify-center px-2" : "px-5")}>
+      <div className="flex min-w-0 items-center">
+        <BrandMark className="h-8" />
+        {!collapsed ? (
+          <div className="ml-3 min-w-0">
+            <div className="truncate text-[13px] font-semibold tracking-[0.02em] text-slate-100">{SIDEBAR_BRAND}</div>
+            <div className="truncate text-[10px] text-slate-500">{idle ? "开始一段新会话" : "当前首页会话"}</div>
+          </div>
+        ) : null}
       </div>
+      {onToggleCollapse ? (
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          aria-label={collapsed ? "展开侧栏" : "收起侧栏"}
+          title={collapsed ? "展开侧栏" : "收起侧栏"}
+          className={cn(
+            "ml-auto flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white/[0.05] hover:text-slate-100",
+            collapsed && "absolute right-2 top-5 ml-0",
+          )}
+        >
+          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+        </button>
+      ) : null}
     </div>
   );
 });
@@ -857,20 +1399,27 @@ const SidebarBrandHeader = memo(function SidebarBrandHeader({ idle }: { idle: bo
 const SidebarPrimaryAction = memo(function SidebarPrimaryAction({
   idle,
   onClick,
+  collapsed = false,
 }: {
   idle: boolean;
   onClick: () => void;
+  collapsed?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="mb-3.5 flex w-full items-center gap-3 rounded-[16px] px-3 py-2 text-left text-[12.5px] text-slate-100 transition-colors hover:bg-white/[0.04]"
+      aria-label={idle ? "开始新项目" : "新建项目"}
+      title={idle ? "开始新项目" : "新建项目"}
+      className={cn(
+        "mb-3.5 flex w-full items-center rounded-[16px] py-2 text-left text-[12.5px] text-slate-100 transition-colors hover:bg-white/[0.04]",
+        collapsed ? "justify-center px-0" : "gap-3 px-3",
+      )}
     >
       <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/[0.92] text-slate-950">
         <Plus className="h-4 w-4 shrink-0" />
       </span>
-      <span>{idle ? "开始新项目" : "新建项目"}</span>
+      {!collapsed ? <span>{idle ? "开始新项目" : "新建项目"}</span> : null}
     </button>
   );
 });
@@ -879,27 +1428,47 @@ const SidebarQuickTasks = memo(function SidebarQuickTasks({
   templates,
   onLaunch,
   bordered = false,
+  collapsed = false,
 }: {
   templates: typeof templates;
   onLaunch: (template: (typeof templates)[number]) => void;
   bordered?: boolean;
+  collapsed?: boolean;
 }) {
   return (
     <section className={cn("px-2 pb-3", bordered && "border-b border-white/[0.06]")}>
-      <div className="mb-2 px-1 text-[10px] uppercase tracking-[0.18em] text-slate-500">快捷任务</div>
+      <div
+        className={cn(
+          "mb-2 px-1 text-[10px] uppercase tracking-[0.18em] text-slate-500",
+          collapsed && "flex items-center justify-center px-0",
+        )}
+      >
+        {collapsed ? <Sparkles className="h-3.5 w-3.5" aria-hidden="true" /> : "快捷任务"}
+      </div>
       <div className="space-y-1">
         {templates.map((template) => (
           <button
             key={template.id}
             type="button"
             onClick={() => onLaunch(template)}
-            className="flex w-full items-center justify-between gap-3 rounded-[14px] px-3 py-2 text-left transition-colors hover:bg-white/[0.05]"
+            aria-label={template.title}
+            title={template.title}
+            className={cn(
+              "flex w-full items-center rounded-[14px] py-2 text-left transition-colors hover:bg-white/[0.05]",
+              collapsed ? "justify-center px-0" : "justify-between gap-3 px-3",
+            )}
           >
-            <span className="min-w-0">
-              <span className="block truncate text-[12px] text-slate-100">{template.title}</span>
-              <span className="block truncate text-[10.5px] text-slate-500">{truncateCopy(template.description, 36)}</span>
-            </span>
-            <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-slate-600" />
+            {collapsed ? (
+              <template.icon className="h-4 w-4 shrink-0 text-slate-300" />
+            ) : (
+              <>
+                <span className="min-w-0">
+                  <span className="block truncate text-[12px] text-slate-100">{template.title}</span>
+                  <span className="block truncate text-[10.5px] text-slate-500">{truncateCopy(template.description, 36)}</span>
+                </span>
+                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-slate-600" />
+              </>
+            )}
           </button>
         ))}
       </div>
@@ -915,6 +1484,7 @@ const SidebarProjectHistory = memo(function SidebarProjectHistory({
   emptyClassName,
   limit = 10,
   bordered = false,
+  collapsed = false,
 }: {
   recentProjects: ConversationProjectSnapshot[];
   recentProjectsReady: boolean;
@@ -923,12 +1493,18 @@ const SidebarProjectHistory = memo(function SidebarProjectHistory({
   emptyClassName?: string;
   limit?: number;
   bordered?: boolean;
+  collapsed?: boolean;
 }) {
   return (
     <section className={cn("px-2 py-4", bordered && "border-b border-white/[0.06]")}>
-      <div className="mb-2 flex items-center gap-2 px-1 text-[10px] uppercase tracking-[0.22em] text-slate-500">
+      <div
+        className={cn(
+          "mb-2 flex items-center gap-2 px-1 text-[10px] uppercase tracking-[0.22em] text-slate-500",
+          collapsed && "justify-center px-0",
+        )}
+      >
         <History className="h-3.5 w-3.5" />
-        对话历史
+        {!collapsed ? "对话历史" : null}
       </div>
       <div className="space-y-1">
         {recentProjects.slice(0, limit).map((project) => {
@@ -939,27 +1515,51 @@ const SidebarProjectHistory = memo(function SidebarProjectHistory({
               key={project.projectId}
               type="button"
               onClick={() => onOpenProject(project.projectId)}
+              aria-label={project.title}
+              title={project.title}
               className={cn(
-                "flex w-full items-start gap-2 rounded-[14px] px-3 py-2 text-left transition-colors hover:bg-white/[0.04]",
+                "flex w-full rounded-[14px] py-2 text-left transition-colors hover:bg-white/[0.04]",
+                collapsed ? "justify-center px-0" : "items-start gap-2 px-3",
                 active && "bg-white/[0.05]",
               )}
             >
-              <span className={cn("mt-1 h-2 w-2 shrink-0 rounded-full bg-white/[0.12]", active && "bg-[#7c92ff]")} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[12px] font-medium text-slate-100">{project.title}</span>
-                <span className="mt-0.5 block truncate text-[10px] text-slate-500">
-                  {projectKindLabel(project.projectKind)} · {project.derivedStage} · {formatDateLabel(project.updatedAt)}
+              {collapsed ? (
+                <span
+                  className={cn(
+                    "flex h-8 w-8 items-center justify-center rounded-full border text-[11px] font-medium",
+                    active
+                      ? "border-[#7c92ff]/60 bg-[#7c92ff]/16 text-white"
+                      : "border-white/[0.08] bg-white/[0.03] text-slate-300",
+                  )}
+                >
+                  {compactSidebarLabel(project.title)}
                 </span>
-                <span className={cn("mt-0.5 block truncate text-[10px]", active ? "text-slate-400" : "text-slate-600")}>
-                  {truncateCopy(project.currentObjective || project.agentSummary, active ? 52 : 30)}
-                </span>
-              </span>
+              ) : (
+                <>
+                  <span className={cn("mt-1 h-2 w-2 shrink-0 rounded-full bg-white/[0.12]", active && "bg-[#7c92ff]")} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[12px] font-medium text-slate-100">{project.title}</span>
+                    <span className="mt-0.5 block truncate text-[10px] text-slate-500">
+                      {projectKindLabel(project.projectKind)} · {project.derivedStage} · {formatDateLabel(project.updatedAt)}
+                    </span>
+                    <span className={cn("mt-0.5 block truncate text-[10px]", active ? "text-slate-400" : "text-slate-600")}>
+                      {truncateCopy(project.currentObjective || project.agentSummary, active ? 52 : 30)}
+                    </span>
+                  </span>
+                </>
+              )}
             </button>
           );
         })}
         {!recentProjects.length ? (
-          <div className={cn("px-3 py-2 text-[12.5px] leading-6 text-slate-500", emptyClassName)}>
-            {recentProjectsReady ? "还没有历史项目。" : "正在整理最近项目…"}
+          <div
+            className={cn(
+              "px-3 py-2 text-[12.5px] leading-6 text-slate-500",
+              emptyClassName,
+              collapsed && "px-0 text-center text-[10.5px] leading-5",
+            )}
+          >
+            {recentProjectsReady ? (collapsed ? "暂无" : "还没有历史项目。") : collapsed ? "整理中" : "正在整理最近项目…"}
           </div>
         ) : null}
       </div>
@@ -971,23 +1571,38 @@ const SidebarAssetLibrary = memo(function SidebarAssetLibrary({
   assets,
   onOpenAsset,
   emptyClassName,
+  collapsed = false,
 }: {
   assets: SidebarAssetItem[];
   onOpenAsset: (url: string) => void;
   emptyClassName?: string;
+  collapsed?: boolean;
 }) {
   return (
     <section className="px-2 pb-2 pt-4">
-      <div className="mb-2 flex items-center gap-2 px-1 text-[10px] uppercase tracking-[0.22em] text-slate-500">
+      <div
+        className={cn(
+          "mb-2 flex items-center gap-2 px-1 text-[10px] uppercase tracking-[0.22em] text-slate-500",
+          collapsed && "justify-center px-0",
+        )}
+      >
         <Image className="h-3.5 w-3.5" />
-        素材库
+        {!collapsed ? "素材库" : null}
       </div>
       <div className="space-y-1">
         {assets.length ? (
-          assets.map((asset) => <SidebarAssetRow key={asset.id} asset={asset} onOpen={onOpenAsset} />)
+          assets.map((asset) => (
+            <SidebarAssetRow key={asset.id} asset={asset} onOpen={onOpenAsset} collapsed={collapsed} />
+          ))
         ) : (
-          <div className={cn("px-3 py-2 text-[12.5px] leading-6 text-slate-500", emptyClassName)}>
-            当前对话还没有图像或视频素材。
+          <div
+            className={cn(
+              "px-3 py-2 text-[12.5px] leading-6 text-slate-500",
+              emptyClassName,
+              collapsed && "px-0 text-center text-[10.5px] leading-5",
+            )}
+          >
+            {collapsed ? "暂无" : "当前对话还没有图像或视频素材。"}
           </div>
         )}
       </div>
@@ -1002,10 +1617,12 @@ const DesktopSidebar = memo(function DesktopSidebar({
   templates,
   assets,
   currentProjectId,
+  collapsed = false,
   onTemplateLaunch,
   onOpenProject,
   onNewProject,
   onOpenSettings,
+  onToggleCollapse,
 }: {
   idle: boolean;
   recentProjects: ConversationProjectSnapshot[];
@@ -1013,10 +1630,12 @@ const DesktopSidebar = memo(function DesktopSidebar({
   templates: typeof templates;
   assets: SidebarAssetItem[];
   currentProjectId?: string;
+  collapsed?: boolean;
   onTemplateLaunch: (prompt: string, title: string) => void;
   onOpenProject: (projectId: string) => void;
   onNewProject: () => void;
   onOpenSettings: () => void;
+  onToggleCollapse: () => void;
 }) {
   const handleOpenAsset = useCallback((url: string) => {
     window.open(url, "_blank", "noopener,noreferrer");
@@ -1032,28 +1651,33 @@ const DesktopSidebar = memo(function DesktopSidebar({
   return (
     <aside className="hidden lg:block">
       <div
-        className="fixed inset-y-0 left-0 z-40 border-r border-white/[0.06] bg-[#141518] [contain:layout_paint]"
-        style={{ width: DESKTOP_SIDEBAR_WIDTH }}
+        className="fixed inset-y-0 left-0 z-40 border-r border-white/[0.06] bg-[#141518] [contain:layout_paint] transition-[width] duration-200 ease-out"
+        style={{ width: collapsed ? DESKTOP_SIDEBAR_COLLAPSED_WIDTH : DESKTOP_SIDEBAR_WIDTH }}
       >
-        <SidebarBrandHeader idle={idle} />
+        <SidebarBrandHeader idle={idle} collapsed={collapsed} onToggleCollapse={onToggleCollapse} />
 
         <div className="flex h-[calc(100vh-72px)] flex-col">
-          <div className="flex-1 overflow-y-auto px-3 py-4">
-            <SidebarPrimaryAction idle={idle} onClick={onNewProject} />
+          <div className={cn("flex-1 overflow-y-auto py-4", collapsed ? "px-2.5" : "px-3")}>
+            <SidebarPrimaryAction idle={idle} onClick={onNewProject} collapsed={collapsed} />
 
-            {idle ? <SidebarQuickTasks templates={templates} onLaunch={handleLaunchTemplate} /> : null}
+            {idle ? (
+              <SidebarQuickTasks templates={templates} onLaunch={handleLaunchTemplate} collapsed={collapsed} />
+            ) : null}
 
             <SidebarProjectHistory
               recentProjects={recentProjects}
               recentProjectsReady={recentProjectsReady}
               currentProjectId={currentProjectId}
               onOpenProject={onOpenProject}
-              limit={10}
+              limit={collapsed ? 8 : 10}
+              collapsed={collapsed}
             />
 
-            {!idle ? <SidebarAssetLibrary assets={assets} onOpenAsset={handleOpenAsset} /> : null}
+            {!idle ? (
+              <SidebarAssetLibrary assets={assets} onOpenAsset={handleOpenAsset} collapsed={collapsed} />
+            ) : null}
           </div>
-          <SidebarFooter onOpenSettings={onOpenSettings} />
+          <SidebarFooter onOpenSettings={onOpenSettings} collapsed={collapsed} />
         </div>
       </div>
     </aside>
@@ -1164,9 +1788,11 @@ const MobileSidebarSheet = memo(function MobileSidebarSheet({
 const DesktopSettingsPanel = memo(function DesktopSettingsPanel({
   open,
   onClose,
+  leftOffset,
 }: {
   open: boolean;
   onClose: () => void;
+  leftOffset: number;
 }) {
   return (
     <AnimatePresence>
@@ -1176,7 +1802,11 @@ const DesktopSettingsPanel = memo(function DesktopSettingsPanel({
           animate={{ opacity: 1, x: 0, scale: 1 }}
           exit={{ opacity: 0, x: -12, scale: 0.99 }}
           transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-          className="fixed bottom-4 left-[304px] top-4 z-50 hidden w-[min(456px,calc(100vw-336px))] lg:block"
+          className="fixed bottom-4 top-4 z-50 hidden lg:block"
+          style={{
+            left: leftOffset - 16,
+            width: `min(${DESKTOP_SETTINGS_WIDTH}px, calc(100vw - ${leftOffset + 32}px))`,
+          }}
         >
           <div className={cn("flex h-full min-h-0 flex-col overflow-hidden", SETTINGS_PANEL_CLASS)}>
             <Suspense
@@ -1242,10 +1872,12 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   const [streaming, setStreaming] = useState(false);
   const [qState, setQState] = useState<QState | null>(session?.qState ?? null);
   const [suggested, setSuggested] = useState<ComposerQuestion | null>(null);
+  const [popoverOverride, setPopoverOverride] = useState<ComposerQuestion | null>(null);
   const [selectedValues, setSelectedValues] = useState<string[]>(session?.selectedValues ?? []);
   const [recentProjectsReady, setRecentProjectsReady] = useState(false);
   const [metaReady, setMetaReady] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(readDesktopSidebarCollapsed);
   const [utilityPanel, setUtilityPanel] = useState<UtilityPanelId>(initialUtility);
   const [activeProjectId, setActiveProjectId] = useState(
     session?.projectId ?? session?.currentProjectSnapshot?.projectId,
@@ -1259,6 +1891,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   const apiConfigRef = useRef<Promise<ApiConfigModule> | null>(null);
   const askQuestionRef = useRef<Promise<AskUserQuestionModule> | null>(null);
   const structuredParserRef = useRef<Promise<StructuredQuestionParserModule> | null>(null);
+  const workflowActionsRef = useRef<Promise<WorkflowActionsModule> | null>(null);
   const handoffRef = useRef(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const previousQuestionStepRef = useRef<string | null>(
@@ -1266,7 +1899,10 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   );
 
   const currentProject = runtime.currentProjectSnapshot;
-  const baseQuestion = useMemo(() => qToComposer(qState) || suggested, [qState, suggested]);
+  const baseQuestion = useMemo(
+    () => qToComposer(qState) || popoverOverride || suggested,
+    [popoverOverride, qState, suggested],
+  );
   const question = useMemo(
     () =>
       baseQuestion
@@ -1288,6 +1924,9 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   const deferredRecentProjects = useDeferredValue(runtime.recentProjects);
   const reduceMotion = useReducedMotion();
   const settingsOpen = utilityPanel === "settings";
+  const desktopSidebarOffset = desktopSidebarCollapsed
+    ? DESKTOP_SIDEBAR_COLLAPSED_OFFSET
+    : DESKTOP_SIDEBAR_OFFSET;
   const recentSessionSummary = useMemo(
     () =>
       deferredMessages
@@ -1301,8 +1940,12 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     ? "overflow-hidden rounded-[30px] bg-[linear-gradient(180deg,rgba(35,36,40,0.96),rgba(24,25,28,0.98))] shadow-[0_10px_30px_rgba(0,0,0,0.14)]"
     : "overflow-hidden rounded-[28px] bg-[linear-gradient(180deg,rgba(33,34,38,0.96),rgba(24,25,28,0.98))]";
   const sidebarAssets = useMemo(
-    () => collectConversationAssets(runtime.currentVideoProject).slice(0, 12),
-    [runtime.currentVideoProject],
+    () =>
+      collectConversationAssets(
+        runtime.currentVideoProject,
+        runtime.currentProjectSnapshot,
+      ).slice(0, 12),
+    [runtime.currentProjectSnapshot, runtime.currentVideoProject],
   );
   const deferredSidebarAssets = useDeferredValue(sidebarAssets);
 
@@ -1317,6 +1960,10 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   useEffect(() => {
     setUtilityPanel(initialUtility);
   }, [initialUtility]);
+
+  useEffect(() => {
+    writeDesktopSidebarCollapsed(desktopSidebarCollapsed);
+  }, [desktopSidebarCollapsed]);
 
   const loadProjectStore = useCallback(async () => {
     if (!projectStoreRef.current) {
@@ -1344,6 +1991,13 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
       structuredParserRef.current = import("./structured-question-parser");
     }
     return structuredParserRef.current;
+  }, []);
+
+  const loadWorkflowActionsModule = useCallback(async () => {
+    if (!workflowActionsRef.current) {
+      workflowActionsRef.current = import("@/lib/home-agent/workflow-actions");
+    }
+    return workflowActionsRef.current;
   }, []);
 
   useEffect(() => {
@@ -1410,10 +2064,28 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   }, [runtime.currentProjectSnapshot?.projectId]);
 
   useEffect(() => {
+    if (qState || streaming || popoverOverride) return;
+    if (draft.trim()) return;
+    if (!runtime.currentProjectSnapshot) {
+      if (suggested) setSuggested(null);
+      return;
+    }
+
+    const nextSuggestion = recQuestion(runtime.currentProjectSnapshot);
+    setSuggested((previous) => {
+      const previousId = previous?.id ?? null;
+      const nextId = nextSuggestion?.id ?? null;
+      if (previousId === nextId) return previous;
+      return nextSuggestion;
+    });
+  }, [draft, popoverOverride, qState, runtime.currentProjectSnapshot, streaming, suggested]);
+
+  useEffect(() => {
     const stepKey = qState ? `${qState.request.id}:${qState.currentIndex}` : null;
     if (stepKey === previousQuestionStepRef.current) return;
     previousQuestionStepRef.current = stepKey;
     if (!stepKey) return;
+    setPopoverOverride(null);
     setSelectedValues([]);
     setDraft("");
   }, [qState]);
@@ -1517,7 +2189,9 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
       const apiConfig = await loadApiConfigModule();
       const tools = deps
         .createDefaultTools()
-        .filter((tool) => ["AskUserQuestion", "HomeStudioWorkflow"].includes(tool.name));
+        .filter((tool) =>
+          ["AskUserQuestion", "HomeStudioWorkflow", "Agent", "TaskOutput", "TaskStop"].includes(tool.name),
+        );
       const cfg = apiConfig.getApiConfig();
       const apiKey = cfg.claudeKey || cfg.geminiKey || cfg.gptKey;
       const baseUrl = cfg.claudeEndpoint || cfg.geminiEndpoint || cfg.gptEndpoint;
@@ -1549,6 +2223,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
       if (!cleaned) return;
 
       push("user", shown || cleaned);
+      setPopoverOverride(null);
       setSuggested(null);
       setMode("active");
       setDraft("");
@@ -1587,6 +2262,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     engineRef.current?.interrupt();
     engineRef.current = null;
     setQState(null);
+    setPopoverOverride(null);
     setSuggested(null);
     setSelectedValues([]);
     setMode("idle");
@@ -1622,6 +2298,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
 
         if (savedSession) {
           setQState(savedSession.qState ?? null);
+          setPopoverOverride(null);
           setSuggested(null);
           setSelectedValues(savedSession.selectedValues ?? []);
           setMode(
@@ -1636,6 +2313,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
             : null;
         } else {
           setQState(null);
+          setPopoverOverride(null);
           setSuggested(recQuestion(snapshot));
           setSelectedValues([]);
           setMode("active");
@@ -1681,6 +2359,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
       const detail = (event as CustomEvent<AskUserQuestionRequest>).detail;
       if (!detail?.questions?.length) return;
       startTransition(() => {
+        setPopoverOverride(null);
         setSuggested(null);
         setQState(createQState(detail));
         setSelectedValues([]);
@@ -1791,6 +2470,364 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
 
   const handleChoiceSelect = useCallback(
     (value: string, label: string) => {
+      const snapshot = runtimeRef.current.currentProjectSnapshot;
+
+      const executeWorkflowShortcut = async (
+        action: string,
+        input: Record<string, unknown>,
+        userBubble: string,
+      ) => {
+        push("user", userBubble);
+        setPopoverOverride(null);
+        setSuggested(null);
+        setMode("active");
+        setDraft("");
+        setStreaming(true);
+
+        try {
+          const workflow = await loadWorkflowActionsModule();
+          const result: WorkflowActionResult = await workflow.runWorkflowAction(action, input, runtimeRef.current);
+          const nextProjectSnapshot = result.projectSnapshot ?? result.data?.projectSnapshot ?? null;
+
+          if (result.data) {
+            startTransition(() => {
+              setRuntime((previous) => mergeRuntimeWithWorkflowDelta(previous, result.data));
+              if (nextProjectSnapshot?.projectId) {
+                setActiveProjectId(nextProjectSnapshot.projectId);
+              }
+            });
+          }
+
+          if (result.summary.trim()) {
+            push("assistant", result.summary.trim());
+          }
+        } catch (error) {
+          push("assistant", error instanceof Error ? error.message : String(error));
+        } finally {
+          setStreaming(false);
+        }
+      };
+
+      if (snapshot?.projectKind === "video" && question?.id.startsWith("review-")) {
+        if (value === "review:queue") {
+          void executeWorkflowShortcut("review_video_assets", { projectId: snapshot.projectId }, label);
+          return;
+        }
+
+        if (value === "review:approve-stable") {
+          const targetIds = collectReviewTargetIds(snapshot, "stable");
+          if (!targetIds.length) {
+            push("user", label);
+            push("assistant", "当前没有可直接通过的稳定项，我先把待审阅项展开给你逐条处理。");
+            setPopoverOverride(buildReviewListQuestion(snapshot));
+            setSuggested(null);
+            setDraft("");
+            return;
+          }
+
+          void executeWorkflowShortcut(
+            "approve_video_assets",
+            { projectId: snapshot.projectId, targetIds },
+            label,
+          );
+          return;
+        }
+
+        if (value === "review:redo-risk") {
+          const targetIds = collectReviewTargetIds(snapshot, "risk");
+          if (!targetIds.length) {
+            push("user", label);
+            push("assistant", "当前还没有已标记的风险项，我先把待审阅项展开给你逐条判断。");
+            setPopoverOverride(buildReviewListQuestion(snapshot));
+            setSuggested(null);
+            setDraft("");
+            return;
+          }
+
+          void executeWorkflowShortcut(
+            "redo_video_assets",
+            {
+              projectId: snapshot.projectId,
+              targetIds,
+              reason: "集中回退风险项，等待重新生成。",
+            },
+            label,
+          );
+          return;
+        }
+
+        if (value === "review:list") {
+          push("user", label);
+          push("assistant", "我先把待审阅项逐条展开，你可以直接决定每条素材通过还是重做。");
+          setPopoverOverride(buildReviewListQuestion(snapshot));
+          setSuggested(null);
+          setMode("active");
+          setDraft("");
+          return;
+        }
+
+        if (value.startsWith("review:item:")) {
+          const reviewId = value.replace("review:item:", "");
+          const item = findReviewItem(snapshot, reviewId);
+          const nextQuestion = buildReviewDecisionQuestion(snapshot, reviewId);
+          if (!item || !nextQuestion) return;
+
+          push("user", label);
+          push("assistant", `已定位到「${item.title}」，这条素材你想直接通过，还是先打回重做？`);
+          setPopoverOverride(nextQuestion);
+          setSuggested(null);
+          setMode("active");
+          setDraft("");
+          return;
+        }
+
+        if (value.startsWith("review:item-approve:")) {
+          const reviewId = value.replace("review:item-approve:", "");
+          const item = findReviewItem(snapshot, reviewId);
+          if (!item) return;
+
+          void executeWorkflowShortcut(
+            "approve_video_assets",
+            { projectId: snapshot.projectId, targetIds: item.targetIds },
+            label,
+          );
+          return;
+        }
+
+        if (value.startsWith("review:item-redo:")) {
+          const reviewId = value.replace("review:item-redo:", "");
+          const item = findReviewItem(snapshot, reviewId);
+          if (!item) return;
+
+          void executeWorkflowShortcut(
+            "redo_video_assets",
+            {
+              projectId: snapshot.projectId,
+              targetIds: item.targetIds,
+              reason: `已将「${item.title}」退回重做。`,
+            },
+            label,
+          );
+          return;
+        }
+      }
+
+      if ((snapshot?.projectKind === "script" || snapshot?.projectKind === "adaptation") && question?.id.startsWith("script-")) {
+        if (value === "script:character-lock-next") {
+          const nextCard = listUnlockedCharacterCards(snapshot)[0];
+          if (!nextCard) return;
+
+          void executeWorkflowShortcut(
+            "lock_character_cards",
+            { projectId: snapshot.projectId, targetIds: [nextCard.id] },
+            label,
+          );
+          return;
+        }
+
+        if (value === "script:character-list") {
+          push("user", label);
+          push("assistant", "我先把未锁定的角色状态卡逐张展开，你可以直接锁定，也可以继续深化对应角色。");
+          setPopoverOverride(buildCharacterCardListQuestion(snapshot));
+          setSuggested(null);
+          setMode("active");
+          setDraft("");
+          return;
+        }
+
+        if (value.startsWith("script:character-item:")) {
+          const cardId = value.replace("script:character-item:", "");
+          const card = findCharacterCard(snapshot, cardId);
+          const nextQuestion = buildCharacterCardDecisionQuestion(snapshot, cardId);
+          if (!card || !nextQuestion) return;
+
+          push("user", label);
+          push("assistant", `已定位到角色卡「${card.name}」，你想直接锁定，还是继续深化这个角色？`);
+          setPopoverOverride(nextQuestion);
+          setSuggested(null);
+          setMode("active");
+          setDraft("");
+          return;
+        }
+
+        if (value.startsWith("script:character-lock:")) {
+          const cardId = value.replace("script:character-lock:", "");
+          void executeWorkflowShortcut(
+            "lock_character_cards",
+            { projectId: snapshot.projectId, targetIds: [cardId] },
+            label,
+          );
+          return;
+        }
+
+        if (value.startsWith("script:character-refine:")) {
+          const cardId = value.replace("script:character-refine:", "");
+          const card = findCharacterCard(snapshot, cardId);
+          if (!card) return;
+
+          void send(
+            `请继续深化角色「${card.name}」的状态卡。角色定位：${card.role}。核心冲突：${card.coreConflict}。目标：${card.desire}。风险：${card.riskNote}。关系轴：${card.relationshipAxis.join("、") || "待补充"}。`,
+            label,
+          );
+          return;
+        }
+
+        if (value === "script:compliance-resolve-high") {
+          const targetIds = listPendingCompliancePackets(snapshot)
+            .filter((packet) => packet.riskLevel === "high")
+            .map((packet) => packet.id);
+
+          if (!targetIds.length) {
+            push("user", label);
+            push("assistant", "当前没有高风险修订包，我先把待处理项展开给你逐条确认。");
+            setPopoverOverride(buildComplianceListQuestion(snapshot));
+            setSuggested(null);
+            setDraft("");
+            return;
+          }
+
+          void executeWorkflowShortcut(
+            "resolve_compliance_revisions",
+            { projectId: snapshot.projectId, targetIds },
+            label,
+          );
+          return;
+        }
+
+        if (value === "script:compliance-list") {
+          push("user", label);
+          push("assistant", "我先把待处理修订包逐条展开，你可以直接标记已处理，或者继续围绕单条修订推进。");
+          setPopoverOverride(buildComplianceListQuestion(snapshot));
+          setSuggested(null);
+          setMode("active");
+          setDraft("");
+          return;
+        }
+
+        if (value === "script:compliance-rerun") {
+          void executeWorkflowShortcut("run_compliance_review", { projectId: snapshot.projectId }, label);
+          return;
+        }
+
+        if (value.startsWith("script:compliance-item:")) {
+          const packetId = value.replace("script:compliance-item:", "");
+          const packet = findCompliancePacket(snapshot, packetId);
+          const nextQuestion = buildComplianceDecisionQuestion(snapshot, packetId);
+          if (!packet || !nextQuestion) return;
+
+          push("user", label);
+          push("assistant", `已定位到修订包「${packet.issueTitle}」，你想直接标记已处理，还是继续按这条要求推进改写？`);
+          setPopoverOverride(nextQuestion);
+          setSuggested(null);
+          setMode("active");
+          setDraft("");
+          return;
+        }
+
+        if (value.startsWith("script:compliance-resolve:")) {
+          const packetId = value.replace("script:compliance-resolve:", "");
+          void executeWorkflowShortcut(
+            "resolve_compliance_revisions",
+            { projectId: snapshot.projectId, targetIds: [packetId] },
+            label,
+          );
+          return;
+        }
+
+        if (value.startsWith("script:compliance-rewrite:")) {
+          const packetId = value.replace("script:compliance-rewrite:", "");
+          const packet = findCompliancePacket(snapshot, packetId);
+          if (!packet) return;
+
+          void send(
+            `请根据这条合规修订继续改写当前项目：${packet.issueTitle}。风险等级：${packet.riskLevel}。建议：${packet.recommendation}`,
+            label,
+          );
+          return;
+        }
+
+        if (value === "script:beat-lock-next") {
+          const nextPacket = listUnlockedBeatPackets(snapshot)[0];
+          if (!nextPacket) return;
+
+          void executeWorkflowShortcut(
+            "lock_story_beats",
+            { projectId: snapshot.projectId, targetIds: [nextPacket.id] },
+            label,
+          );
+          return;
+        }
+
+        if (value === "script:beat-lock-drafted") {
+          const targetIds = listUnlockedBeatPackets(snapshot)
+            .filter((packet) => packet.status === "drafted")
+            .map((packet) => packet.id);
+
+          if (!targetIds.length) {
+            push("user", label);
+            push("assistant", "当前还没有已经成型的 beat，我先把可处理的剧情节点逐条展开给你。");
+            setPopoverOverride(buildBeatPacketListQuestion(snapshot));
+            setSuggested(null);
+            setDraft("");
+            return;
+          }
+
+          void executeWorkflowShortcut(
+            "lock_story_beats",
+            { projectId: snapshot.projectId, targetIds },
+            label,
+          );
+          return;
+        }
+
+        if (value === "script:beat-list") {
+          push("user", label);
+          push("assistant", "我先把可处理的剧情 beat 逐条展开，你可以直接锁定，或者继续写对应集数。");
+          setPopoverOverride(buildBeatPacketListQuestion(snapshot));
+          setSuggested(null);
+          setMode("active");
+          setDraft("");
+          return;
+        }
+
+        if (value.startsWith("script:beat-item:")) {
+          const packetId = value.replace("script:beat-item:", "");
+          const packet = findBeatPacket(snapshot, packetId);
+          const nextQuestion = buildBeatPacketDecisionQuestion(snapshot, packetId);
+          if (!packet || !nextQuestion) return;
+
+          push("user", label);
+          push("assistant", `已定位到第 ${packet.episodeNumber} 集 · ${packet.title}，这条 beat 你想直接锁定，还是继续写这一集？`);
+          setPopoverOverride(nextQuestion);
+          setSuggested(null);
+          setMode("active");
+          setDraft("");
+          return;
+        }
+
+        if (value.startsWith("script:beat-lock:")) {
+          const packetId = value.replace("script:beat-lock:", "");
+          void executeWorkflowShortcut(
+            "lock_story_beats",
+            { projectId: snapshot.projectId, targetIds: [packetId] },
+            label,
+          );
+          return;
+        }
+
+        if (value.startsWith("script:beat-write:")) {
+          const episodeNumber = Number(value.replace("script:beat-write:", ""));
+          if (!Number.isFinite(episodeNumber)) return;
+
+          void executeWorkflowShortcut(
+            "generate_episode",
+            { projectId: snapshot.projectId, episodeNumber },
+            label,
+          );
+          return;
+        }
+      }
+
       if (!qState || (!question?.multiSelect && question?.submissionMode !== "confirm")) {
         answer(value, label);
         return;
@@ -1805,7 +2842,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         return [value];
       });
     },
-    [answer, qState, question],
+    [answer, loadWorkflowActionsModule, push, qState, question, send],
   );
 
   const confirmStructuredAnswer = useCallback(() => {
@@ -1900,10 +2937,12 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
           templates={templates}
           assets={deferredSidebarAssets}
           currentProjectId={activeProjectId}
+          collapsed={desktopSidebarCollapsed}
           onTemplateLaunch={handleTemplateLaunch}
           onOpenProject={handleOpenProject}
           onNewProject={handleReset}
           onOpenSettings={handleOpenSettings}
+          onToggleCollapse={() => setDesktopSidebarCollapsed((current) => !current)}
         />
         <MobileSidebarSheet
           open={mobileNavOpen}
@@ -1919,7 +2958,11 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
           onNewProject={handleReset}
           onOpenSettings={handleOpenSettings}
         />
-        <DesktopSettingsPanel open={settingsOpen} onClose={() => handleSettingsOpenChange(false)} />
+        <DesktopSettingsPanel
+          open={settingsOpen}
+          onClose={() => handleSettingsOpenChange(false)}
+          leftOffset={desktopSidebarOffset}
+        />
         <MobileSettingsSheet open={settingsOpen} onOpenChange={handleSettingsOpenChange} />
 
         <div className="relative z-10 flex min-h-screen flex-col">
@@ -1927,8 +2970,9 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
           <main
             className={cn(
               "relative flex-1 overflow-x-clip px-3.5 sm:px-4 md:px-8",
-              idle ? "pb-0 pt-4 lg:pl-[320px]" : "pb-0 pt-2 lg:pl-[320px]",
+              idle ? "pb-0 pt-4 lg:pl-[var(--home-sidebar-offset)]" : "pb-0 pt-2 lg:pl-[var(--home-sidebar-offset)]",
             )}
+            style={{ "--home-sidebar-offset": `${desktopSidebarOffset}px` } as React.CSSProperties}
           >
             {idle ? (
               <IdleLanding composerProps={composerProps} reduceMotion={reduceMotion} />

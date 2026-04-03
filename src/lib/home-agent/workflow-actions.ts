@@ -22,24 +22,33 @@ import {
   generateEpisodeAction,
   generateOutlinesAction,
   generateStructureTransformAction,
+  lockCharacterCardsAction,
+  lockStoryBeatsAction,
+  reopenComplianceRevisionsAction,
+  resolveComplianceRevisionsAction,
   runComplianceReviewAction,
   saveDramaSetupAction,
 } from "./services/drama-workflow-service";
 import {
+  approveVideoAssetsAction,
   advanceVideoWorkflowAction,
   analyzeScriptForVideoAction,
+  compileVideoShotPacketsAction,
   continueVideoStepAction,
   createVideoBridgeArtifactAction,
+  redoVideoAssetsAction,
   extractVideoEntitiesAction,
   prepareStoryboardBatchAction,
   prepareVideoGenerationAction,
   prepareVideoPromptBatchAction,
+  reviewVideoAssetsAction,
 } from "./services/video-workflow-service";
 
 function buildContextSummary(runtime: StudioRuntimeState): string {
   const snapshot = runtime.currentProjectSnapshot;
   const pendingSkillDrafts = runtime.skillDrafts.filter((draft) => draft.status === "pending").length;
   const latestReport = runtime.maintenanceReports[0];
+  const memory = snapshot?.memory;
   const artifactSummary = snapshot?.artifacts.length
     ? snapshot.artifacts
         .slice(0, 4)
@@ -54,6 +63,21 @@ function buildContextSummary(runtime: StudioRuntimeState): string {
       : "当前项目：无",
     snapshot ? `当前目标：${snapshot.currentObjective}` : "",
     snapshot ? `项目摘要：${snapshot.agentSummary}` : "",
+    memory?.styleLock
+      ? `风格锁定：${memory.styleLock.genre.join("、")} / ${memory.styleLock.tone} / ${memory.styleLock.visualStyle}`
+      : "",
+    memory?.worldModel
+      ? `世界模型：角色 ${memory.worldModel.characters.length} / 场景 ${memory.worldModel.scenes.length}`
+      : "",
+    memory?.characterStateCards?.length ? `角色状态卡：${memory.characterStateCards.length} 张` : "",
+    memory?.storyBeatPackets?.length ? `剧情 beat 包：${memory.storyBeatPackets.length} 条` : "",
+    memory?.complianceRevisionPackets?.length
+      ? `合规修订包：${memory.complianceRevisionPackets.length} 条`
+      : "",
+    memory?.assetManifest
+      ? `资产清单：${memory.assetManifest.items.length} 项 / 待审阅 ${memory.reviewQueue?.filter((item) => item.status !== "approved").length ?? 0} 项`
+      : "",
+    memory?.shotPackets?.length ? `镜头指令包：${memory.shotPackets.length} 个` : "",
     artifactSummary ? `可用产物：\n- ${artifactSummary}` : "",
     snapshot?.recommendedActions.length
       ? `推荐动作：\n- ${snapshot.recommendedActions.slice(0, 3).join("\n- ")}`
@@ -264,6 +288,26 @@ const workflowActions: WorkflowAction[] = [
     run: runComplianceReviewAction,
   },
   {
+    id: "lock-character-cards",
+    kind: "lock_character_cards",
+    run: lockCharacterCardsAction,
+  },
+  {
+    id: "lock-story-beats",
+    kind: "lock_story_beats",
+    run: lockStoryBeatsAction,
+  },
+  {
+    id: "resolve-compliance-revisions",
+    kind: "resolve_compliance_revisions",
+    run: resolveComplianceRevisionsAction,
+  },
+  {
+    id: "reopen-compliance-revisions",
+    kind: "reopen_compliance_revisions",
+    run: reopenComplianceRevisionsAction,
+  },
+  {
     id: "prepare-video-generation",
     kind: "prepare_video_generation",
     run: prepareVideoGenerationAction,
@@ -289,9 +333,29 @@ const workflowActions: WorkflowAction[] = [
     run: prepareStoryboardBatchAction,
   },
   {
+    id: "compile-video-shot-packets",
+    kind: "compile_video_shot_packets",
+    run: compileVideoShotPacketsAction,
+  },
+  {
     id: "prepare-video-prompt-batch",
     kind: "prepare_video_prompt_batch",
     run: prepareVideoPromptBatchAction,
+  },
+  {
+    id: "review-video-assets",
+    kind: "review_video_assets",
+    run: reviewVideoAssetsAction,
+  },
+  {
+    id: "approve-video-assets",
+    kind: "approve_video_assets",
+    run: approveVideoAssetsAction,
+  },
+  {
+    id: "redo-video-assets",
+    kind: "redo_video_assets",
+    run: redoVideoAssetsAction,
   },
   {
     id: "continue-video-step",

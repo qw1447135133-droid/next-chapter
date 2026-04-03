@@ -39,6 +39,10 @@ export interface DramaWorkflowContinuationPlan {
     | "generate_outlines"
     | "generate_episode"
     | "run_compliance_review"
+    | "lock_character_cards"
+    | "lock_story_beats"
+    | "resolve_compliance_revisions"
+    | "reopen_compliance_revisions"
     | "export_project";
   input: Record<string, unknown>;
   reason: string;
@@ -341,6 +345,14 @@ async function runDramaContinuationPlan(
       return generateEpisodeAction(plan.input, runtime);
     case "run_compliance_review":
       return runComplianceReviewAction(plan.input, runtime);
+    case "lock_character_cards":
+      return lockCharacterCardsAction(plan.input, runtime);
+    case "lock_story_beats":
+      return lockStoryBeatsAction(plan.input, runtime);
+    case "resolve_compliance_revisions":
+      return resolveComplianceRevisionsAction(plan.input, runtime);
+    case "reopen_compliance_revisions":
+      return reopenComplianceRevisionsAction(plan.input, runtime);
     case "export_project":
       return exportDramaProjectAction(plan.input, runtime);
     default:
@@ -405,7 +417,7 @@ function parseDirectory(raw: string): EpisodeEntry[] {
     .flatMap((line) => {
       let match = line.match(/^第?\s*(\d+)\s*[集话：:]\s*(.+?)(?:\s*[-—–|]\s*)(.+)$/);
       if (!match) {
-        match = line.match(/^(\d+)[\.\)、]\s*(.+?)(?:\s*[-—–|]\s*)(.+)$/);
+        match = line.match(/^(\d+)[.)、]\s*(.+?)(?:\s*[-—–|]\s*)(.+)$/);
       }
       if (!match) return [];
       const number = Number(match[1]);
@@ -493,6 +505,18 @@ function saveDramaProject(project: DramaProject): WorkflowActionResult {
       projectSnapshot: snapshot,
     },
   };
+}
+
+function collectTargetIds(input: Record<string, unknown>): string[] {
+  const list = Array.isArray(input.targetIds)
+    ? input.targetIds.filter((item): item is string => typeof item === "string" && item.trim())
+    : [];
+
+  if (list.length > 0) return list;
+  if (typeof input.targetId === "string" && input.targetId.trim()) {
+    return [input.targetId.trim()];
+  }
+  return [];
 }
 
 export async function saveDramaSetupAction(
@@ -850,6 +874,109 @@ export async function runComplianceReviewAction(
     creativePlan,
     complianceReport,
     currentStep: "export",
+  });
+}
+
+export async function lockCharacterCardsAction(
+  input: Record<string, unknown>,
+  runtime: StudioRuntimeState,
+): Promise<WorkflowActionResult> {
+  const mode =
+    runtime.currentProjectSnapshot?.projectKind === "adaptation"
+      ? "adaptation"
+      : "traditional";
+  const project = ensureDramaProject(runtime, mode);
+  const setup = buildDramaSetup(input, project.setup);
+  const targetIds = collectTargetIds(input);
+  const characterStateCards = (project.characterStateCards ?? []).map((card) =>
+    !targetIds.length || targetIds.includes(card.id)
+      ? { ...card, status: "locked" as const }
+      : card,
+  );
+
+  return saveDramaProject({
+    ...project,
+    setup,
+    characterStateCards,
+    currentStep:
+      project.currentStep === "creative-plan" || project.currentStep === "characters" || project.currentStep === "character-transform"
+        ? "directory"
+        : project.currentStep,
+  });
+}
+
+export async function lockStoryBeatsAction(
+  input: Record<string, unknown>,
+  runtime: StudioRuntimeState,
+): Promise<WorkflowActionResult> {
+  const mode =
+    runtime.currentProjectSnapshot?.projectKind === "adaptation"
+      ? "adaptation"
+      : "traditional";
+  const project = ensureDramaProject(runtime, mode);
+  const setup = buildDramaSetup(input, project.setup);
+  const targetIds = collectTargetIds(input);
+  const storyBeatPackets = (project.storyBeatPackets ?? []).map((packet) =>
+    !targetIds.length || targetIds.includes(packet.id)
+      ? { ...packet, status: "locked" as const }
+      : packet,
+  );
+
+  return saveDramaProject({
+    ...project,
+    setup,
+    storyBeatPackets,
+    currentStep: project.currentStep === "directory" ? "outlines" : project.currentStep,
+  });
+}
+
+export async function resolveComplianceRevisionsAction(
+  input: Record<string, unknown>,
+  runtime: StudioRuntimeState,
+): Promise<WorkflowActionResult> {
+  const mode =
+    runtime.currentProjectSnapshot?.projectKind === "adaptation"
+      ? "adaptation"
+      : "traditional";
+  const project = ensureDramaProject(runtime, mode);
+  const setup = buildDramaSetup(input, project.setup);
+  const targetIds = collectTargetIds(input);
+  const complianceRevisionPackets = (project.complianceRevisionPackets ?? []).map((packet) =>
+    !targetIds.length || targetIds.includes(packet.id)
+      ? { ...packet, status: "resolved" as const }
+      : packet,
+  );
+
+  return saveDramaProject({
+    ...project,
+    setup,
+    complianceRevisionPackets,
+    currentStep: "export",
+  });
+}
+
+export async function reopenComplianceRevisionsAction(
+  input: Record<string, unknown>,
+  runtime: StudioRuntimeState,
+): Promise<WorkflowActionResult> {
+  const mode =
+    runtime.currentProjectSnapshot?.projectKind === "adaptation"
+      ? "adaptation"
+      : "traditional";
+  const project = ensureDramaProject(runtime, mode);
+  const setup = buildDramaSetup(input, project.setup);
+  const targetIds = collectTargetIds(input);
+  const complianceRevisionPackets = (project.complianceRevisionPackets ?? []).map((packet) =>
+    !targetIds.length || targetIds.includes(packet.id)
+      ? { ...packet, status: "pending" as const }
+      : packet,
+  );
+
+  return saveDramaProject({
+    ...project,
+    setup,
+    complianceRevisionPackets,
+    currentStep: "compliance",
   });
 }
 

@@ -21,6 +21,7 @@ export interface Task {
 }
 
 const tasks = new Map<string, Task>()
+const stopHandlers = new Map<string, () => void>()
 
 function notifyTaskUpdate() {
   window.dispatchEvent(new CustomEvent('agent:tasks-updated', { detail: [...tasks.values()] }))
@@ -28,6 +29,47 @@ function notifyTaskUpdate() {
 
 export function getAllTasks(): Task[] {
   return [...tasks.values()]
+}
+
+export function getTask(taskId: string): Task | undefined {
+  return tasks.get(taskId)
+}
+
+export function writeTask(task: Task): Task {
+  tasks.set(task.id, task)
+  notifyTaskUpdate()
+  return task
+}
+
+export function updateTask(
+  taskId: string,
+  patch: Partial<Pick<Task, 'status' | 'output' | 'prompt'>>,
+): Task | undefined {
+  const current = tasks.get(taskId)
+  if (!current) return undefined
+
+  const next: Task = {
+    ...current,
+    ...patch,
+    updatedAt: Date.now(),
+  }
+  tasks.set(taskId, next)
+  notifyTaskUpdate()
+  return next
+}
+
+export function registerTaskStopHandler(taskId: string, stop: () => void): void {
+  stopHandlers.set(taskId, stop)
+}
+
+export function clearTaskStopHandler(taskId: string): void {
+  stopHandlers.delete(taskId)
+}
+
+export function clearTaskRegistry(): void {
+  tasks.clear()
+  stopHandlers.clear()
+  notifyTaskUpdate()
 }
 
 export class TaskWriteTool extends ToolBase {
@@ -82,9 +124,11 @@ export class TaskStopTool extends ToolBase {
     const taskId = args.task_id as string
     const task = tasks.get(taskId)
     if (!task) return { data: `Task ${taskId} not found` }
-    task.status = 'cancelled'
-    task.updatedAt = Date.now()
-    notifyTaskUpdate()
+
+    const stop = stopHandlers.get(taskId)
+    stop?.()
+    stopHandlers.delete(taskId)
+    updateTask(taskId, { status: 'cancelled', output: task.output ?? 'Task cancelled by user.' })
     return { data: `Task ${taskId} cancelled` }
   }
 }

@@ -17,6 +17,8 @@ import type {
 export interface ToolUseContextOptions {
   model: string
   tools: Tool[]
+  apiKey?: string
+  baseUrl?: string
   verbose?: boolean
   thinkingConfig?: Record<string, unknown>
   isNonInteractiveSession?: boolean

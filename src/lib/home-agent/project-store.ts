@@ -10,6 +10,9 @@ import type {
   SkillDraft,
 } from "./types";
 import type { PersistedVideoProject } from "@/hooks/use-local-persistence";
+import type { VideoStyleLock, VideoWorldModel } from "@/types/project";
+import { synchronizeVideoProductionState } from "./video-production-memory";
+import { synchronizeDramaProductionState } from "./drama-production-memory";
 export {
   clearStudioSession,
   readProjectStudioSession,
@@ -104,6 +107,13 @@ function normalizeDramaProject(project: DramaProject): DramaProject {
       typeof project?.characterTransform === "string" ? project.characterTransform : "",
     exportDocument:
       typeof project?.exportDocument === "string" ? project.exportDocument : "",
+    styleLock: project?.styleLock ?? null,
+    worldModel: project?.worldModel ?? null,
+    characterStateCards: Array.isArray(project?.characterStateCards) ? project.characterStateCards : [],
+    storyBeatPackets: Array.isArray(project?.storyBeatPackets) ? project.storyBeatPackets : [],
+    complianceRevisionPackets: Array.isArray(project?.complianceRevisionPackets)
+      ? project.complianceRevisionPackets
+      : [],
   };
 }
 
@@ -156,14 +166,102 @@ function buildDramaSetupSummary(setup: DramaSetup | null): string {
   if (setup.genres.length > 0) {
     lines.push(`题材：${setup.genres.join("、")}`);
   }
-  if (setup.customTopic.trim()) {
+  if (setup.customTopic?.trim()) {
     lines.push(`主题补充：${setup.customTopic.trim()}`);
   }
-  if (setup.creativeInput.trim()) {
+  if (setup.creativeInput?.trim()) {
     lines.push(`创意输入：${setup.creativeInput.trim()}`);
   }
 
   return lines.join("\n");
+}
+
+function deriveDramaStyleLock(project: DramaProject): VideoStyleLock | null {
+  if (!project.setup) return null;
+
+  const genres = project.setup.genres.length
+    ? project.setup.genres
+    : project.setup.customTopic.trim()
+      ? [project.setup.customTopic.trim()]
+      : [];
+
+  return {
+    genre: genres.length ? genres : ["待补充题材"],
+    tone: project.setup.tone || "待补充调性",
+    visualStyle:
+      project.mode === "adaptation"
+        ? `${project.frameworkStyle || "参考改编"} 的结构转译质感`
+        : `${project.setup.targetMarket ? mapTargetMarket(project.setup.targetMarket) : "当前市场"} 短剧叙事质感`,
+    colorMood: project.setup.tone ? `${project.setup.tone}向情绪光影` : "高识别度主情绪氛围",
+    cinematography:
+      project.mode === "adaptation"
+        ? "保留参考骨架，但重做人物与事件呈现"
+        : "高钩子、快入题、人物关系驱动",
+    forbidden: [
+      "不要偏离已锁定的目标市场和受众取向",
+      "不要破坏主卖点与核心人物关系",
+      project.setup.ending ? `不要把结局方向改出 ${project.setup.ending}` : "",
+    ].filter(Boolean),
+    referencePromptTemplate: [
+      "{核心人物}，{关系冲突}，{关键卖点}，",
+      `${project.setup.tone || "高情绪"}，${genres.join("、") || "短剧创作"}，`,
+      `${project.setup.audience || "目标受众"}向短剧节奏，保持市场一致性。`,
+    ].join(""),
+  };
+}
+
+function deriveDramaWorldModel(project: DramaProject): VideoWorldModel | null {
+  const synopsisSource =
+    project.creativePlan ||
+    project.structureTransform ||
+    project.referenceStructure ||
+    project.setup?.creativeInput ||
+    project.setup?.customTopic ||
+    "";
+
+  if (!synopsisSource.trim() && !project.directory.length && !project.episodes.length) {
+    return null;
+  }
+
+  const beatSources = project.directory.slice(0, 8).map((entry) => ({
+    id: `ep-${entry.number}`,
+    name: `第 ${entry.number} 集 · ${entry.title}`,
+    description: entry.summary || entry.outline || "等待补充分集推进",
+  }));
+
+  return {
+    version: `drama-world-${project.updatedAt || new Date().toISOString()}`,
+    synopsis: truncate(synopsisSource || "项目已进入持续创作阶段。", 220),
+    continuityRules: [
+      "保持主要人物关系与反转逻辑连续",
+      "分集钩子和高潮位置需要逐步升级",
+      "创作输出应服从当前市场、受众和结局方向",
+    ],
+    characters: [
+      {
+        id: `${project.id}-protagonists`,
+        name: "主角群",
+        description: truncate(project.characters || project.characterTransform || "待补充角色设定。", 220),
+        aliases: [],
+        currentState:
+          project.currentStep === "characters" || project.currentStep === "character-transform"
+            ? "正在继续完善人物弧光与冲突"
+            : "角色基调已进入后续创作流",
+        constraints: [
+          project.setup?.audience ? `受众指向：${project.setup.audience}` : "",
+          project.setup?.tone ? `调性：${project.setup.tone}` : "",
+        ].filter(Boolean),
+        referenceAssetIds: [],
+      },
+    ],
+    scenes: beatSources.map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      description: truncate(entry.description, 140),
+      timeVariantLabels: [],
+      referenceAssetIds: [],
+    })),
+  };
 }
 
 function buildOutlinePreview(project: DramaProject): string {
@@ -285,6 +383,12 @@ function buildDramaRecommendations(project: DramaProject): string[] {
   const missingSetup = listMissingDramaSetupFields(project.setup);
   const nextOutlineEpisode = findNextOutlineEpisode(project);
   const nextEpisodeNumber = findNextEpisodeNumber(project);
+  const pendingCharacterCards = (project.characterStateCards ?? []).filter((card) => card.status !== "locked");
+  const pendingCompliancePackets = (project.complianceRevisionPackets ?? []).filter(
+    (packet) => packet.status === "pending",
+  );
+  const pendingBeatPacket = (project.storyBeatPackets ?? []).find((packet) => packet.status !== "locked");
+  const hasCharacterCards = (project.characterStateCards?.length ?? 0) > 0;
 
   switch (project.currentStep) {
     case "setup":
@@ -304,7 +408,7 @@ function buildDramaRecommendations(project: DramaProject): string[] {
     case "creative-plan":
       return [
         project.creativePlan.trim() ? "微调创意方案" : "生成创意方案",
-        project.characters.trim() ? "继续推进到分集目录" : "生成角色设定",
+        pendingCharacterCards.length ? `先锁定 ${pendingCharacterCards.length} 张角色状态卡` : hasCharacterCards ? "继续推进到分集目录" : "补齐角色状态卡",
         "补充卖点、反转或人物关系要求",
       ];
     case "structure-transform":
@@ -317,21 +421,23 @@ function buildDramaRecommendations(project: DramaProject): string[] {
     case "character-transform":
       return [
         project.directory.length ? "继续完善分集目录" : "生成分集目录",
-        "强化角色冲突",
+        pendingCharacterCards.length ? `先锁定 ${pendingCharacterCards.length} 张角色状态卡` : hasCharacterCards ? "强化角色冲突" : "补齐角色状态卡",
         "补充人物口吻要求",
       ];
     case "directory":
       return [
-        nextOutlineEpisode ? `先生成第 ${nextOutlineEpisode} 集细纲` : "生成单集细纲",
+        pendingCharacterCards.length ? `先锁定 ${pendingCharacterCards.length} 张角色状态卡` : "",
+        pendingBeatPacket ? `先锁定第 ${pendingBeatPacket.episodeNumber} 集剧情 beat` : nextOutlineEpisode ? `先生成第 ${nextOutlineEpisode} 集细纲` : "生成单集细纲",
         "重新分配高潮与钩子",
         nextEpisodeNumber ? `直接开始写第 ${nextEpisodeNumber} 集` : "直接开始写第一集",
-      ];
+      ].filter(Boolean);
     case "outlines":
       return [
-        nextEpisodeNumber ? `生成第 ${nextEpisodeNumber} 集正文` : "生成分集正文",
+        pendingCharacterCards.length ? `回收剩余 ${pendingCharacterCards.length} 张角色状态卡` : "",
+        pendingBeatPacket ? `复核第 ${pendingBeatPacket.episodeNumber} 集剧情 beat` : nextEpisodeNumber ? `生成第 ${nextEpisodeNumber} 集正文` : "生成分集正文",
         nextOutlineEpisode ? `重写第 ${nextOutlineEpisode} 集细纲` : "重写指定集细纲",
         "准备合规预检",
-      ];
+      ].filter(Boolean);
     case "episodes":
       return [
         nextEpisodeNumber ? `继续生成第 ${nextEpisodeNumber} 集` : "继续生成下一集",
@@ -340,13 +446,13 @@ function buildDramaRecommendations(project: DramaProject): string[] {
       ];
     case "compliance":
       return [
-        project.complianceReport.trim() ? "根据建议修订" : "运行合规审查",
+        pendingCompliancePackets.length ? `先处理 ${pendingCompliancePackets.length} 条合规修订包` : project.complianceReport.trim() ? "根据建议修订" : "运行合规审查",
         "准备导出并衔接视频",
         "继续对话补充风险规避要求",
       ];
     case "export":
       return [
-        project.exportDocument?.trim() ? "继续对话修改导出稿" : "导出整合文档",
+        pendingCompliancePackets.length ? "先回收剩余合规修订包" : project.exportDocument?.trim() ? "继续对话修改导出稿" : "导出整合文档",
         "接入视频工作流",
         "回头补写缺失章节或集数",
       ];
@@ -367,7 +473,10 @@ export function loadStoredDramaProjectById(id: string): DramaProject | null {
 
 export function upsertStoredDramaProject(project: DramaProject): DramaProject {
   const projects = listStoredDramaProjects();
-  const nextProject = { ...project, updatedAt: new Date().toISOString() };
+  const nextProject = {
+    ...synchronizeDramaProductionState(project, deriveDramaStyleLock(project), deriveDramaWorldModel(project)),
+    updatedAt: new Date().toISOString(),
+  };
   const index = projects.findIndex((item) => item.id === project.id);
 
   if (index >= 0) {
@@ -401,100 +510,160 @@ export function writeMaintenanceReports(reports: MaintenanceReport[]): void {
 }
 
 export function createDramaSnapshot(project: DramaProject): ConversationProjectSnapshot {
-  const projectKind = project.mode === "adaptation" ? "adaptation" : "script";
-  const updatedAt = project.updatedAt || new Date().toISOString();
+  const syncedProject = synchronizeDramaProductionState(
+    project,
+    project.styleLock ?? deriveDramaStyleLock(project),
+    project.worldModel ?? deriveDramaWorldModel(project),
+  );
+  const projectKind = syncedProject.mode === "adaptation" ? "adaptation" : "script";
+  const updatedAt = syncedProject.updatedAt || new Date().toISOString();
   const artifacts: ConversationArtifact[] = [];
-  const setupSummary = buildDramaSetupSummary(project.setup);
-  const outlinePreview = buildOutlinePreview(project);
+  const setupSummary = buildDramaSetupSummary(syncedProject.setup);
+  const outlinePreview = buildOutlinePreview(syncedProject);
+  const styleLock = syncedProject.styleLock ?? null;
+  const worldModel = syncedProject.worldModel ?? null;
 
   if (setupSummary) {
     artifacts.push(
-      buildArtifact(`${project.id}-setup`, "setup", "项目设定", setupSummary, updatedAt),
+      buildArtifact(`${syncedProject.id}-setup`, "setup", "项目设定", setupSummary, updatedAt),
     );
   }
 
-  if (project.referenceScript.trim()) {
+  if (syncedProject.referenceScript.trim()) {
     artifacts.push(
       buildArtifact(
-        `${project.id}-reference`,
+        `${syncedProject.id}-reference`,
         "reference",
         "参考文本",
-        project.referenceScript,
+        syncedProject.referenceScript,
         updatedAt,
       ),
     );
   }
 
-  if (project.referenceStructure.trim()) {
+  if (syncedProject.referenceStructure.trim()) {
     artifacts.push(
       buildArtifact(
-        `${project.id}-reference-structure`,
+        `${syncedProject.id}-reference-structure`,
         "reference",
         "参考结构分析",
-        project.referenceStructure,
+        syncedProject.referenceStructure,
         updatedAt,
       ),
     );
   }
 
-  if (project.creativePlan.trim()) {
+  if (styleLock) {
     artifacts.push(
       buildArtifact(
-        `${project.id}-plan`,
+        `${syncedProject.id}-style-lock`,
+        "style-lock",
+        "风格锁定",
+        [
+          `题材：${styleLock.genre.join("、")}`,
+          `调性：${styleLock.tone}`,
+          `视觉：${styleLock.visualStyle}`,
+          `镜头：${styleLock.cinematography}`,
+          `禁止项：${styleLock.forbidden.join("；")}`,
+        ].join("\n"),
+        updatedAt,
+      ),
+    );
+  }
+
+  if (worldModel) {
+    artifacts.push(
+      buildArtifact(
+        `${syncedProject.id}-world-model`,
+        "world-model",
+        "世界模型",
+        [
+          worldModel.synopsis,
+          `核心角色节点：${worldModel.characters.length}`,
+          `剧情节点：${worldModel.scenes.length}`,
+          `连续性规则：${worldModel.continuityRules.join("；")}`,
+        ].join("\n"),
+        updatedAt,
+      ),
+    );
+  }
+
+  if (syncedProject.creativePlan.trim()) {
+    artifacts.push(
+      buildArtifact(
+        `${syncedProject.id}-plan`,
         "plan",
         "创意方案",
-        project.creativePlan,
+        syncedProject.creativePlan,
         updatedAt,
       ),
     );
   }
 
   if (
-    project.structureTransform.trim() &&
-    project.structureTransform.trim() !== project.creativePlan.trim()
+    syncedProject.structureTransform.trim() &&
+    syncedProject.structureTransform.trim() !== syncedProject.creativePlan.trim()
   ) {
     artifacts.push(
       buildArtifact(
-        `${project.id}-structure-transform`,
+        `${syncedProject.id}-structure-transform`,
         "plan",
         "结构转译",
-        project.structureTransform,
+        syncedProject.structureTransform,
         updatedAt,
       ),
     );
   }
 
-  if (project.characters.trim()) {
+  if (syncedProject.characters.trim()) {
     artifacts.push(
       buildArtifact(
-        `${project.id}-characters`,
+        `${syncedProject.id}-characters`,
         "characters",
         "角色设定",
-        project.characters,
+        syncedProject.characters,
         updatedAt,
       ),
     );
   }
 
-  if (project.characterTransform.trim()) {
+  if (syncedProject.characterTransform.trim()) {
     artifacts.push(
       buildArtifact(
-        `${project.id}-character-transform`,
+        `${syncedProject.id}-character-transform`,
         "characters",
         "角色转译",
-        project.characterTransform,
+        syncedProject.characterTransform,
         updatedAt,
       ),
     );
   }
 
-  if (project.directoryRaw.trim()) {
+  if (syncedProject.directoryRaw.trim()) {
     artifacts.push(
       buildArtifact(
-        `${project.id}-directory`,
+        `${syncedProject.id}-directory`,
         "directory",
         "分集目录",
-        project.directoryRaw,
+        syncedProject.directoryRaw,
+        updatedAt,
+      ),
+    );
+  }
+
+  if (syncedProject.characterStateCards?.length) {
+    artifacts.push(
+      buildArtifact(
+        `${syncedProject.id}-character-cards`,
+        "character-card",
+        `角色状态卡 ${syncedProject.characterStateCards.length} 张`,
+        syncedProject.characterStateCards
+          .slice(0, 6)
+          .map(
+            (card) =>
+              `${card.name} · ${card.role}\n冲突：${card.coreConflict}\n目标：${card.desire}\n关注：${card.stageFocus}`,
+          )
+          .join("\n\n---\n\n"),
         updatedAt,
       ),
     );
@@ -503,7 +672,7 @@ export function createDramaSnapshot(project: DramaProject): ConversationProjectS
   if (outlinePreview) {
     artifacts.push(
       buildArtifact(
-        `${project.id}-outline-preview`,
+        `${syncedProject.id}-outline-preview`,
         "outline",
         "细纲预览",
         outlinePreview,
@@ -512,113 +681,180 @@ export function createDramaSnapshot(project: DramaProject): ConversationProjectS
     );
   }
 
-  if (project.episodes.length > 0) {
-    const episodeText = project.episodes
+  if (syncedProject.storyBeatPackets?.length) {
+    artifacts.push(
+      buildArtifact(
+        `${syncedProject.id}-beat-packets`,
+        "beat-packet",
+        `剧情 beat 包 ${syncedProject.storyBeatPackets.length} 条`,
+        syncedProject.storyBeatPackets
+          .slice(0, 8)
+          .map(
+            (packet) =>
+              `第 ${packet.episodeNumber} 集 · ${packet.title}\n${packet.beatSummary}\n状态：${packet.status}`,
+          )
+          .join("\n\n---\n\n"),
+        updatedAt,
+      ),
+    );
+  }
+
+  if (syncedProject.episodes.length > 0) {
+    const episodeText = syncedProject.episodes
       .slice(0, 3)
       .map((episode) => `第 ${episode.number} 集 · ${episode.title}\n${episode.content}`)
       .join("\n\n---\n\n");
 
     artifacts.push(
       buildArtifact(
-        `${project.id}-episodes`,
+        `${syncedProject.id}-episodes`,
         "episode",
-        `已完成 ${project.episodes.length} 集正文`,
+        `已完成 ${syncedProject.episodes.length} 集正文`,
         episodeText,
         updatedAt,
       ),
     );
   }
 
-  if (project.complianceReport.trim()) {
+  if (syncedProject.complianceReport.trim()) {
     artifacts.push(
       buildArtifact(
-        `${project.id}-compliance`,
+        `${syncedProject.id}-compliance`,
         "compliance",
         "合规审查",
-        project.complianceReport,
+        syncedProject.complianceReport,
         updatedAt,
       ),
     );
   }
 
-  if (project.exportDocument?.trim()) {
+  if (syncedProject.complianceRevisionPackets?.length) {
     artifacts.push(
       buildArtifact(
-        `${project.id}-export`,
+        `${syncedProject.id}-compliance-revisions`,
+        "compliance-revision",
+        `合规修订包 ${syncedProject.complianceRevisionPackets.length} 条`,
+        syncedProject.complianceRevisionPackets
+          .slice(0, 8)
+          .map(
+            (packet) =>
+              `${packet.issueTitle}\n风险：${packet.riskLevel}\n建议：${packet.recommendation}`,
+          )
+          .join("\n\n---\n\n"),
+        updatedAt,
+      ),
+    );
+  }
+
+  if (syncedProject.exportDocument?.trim()) {
+    artifacts.push(
+      buildArtifact(
+        `${syncedProject.id}-export`,
         "export",
         "导出文档",
-        project.exportDocument,
+        syncedProject.exportDocument,
         updatedAt,
       ),
     );
   }
 
   const title =
-    project.dramaTitle ||
-    (project.mode === "adaptation" ? "未命名改编项目" : "未命名剧本项目");
-  const stage = deriveDramaStage(project);
+    syncedProject.dramaTitle ||
+    (syncedProject.mode === "adaptation" ? "未命名改编项目" : "未命名剧本项目");
+  const stage = deriveDramaStage(syncedProject);
   const artifactLabels = summarizeArtifactLabels(artifacts.map((artifact) => artifact.label));
-  const nextAction = buildDramaRecommendations(project)[0];
+  const nextAction = buildDramaRecommendations(syncedProject)[0];
 
   return {
-    projectId: project.id,
+    projectId: syncedProject.id,
     projectKind,
     title,
-    currentObjective: deriveDramaObjective(project),
+    currentObjective: deriveDramaObjective(syncedProject),
     derivedStage: stage,
     agentSummary:
       artifacts.length > 0
-        ? `项目当前位于“${stage}”，已整理出 ${artifacts.length} 份关键产物${artifactLabels ? `，包括${artifactLabels}` : ""}。建议下一步先${nextAction}。`
+        ? `项目当前位于“${stage}”，已整理出 ${artifacts.length} 份关键产物${artifactLabels ? `，包括${artifactLabels}` : ""}。${syncedProject.characterStateCards?.length ? `当前有 ${syncedProject.characterStateCards.length} 张角色状态卡。` : ""}${syncedProject.storyBeatPackets?.length ? `已锁定 ${syncedProject.storyBeatPackets.length} 条剧情 beat。` : ""}${syncedProject.complianceRevisionPackets?.length ? `合规修订包 ${syncedProject.complianceRevisionPackets.length} 条。` : ""}建议下一步先${nextAction}。`
         : `项目当前位于“${stage}”，但还缺少第一份可复用产物。建议先${nextAction}。`,
-    recommendedActions: buildDramaRecommendations(project),
+    recommendedActions: buildDramaRecommendations(syncedProject),
     artifacts,
+    updatedAt,
+    memory: {
+      styleLock,
+      worldModel,
+      assetManifest: null,
+      shotPackets: [],
+      reviewQueue: [],
+      characterStateCards: syncedProject.characterStateCards || [],
+      storyBeatPackets: syncedProject.storyBeatPackets || [],
+      complianceRevisionPackets: syncedProject.complianceRevisionPackets || [],
+    },
   };
 }
 
-function mapVideoStage(step: number): string {
-  switch (Math.min(Math.max(step, 1), 5)) {
-    case 1:
-      return "脚本拆解";
-    case 2:
-      return "角色与场景";
-    case 3:
-      return "分镜批次";
-    case 4:
-      return "视频生成";
-    default:
-      return "预览与导出";
+function deriveVideoStage(project: PersistedVideoProject): string {
+  const hasReviewableOutputs = project.scenes.some(
+    (scene) => !!scene.videoUrl || scene.videoStatus === "failed",
+  );
+  if (
+    hasReviewableOutputs &&
+    project.reviewQueue?.some((item) => item.status === "pending" || item.status === "redo")
+  ) {
+    return "审阅与修复";
   }
+  if (project.shotPackets?.length) {
+    return "镜头指令包";
+  }
+  if (project.videoPromptBatch?.trim()) {
+    return "视频提示词";
+  }
+  if (project.storyboardPlan?.trim()) {
+    return "分镜批次";
+  }
+  if (project.characters.length || project.sceneSettings.length) {
+    return "角色与场景";
+  }
+  return "脚本拆解";
 }
 
 function buildVideoRecommendations(project: PersistedVideoProject): string[] {
-  const step = Math.min(Math.max(project.currentStep || 1, 1), 5);
+  const stage = deriveVideoStage(project);
   const generatedVideoCount = project.scenes.filter((scene) => scene.videoUrl).length;
   const storyboardedSceneCount = project.scenes.filter((scene) => scene.storyboardUrl).length;
+  const shotPacketCount = project.shotPackets?.length ?? 0;
+  const pendingReviews = project.reviewQueue?.filter(
+    (item) => item.status === "pending" || item.status === "redo",
+  ).length ?? 0;
 
-  switch (step) {
-    case 1:
+  switch (stage) {
+    case "脚本拆解":
       return [
         project.script?.trim() ? "梳理脚本拆解结果" : "导入脚本开始拆解",
         project.targetPlatform?.trim() ? "补充镜头风格偏好" : "先补充目标平台",
         project.scenes.length ? "继续提取角色与场景" : "先完成第一轮镜头拆解",
       ];
-    case 2:
+    case "角色与场景":
       return [
         project.characters.length || project.sceneSettings.length ? "完善角色和场景资产" : "先生成角色和场景资产",
         storyboardedSceneCount ? "继续整理分镜批次" : "开始整理分镜批次",
         "补充额外镜头要求",
       ];
-    case 3:
+    case "分镜批次":
       return [
         storyboardedSceneCount ? `继续补齐剩余分镜批次` : "继续生成分镜批次",
+        shotPacketCount ? "更新镜头指令包" : "编译镜头指令包",
         "整理镜头说明",
-        project.videoPromptBatch?.trim() ? "微调视频提示词批次" : "准备视频提示词批次",
       ];
-    case 4:
+    case "镜头指令包":
       return [
-        generatedVideoCount ? `继续生成剩余镜头视频` : "准备视频生成",
-        `检查已生成的 ${generatedVideoCount} 条视频资产`,
-        "继续下一批镜头",
+        shotPacketCount ? `复核 ${shotPacketCount} 个镜头指令包` : "编译镜头指令包",
+        project.videoPromptBatch?.trim() ? "微调视频提示词批次" : "准备视频提示词批次",
+        pendingReviews ? `处理 ${pendingReviews} 条待审阅项` : "开始第一轮审阅准备",
+      ];
+    case "审阅与修复":
+      return [
+        pendingReviews ? `处理 ${pendingReviews} 条待审阅项` : "整理审阅结论",
+        generatedVideoCount ? `检查已生成的 ${generatedVideoCount} 条视频资产` : "回到对话里补充审阅标准",
+        "对需要重做的镜头发起修复",
       ];
     default:
       return [
@@ -630,8 +866,9 @@ function buildVideoRecommendations(project: PersistedVideoProject): string[] {
 }
 
 export function createVideoSnapshot(project: PersistedVideoProject): ConversationProjectSnapshot {
-  const updatedAt = project.updatedAt || new Date().toISOString();
-  const sceneArtifactText = (project.scenes || [])
+  const syncedProject = synchronizeVideoProductionState(project);
+  const updatedAt = syncedProject.updatedAt || new Date().toISOString();
+  const sceneArtifactText = (syncedProject.scenes || [])
     .slice(0, 6)
     .map(
       (scene) =>
@@ -640,19 +877,19 @@ export function createVideoSnapshot(project: PersistedVideoProject): Conversatio
         }`,
     )
     .join("\n\n");
-  const characterArtifactText = (project.characters || [])
+  const characterArtifactText = (syncedProject.characters || [])
     .slice(0, 6)
     .map((character) => `${character.name}: ${character.description || "已创建角色设定"}`)
     .join("\n");
-  const sceneSettingsText = (project.sceneSettings || [])
+  const sceneSettingsText = (syncedProject.sceneSettings || [])
     .slice(0, 6)
     .map((sceneSetting) => `${sceneSetting.name}: ${sceneSetting.description || "已创建场景设定"}`)
     .join("\n");
   const videoBriefText = [
-    project.targetPlatform?.trim() ? `目标平台：${project.targetPlatform.trim()}` : null,
-    project.shotStyle?.trim() ? `镜头风格：${project.shotStyle.trim()}` : null,
-    project.outputGoal?.trim() ? `出片目标：${project.outputGoal.trim()}` : null,
-    project.productionNotes?.trim() ? `补充说明：${project.productionNotes.trim()}` : null,
+    syncedProject.targetPlatform?.trim() ? `目标平台：${syncedProject.targetPlatform.trim()}` : null,
+    syncedProject.shotStyle?.trim() ? `镜头风格：${syncedProject.shotStyle.trim()}` : null,
+    syncedProject.outputGoal?.trim() ? `出片目标：${syncedProject.outputGoal.trim()}` : null,
+    syncedProject.productionNotes?.trim() ? `补充说明：${syncedProject.productionNotes.trim()}` : null,
   ]
     .filter(Boolean)
     .join("\n");
@@ -671,30 +908,30 @@ export function createVideoSnapshot(project: PersistedVideoProject): Conversatio
     );
   }
 
-  if (project.analysisSummary?.trim()) {
+  if (syncedProject.analysisSummary?.trim()) {
     artifacts.push(
       buildArtifact(
-        `${project.id}-analysis`,
+        `${syncedProject.id}-analysis`,
         "video-brief",
         "桥接分析",
-        project.analysisSummary,
+        syncedProject.analysisSummary,
         updatedAt,
       ),
     );
   }
 
-  if (project.script?.trim()) {
+  if (syncedProject.script?.trim()) {
     artifacts.push(
-      buildArtifact(`${project.id}-script`, "plan", "视频脚本", project.script, updatedAt),
+      buildArtifact(`${syncedProject.id}-script`, "plan", "视频脚本", syncedProject.script, updatedAt),
     );
   }
 
   if (sceneArtifactText.trim()) {
     artifacts.push(
       buildArtifact(
-        `${project.id}-scenes`,
+        `${syncedProject.id}-scenes`,
         "video-brief",
-        `已拆解 ${project.scenes.length} 个镜头`,
+        `已拆解 ${syncedProject.scenes.length} 个镜头`,
         sceneArtifactText,
         updatedAt,
       ),
@@ -704,9 +941,9 @@ export function createVideoSnapshot(project: PersistedVideoProject): Conversatio
   if (characterArtifactText.trim()) {
     artifacts.push(
       buildArtifact(
-        `${project.id}-characters`,
+        `${syncedProject.id}-characters`,
         "characters",
-        `已整理 ${project.characters.length} 个角色`,
+        `已整理 ${syncedProject.characters.length} 个角色`,
         characterArtifactText,
         updatedAt,
       ),
@@ -716,71 +953,168 @@ export function createVideoSnapshot(project: PersistedVideoProject): Conversatio
   if (sceneSettingsText.trim()) {
     artifacts.push(
       buildArtifact(
-        `${project.id}-scene-settings`,
+        `${syncedProject.id}-scene-settings`,
         "scene-settings",
-        `已整理 ${project.sceneSettings.length} 个场景`,
+        `已整理 ${syncedProject.sceneSettings.length} 个场景`,
         sceneSettingsText,
         updatedAt,
       ),
     );
   }
 
-  if (project.storyboardPlan?.trim()) {
+  if (syncedProject.styleLock) {
     artifacts.push(
       buildArtifact(
-        `${project.id}-storyboard-plan`,
+        `${syncedProject.id}-style-lock`,
+        "style-lock",
+        "风格锁定",
+        [
+          `题材：${syncedProject.styleLock.genre.join("、")}`,
+          `调性：${syncedProject.styleLock.tone}`,
+          `视觉：${syncedProject.styleLock.visualStyle}`,
+          `镜头：${syncedProject.styleLock.cinematography}`,
+          `禁止项：${syncedProject.styleLock.forbidden.join("；")}`,
+        ].join("\n"),
+        updatedAt,
+      ),
+    );
+  }
+
+  if (syncedProject.worldModel) {
+    artifacts.push(
+      buildArtifact(
+        `${syncedProject.id}-world-model`,
+        "world-model",
+        "世界模型",
+        [
+          syncedProject.worldModel.synopsis,
+          `角色数：${syncedProject.worldModel.characters.length}`,
+          `场景数：${syncedProject.worldModel.scenes.length}`,
+          `连续性规则：${syncedProject.worldModel.continuityRules.join("；")}`,
+        ].join("\n"),
+        updatedAt,
+      ),
+    );
+  }
+
+  if (syncedProject.assetManifest?.items.length) {
+    artifacts.push(
+      buildArtifact(
+        `${syncedProject.id}-asset-manifest`,
+        "asset-manifest",
+        "资产清单",
+        syncedProject.assetManifest.items
+          .slice(0, 10)
+          .map((item) => `${item.label} · ${item.meta} · ${item.reusable ? "可复用" : "当前镜头"}`)
+          .join("\n"),
+        updatedAt,
+      ),
+    );
+  }
+
+  if (syncedProject.storyboardPlan?.trim()) {
+    artifacts.push(
+      buildArtifact(
+        `${syncedProject.id}-storyboard-plan`,
         "storyboard-plan",
         "分镜批次",
-        project.storyboardPlan,
+        syncedProject.storyboardPlan,
         updatedAt,
       ),
     );
   }
 
-  if (project.videoPromptBatch?.trim()) {
+  if (syncedProject.videoPromptBatch?.trim()) {
     artifacts.push(
       buildArtifact(
-        `${project.id}-video-prompt-batch`,
+        `${syncedProject.id}-video-prompt-batch`,
         "video-prompt-batch",
         "视频提示词批次",
-        project.videoPromptBatch,
+        syncedProject.videoPromptBatch,
         updatedAt,
       ),
     );
   }
 
-  const stage = mapVideoStage(project.currentStep || 1);
+  if (syncedProject.shotPackets?.length) {
+    artifacts.push(
+      buildArtifact(
+        `${syncedProject.id}-shot-packets`,
+        "shot-packet",
+        `已编译 ${syncedProject.shotPackets.length} 个镜头指令包`,
+        syncedProject.shotPackets
+          .slice(0, 8)
+          .map((packet) => `镜头 ${packet.sceneNumber} · ${packet.title}\n${packet.promptSeed}`)
+          .join("\n\n---\n\n"),
+        updatedAt,
+      ),
+    );
+  }
+
+  if (syncedProject.reviewQueue?.length) {
+    artifacts.push(
+      buildArtifact(
+        `${syncedProject.id}-review-queue`,
+        "review",
+        `待审阅 ${syncedProject.reviewQueue.length} 项`,
+        syncedProject.reviewQueue
+          .slice(0, 8)
+          .map((item) => `${item.title}\n${item.summary}\n状态：${item.status}`)
+          .join("\n\n---\n\n"),
+        updatedAt,
+      ),
+    );
+  }
+
+  const stage = deriveVideoStage(syncedProject);
+  const hasReviewableOutputs = syncedProject.scenes.some(
+    (scene) => !!scene.videoUrl || scene.videoStatus === "failed",
+  );
   const contextSummary = [
-    project.targetPlatform?.trim() ? `目标平台是 ${project.targetPlatform.trim()}` : null,
-    project.shotStyle?.trim() ? `镜头风格为 ${project.shotStyle.trim()}` : null,
-    project.outputGoal?.trim() ? `出片目标是 ${project.outputGoal.trim()}` : null,
+    syncedProject.targetPlatform?.trim() ? `目标平台是 ${syncedProject.targetPlatform.trim()}` : null,
+    syncedProject.shotStyle?.trim() ? `镜头风格为 ${syncedProject.shotStyle.trim()}` : null,
+    syncedProject.outputGoal?.trim() ? `出片目标是 ${syncedProject.outputGoal.trim()}` : null,
   ]
     .filter(Boolean)
     .join("，");
   const artifactLabels = summarizeArtifactLabels(artifacts.map((artifact) => artifact.label));
-  const nextAction = buildVideoRecommendations(project)[0];
+  const nextAction = buildVideoRecommendations(syncedProject)[0];
+
+  const currentObjective = hasReviewableOutputs &&
+    syncedProject.reviewQueue?.some((item) => item.status === "pending" || item.status === "redo")
+    ? "先审阅已有素材，并把需要重做的镜头回流给 Agent。"
+    : syncedProject.shotPackets?.length
+      ? "继续复核镜头指令包，并衔接提示词与生成。"
+      : syncedProject.videoPromptBatch?.trim()
+        ? "把已整理好的提示词批次接入视频生成。"
+        : syncedProject.storyboardPlan?.trim()
+          ? "继续补齐分镜批次，并校准镜头连贯性。"
+          : syncedProject.characters.length || syncedProject.sceneSettings.length
+            ? "完善角色与场景资产，为分镜生成做准备。"
+            : syncedProject.scenes.length
+              ? "复核镜头拆解结果，并继续整理桥接资产。"
+              : "导入脚本，开始第一轮视频拆解。";
 
   return {
-    projectId: project.id,
+    projectId: syncedProject.id,
     projectKind: "video",
-    title: project.title || "未命名视频项目",
-    currentObjective:
-      project.videoPromptBatch?.trim()
-        ? "把已整理好的提示词批次接入视频生成。"
-        : project.storyboardPlan?.trim()
-          ? "继续补齐分镜批次，并校准镜头连贯性。"
-          : project.characters.length || project.sceneSettings.length
-            ? "完善角色与场景资产，为分镜生成做准备。"
-            : project.scenes.length
-              ? "复核镜头拆解结果，并继续整理桥接资产。"
-              : "导入脚本，开始第一轮视频拆解。",
+    title: syncedProject.title || "未命名视频项目",
+    currentObjective,
     derivedStage: stage,
     agentSummary:
       artifacts.length > 0
-        ? `视频项目当前位于“${stage}”，已整理 ${project.scenes.length} 个镜头、${project.characters.length} 个角色和 ${project.sceneSettings.length} 个场景${artifactLabels ? `，当前可直接使用${artifactLabels}` : ""}。${contextSummary ? `当前${contextSummary}。` : ""}建议下一步先${nextAction}。`
+        ? `视频项目当前位于“${stage}”，已整理 ${syncedProject.scenes.length} 个镜头、${syncedProject.characters.length} 个角色和 ${syncedProject.sceneSettings.length} 个场景${artifactLabels ? `，当前可直接使用${artifactLabels}` : ""}。${syncedProject.assetManifest ? `已建立 ${syncedProject.assetManifest.items.length} 项资产清单。` : ""}${contextSummary ? `当前${contextSummary}。` : ""}建议下一步先${nextAction}。`
         : `视频项目当前位于“${stage}”，适合先${nextAction}。${contextSummary ? `当前${contextSummary}。` : ""}`,
-    recommendedActions: buildVideoRecommendations(project),
+    recommendedActions: buildVideoRecommendations(syncedProject),
     artifacts,
+    updatedAt,
+    memory: {
+      styleLock: syncedProject.styleLock,
+      worldModel: syncedProject.worldModel,
+      assetManifest: syncedProject.assetManifest,
+      shotPackets: syncedProject.shotPackets || [],
+      reviewQueue: syncedProject.reviewQueue || [],
+    },
   };
 }
 

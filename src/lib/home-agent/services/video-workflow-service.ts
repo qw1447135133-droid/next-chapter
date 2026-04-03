@@ -7,6 +7,11 @@
 import { invokeFunction } from "@/lib/invoke-with-key";
 import { createVideoSnapshot } from "@/lib/home-agent/project-store";
 import type { WorkflowActionResult, StudioRuntimeState } from "@/lib/home-agent/types";
+import {
+  deriveVideoReviewQueue,
+  deriveVideoShotPackets,
+  synchronizeVideoProductionState,
+} from "@/lib/home-agent/video-production-memory";
 import type {
   ArtStyle,
   CharacterSetting,
@@ -34,6 +39,7 @@ export interface VideoWorkflowContinuationPlan {
     | "analyze_script_for_video"
     | "extract_video_entities"
     | "prepare_storyboard_batch"
+    | "compile_video_shot_packets"
     | "prepare_video_prompt_batch"
     | "create_video_bridge_artifact";
   input: Record<string, unknown>;
@@ -207,6 +213,14 @@ export function planVideoWorkflowContinuation(
     };
   }
 
+  if (!project.shotPackets?.length) {
+    return {
+      actionKind: "compile_video_shot_packets",
+      input,
+      reason: "分镜说明已经就绪，下一步先把镜头压成可复用的 shot packet。",
+    };
+  }
+
   if (!project.videoPromptBatch?.trim()) {
     return {
       actionKind: "prepare_video_prompt_batch",
@@ -262,7 +276,7 @@ async function saveVideoProject(
   project: PersistedVideoProject,
   summary: string,
 ): Promise<WorkflowActionResult> {
-  const saved = await upsertStoredVideoProject(project);
+  const saved = await upsertStoredVideoProject(synchronizeVideoProductionState(project));
   const snapshot = createVideoSnapshot(saved);
   return {
     summary,
@@ -548,6 +562,47 @@ export async function prepareStoryboardBatchAction(
   );
 }
 
+export async function compileVideoShotPacketsAction(
+  input: Record<string, unknown>,
+  runtime: StudioRuntimeState,
+): Promise<WorkflowActionResult> {
+  const project = mergeVideoInputContext(
+    await ensureVideoProject(runtime, input),
+    runtime,
+    input,
+  );
+
+  if (!project.scenes.length) {
+    throw new Error("当前还没有镜头拆解结果，无法编译镜头指令包。");
+  }
+
+  if (!project.characters.length && !project.sceneSettings.length) {
+    throw new Error("建议先整理角色与场景资产，再编译镜头指令包。");
+  }
+
+  const synced = synchronizeVideoProductionState(project);
+  const shotPackets = deriveVideoShotPackets({
+    ...synced,
+    assetManifest: synced.assetManifest,
+  });
+  const reviewQueue = deriveVideoReviewQueue({
+    ...synced,
+    assetManifest: synced.assetManifest,
+    shotPackets,
+  });
+
+  return saveVideoProject(
+    {
+      ...synced,
+      shotPackets,
+      reviewQueue,
+      currentStep: Math.max(project.currentStep || 1, 4),
+      analysisSummary: `已编译 ${shotPackets.length} 个镜头指令包，可继续对接提示词批次与生成。`,
+    },
+    `已为《${project.title}》编译 ${shotPackets.length} 个镜头指令包。`,
+  );
+}
+
 export async function prepareVideoPromptBatchAction(
   input: Record<string, unknown>,
   runtime: StudioRuntimeState,
@@ -621,6 +676,134 @@ export async function prepareVideoPromptBatchAction(
   );
 }
 
+function collectTargetIds(input: Record<string, unknown>): string[] {
+  const list = Array.isArray(input.targetIds)
+    ? input.targetIds.filter((item): item is string => typeof item === "string" && item.trim())
+    : [];
+
+  if (list.length > 0) return list;
+  if (typeof input.targetId === "string" && input.targetId.trim()) {
+    return [input.targetId.trim()];
+  }
+  return [];
+}
+
+export async function reviewVideoAssetsAction(
+  input: Record<string, unknown>,
+  runtime: StudioRuntimeState,
+): Promise<WorkflowActionResult> {
+  const project = mergeVideoInputContext(
+    await ensureVideoProject(runtime, input),
+    runtime,
+    input,
+  );
+  const synced = synchronizeVideoProductionState(project);
+  const reviewQueue = deriveVideoReviewQueue(synced);
+  const pending = reviewQueue.filter(
+    (item) => item.status === "pending" || item.status === "redo",
+  );
+
+  return saveVideoProject(
+    {
+      ...synced,
+      reviewQueue,
+      currentStep: Math.max(project.currentStep || 1, 5),
+      analysisSummary: pending.length
+        ? `已整理 ${pending.length} 条待审阅项，可直接在首页会话里决定通过或重做。`
+        : "当前还没有待审阅项，下一轮生成素材后会自动进入审阅。",
+    },
+    pending.length
+      ? `已整理 ${pending.length} 条待审阅项，首页会话可直接继续审阅。`
+      : "当前还没有待审阅项。",
+  );
+}
+
+export async function approveVideoAssetsAction(
+  input: Record<string, unknown>,
+  runtime: StudioRuntimeState,
+): Promise<WorkflowActionResult> {
+  const project = mergeVideoInputContext(
+    await ensureVideoProject(runtime, input),
+    runtime,
+    input,
+  );
+  const targetIds = collectTargetIds(input);
+  const now = new Date().toISOString();
+  const synced = synchronizeVideoProductionState(project);
+  const baseReviewQueue = deriveVideoReviewQueue(synced);
+
+  const reviewQueue = baseReviewQueue.map((item) =>
+    !targetIds.length || targetIds.some((targetId) => item.targetIds.includes(targetId) || item.id === targetId)
+      ? { ...item, status: "approved" as const, updatedAt: now }
+      : item,
+  );
+  const shotPackets = (synced.shotPackets || []).map((packet) =>
+    !targetIds.length || targetIds.includes(packet.id)
+      ? { ...packet, reviewStatus: "approved" as const }
+      : packet,
+  );
+  const affectedCount = reviewQueue.filter((item) => item.updatedAt === now).length;
+
+  return saveVideoProject(
+    {
+      ...synced,
+      reviewQueue,
+      shotPackets,
+      currentStep: Math.max(project.currentStep || 1, 5),
+      analysisSummary: affectedCount
+        ? `已通过 ${affectedCount} 条审阅项，可继续推进剩余镜头。`
+        : "已记录当前审阅通过状态。",
+    },
+    affectedCount ? `已通过 ${affectedCount} 条审阅项。` : "已记录当前审阅通过状态。",
+  );
+}
+
+export async function redoVideoAssetsAction(
+  input: Record<string, unknown>,
+  runtime: StudioRuntimeState,
+): Promise<WorkflowActionResult> {
+  const project = mergeVideoInputContext(
+    await ensureVideoProject(runtime, input),
+    runtime,
+    input,
+  );
+  const targetIds = collectTargetIds(input);
+  const reason =
+    typeof input.reason === "string" && input.reason.trim()
+      ? input.reason.trim()
+      : "需要根据审阅意见重做。";
+  const now = new Date().toISOString();
+  const synced = synchronizeVideoProductionState(project);
+  const baseReviewQueue = deriveVideoReviewQueue(synced);
+
+  const reviewQueue = baseReviewQueue.map((item) =>
+    !targetIds.length || targetIds.some((targetId) => item.targetIds.includes(targetId) || item.id === targetId)
+      ? { ...item, status: "redo" as const, reason, updatedAt: now }
+      : item,
+  );
+  const shotPackets = (synced.shotPackets || []).map((packet) =>
+    !targetIds.length || targetIds.includes(packet.id)
+      ? { ...packet, reviewStatus: "redo" as const }
+      : packet,
+  );
+  const affectedCount = reviewQueue.filter((item) => item.updatedAt === now).length;
+
+  return saveVideoProject(
+    {
+      ...synced,
+      reviewQueue,
+      shotPackets,
+      currentStep: Math.max(project.currentStep || 1, 5),
+      analysisSummary: affectedCount
+        ? `已将 ${affectedCount} 条审阅项标记为重做，原因：${reason}`
+        : `已记录重做原因：${reason}`,
+    },
+    affectedCount
+      ? `已将 ${affectedCount} 条审阅项标记为重做。`
+      : `已记录重做原因：${reason}`,
+  );
+}
+
 export async function continueVideoStepAction(
   input: Record<string, unknown>,
   runtime: StudioRuntimeState,
@@ -633,8 +816,12 @@ export async function continueVideoStepAction(
   const derivedStep =
     typeof input.targetStep === "number"
       ? Math.min(Math.max(input.targetStep, 1), 5)
-      : project.videoPromptBatch?.trim()
+      : project.reviewQueue?.some((item) => item.status === "pending" || item.status === "redo")
+        ? 5
+        : project.videoPromptBatch?.trim()
         ? 4
+        : project.shotPackets?.length
+          ? 4
         : project.storyboardPlan?.trim()
           ? 3
           : project.characters.length || project.sceneSettings.length
@@ -647,7 +834,7 @@ export async function continueVideoStepAction(
     1: "脚本拆解",
     2: "角色与场景",
     3: "分镜批次",
-    4: "视频提示词",
+    4: "镜头指令包 / 视频提示词",
     5: "预览与导出",
   };
 
@@ -674,6 +861,8 @@ async function runVideoContinuationPlan(
       return extractVideoEntitiesAction(plan.input, runtime);
     case "prepare_storyboard_batch":
       return prepareStoryboardBatchAction(plan.input, runtime);
+    case "compile_video_shot_packets":
+      return compileVideoShotPacketsAction(plan.input, runtime);
     case "prepare_video_prompt_batch":
       return prepareVideoPromptBatchAction(plan.input, runtime);
     case "create_video_bridge_artifact":

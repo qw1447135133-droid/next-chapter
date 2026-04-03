@@ -1,6 +1,19 @@
-import type { DramaProject, DramaSetup } from "@/types/drama";
+import type {
+  CharacterStateCard,
+  ComplianceRevisionPacket,
+  DramaProject,
+  DramaSetup,
+  StoryBeatPacket,
+} from "@/types/drama";
 import type { PersistedVideoProject } from "@/hooks/use-local-persistence";
 import type { AskUserQuestionRequest } from "@/lib/agent/tools/ask-user-question";
+import type {
+  ProductionAssetManifest,
+  VideoReviewItem,
+  VideoShotPacket,
+  VideoStyleLock,
+  VideoWorldModel,
+} from "@/types/project";
 
 export type AgentConversationMode = "idle" | "active" | "recovering" | "maintenance-review";
 export type ConversationProjectKind = "script" | "adaptation" | "video";
@@ -18,6 +31,14 @@ export type ArtifactKind =
   | "video-brief"
   | "storyboard-plan"
   | "video-prompt-batch"
+  | "world-model"
+  | "style-lock"
+  | "character-card"
+  | "beat-packet"
+  | "compliance-revision"
+  | "asset-manifest"
+  | "shot-packet"
+  | "review"
   | "report";
 
 export interface ComposerQuestionOption {
@@ -59,6 +80,17 @@ export interface ConversationProjectSnapshot {
   agentSummary: string;
   recommendedActions: string[];
   artifacts: ConversationArtifact[];
+  updatedAt?: string;
+  memory?: {
+    styleLock?: VideoStyleLock | null;
+    worldModel?: VideoWorldModel | null;
+    assetManifest?: ProductionAssetManifest | null;
+    shotPackets?: VideoShotPacket[];
+    reviewQueue?: VideoReviewItem[];
+    characterStateCards?: CharacterStateCard[];
+    storyBeatPackets?: StoryBeatPacket[];
+    complianceRevisionPackets?: ComplianceRevisionPacket[];
+  };
 }
 
 export interface SkillDraft {

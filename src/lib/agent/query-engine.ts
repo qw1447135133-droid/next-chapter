@@ -113,6 +113,8 @@ export class QueryEngine {
       options: {
         model,
         tools,
+        apiKey: cfg.apiKey,
+        baseUrl: cfg.baseUrl,
         maxBudgetUsd: cfg.maxBudgetUsd,
         customSystemPrompt: cfg.systemPrompt,
         appendSystemPrompt: cfg.appendSystemPrompt,

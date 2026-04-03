@@ -4,6 +4,11 @@ import type {
   CharacterSetting,
   SceneSetting,
   ArtStyle,
+  ProductionAssetManifest,
+  VideoReviewItem,
+  VideoShotPacket,
+  VideoStyleLock,
+  VideoWorldModel,
 } from "@/types/project";
 import { getProjectsFilePath, readJsonFile, writeJsonFile } from "@/lib/file-cache";
 
@@ -24,6 +29,11 @@ interface ProjectData {
   storyboardPlan?: string;
   videoPromptBatch?: string;
   sourceProjectId?: string;
+  styleLock?: VideoStyleLock | null;
+  worldModel?: VideoWorldModel | null;
+  assetManifest?: ProductionAssetManifest | null;
+  shotPackets?: VideoShotPacket[];
+  reviewQueue?: VideoReviewItem[];
 }
 
 const STORAGE_KEY = "storyforge_projects";
@@ -95,6 +105,7 @@ export async function createStoredVideoProject(data: Partial<ProjectData>): Prom
   const project: StoredProject = {
     id: generateId(),
     title: data.title || "未命名视频项目",
+    script: data.script || "",
     targetPlatform: data.targetPlatform || "",
     shotStyle: data.shotStyle || "",
     outputGoal: data.outputGoal || "",
@@ -109,6 +120,11 @@ export async function createStoredVideoProject(data: Partial<ProjectData>): Prom
     storyboardPlan: data.storyboardPlan || "",
     videoPromptBatch: data.videoPromptBatch || "",
     sourceProjectId: data.sourceProjectId,
+    styleLock: data.styleLock || null,
+    worldModel: data.worldModel || null,
+    assetManifest: data.assetManifest || null,
+    shotPackets: data.shotPackets || [],
+    reviewQueue: data.reviewQueue || [],
     createdAt: now,
     updatedAt: now,
   };
@@ -121,6 +137,7 @@ export async function upsertStoredVideoProject(project: PersistedVideoProject): 
   const projects = await getProjects();
   const nextProject: StoredProject = {
     ...project,
+    script: project.script || "",
     targetPlatform: project.targetPlatform || "",
     shotStyle: project.shotStyle || "",
     outputGoal: project.outputGoal || "",
@@ -128,6 +145,11 @@ export async function upsertStoredVideoProject(project: PersistedVideoProject): 
     analysisSummary: project.analysisSummary || "",
     storyboardPlan: project.storyboardPlan || "",
     videoPromptBatch: project.videoPromptBatch || "",
+    styleLock: project.styleLock || null,
+    worldModel: project.worldModel || null,
+    assetManifest: project.assetManifest || null,
+    shotPackets: project.shotPackets || [],
+    reviewQueue: project.reviewQueue || [],
     updatedAt: new Date().toISOString(),
   };
   const index = projects.findIndex((item) => item.id === project.id);
@@ -202,6 +224,11 @@ export function useProjectPersistence() {
       storyboardPlan: project.storyboardPlan,
       videoPromptBatch: project.videoPromptBatch,
       sourceProjectId: project.sourceProjectId,
+      styleLock: project.styleLock,
+      worldModel: project.worldModel,
+      assetManifest: project.assetManifest,
+      shotPackets: project.shotPackets,
+      reviewQueue: project.reviewQueue,
     };
   }, []);
 
@@ -251,4 +278,3 @@ export function useProjectPersistence() {
     getProjectId,
   };
 }
-

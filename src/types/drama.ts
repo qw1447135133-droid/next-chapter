@@ -1,5 +1,6 @@
 // 短剧创作项目类型定义
 import { generateId } from "@/lib/generate-id";
+import type { VideoStyleLock, VideoWorldModel } from "@/types/project";
 
 /** 题材顶层分类（合并展示，避免过细） */
 export type GenreCategory =
@@ -319,6 +320,38 @@ export interface EpisodeScript {
   history?: EpisodeVersion[]; // previous versions
 }
 
+export interface CharacterStateCard {
+  id: string;
+  name: string;
+  role: string;
+  coreConflict: string;
+  desire: string;
+  riskNote: string;
+  relationshipAxis: string[];
+  stageFocus: string;
+  status: "pending" | "locked";
+}
+
+export interface StoryBeatPacket {
+  id: string;
+  episodeNumber: number;
+  title: string;
+  beatSummary: string;
+  hook: string;
+  payoff: string;
+  sourceOutline?: string;
+  status: "pending" | "drafted" | "locked";
+}
+
+export interface ComplianceRevisionPacket {
+  id: string;
+  issueTitle: string;
+  riskLevel: "high" | "medium" | "low";
+  recommendation: string;
+  sourceQuote?: string;
+  status: "pending" | "resolved";
+}
+
 export interface DramaProject {
   id: string;
   mode: DramaMode;
@@ -340,6 +373,11 @@ export interface DramaProject {
   structureTransform?: string;
   characterTransform?: string;
   exportDocument?: string;
+  styleLock?: VideoStyleLock | null;
+  worldModel?: VideoWorldModel | null;
+  characterStateCards?: CharacterStateCard[];
+  storyBeatPackets?: StoryBeatPacket[];
+  complianceRevisionPackets?: ComplianceRevisionPacket[];
 }
 
 export function createEmptyDramaProject(mode: DramaMode = "traditional"): DramaProject {
@@ -363,5 +401,10 @@ export function createEmptyDramaProject(mode: DramaMode = "traditional"): DramaP
     structureTransform: "",
     characterTransform: "",
     exportDocument: "",
+    styleLock: null,
+    worldModel: null,
+    characterStateCards: [],
+    storyBeatPackets: [],
+    complianceRevisionPackets: [],
   };
 }
