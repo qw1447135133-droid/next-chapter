@@ -221,4 +221,64 @@ describe("workflow continuation planners", () => {
 
     expect(plan.actionKind).toBe("extract_video_entities");
   });
+
+  it("plans first-round generation when video prompt batches are ready", () => {
+    const project = createVideoProject({
+      scenes: [
+        {
+          id: "scene-1",
+          sceneNumber: 1,
+          sceneName: "开场",
+          description: "角色进入空间",
+          characters: ["主角"],
+          dialogue: "",
+          cameraDirection: "",
+          duration: 5,
+        },
+      ],
+      characters: [
+        {
+          id: "char-1",
+          name: "主角",
+          description: "女主角",
+          isAIGenerated: false,
+          source: "auto",
+        },
+      ],
+      sceneSettings: [
+        {
+          id: "setting-1",
+          name: "大厅",
+          description: "空旷大厅",
+          isAIGenerated: false,
+          source: "auto",
+        },
+      ],
+      storyboardPlan: "镜头 1：主角进入大厅",
+      shotPackets: [
+        {
+          id: "packet:video-project-1:scene-1",
+          sceneId: "scene-1",
+          sceneNumber: 1,
+          title: "开场",
+          durationSec: 5,
+          camera: {
+            shotSize: "中景",
+            movement: "推进",
+          },
+          characterRefs: [],
+          sourceAssetIds: [],
+          promptSeed: "主角进入大厅",
+          forbiddenChanges: [],
+          renderMode: "text2video",
+          reviewStatus: "pending",
+        },
+      ],
+      videoPromptBatch: "批次 1：主角进入大厅",
+    });
+
+    const plan = planVideoWorkflowContinuation(project);
+
+    expect(plan.actionKind).toBe("generate_video_assets");
+  });
 });

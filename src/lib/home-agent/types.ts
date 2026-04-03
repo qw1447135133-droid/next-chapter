@@ -73,6 +73,7 @@ export interface ConversationArtifact {
 
 export type ConversationMemoryKind =
   | "project-summary"
+  | "conversation-summary"
   | "artifact"
   | "maintenance-report"
   | "skill-draft";
@@ -209,5 +210,6 @@ export interface StudioRuntimeState {
   skillDrafts: SkillDraft[];
   maintenanceReports: MaintenanceReport[];
   recentProjects: ConversationProjectSnapshot[];
+  recentProjectSessions?: StudioSessionState[];
   recentMessageSummary: string;
 }

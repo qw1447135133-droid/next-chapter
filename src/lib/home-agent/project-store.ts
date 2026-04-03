@@ -795,17 +795,21 @@ function deriveVideoStage(project: PersistedVideoProject): string {
   const hasReviewableOutputs = project.scenes.some(
     (scene) => !!scene.videoUrl || scene.videoStatus === "failed",
   );
+  const hasRunningTasks = project.scenes.some(
+    (scene) => !!scene.videoTaskId && ["queued", "processing"].includes(String(scene.videoStatus || "").toLowerCase()),
+  );
   if (
     hasReviewableOutputs &&
     project.reviewQueue?.some((item) => item.status === "pending" || item.status === "redo")
   ) {
     return "审阅与修复";
   }
-  if (project.shotPackets?.length) {
-    return "镜头指令包";
-  }
+  if (hasRunningTasks) return "生成中";
   if (project.videoPromptBatch?.trim()) {
     return "视频提示词";
+  }
+  if (project.shotPackets?.length) {
+    return "镜头指令包";
   }
   if (project.storyboardPlan?.trim()) {
     return "分镜批次";
@@ -824,6 +828,9 @@ function buildVideoRecommendations(project: PersistedVideoProject): string[] {
   const pendingReviews = project.reviewQueue?.filter(
     (item) => item.status === "pending" || item.status === "redo",
   ).length ?? 0;
+  const runningTasks = project.scenes.filter(
+    (scene) => !!scene.videoTaskId && ["queued", "processing"].includes(String(scene.videoStatus || "").toLowerCase()),
+  ).length;
 
   switch (stage) {
     case "脚本拆解":
@@ -849,6 +856,18 @@ function buildVideoRecommendations(project: PersistedVideoProject): string[] {
         shotPacketCount ? `复核 ${shotPacketCount} 个镜头指令包` : "编译镜头指令包",
         project.videoPromptBatch?.trim() ? "微调视频提示词批次" : "准备视频提示词批次",
         pendingReviews ? `处理 ${pendingReviews} 条待审阅项` : "开始第一轮审阅准备",
+      ];
+    case "视频提示词":
+      return [
+        "开始第一轮出片",
+        project.videoPromptBatch?.trim() ? "继续微调视频提示词批次" : "回到对话里补充出片要求",
+        generatedVideoCount ? `检查已生成的 ${generatedVideoCount} 条视频资产` : "整理待审阅项",
+      ];
+    case "生成中":
+      return [
+        "轮询当前出片结果",
+        runningTasks ? `等待剩余 ${runningTasks} 条镜头完成` : "继续等待当前批次",
+        generatedVideoCount ? `检查已生成的 ${generatedVideoCount} 条视频资产` : "补充下一轮镜头要求",
       ];
     case "审阅与修复":
       return [
@@ -1083,10 +1102,14 @@ export function createVideoSnapshot(project: PersistedVideoProject): Conversatio
   const currentObjective = hasReviewableOutputs &&
     syncedProject.reviewQueue?.some((item) => item.status === "pending" || item.status === "redo")
     ? "先审阅已有素材，并把需要重做的镜头回流给 Agent。"
-    : syncedProject.shotPackets?.length
-      ? "继续复核镜头指令包，并衔接提示词与生成。"
+    : syncedProject.scenes.some(
+          (scene) => !!scene.videoTaskId && ["queued", "processing"].includes(String(scene.videoStatus || "").toLowerCase()),
+        )
+      ? "先轮询当前出片结果，再决定进入审阅还是继续补发镜头。"
       : syncedProject.videoPromptBatch?.trim()
         ? "把已整理好的提示词批次接入视频生成。"
+        : syncedProject.shotPackets?.length
+          ? "继续复核镜头指令包，并衔接提示词与生成。"
         : syncedProject.storyboardPlan?.trim()
           ? "继续补齐分镜批次，并校准镜头连贯性。"
           : syncedProject.characters.length || syncedProject.sceneSettings.length

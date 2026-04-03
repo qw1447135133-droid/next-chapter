@@ -39,6 +39,11 @@ import {
   type BuiltinApiBundle,
   type ApiConfig,
 } from "@/lib/api-config";
+import {
+  dreaminaCliGetStatus,
+  dreaminaCliLogin,
+  dreaminaCliRelogin,
+} from "@/lib/dreamina-cli";
 import { cn } from "@/lib/utils";
 
 type ProviderId = "gemini" | "gpt" | "claude" | "grok" | "seedream" | "jimeng" | "tuzi";
@@ -95,9 +100,9 @@ const API_ROWS: Array<{
     id: "jimeng",
     title: "Seedance API",
     endpointPlaceholder: "https://api.tu-zi.com/v1beta",
-    endpointHint: "Seedance 视频生成 API 根地址。留空时复用 Gemini API 端点。",
-    keyHint: "Seedance API Key。留空时复用 Gemini API Key。",
-    models: "doubao-seedance-1-5-pro_720p, doubao-seedance-1-5-pro_1080p",
+    endpointHint: "Seedance 视频生成 API 根地址。留空时复用 Gemini API 端点；Electron 桌面端在未配置 Key 且本机已登录 Dreamina CLI 时会优先走官方 CLI。",
+    keyHint: "Seedance API Key。留空时复用 Gemini API Key；如果你想直接用本机 Dreamina 登录态，请保持为空。",
+    models: "doubao-seedance-1-5-pro_720p, doubao-seedance-1-5-pro_1080p, seedance2.0, seedance2.0fast",
   },
   {
     id: "tuzi",
@@ -134,6 +139,8 @@ type SettingsProps = {
   onClose?: () => void;
 };
 
+type DreaminaCliStatusState = Awaited<ReturnType<typeof dreaminaCliGetStatus>>;
+
 export default function Settings({ embedded = false, onClose }: SettingsProps) {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
@@ -160,6 +167,9 @@ export default function Settings({ embedded = false, onClose }: SettingsProps) {
     modelMappings: {},
   });
   const [builtinSaving, setBuiltinSaving] = useState(false);
+  const [dreaminaStatus, setDreaminaStatus] = useState<DreaminaCliStatusState | null>(null);
+  const [dreaminaLoading, setDreaminaLoading] = useState(false);
+  const [dreaminaAction, setDreaminaAction] = useState<"login" | "relogin" | null>(null);
 
   useEffect(() => {
     const loadDefaultPath = async () => {
@@ -173,6 +183,84 @@ export default function Settings({ embedded = false, onClose }: SettingsProps) {
     };
     void loadDefaultPath();
   }, []);
+
+  const refreshDreaminaStatus = async (silent = false) => {
+    if (!window.electronAPI?.dreaminaCli?.exec) {
+      setDreaminaStatus({
+        ok: false,
+        installed: false,
+        loggedIn: false,
+        message: "当前环境不支持 Dreamina CLI，仅 Electron 桌面端可用。",
+      });
+      return;
+    }
+
+    setDreaminaLoading(true);
+    try {
+      const status = await dreaminaCliGetStatus();
+      setDreaminaStatus(status);
+      if (!silent) {
+        const title = status.loggedIn
+          ? "Dreamina CLI 已就绪"
+          : status.installed
+            ? "Dreamina CLI 已检测到"
+            : "未检测到 Dreamina CLI";
+        toast({
+          title,
+          description: status.message,
+          variant: status.installed || status.loggedIn ? "default" : "destructive",
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setDreaminaStatus({
+        ok: false,
+        installed: true,
+        loggedIn: false,
+        message,
+      });
+      if (!silent) {
+        toast({
+          title: "Dreamina CLI 状态检查失败",
+          description: message,
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setDreaminaLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshDreaminaStatus(true);
+  }, []);
+
+  const handleDreaminaAction = async (action: "login" | "relogin") => {
+    setDreaminaAction(action);
+    try {
+      const result = action === "login" ? await dreaminaCliLogin() : await dreaminaCliRelogin();
+      toast({
+        title: result.ok
+          ? action === "login"
+            ? "Dreamina 登录已启动"
+            : "Dreamina 重新登录已启动"
+          : action === "login"
+            ? "Dreamina 登录启动失败"
+            : "Dreamina 重新登录失败",
+        description: result.message,
+        variant: result.ok ? "default" : "destructive",
+      });
+      await refreshDreaminaStatus(true);
+    } catch (error) {
+      toast({
+        title: action === "login" ? "Dreamina 登录启动失败" : "Dreamina 重新登录失败",
+        description: error instanceof Error ? error.message : String(error),
+        variant: "destructive",
+      });
+    } finally {
+      setDreaminaAction(null);
+    }
+  };
 
   const handleSave = () => {
     saveApiConfig(config);
@@ -281,6 +369,11 @@ export default function Settings({ embedded = false, onClose }: SettingsProps) {
   const cardContentClass = embedded ? "pt-5 space-y-3.5" : "pt-6 space-y-4";
   const compactInputClass = embedded ? "font-mono text-[12.5px] h-10" : "font-mono text-sm";
   const gridClass = embedded ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 md:grid-cols-2 gap-6";
+  const dreaminaStatusTone = dreaminaStatus?.loggedIn
+    ? "secondary"
+    : dreaminaStatus?.installed
+      ? "outline"
+      : "destructive";
 
   return (
     <div className={embedded ? "flex h-full min-h-0 flex-col bg-transparent" : "min-h-screen bg-background"}>
@@ -341,6 +434,72 @@ export default function Settings({ embedded = false, onClose }: SettingsProps) {
                 >
                   <Key className="h-4 w-4" />
                   修改内置 API
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className={cardClass}>
+            <CardContent className={cardContentClass}>
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-medium">Dreamina CLI</h3>
+                  <Badge variant={dreaminaStatusTone}>
+                    {dreaminaStatus?.loggedIn ? "已登录" : dreaminaStatus?.installed ? "待登录" : "未安装"}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  桌面端可直接复用 Dreamina 本机登录态使用 Seedance 2.0 / Fast。若你希望程序优先走官方 CLI，请保持 Seedance Key 为空。
+                </p>
+              </div>
+
+              <div className={cn(
+                "rounded-2xl border px-3.5 py-3 text-sm",
+                embedded ? "border-[#ddd5c9] bg-[#fbfaf7]" : "border-border/60 bg-muted/35",
+              )}>
+                <p className="text-sm text-foreground">
+                  {dreaminaLoading ? "正在检查 Dreamina CLI 状态..." : dreaminaStatus?.message || "尚未检查 Dreamina CLI 状态。"}
+                </p>
+                {dreaminaStatus?.path ? (
+                  <p className="mt-1.5 break-all font-mono text-[11.5px] text-muted-foreground">
+                    {dreaminaStatus.path}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={embedded ? "h-9 rounded-full border-[#ddd5c9] bg-white/80 px-3 text-[12.5px] hover:bg-white" : ""}
+                  onClick={() => void refreshDreaminaStatus()}
+                  disabled={dreaminaLoading || !!dreaminaAction}
+                >
+                  {dreaminaLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  检查状态
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={embedded ? "h-9 rounded-full border-[#ddd5c9] bg-white/80 px-3 text-[12.5px] hover:bg-white" : ""}
+                  onClick={() => void handleDreaminaAction("login")}
+                  disabled={!window.electronAPI?.dreaminaCli?.exec || !!dreaminaAction}
+                >
+                  {dreaminaAction === "login" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  浏览器登录
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={embedded ? "h-9 rounded-full border-[#ddd5c9] bg-white/80 px-3 text-[12.5px] hover:bg-white" : ""}
+                  onClick={() => void handleDreaminaAction("relogin")}
+                  disabled={!window.electronAPI?.dreaminaCli?.exec || !!dreaminaAction}
+                >
+                  {dreaminaAction === "relogin" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  重新登录
                 </Button>
               </div>
             </CardContent>

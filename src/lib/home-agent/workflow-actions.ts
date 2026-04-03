@@ -36,6 +36,8 @@ import {
   compileVideoShotPacketsAction,
   continueVideoStepAction,
   createVideoBridgeArtifactAction,
+  generateVideoAssetsAction,
+  refreshVideoAssetsAction,
   redoVideoAssetsAction,
   extractVideoEntitiesAction,
   prepareStoryboardBatchAction,
@@ -341,6 +343,16 @@ const workflowActions: WorkflowAction[] = [
     id: "prepare-video-prompt-batch",
     kind: "prepare_video_prompt_batch",
     run: prepareVideoPromptBatchAction,
+  },
+  {
+    id: "generate-video-assets",
+    kind: "generate_video_assets",
+    run: generateVideoAssetsAction,
+  },
+  {
+    id: "refresh-video-assets",
+    kind: "refresh_video_assets",
+    run: refreshVideoAssetsAction,
   },
   {
     id: "review-video-assets",

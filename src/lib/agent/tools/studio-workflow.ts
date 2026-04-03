@@ -31,6 +31,8 @@ function buildWorkflowProgressLabel(actionName: string): string {
     prepare_storyboard_batch: "整理分镜批次",
     compile_video_shot_packets: "编译镜头指令包",
     prepare_video_prompt_batch: "生成视频提示词批次",
+    generate_video_assets: "提交视频出片",
+    refresh_video_assets: "轮询视频结果",
     review_video_assets: "整理待审阅素材",
     approve_video_assets: "通过审阅项",
     redo_video_assets: "标记重做素材",
@@ -103,7 +105,7 @@ export class StudioWorkflowTool extends ToolBase {
         action: {
           type: "string",
           description:
-            "Workflow action: get_context, save_setup, continue_project, continue_drama_step, analyze_reference_script, generate_creative_plan, generate_structure_transform, generate_characters, generate_character_transform, generate_directory, generate_outlines, generate_episode, run_compliance_review, lock_character_cards, lock_story_beats, resolve_compliance_revisions, reopen_compliance_revisions, prepare_video_generation, advance_video_workflow, analyze_script_for_video, extract_video_entities, prepare_storyboard_batch, compile_video_shot_packets, prepare_video_prompt_batch, review_video_assets, approve_video_assets, redo_video_assets, continue_video_step, create_video_bridge_artifact, export_project, create_skill_draft, run_maintenance",
+            "Workflow action: get_context, save_setup, continue_project, continue_drama_step, analyze_reference_script, generate_creative_plan, generate_structure_transform, generate_characters, generate_character_transform, generate_directory, generate_outlines, generate_episode, run_compliance_review, lock_character_cards, lock_story_beats, resolve_compliance_revisions, reopen_compliance_revisions, prepare_video_generation, advance_video_workflow, analyze_script_for_video, extract_video_entities, prepare_storyboard_batch, compile_video_shot_packets, prepare_video_prompt_batch, generate_video_assets, refresh_video_assets, review_video_assets, approve_video_assets, redo_video_assets, continue_video_step, create_video_bridge_artifact, export_project, create_skill_draft, run_maintenance",
         },
         projectKind: {
           type: "string",
@@ -237,6 +239,26 @@ export class StudioWorkflowTool extends ToolBase {
         sceneEnd: {
           type: "number",
           description: "End scene number for storyboard or prompt batch preparation",
+        },
+        batchSize: {
+          type: "number",
+          description: "How many scenes to submit in one homepage generation batch",
+        },
+        resolution: {
+          type: "string",
+          description: "Target video resolution, usually 720p or 1080p",
+        },
+        aspectRatio: {
+          type: "string",
+          description: "Target video aspect ratio such as 16:9, 9:16, or 1:1",
+        },
+        provider: {
+          type: "string",
+          description: "Optional provider override such as dreamina-cli, jimeng, or tuzi",
+        },
+        forceRegenerate: {
+          type: "boolean",
+          description: "When true, resubmit scenes even if they already have video outputs",
         },
         targetStep: {
           type: "number",

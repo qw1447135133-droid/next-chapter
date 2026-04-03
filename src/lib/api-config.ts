@@ -157,6 +157,20 @@ export const SUPPORTED_MODEL_MAPPINGS: SupportedModelMapping[] = [
     defaultModelName: "doubao-seedance-1-5-pro_1080p",
   },
   {
+    key: "seedance2.0",
+    label: "Seedance 2.0 (Dreamina CLI)",
+    provider: "jimeng",
+    category: "video",
+    defaultModelName: "seedance2.0",
+  },
+  {
+    key: "seedance2.0fast",
+    label: "Seedance 2.0 Fast (Dreamina CLI)",
+    provider: "jimeng",
+    category: "video",
+    defaultModelName: "seedance2.0fast",
+  },
+  {
     key: "sora-2",
     label: "Sora 2 (720p)",
     provider: "tuzi",

@@ -68,8 +68,12 @@ var runtimeAPI = {
 var jimengAPI = {
   writeFile: (filePath, content) => import_electron.ipcRenderer.invoke("jimeng:writeFile", { filePath, content })
 };
+var dreaminaCliAPI = {
+  exec: (args, stdin) => import_electron.ipcRenderer.invoke("dreamina:exec", { args, stdin })
+};
 import_electron.contextBridge.exposeInMainWorld("electronAPI", {
   jimeng: jimengAPI,
+  dreaminaCli: dreaminaCliAPI,
   runtime: runtimeAPI,
   storage: {
     getDefaultPath: () => import_electron.ipcRenderer.invoke("storage:getDefaultPath"),

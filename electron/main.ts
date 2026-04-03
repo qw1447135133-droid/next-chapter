@@ -20,6 +20,7 @@ const {
   shell,
 } = require("electron");
 const fs = require("node:fs");
+const os = require("node:os");
 
 // CJS 模式下 __dirname 由 Node.js 自动提供
 // 注意：main.ts 被 esbuild 编译为 CJS，__dirname 在运行时可用
@@ -99,6 +100,18 @@ function verifyBuiltinApiAdminPassword(password: string): boolean {
   return crypto.timingSafeEqual(expectedBuffer, actualBuffer);
 }
 
+function getDreaminaCandidatePaths(): string[] {
+  const homeDir = os.homedir();
+  const executableName = process.platform === "win32" ? "dreamina.exe" : "dreamina";
+  return Array.from(
+    new Set([
+      path.join(homeDir, "bin", executableName),
+      path.join(homeDir, ".local", "bin", executableName),
+      path.join(path.dirname(process.execPath), executableName),
+    ]),
+  );
+}
+
 // =========================== IPC 处理 ===========================
 
 function setupIPC() {
@@ -139,6 +152,71 @@ function setupIPC() {
           error: error instanceof Error ? error.message : String(error),
         };
       }
+    },
+  );
+
+  ipcMain.handle(
+    "dreamina:exec",
+    async (
+      _event,
+      { args, stdin }: { args: string[]; stdin?: string },
+    ) => {
+      const executablePath = await resolveDreaminaExecutable();
+      if (!executablePath) {
+        return {
+          ok: false,
+          installed: false,
+          error: "未检测到 dreamina CLI，请先执行官方安装脚本安装。",
+        };
+      }
+
+      const safeArgs = Array.isArray(args)
+        ? args.filter((value) => typeof value === "string" && value.length > 0)
+        : [];
+
+      return await new Promise((resolve) => {
+        const proc = spawn(executablePath, safeArgs, {
+          stdio: ["pipe", "pipe", "pipe"],
+          windowsHide: true,
+        });
+
+        let stdout = "";
+        let stderr = "";
+
+        proc.stdout.on("data", (chunk: Buffer) => {
+          stdout += chunk.toString("utf8");
+        });
+        proc.stderr.on("data", (chunk: Buffer) => {
+          stderr += chunk.toString("utf8");
+        });
+
+        proc.on("error", (error: Error) => {
+          resolve({
+            ok: false,
+            installed: true,
+            path: executablePath,
+            error: error.message,
+            stdout,
+            stderr,
+          });
+        });
+
+        proc.on("close", (code: number | null) => {
+          resolve({
+            ok: code === 0,
+            installed: true,
+            path: executablePath,
+            code: code ?? -1,
+            stdout,
+            stderr,
+          });
+        });
+
+        if (typeof stdin === "string" && stdin.length > 0) {
+          proc.stdin.write(stdin);
+        }
+        proc.stdin.end();
+      });
     },
   );
 
@@ -334,9 +412,31 @@ function setupIPC() {
   // Unified handler for all built-in tools that require main-process access.
 
   const glob = require("fast-glob");
-  const { exec } = require("node:child_process");
+  const { exec, execFile, spawn } = require("node:child_process");
   const { promisify } = require("node:util");
   const execAsync = promisify(exec);
+  const execFileAsync = promisify(execFile);
+
+  async function resolveDreaminaExecutable(): Promise<string | null> {
+    for (const candidate of getDreaminaCandidatePaths()) {
+      if (fs.existsSync(candidate)) return candidate;
+    }
+
+    try {
+      const lookupCommand = process.platform === "win32" ? "where.exe" : "which";
+      const { stdout } = await execFileAsync(
+        lookupCommand,
+        ["dreamina"],
+        { windowsHide: true },
+      );
+      return String(stdout)
+        .split(/\r?\n/)
+        .map((line: string) => line.trim())
+        .find((line: string) => !!line && fs.existsSync(line)) || null;
+    } catch {
+      return null;
+    }
+  }
 
   ipcMain.handle(
     "tool:execute",
@@ -487,7 +587,6 @@ function setupIPC() {
   // =========================== MCP IPC ===========================
   // Manages stdio MCP server subprocesses.
 
-  const { spawn } = require("node:child_process");
   const mcpProcesses = new Map<string, {
     proc: ReturnType<typeof spawn>;
     pending: Map<number, {

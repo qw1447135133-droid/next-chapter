@@ -34,6 +34,21 @@ export interface JimengAPI {
   ) => Promise<{ ok: boolean; error?: string }>;
 }
 
+export interface DreaminaCliAPI {
+  exec: (
+    args: string[],
+    stdin?: string,
+  ) => Promise<{
+    ok: boolean;
+    installed?: boolean;
+    path?: string;
+    code?: number;
+    stdout?: string;
+    stderr?: string;
+    error?: string;
+  }>;
+}
+
 export interface StorageAPI {
   getDefaultPath: () => Promise<{ files: string; db: string }>;
   selectFolder: () => Promise<string | null>;
@@ -113,8 +128,14 @@ const jimengAPI: JimengAPI = {
     ipcRenderer.invoke("jimeng:writeFile", { filePath, content }),
 };
 
+const dreaminaCliAPI: DreaminaCliAPI = {
+  exec: (args, stdin) =>
+    ipcRenderer.invoke("dreamina:exec", { args, stdin }),
+};
+
 contextBridge.exposeInMainWorld("electronAPI", {
   jimeng: jimengAPI,
+  dreaminaCli: dreaminaCliAPI,
   runtime: runtimeAPI,
   storage: {
     getDefaultPath: () => ipcRenderer.invoke("storage:getDefaultPath"),

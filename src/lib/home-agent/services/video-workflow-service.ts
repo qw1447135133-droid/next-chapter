@@ -34,6 +34,18 @@ interface DecomposeResult {
   scenes?: Array<Partial<Scene>>;
 }
 
+interface VideoGenerationResult {
+  task_id: string;
+  status: string;
+  provider?: string;
+}
+
+interface VideoGenerationStatusResult {
+  status: string;
+  video_url?: string;
+  state?: string;
+}
+
 export interface VideoWorkflowContinuationPlan {
   actionKind:
     | "analyze_script_for_video"
@@ -41,6 +53,8 @@ export interface VideoWorkflowContinuationPlan {
     | "prepare_storyboard_batch"
     | "compile_video_shot_packets"
     | "prepare_video_prompt_batch"
+    | "generate_video_assets"
+    | "refresh_video_assets"
     | "create_video_bridge_artifact";
   input: Record<string, unknown>;
   reason: string;
@@ -229,6 +243,26 @@ export function planVideoWorkflowContinuation(
     };
   }
 
+  const hasRunningVideoTasks = project.scenes.some(
+    (scene) => !!scene.videoTaskId && ["queued", "processing"].includes(normalizeSceneStatus(scene.videoStatus)),
+  );
+  if (hasRunningVideoTasks) {
+    return {
+      actionKind: "refresh_video_assets",
+      input,
+      reason: "已有镜头在后台出片，先刷新当前批次结果。",
+    };
+  }
+
+  const hasGeneratedVideo = project.scenes.some((scene) => !!scene.videoUrl);
+  if (!hasGeneratedVideo) {
+    return {
+      actionKind: "generate_video_assets",
+      input,
+      reason: "视频提示词已经就绪，下一步先提交第一轮出片。",
+    };
+  }
+
   return {
     actionKind: "create_video_bridge_artifact",
     input,
@@ -289,6 +323,79 @@ async function saveVideoProject(
   };
 }
 
+function resolveGenerationScenes(
+  project: PersistedVideoProject,
+  input: Record<string, unknown>,
+): Scene[] {
+  const targetIds = collectTargetIds(input);
+  if (targetIds.length) {
+    return project.scenes.filter((scene) => sceneTargetMatches(scene, project.id, targetIds));
+  }
+
+  const start = typeof input.sceneStart === "number" ? input.sceneStart : null;
+  const end = typeof input.sceneEnd === "number" ? input.sceneEnd : null;
+  if (start !== null || end !== null) {
+    const lower = start ?? project.scenes[0]?.sceneNumber ?? 1;
+    const upper = end ?? lower;
+    return project.scenes.filter((scene) => scene.sceneNumber >= lower && scene.sceneNumber <= upper);
+  }
+
+  const forceRegenerate = input.forceRegenerate === true;
+  const batchSize =
+    typeof input.batchSize === "number" && Number.isFinite(input.batchSize)
+      ? Math.max(1, Math.min(8, Math.floor(input.batchSize)))
+      : 3;
+
+  return project.scenes
+    .filter((scene) => {
+      if (forceRegenerate) return true;
+      if (["queued", "processing"].includes(normalizeSceneStatus(scene.videoStatus))) return false;
+      return !scene.videoUrl;
+    })
+    .slice(0, batchSize);
+}
+
+async function buildSceneVideoPrompt(
+  project: PersistedVideoProject,
+  scene: Scene,
+): Promise<VideoEnhanceResult> {
+  const characterDetails = findCharacterDetails(scene, project.characters || []);
+  const matchedSetting = findSceneSetting(scene, project.sceneSettings || []);
+  const { data, error } = await invokeFunction<VideoEnhanceResult>(
+    "enhance-video-prompt",
+    {
+      description: scene.description,
+      characters: scene.characters,
+      cameraDirection: scene.cameraDirection,
+      sceneName: scene.sceneName,
+      dialogue: scene.dialogue,
+      style: project.artStyle,
+      characterDescriptions: characterDetails,
+      sceneDescription: matchedSetting?.description || scene.sceneName,
+    },
+  );
+
+  if (error) throw error;
+  return data || { enhanced: scene.description || scene.sceneName || "继续生成当前镜头", duration: scene.duration || 5 };
+}
+
+function appendVideoHistory(scene: Scene, nextUrl?: string) {
+  if (!scene.videoUrl || scene.videoUrl === nextUrl) return scene.videoHistory || [];
+
+  const previous = scene.videoHistory || [];
+  if (previous.some((entry) => entry.videoUrl === scene.videoUrl)) {
+    return previous;
+  }
+
+  return [
+    ...previous,
+    {
+      videoUrl: scene.videoUrl,
+      createdAt: new Date().toISOString(),
+    },
+  ];
+}
+
 function mapScene(raw: Partial<Scene>, index: number): Scene {
   return {
     id: raw.id || crypto.randomUUID(),
@@ -307,6 +414,7 @@ function mapScene(raw: Partial<Scene>, index: number): Scene {
     panoramaUrl: raw.panoramaUrl,
     videoUrl: raw.videoUrl,
     videoTaskId: raw.videoTaskId,
+    videoProvider: raw.videoProvider,
     videoStatus: raw.videoStatus,
     videoHistory: raw.videoHistory,
     recommendedDuration: raw.recommendedDuration,
@@ -361,6 +469,57 @@ function findSceneSetting(scene: Scene, sceneSettings: SceneSetting[]): SceneSet
       normalizedSettingName === normalizedSceneName ||
       normalizedSceneName.includes(normalizedSettingName) ||
       normalizedSettingName.includes(normalizedSceneName)
+    );
+  });
+}
+
+function findSceneReferenceImage(
+  scene: Scene,
+  sceneSettings: SceneSetting[],
+): string | undefined {
+  if (scene.storyboardUrl?.trim()) return scene.storyboardUrl.trim();
+  if (scene.panoramaUrl?.trim()) return scene.panoramaUrl.trim();
+
+  const matchedSetting = findSceneSetting(scene, sceneSettings);
+  const matchedVariant = matchedSetting?.timeVariants?.find(
+    (variant) => variant.id === scene.sceneTimeVariantId || variant.id === matchedSetting.activeTimeVariantId,
+  );
+
+  if (matchedVariant?.imageUrl?.trim()) return matchedVariant.imageUrl.trim();
+  if (matchedSetting?.imageUrl?.trim()) return matchedSetting.imageUrl.trim();
+  return undefined;
+}
+
+function shouldPreferLocalDreamina(input: Record<string, unknown>): boolean {
+  if (typeof input.provider === "string" && input.provider.trim()) {
+    return input.provider.trim() === "dreamina-cli";
+  }
+
+  return typeof window !== "undefined" && !!window.electronAPI?.dreaminaCli?.exec;
+}
+
+function normalizeSceneStatus(value: string | undefined): string {
+  if (!value?.trim()) return "";
+  const lowered = String(value || "").toLowerCase();
+  if (/(succeeded|success|completed|done)/.test(lowered)) return "completed";
+  if (/(queued|pending|submitted)/.test(lowered)) return "queued";
+  if (/(failed|error|cancel)/.test(lowered)) return "failed";
+  return "processing";
+}
+
+function sceneTargetMatches(scene: Scene, projectId: string, targetIds: string[]): boolean {
+  if (!targetIds.length) return false;
+
+  return targetIds.some((targetId) => {
+    const normalized = targetId.trim();
+    return (
+      normalized === scene.id ||
+      normalized === `packet:${projectId}:${scene.id}` ||
+      normalized === `review:packet:${projectId}:${scene.id}` ||
+      normalized === `shot:${scene.id}:video` ||
+      normalized === `shot:${scene.id}:storyboard` ||
+      normalized.endsWith(`:${scene.id}`) ||
+      normalized.includes(`:${scene.id}:`)
     );
   });
 }
@@ -676,6 +835,185 @@ export async function prepareVideoPromptBatchAction(
   );
 }
 
+export async function generateVideoAssetsAction(
+  input: Record<string, unknown>,
+  runtime: StudioRuntimeState,
+): Promise<WorkflowActionResult> {
+  const project = mergeVideoInputContext(
+    await ensureVideoProject(runtime, input),
+    runtime,
+    input,
+  );
+  if (!project.scenes.length) {
+    throw new Error("当前还没有镜头拆解结果，无法直接发起出片。");
+  }
+
+  const selectedScenes = resolveGenerationScenes(project, input);
+  if (!selectedScenes.length) {
+    throw new Error("当前没有可提交出片的镜头，先轮询结果或指定新的镜头范围。");
+  }
+
+  const preferLocalDreamina = shouldPreferLocalDreamina(input);
+  const nextScenes = [...project.scenes];
+  let submittedCount = 0;
+  const failedScenes: string[] = [];
+
+  for (const scene of selectedScenes) {
+    try {
+      const prompt = await buildSceneVideoPrompt(project, scene);
+      const referenceImageUrl = findSceneReferenceImage(scene, project.sceneSettings || []);
+      const { data, error } = await invokeFunction<VideoGenerationResult>("generate-video", {
+        prompt: prompt.enhanced,
+        imageUrl: referenceImageUrl,
+        duration: prompt.duration ?? scene.recommendedDuration ?? scene.duration ?? 5,
+        aspectRatio: typeof input.aspectRatio === "string" ? input.aspectRatio : "16:9",
+        resolution: typeof input.resolution === "string" ? input.resolution : "720p",
+        provider: preferLocalDreamina ? "dreamina-cli" : input.provider,
+      });
+
+      if (error) throw error;
+
+      const sceneIndex = nextScenes.findIndex((item) => item.id === scene.id);
+      if (sceneIndex < 0) continue;
+
+      nextScenes[sceneIndex] = {
+        ...nextScenes[sceneIndex],
+        videoHistory: appendVideoHistory(nextScenes[sceneIndex]),
+        videoUrl: undefined,
+        videoTaskId: data?.task_id || nextScenes[sceneIndex].videoTaskId,
+        videoProvider:
+          data?.provider || (preferLocalDreamina ? "dreamina-cli" : nextScenes[sceneIndex].videoProvider),
+        videoStatus: normalizeSceneStatus(data?.status),
+        recommendedDuration: prompt.duration ?? nextScenes[sceneIndex].recommendedDuration,
+      };
+      submittedCount += 1;
+    } catch {
+      const sceneIndex = nextScenes.findIndex((item) => item.id === scene.id);
+      if (sceneIndex >= 0) {
+        nextScenes[sceneIndex] = {
+          ...nextScenes[sceneIndex],
+          videoStatus: "failed",
+        };
+      }
+      failedScenes.push(scene.sceneName);
+    }
+  }
+
+  const providerLabel = preferLocalDreamina ? "Dreamina CLI / Seedance 2.0" : "当前视频模型";
+  const summary = [
+    submittedCount
+      ? `已提交 ${submittedCount} 条镜头出片任务，当前优先走 ${providerLabel}。`
+      : "当前没有镜头成功提交出片任务。",
+    failedScenes.length ? `提交失败：${failedScenes.slice(0, 3).join("、")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return saveVideoProject(
+    {
+      ...project,
+      scenes: nextScenes,
+      currentStep: Math.max(project.currentStep || 1, 5),
+      analysisSummary: submittedCount
+        ? `已发起 ${submittedCount} 条镜头出片任务，可继续在首页轮询结果并进入审阅。`
+        : "当前没有成功提交新的出片任务，建议检查镜头素材和提示词。",
+    },
+    summary,
+  );
+}
+
+export async function refreshVideoAssetsAction(
+  input: Record<string, unknown>,
+  runtime: StudioRuntimeState,
+): Promise<WorkflowActionResult> {
+  const project = mergeVideoInputContext(
+    await ensureVideoProject(runtime, input),
+    runtime,
+    input,
+  );
+
+  const targetIds = collectTargetIds(input);
+  const candidates = project.scenes.filter((scene) => {
+    if (!scene.videoTaskId?.trim()) return false;
+    if (targetIds.length) return sceneTargetMatches(scene, project.id, targetIds);
+    return ["queued", "processing"].includes(normalizeSceneStatus(scene.videoStatus));
+  });
+
+  if (!candidates.length) {
+    throw new Error("当前没有可轮询的出片任务。");
+  }
+
+  const nextScenes = [...project.scenes];
+  let completedCount = 0;
+  let processingCount = 0;
+  let failedCount = 0;
+
+  for (const scene of candidates) {
+    const { data, error } = await invokeFunction<VideoGenerationStatusResult>("generate-video", {
+      action: "status",
+      taskId: scene.videoTaskId,
+      provider: scene.videoProvider,
+    });
+
+    if (error) {
+      failedCount += 1;
+      continue;
+    }
+
+    const sceneIndex = nextScenes.findIndex((item) => item.id === scene.id);
+    if (sceneIndex < 0) continue;
+
+    const normalizedStatus = normalizeSceneStatus(data?.status || data?.state) || "processing";
+    if (normalizedStatus === "completed" && data?.video_url) {
+      nextScenes[sceneIndex] = {
+        ...nextScenes[sceneIndex],
+        videoHistory: appendVideoHistory(nextScenes[sceneIndex], data.video_url),
+        videoUrl: data.video_url,
+        videoStatus: "completed",
+      };
+      completedCount += 1;
+      continue;
+    }
+
+    if (normalizedStatus === "failed") {
+      nextScenes[sceneIndex] = {
+        ...nextScenes[sceneIndex],
+        videoStatus: "failed",
+      };
+      failedCount += 1;
+      continue;
+    }
+
+    nextScenes[sceneIndex] = {
+      ...nextScenes[sceneIndex],
+      videoStatus: normalizedStatus,
+    };
+    processingCount += 1;
+  }
+
+  const summary = [
+    completedCount ? `已完成 ${completedCount} 条镜头出片。` : "",
+    processingCount ? `仍有 ${processingCount} 条镜头在后台处理中。` : "",
+    failedCount ? `${failedCount} 条镜头出片失败，建议直接发起重做。` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return saveVideoProject(
+    {
+      ...project,
+      scenes: nextScenes,
+      currentStep: Math.max(project.currentStep || 1, 5),
+      analysisSummary: completedCount
+        ? `已回收 ${completedCount} 条镜头结果，可继续审阅或重做。`
+        : processingCount
+          ? `当前仍有 ${processingCount} 条镜头在出片中，稍后可继续轮询。`
+          : "当前轮询已完成，可继续处理失败项或补发新镜头。",
+    },
+    summary || "已刷新当前出片任务状态。",
+  );
+}
+
 function collectTargetIds(input: Record<string, unknown>): string[] {
   const list = Array.isArray(input.targetIds)
     ? input.targetIds.filter((item): item is string => typeof item === "string" && item.trim())
@@ -865,6 +1203,10 @@ async function runVideoContinuationPlan(
       return compileVideoShotPacketsAction(plan.input, runtime);
     case "prepare_video_prompt_batch":
       return prepareVideoPromptBatchAction(plan.input, runtime);
+    case "generate_video_assets":
+      return generateVideoAssetsAction(plan.input, runtime);
+    case "refresh_video_assets":
+      return refreshVideoAssetsAction(plan.input, runtime);
     case "create_video_bridge_artifact":
       return createVideoBridgeArtifactAction(plan.input, runtime);
     default:

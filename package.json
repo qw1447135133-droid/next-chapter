@@ -12,6 +12,8 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
+    "smoke:home-agent": "node scripts/home-agent-browser-smoke.mjs",
+    "test:home-agent": "npm run smoke:home-agent && npx eslint scripts/home-agent-browser-smoke.mjs && npx vitest run src/components/home-agent/HomeAgentStudio.spec.tsx src/components/home-agent/ComposerChoicePopover.spec.tsx --reporter=dot",
     "repair:text-cache": "node scripts/repair-workspace-text-cache.mjs",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -13,6 +13,7 @@ export interface Scene {
   panoramaUrl?: string; // panoramic positioning reference for scene group
   videoUrl?: string;
   videoTaskId?: string;
+  videoProvider?: string;
   videoStatus?: string; // queued | processing | completed | failed
   videoHistory?: VideoHistoryEntry[];
   recommendedDuration?: number;
@@ -220,15 +221,19 @@ export const ART_STYLE_LABELS: Record<ArtStyle, string> = {
   'custom': '自定义',
 };
 
-export type VideoModel = 'seedance-1.5-pro' | 'sora-2';
+export type VideoModel = 'seedance-1.5-pro' | 'seedance-2.0' | 'seedance-2.0-fast' | 'sora-2';
 
 export const VIDEO_MODEL_LABELS: Record<VideoModel, string> = {
   'seedance-1.5-pro': '即梦 1.5 Pro',
+  'seedance-2.0': '即梦 Seedance 2.0',
+  'seedance-2.0-fast': '即梦 Seedance 2.0 Fast',
   'sora-2': 'Sora 2',
 };
 
 export const VIDEO_MODEL_API_MAP: Record<VideoModel, string> = {
   'seedance-1.5-pro': 'doubao-seedance-1-5-pro', // Will be mapped based on resolution
+  'seedance-2.0': 'seedance2.0',
+  'seedance-2.0-fast': 'seedance2.0fast',
   'sora-2': 'sora-2', // Will be mapped to sora-2 or sora-2-pro based on resolution
 };
 

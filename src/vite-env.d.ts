@@ -17,6 +17,20 @@ interface BuiltinApiBundle {
 }
 
 interface ElectronAPI {
+  dreaminaCli: {
+    exec: (
+      args: string[],
+      stdin?: string,
+    ) => Promise<{
+      ok: boolean;
+      installed?: boolean;
+      path?: string;
+      code?: number;
+      stdout?: string;
+      stderr?: string;
+      error?: string;
+    }>;
+  };
   jimeng: {
     writeFile: (
       filePath: string,

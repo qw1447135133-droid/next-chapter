@@ -715,9 +715,9 @@ var require_path = __commonJS({
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.convertPosixPathToPattern = exports2.convertWindowsPathToPattern = exports2.convertPathToPattern = exports2.escapePosixPath = exports2.escapeWindowsPath = exports2.escape = exports2.removeLeadingDotSegment = exports2.makeAbsolute = exports2.unixify = void 0;
-    var os = require("os");
+    var os2 = require("os");
     var path2 = require("path");
-    var IS_WINDOWS_PLATFORM = os.platform() === "win32";
+    var IS_WINDOWS_PLATFORM = os2.platform() === "win32";
     var LEADING_DOT_SEGMENT_CHARACTERS_COUNT = 2;
     var POSIX_UNESCAPED_GLOB_SYMBOLS_RE = /(\\?)([()*?[\]{|}]|^!|[!+@](?=\()|\\(?![!()*+?@[\]{|}]))/g;
     var WINDOWS_UNESCAPED_GLOB_SYMBOLS_RE = /(\\?)([()[\]{}]|^!|[!+@](?=\())/g;
@@ -5938,8 +5938,8 @@ var require_settings4 = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.DEFAULT_FILE_SYSTEM_ADAPTER = void 0;
     var fs2 = require("fs");
-    var os = require("os");
-    var CPU_COUNT = Math.max(os.cpus().length, 1);
+    var os2 = require("os");
+    var CPU_COUNT = Math.max(os2.cpus().length, 1);
     exports2.DEFAULT_FILE_SYSTEM_ADAPTER = {
       lstat: fs2.lstat,
       lstatSync: fs2.lstatSync,
@@ -6105,6 +6105,7 @@ var {
   shell
 } = require("electron");
 var fs = require("node:fs");
+var os = require("node:os");
 var BUILTIN_API_ADMIN_PASSWORD_HASH = "d4f31b6def1e6e11148cbab15b400e91528ab18880b25225d9a9f840d4d0d192";
 var STARTUP_LOG_PATH = path.join(
   process.env.TEMP || process.cwd(),
@@ -6155,6 +6156,17 @@ function verifyBuiltinApiAdminPassword(password) {
   }
   return crypto.timingSafeEqual(expectedBuffer, actualBuffer);
 }
+function getDreaminaCandidatePaths() {
+  const homeDir = os.homedir();
+  const executableName = process.platform === "win32" ? "dreamina.exe" : "dreamina";
+  return Array.from(
+    /* @__PURE__ */ new Set([
+      path.join(homeDir, "bin", executableName),
+      path.join(homeDir, ".local", "bin", executableName),
+      path.join(path.dirname(process.execPath), executableName)
+    ])
+  );
+}
 function setupIPC() {
   ipcMain.handle(
     "runtime:verifyBuiltinApiAdminPassword",
@@ -6186,6 +6198,58 @@ function setupIPC() {
           error: error instanceof Error ? error.message : String(error)
         };
       }
+    }
+  );
+  ipcMain.handle(
+    "dreamina:exec",
+    async (_event, { args, stdin }) => {
+      const executablePath = await resolveDreaminaExecutable();
+      if (!executablePath) {
+        return {
+          ok: false,
+          installed: false,
+          error: "\u672A\u68C0\u6D4B\u5230 dreamina CLI\uFF0C\u8BF7\u5148\u6267\u884C\u5B98\u65B9\u5B89\u88C5\u811A\u672C\u5B89\u88C5\u3002"
+        };
+      }
+      const safeArgs = Array.isArray(args) ? args.filter((value) => typeof value === "string" && value.length > 0) : [];
+      return await new Promise((resolve) => {
+        const proc = spawn(executablePath, safeArgs, {
+          stdio: ["pipe", "pipe", "pipe"],
+          windowsHide: true
+        });
+        let stdout = "";
+        let stderr = "";
+        proc.stdout.on("data", (chunk) => {
+          stdout += chunk.toString("utf8");
+        });
+        proc.stderr.on("data", (chunk) => {
+          stderr += chunk.toString("utf8");
+        });
+        proc.on("error", (error) => {
+          resolve({
+            ok: false,
+            installed: true,
+            path: executablePath,
+            error: error.message,
+            stdout,
+            stderr
+          });
+        });
+        proc.on("close", (code) => {
+          resolve({
+            ok: code === 0,
+            installed: true,
+            path: executablePath,
+            code: code ?? -1,
+            stdout,
+            stderr
+          });
+        });
+        if (typeof stdin === "string" && stdin.length > 0) {
+          proc.stdin.write(stdin);
+        }
+        proc.stdin.end();
+      });
     }
   );
   ipcMain.handle("storage:getDefaultPath", () => {
@@ -6324,9 +6388,26 @@ function setupIPC() {
     return { ok: true };
   });
   const glob = require_out4();
-  const { exec } = require("node:child_process");
+  const { exec, execFile, spawn } = require("node:child_process");
   const { promisify } = require("node:util");
   const execAsync = promisify(exec);
+  const execFileAsync = promisify(execFile);
+  async function resolveDreaminaExecutable() {
+    for (const candidate of getDreaminaCandidatePaths()) {
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    try {
+      const lookupCommand = process.platform === "win32" ? "where.exe" : "which";
+      const { stdout } = await execFileAsync(
+        lookupCommand,
+        ["dreamina"],
+        { windowsHide: true }
+      );
+      return String(stdout).split(/\r?\n/).map((line) => line.trim()).find((line) => !!line && fs.existsSync(line)) || null;
+    } catch {
+      return null;
+    }
+  }
   ipcMain.handle(
     "tool:execute",
     async (_event, { toolName, args }) => {
@@ -6455,7 +6536,6 @@ function setupIPC() {
       }
     }
   );
-  const { spawn } = require("node:child_process");
   const mcpProcesses = /* @__PURE__ */ new Map();
   function sendMcpRequest(name, method, params) {
     const session = mcpProcesses.get(name);

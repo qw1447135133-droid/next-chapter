@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildConversationMemoryHint,
   buildConversationMemoryCorpus,
   buildConversationMemoryPrompt,
   searchConversationMemory,
@@ -42,7 +43,18 @@ function createRuntime(): StudioRuntimeState {
         createdAt: "2026-04-03T00:00:00.000Z",
       },
     ],
-    maintenanceReports: [],
+    maintenanceReports: [
+      {
+        id: "maintenance-1",
+        compressedConversationCount: 2,
+        archivedProjectCount: 1,
+        clearedCacheKeys: ["shot-cache-1"],
+        mergedDraftCount: 1,
+        summary: "已整理旧项目摘要并清理重复素材。",
+        notes: ["归并了旧项目里的重复镜头包。", "保留了关键角色状态卡。"],
+        createdAt: "2026-04-03T00:30:00.000Z",
+      },
+    ],
     recentProjects: [
       {
         projectId: "project-old-video",
@@ -83,6 +95,40 @@ function createRuntime(): StudioRuntimeState {
         ],
       },
     ],
+    recentProjectSessions: [
+      {
+        mode: "active",
+        messages: [
+          {
+            id: "old-session-user-1",
+            role: "user",
+            content: "男主要先装冷淡，再在第一个反转点护住女主。",
+            createdAt: "2026-04-02T00:05:00.000Z",
+          },
+          {
+            id: "old-session-assistant-1",
+            role: "assistant",
+            content: "已确认：男主表面克制，关键节点反向护妻，作为前 3 集的稳定人物策略。",
+            createdAt: "2026-04-02T00:06:00.000Z",
+          },
+        ],
+        currentProjectSnapshot: {
+          projectId: "project-old-script",
+          projectKind: "script",
+          title: "都市悬疑女频项目",
+          currentObjective: "强化角色反转和人物关系。",
+          derivedStage: "角色设定",
+          agentSummary: "已有女频都市悬疑方向和角色拉扯。",
+          recommendedActions: ["锁定角色状态卡", "继续写第 1 集"],
+          artifacts: [],
+        },
+        recentMessageSummary: "已确认：男主表面克制，关键节点反向护妻，作为前 3 集的稳定人物策略。",
+        projectId: "project-old-script",
+        draft: "",
+        qState: null,
+        selectedValues: [],
+      },
+    ],
     recentMessageSummary: "",
   };
 }
@@ -92,6 +138,7 @@ describe("conversation-memory", () => {
     const corpus = buildConversationMemoryCorpus(createRuntime());
 
     expect(corpus.some((document) => document.kind === "project-summary")).toBe(true);
+    expect(corpus.some((document) => document.kind === "conversation-summary")).toBe(true);
     expect(corpus.some((document) => document.kind === "artifact")).toBe(true);
     expect(corpus.some((document) => document.kind === "skill-draft")).toBe(true);
   });
@@ -104,6 +151,31 @@ describe("conversation-memory", () => {
     expect(results.some((document) => document.title.includes("都市悬疑女频项目"))).toBe(true);
   });
 
+  it("prioritizes artifact-like memory when the query directly targets a concrete asset", () => {
+    const corpus = buildConversationMemoryCorpus(createRuntime());
+    const [topResult] = searchConversationMemory("继续完善角色状态卡，聚焦信任与背叛", corpus, "project-current");
+
+    expect(topResult?.kind).toBe("artifact");
+    expect(topResult?.title).toContain("角色状态卡");
+  });
+
+  it("can retrieve a saved session conclusion when the query matches past conversation decisions", () => {
+    const corpus = buildConversationMemoryCorpus(createRuntime());
+    const [topResult] = searchConversationMemory("男主先装冷淡后反向护妻", corpus, "project-current");
+
+    expect(topResult?.kind).toBe("conversation-summary");
+    expect(topResult?.summary).toContain("反向护妻");
+  });
+
+  it("keeps the top results semantically varied instead of over-favoring one source bucket", () => {
+    const corpus = buildConversationMemoryCorpus(createRuntime());
+    const results = searchConversationMemory("女频 强化 开篇 钩子 清理旧项目", corpus, "project-current");
+    const kinds = new Set(results.map((document) => document.kind));
+
+    expect(results.length).toBeGreaterThan(1);
+    expect(kinds.size).toBeGreaterThan(1);
+  });
+
   it("formats retrieved memories into an agent-readable overlay prompt", () => {
     const corpus = buildConversationMemoryCorpus(createRuntime());
     const results = searchConversationMemory("继续审阅镜头并准备出片", corpus, "project-current");
@@ -111,5 +183,14 @@ describe("conversation-memory", () => {
 
     expect(prompt).toContain("以下是与当前输入相关的历史记忆");
     expect(prompt).toContain("摘要：");
+  });
+
+  it("builds a source-aware hint for retrieved memories", () => {
+    const corpus = buildConversationMemoryCorpus(createRuntime());
+    const skillDraft = corpus.find((document) => document.kind === "skill-draft")!;
+    const projectSummary = corpus.find((document) => document.kind === "project-summary")!;
+
+    expect(buildConversationMemoryHint([skillDraft])).toBe("已参考 1 条技能草案");
+    expect(buildConversationMemoryHint([skillDraft, projectSummary])).toBe("已参考 2 条历史经验");
   });
 });
