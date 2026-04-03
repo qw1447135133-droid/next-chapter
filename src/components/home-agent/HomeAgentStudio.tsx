@@ -31,6 +31,16 @@ import {
   readStudioSession,
   writeStudioSession,
 } from "@/lib/home-agent/session-store";
+import {
+  AUTO_COMPACT_KEEP_RECENT_MESSAGE_COUNT,
+  buildCompactedHistoryPrompt,
+  planConversationCompaction,
+} from "@/lib/home-agent/conversation-compact";
+import {
+  buildAutoResearchPlan,
+  buildResearchFollowupQuestion,
+  buildResearchPromptOverlay,
+} from "@/lib/home-agent/auto-research";
 import type {
   AgentConversationMode,
   ComposerQuestion,
@@ -45,6 +55,9 @@ import type {
 import { cn } from "@/lib/utils";
 import ComposerChoicePopover from "./ComposerChoicePopover";
 import type { QueryEngine as QueryEngineClass } from "@/lib/agent/query-engine";
+import { AgentTool } from "@/lib/agent/tools/agent-tool";
+import { getAllTasks, stopTask, type Task } from "@/lib/agent/tools/task-tools";
+import { ToolUseContext } from "@/lib/agent/tool";
 
 const {
   Suspense,
@@ -72,7 +85,7 @@ interface Props {
 type QState = StudioQuestionState;
 
 const PROMPT =
-  "你是 InFinio 首页里的主控创作 Agent。整个产品只有一个首页工作表面，不允许把用户推回模块页、步骤页、工作台或手动表单。你必须先分析，再追问，再执行。需要结构化选择时调用 AskUserQuestion，并允许用户自定义输入。需要推进项目时调用 HomeStudioWorkflow。遇到明显适合并行研究、分工拆解或长任务处理的情况，可以调用 Agent 启动子任务，并用 TaskOutput / TaskStop 管理后台任务，但最终仍然要把结果收口回当前首页会话。默认使用简体中文，保持简洁、克制、专业，一次只推进一个关键决策。";
+  "你是 InFinio 首页里的主控创作 Agent。整个产品只有一个首页工作表面，不允许把用户推回模块页、步骤页、工作台或手动表单。你必须先分析，再追问，再执行。需要结构化选择时调用 AskUserQuestion，并允许用户自定义输入。需要推进项目时调用 HomeStudioWorkflow。遇到明显适合并行研究、分工拆解或长任务处理的情况，要优先考虑调用 Agent 启动 2 到 4 个后台子任务，并用 TaskOutput / TaskStop 管理后台任务，但最终仍然要把结果收口回当前首页会话。适合并行研究的典型场景包括：市场分析、风格对比、角色方案比较、改编路线比较、视频包装方案比较。默认使用简体中文，保持简洁、克制、专业，一次只推进一个关键决策。";
 const MOBILE_NAV_SHEET =
   "w-full border-r border-white/8 bg-[#17181b] p-0 text-slate-100 shadow-[18px_0_48px_rgba(0,0,0,0.3)] overscroll-contain sm:max-w-[360px]";
 const IDLE =
@@ -106,6 +119,9 @@ type ApiConfigModule = typeof import("@/lib/api-config");
 type AskUserQuestionModule = typeof import("@/lib/agent/tools/ask-user-question");
 type StructuredQuestionParserModule = typeof import("./structured-question-parser");
 type WorkflowActionsModule = typeof import("@/lib/home-agent/workflow-actions");
+type SemanticSummaryModule = typeof import("@/lib/home-agent/conversation-semantic-summary");
+type ConversationMemoryModule = typeof import("@/lib/home-agent/conversation-memory");
+type RuntimeTask = Task;
 
 function scheduleBackgroundTask(task: () => void, timeout = 500): () => void {
   if (typeof window === "undefined") return () => {};
@@ -137,6 +153,90 @@ function writeDesktopSidebarCollapsed(collapsed: boolean): void {
 function compactSidebarLabel(value: string): string {
   const trimmed = value.trim();
   return Array.from(trimmed)[0] ?? "•";
+}
+
+function taskStatusLabel(status: RuntimeTask["status"]): string {
+  switch (status) {
+    case "running":
+      return "进行中";
+    case "completed":
+      return "已完成";
+    case "failed":
+      return "失败";
+    case "cancelled":
+      return "已停止";
+    default:
+      return "待处理";
+  }
+}
+
+function taskStatusClass(status: RuntimeTask["status"]): string {
+  switch (status) {
+    case "running":
+      return "border-[#8aa0ff]/24 bg-[#8aa0ff]/10 text-[#dfe5ff]";
+    case "completed":
+      return "border-emerald-400/18 bg-emerald-400/10 text-emerald-100";
+    case "failed":
+      return "border-rose-400/18 bg-rose-400/10 text-rose-100";
+    case "cancelled":
+      return "border-white/[0.08] bg-white/[0.05] text-white/58";
+    default:
+      return "border-white/[0.08] bg-white/[0.05] text-white/72";
+  }
+}
+
+function isTerminalTask(task: RuntimeTask): boolean {
+  return task.status === "completed" || task.status === "failed" || task.status === "cancelled";
+}
+
+function formatTaskDockTimestamp(timestamp: number): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function parseTaskHeading(prompt: string): string | null {
+  const matched =
+    prompt.match(/^并行研究\s+([^:：]+)[:：]/) ??
+    prompt.match(/^并行研究[:：]\s*(.+)$/);
+  return matched?.[1]?.trim() ?? null;
+}
+
+function parseTaskPreview(prompt: string): string {
+  const heading = parseTaskHeading(prompt);
+  if (!heading) return truncateCopy(prompt, 84);
+  const stripped = prompt
+    .replace(/^并行研究\s+[^:：]+[:：]\s*/, "")
+    .replace(/^并行研究[:：]\s*.+$/, "")
+    .trim();
+  return truncateCopy(stripped, 96);
+}
+
+function buildTaskResultMessage(task: RuntimeTask): string {
+  const heading = parseTaskHeading(task.prompt);
+  const summary = heading ? `并行研究 ${heading}` : truncateCopy(task.prompt, 84);
+  const output = truncateCopy((task.output ?? "").trim(), 240);
+
+  if (task.status === "completed") {
+    return output
+      ? `后台研究已完成：${summary}\n\n${output}`
+      : `后台研究已完成：${summary}`;
+  }
+
+  if (task.status === "failed") {
+    return output
+      ? `后台任务执行失败：${summary}\n\n${output}`
+      : `后台任务执行失败：${summary}`;
+  }
+
+  return "";
+}
+
+function isTaskVisibleForSession(task: RuntimeTask, sessionId: string): boolean {
+  return task.sessionId === sessionId;
 }
 
 const templates = [
@@ -206,7 +306,7 @@ function createInitialStudioSeed(): {
   return {
     session,
     runtime: {
-      sessionId: crypto.randomUUID(),
+      sessionId: session?.sessionId ?? crypto.randomUUID(),
       currentProjectSnapshot: session?.currentProjectSnapshot ?? null,
       currentDramaProject: null,
       currentVideoProject: null,
@@ -1058,6 +1158,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
 interface HomeComposerProps {
   idle: boolean;
   currentProjectLabel?: string;
+  maintenanceHint?: string | null;
   draft: string;
   setDraft: (value: string) => void;
   placeholder: string;
@@ -1077,6 +1178,7 @@ interface HomeComposerProps {
 const HomeComposer = memo(function HomeComposer({
   idle,
   currentProjectLabel,
+  maintenanceHint,
   draft,
   setDraft,
   placeholder,
@@ -1141,9 +1243,12 @@ const HomeComposer = memo(function HomeComposer({
               <div className="truncate text-[10px] text-white/38">未会话时居中，会话开始后同一个输入框沉到底部。</div>
             </div>
           </div>
-        ) : currentProjectLabel ? (
+        ) : currentProjectLabel || maintenanceHint ? (
           <div className="flex items-center justify-between gap-3 px-4 pb-0 pt-2 text-[10px] tracking-[0.02em] text-white/34 md:px-6">
-            <div className="truncate">{currentProjectLabel}</div>
+            <div className="truncate">{currentProjectLabel ?? "当前首页会话"}</div>
+            {maintenanceHint ? (
+              <div className="hidden shrink-0 text-[10px] text-white/22 sm:block">{maintenanceHint}</div>
+            ) : null}
           </div>
         ) : null}
         <div className={cn("px-3.5 pb-3.5 pt-2 sm:px-4 sm:pb-4 md:px-6 md:pb-5", !idle && "pt-2")}>
@@ -1254,13 +1359,105 @@ const IdleLanding = memo(function IdleLanding({
   );
 });
 
+const BackgroundTaskDock = memo(function BackgroundTaskDock({
+  tasks,
+  onStopTask,
+}: {
+  tasks: RuntimeTask[];
+  onStopTask: (taskId: string) => void;
+}) {
+  const sortedTasks = [...tasks].sort((a, b) => b.updatedAt - a.updatedAt);
+  const activeTasks = sortedTasks.filter((task) => !isTerminalTask(task));
+  const terminalTasks = sortedTasks.filter((task) => isTerminalTask(task));
+  const visibleTasks = [...activeTasks.slice(0, 3), ...terminalTasks.slice(0, Math.max(0, 4 - Math.min(activeTasks.length, 3)))].slice(0, 4);
+  const collapsedTerminalTasks = terminalTasks.slice(Math.max(0, 4 - Math.min(activeTasks.length, 3)));
+  const runningCount = tasks.filter((task) => task.status === "running").length;
+
+  return (
+    <div className="mb-4 space-y-2.5">
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-white/34">
+          <Bot className="h-3.5 w-3.5" />
+          Agent 任务
+        </div>
+        <div className="text-[10.5px] text-white/32">
+          {runningCount > 0 ? `${runningCount} 项后台处理中` : `${tasks.length} 项任务记录`}
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        {visibleTasks.map((task) => (
+          <div
+            key={task.id}
+            className="flex items-start gap-3 rounded-[18px] border border-white/[0.06] bg-white/[0.025] px-3.5 py-3"
+          >
+            <div
+              className={cn(
+                "mt-0.5 inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] tracking-[0.08em]",
+                taskStatusClass(task.status),
+              )}
+            >
+              {taskStatusLabel(task.status)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <div className="truncate text-[12.5px] text-white/82">
+                  {parseTaskHeading(task.prompt) ?? truncateCopy(task.prompt, 84)}
+                </div>
+                {isTerminalTask(task) ? (
+                  <span className="shrink-0 text-[10px] text-white/20">{formatTaskDockTimestamp(task.updatedAt)}</span>
+                ) : null}
+              </div>
+              {task.output ? (
+                <div className="mt-1 line-clamp-2 text-[11px] leading-5 text-white/42">{truncateCopy(task.output, 150)}</div>
+              ) : (
+                <div className="mt-1 line-clamp-2 text-[11px] leading-5 text-white/32">
+                  {parseTaskPreview(task.prompt) || "Agent 正在后台处理中，结果会自动回流到当前会话。"}
+                </div>
+              )}
+            </div>
+            {task.status === "running" ? (
+              <button
+                type="button"
+                onClick={() => onStopTask(task.id)}
+                className="shrink-0 rounded-full px-2.5 py-1 text-[11px] text-white/50 transition-colors hover:bg-white/[0.05] hover:text-white/78"
+              >
+                停止
+              </button>
+            ) : null}
+          </div>
+        ))}
+        {collapsedTerminalTasks.length ? (
+          <div className="flex items-center justify-between gap-3 rounded-[16px] border border-white/[0.05] bg-white/[0.02] px-3.5 py-2.5">
+            <div className="min-w-0">
+              <div className="text-[11.5px] text-white/54">
+                已整理 {collapsedTerminalTasks.length} 条较早任务记录
+              </div>
+              <div className="mt-0.5 truncate text-[10.5px] text-white/28">
+                {collapsedTerminalTasks
+                  .slice(0, 3)
+                  .map((task) => parseTaskHeading(task.prompt) ?? truncateCopy(task.prompt, 24))
+                  .join(" · ")}
+              </div>
+            </div>
+            <div className="shrink-0 text-[10px] text-white/22">已折叠</div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+});
+
 const ActiveConversationShell = memo(function ActiveConversationShell({
   messages,
+  tasks,
+  onStopTask,
   endRef,
   composerProps,
   reduceMotion,
 }: {
   messages: HomeAgentMessage[];
+  tasks: RuntimeTask[];
+  onStopTask: (taskId: string) => void;
   endRef: RefObject<HTMLDivElement | null>;
   composerProps: HomeComposerProps;
   reduceMotion: boolean;
@@ -1281,6 +1478,7 @@ const ActiveConversationShell = memo(function ActiveConversationShell({
       className="mx-auto flex min-h-[calc(100vh-112px)] w-full flex-col"
     >
       <div className={cn("mx-auto w-full flex-1", ACTIVE_TRACK_CLASS)}>
+        {tasks.length ? <BackgroundTaskDock tasks={tasks} onStopTask={onStopTask} /> : null}
         <ConversationTimeline messages={messages} endRef={endRef} />
       </div>
       <motion.div
@@ -1870,6 +2068,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   );
   const [draft, setDraft] = useState(session?.draft ?? "");
   const [streaming, setStreaming] = useState(false);
+  const [tasks, setTasks] = useState<RuntimeTask[]>(() => getAllTasks());
   const [qState, setQState] = useState<QState | null>(session?.qState ?? null);
   const [suggested, setSuggested] = useState<ComposerQuestion | null>(null);
   const [popoverOverride, setPopoverOverride] = useState<ComposerQuestion | null>(null);
@@ -1882,9 +2081,12 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   const [activeProjectId, setActiveProjectId] = useState(
     session?.projectId ?? session?.currentProjectSnapshot?.projectId,
   );
+  const [compactedMessageCount, setCompactedMessageCount] = useState(session?.compactedMessageCount ?? 0);
+  const [maintenanceHint, setMaintenanceHint] = useState<string | null>(null);
 
   const runtimeRef = useRef(runtime);
   const messagesRef = useRef(messages);
+  const compactedMessageCountRef = useRef(compactedMessageCount);
   const engineRef = useRef<QueryEngineClass | null>(null);
   const engineDepsRef = useRef<Promise<EngineDeps> | null>(null);
   const projectStoreRef = useRef<Promise<ProjectStoreModule> | null>(null);
@@ -1892,8 +2094,14 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   const askQuestionRef = useRef<Promise<AskUserQuestionModule> | null>(null);
   const structuredParserRef = useRef<Promise<StructuredQuestionParserModule> | null>(null);
   const workflowActionsRef = useRef<Promise<WorkflowActionsModule> | null>(null);
+  const semanticSummaryRef = useRef<Promise<SemanticSummaryModule> | null>(null);
+  const conversationMemoryRef = useRef<Promise<ConversationMemoryModule> | null>(null);
   const handoffRef = useRef(false);
   const endRef = useRef<HTMLDivElement | null>(null);
+  const surfacedTaskIdsRef = useRef<Set<string>>(new Set());
+  const surfacedTaskFollowupIdsRef = useRef<Set<string>>(new Set());
+  const maintenanceHintTimerRef = useRef<number | null>(null);
+  const compactionJobVersionRef = useRef(0);
   const previousQuestionStepRef = useRef<string | null>(
     session?.qState ? `${session.qState.request.id}:${session.qState.currentIndex}` : null,
   );
@@ -1935,6 +2143,22 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         .join(" | "),
     [deferredMessages],
   );
+  const compactedHistoryPrompt = useMemo(
+    () => (compactedMessageCount > 0 ? buildCompactedHistoryPrompt(runtime.recentMessageSummary) : undefined),
+    [compactedMessageCount, runtime.recentMessageSummary],
+  );
+
+  const flashMaintenanceHint = useCallback((message: string, duration = 2200) => {
+    setMaintenanceHint(message);
+    if (typeof window === "undefined") return;
+    if (maintenanceHintTimerRef.current) {
+      window.clearTimeout(maintenanceHintTimerRef.current);
+    }
+    maintenanceHintTimerRef.current = window.setTimeout(() => {
+      setMaintenanceHint(null);
+      maintenanceHintTimerRef.current = null;
+    }, duration);
+  }, []);
 
   const composerShellClass = idle
     ? "overflow-hidden rounded-[30px] bg-[linear-gradient(180deg,rgba(35,36,40,0.96),rgba(24,25,28,0.98))] shadow-[0_10px_30px_rgba(0,0,0,0.14)]"
@@ -1948,14 +2172,36 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     [runtime.currentProjectSnapshot, runtime.currentVideoProject],
   );
   const deferredSidebarAssets = useDeferredValue(sidebarAssets);
+  const visibleTasks = useMemo(
+    () => tasks.filter((task) => isTaskVisibleForSession(task, runtime.sessionId)),
+    [tasks, runtime.sessionId],
+  );
 
   useEffect(() => {
     runtimeRef.current = runtime;
   }, [runtime]);
 
+  useEffect(
+    () => () => {
+      if (maintenanceHintTimerRef.current && typeof window !== "undefined") {
+        window.clearTimeout(maintenanceHintTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    surfacedTaskIdsRef.current.clear();
+    surfacedTaskFollowupIdsRef.current.clear();
+  }, [runtime.sessionId]);
+
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    compactedMessageCountRef.current = compactedMessageCount;
+  }, [compactedMessageCount]);
 
   useEffect(() => {
     setUtilityPanel(initialUtility);
@@ -1998,6 +2244,20 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
       workflowActionsRef.current = import("@/lib/home-agent/workflow-actions");
     }
     return workflowActionsRef.current;
+  }, []);
+
+  const loadSemanticSummaryModule = useCallback(async () => {
+    if (!semanticSummaryRef.current) {
+      semanticSummaryRef.current = import("@/lib/home-agent/conversation-semantic-summary");
+    }
+    return semanticSummaryRef.current;
+  }, []);
+
+  const loadConversationMemoryModule = useCallback(async () => {
+    if (!conversationMemoryRef.current) {
+      conversationMemoryRef.current = import("@/lib/home-agent/conversation-memory");
+    }
+    return conversationMemoryRef.current;
   }, []);
 
   useEffect(() => {
@@ -2064,6 +2324,18 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   }, [runtime.currentProjectSnapshot?.projectId]);
 
   useEffect(() => {
+    const syncTasks = () => {
+      startTransition(() => {
+        setTasks(getAllTasks());
+      });
+    };
+
+    syncTasks();
+    window.addEventListener("agent:tasks-updated", syncTasks);
+    return () => window.removeEventListener("agent:tasks-updated", syncTasks);
+  }, []);
+
+  useEffect(() => {
     if (qState || streaming || popoverOverride) return;
     if (draft.trim()) return;
     if (!runtime.currentProjectSnapshot) {
@@ -2091,6 +2363,68 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   }, [qState]);
 
   useEffect(() => {
+    if (idle || streaming) return;
+
+    const plan = planConversationCompaction(messages, compactedMessageCount, runtime.recentMessageSummary);
+    if (!plan.shouldCompact) return;
+
+    engineRef.current?.interrupt();
+    engineRef.current = null;
+    setCompactedMessageCount(plan.nextCompactedMessageCount);
+    setRuntime((prev) => ({
+      ...prev,
+      recentMessageSummary: plan.nextSummary,
+    }));
+    flashMaintenanceHint("较早对话已静默整理");
+
+    const jobVersion = compactionJobVersionRef.current + 1;
+    compactionJobVersionRef.current = jobVersion;
+    const baseSummary = runtime.recentMessageSummary;
+    const jobSessionId = runtimeRef.current.sessionId;
+
+    void (async () => {
+      try {
+        const [semanticSummary, apiConfig] = await Promise.all([
+          loadSemanticSummaryModule(),
+          loadApiConfigModule(),
+        ]);
+        const cfg = apiConfig.getApiConfig();
+        const refinedSummary = await semanticSummary.refineCompactedConversationSummary({
+          existingSummary: baseSummary,
+          compactedMessages: plan.compactedMessages,
+          projectSnapshot: runtimeRef.current.currentProjectSnapshot,
+          apiKey: cfg.claudeKey || cfg.geminiKey || cfg.gptKey,
+          baseUrl: cfg.claudeEndpoint || cfg.geminiEndpoint || cfg.gptEndpoint,
+          model: apiConfig.resolveConfiguredModelName("claude-sonnet-4-6"),
+        });
+
+        if (!refinedSummary.trim()) return;
+        if (compactionJobVersionRef.current !== jobVersion) return;
+        if (runtimeRef.current.sessionId !== jobSessionId) return;
+        if (refinedSummary.trim() === plan.nextSummary.trim()) return;
+
+        startTransition(() => {
+          setRuntime((prev) => ({
+            ...prev,
+            recentMessageSummary: refinedSummary,
+          }));
+        });
+      } catch {
+        // Fall back to the deterministic summary already persisted in state.
+      }
+    })();
+  }, [
+    compactedMessageCount,
+    flashMaintenanceHint,
+    idle,
+    loadApiConfigModule,
+    loadSemanticSummaryModule,
+    messages,
+    runtime.recentMessageSummary,
+    streaming,
+  ]);
+
+  useEffect(() => {
     if (idle) {
       clearStudioSession();
       return;
@@ -2098,11 +2432,13 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
 
     const cancelTask = scheduleBackgroundTask(() => {
       writeStudioSession({
+        sessionId: runtimeRef.current.sessionId,
         mode,
         messages: deferredMessages,
         currentProjectSnapshot: deferredProjectSnapshot,
-        recentMessageSummary: recentSessionSummary,
+        recentMessageSummary: compactedMessageCount > 0 ? runtime.recentMessageSummary : recentSessionSummary,
         projectId: activeProjectId,
+        compactedMessageCount,
         draft,
         qState,
         selectedValues,
@@ -2119,6 +2455,8 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     mode,
     qState,
     recentSessionSummary,
+    compactedMessageCount,
+    runtime.recentMessageSummary,
     selectedValues,
   ]);
 
@@ -2168,6 +2506,48 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     setMessages((prev) => [...prev, mk(role, content.trim())]);
   }, []);
 
+  useEffect(() => {
+    const newlySurfacedTasks: RuntimeTask[] = [];
+
+    for (const task of visibleTasks) {
+      if (!["completed", "failed"].includes(task.status)) continue;
+      if (surfacedTaskIdsRef.current.has(task.id)) continue;
+
+      const nextMessage = buildTaskResultMessage(task);
+      if (nextMessage) {
+        surfacedTaskIdsRef.current.add(task.id);
+        newlySurfacedTasks.push(task);
+        push("assistant", nextMessage);
+      }
+    }
+
+    if (!newlySurfacedTasks.length) return;
+    if (qState || streaming || draft.trim() || popoverOverride) return;
+
+    const pendingTaskCount = visibleTasks.filter(
+      (task) => task.status === "running" || task.status === "pending",
+    ).length;
+    if (pendingTaskCount > 0) return;
+
+    const readyTasks = visibleTasks.filter((task) => ["completed", "failed"].includes(task.status));
+    const followupKey = readyTasks.map((task) => task.id).sort().join(",");
+    if (!followupKey || surfacedTaskFollowupIdsRef.current.has(followupKey)) return;
+
+    const headings = readyTasks
+      .map((task) => parseTaskHeading(task.prompt))
+      .filter((value): value is string => Boolean(value))
+      .slice(0, 3);
+    const followupQuestion = buildResearchFollowupQuestion(
+      runtimeRef.current.currentProjectSnapshot,
+      headings,
+      readyTasks.map((task) => task.id),
+    );
+    if (!followupQuestion) return;
+
+    surfacedTaskFollowupIdsRef.current.add(followupKey);
+    setPopoverOverride(followupQuestion);
+  }, [draft, popoverOverride, push, qState, streaming, visibleTasks]);
+
   const loadEngineDeps = useCallback(async () => {
     if (!engineDepsRef.current) {
       engineDepsRef.current = Promise.all([
@@ -2200,13 +2580,44 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         throw new Error("当前没有可用的文本模型 API Key，请先在设置中完成配置。");
       }
 
+      const preflightPlan = planConversationCompaction(
+        messagesRef.current,
+        compactedMessageCountRef.current,
+        runtimeRef.current.recentMessageSummary,
+      );
+
+      let engineSummary = runtimeRef.current.recentMessageSummary;
+      let engineCompactedCount = compactedMessageCountRef.current;
+      let engineInitialMessages = messagesRef.current.slice(
+        Math.min(
+          compactedMessageCountRef.current,
+          Math.max(0, messagesRef.current.length - AUTO_COMPACT_KEEP_RECENT_MESSAGE_COUNT),
+        ),
+      );
+
+      if (preflightPlan.shouldCompact) {
+        engineSummary = preflightPlan.nextSummary;
+        engineCompactedCount = preflightPlan.nextCompactedMessageCount;
+        engineInitialMessages = preflightPlan.retainedMessages;
+        compactedMessageCountRef.current = engineCompactedCount;
+        setCompactedMessageCount(engineCompactedCount);
+        setRuntime((prev) => ({
+          ...prev,
+          recentMessageSummary: engineSummary,
+        }));
+      }
+
+      const engineCompactedHistoryPrompt =
+        engineCompactedCount > 0 ? buildCompactedHistoryPrompt(engineSummary) : undefined;
+
       engineRef.current = new deps.QueryEngine({
         apiKey,
         baseUrl,
         model: apiConfig.resolveConfiguredModelName("claude-sonnet-4-6"),
         tools,
         systemPrompt: PROMPT,
-        initialMessages: toQuery(messagesRef.current),
+        appendSystemPrompt: engineCompactedHistoryPrompt,
+        initialMessages: toQuery(engineInitialMessages),
         maxTurns: 12,
         getAppState: () => runtimeRef.current,
         setAppState: (updater) => setRuntime((prev) => updater(prev) as StudioRuntimeState),
@@ -2215,6 +2626,67 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
       return engineRef.current;
     },
     [loadApiConfigModule, loadEngineDeps],
+  );
+
+  const launchAutoResearchTasks = useCallback(
+    async (prompt: string) => {
+      const plan = buildAutoResearchPlan(prompt, runtimeRef.current.currentProjectSnapshot);
+      if (!plan) return null;
+
+      const apiConfig = await loadApiConfigModule();
+      const cfg = apiConfig.getApiConfig();
+      const apiKey = cfg.claudeKey || cfg.geminiKey || cfg.gptKey;
+      const baseUrl = cfg.claudeEndpoint || cfg.geminiEndpoint || cfg.gptEndpoint;
+      if (!apiKey) return null;
+
+      const tool = new AgentTool();
+      const context = new ToolUseContext({
+        options: {
+          model: apiConfig.resolveConfiguredModelName("claude-sonnet-4-6"),
+          tools: [],
+          apiKey,
+          baseUrl,
+        },
+      });
+
+      const parentMessage = {
+        type: "assistant",
+        uuid: crypto.randomUUID(),
+        message: {
+          role: "assistant",
+          content: "auto-research-launch",
+        },
+      } as const;
+
+      const taskIds: string[] = [];
+
+      const results = await Promise.all(
+        plan.tasks.map((task) =>
+          tool.call(
+            {
+              prompt: task.prompt,
+              description: `并行研究 ${task.title}`,
+              session_id: runtimeRef.current.sessionId,
+              project_id: runtimeRef.current.currentProjectSnapshot?.projectId,
+              subagent_type: "research",
+              run_in_background: true,
+            },
+            context,
+            async () => ({ behavior: "allow" }),
+            parentMessage,
+          ),
+        ),
+      );
+
+      for (const result of results) {
+        const taskId = String(result.data).match(/Task ID:\s*([a-f0-9-]+)/i)?.[1];
+        if (taskId) taskIds.push(taskId);
+      }
+
+      if (!taskIds.length) return null;
+      return { plan, taskIds };
+    },
+    [loadApiConfigModule],
   );
 
   const send = useCallback(
@@ -2227,11 +2699,54 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
       setSuggested(null);
       setMode("active");
       setDraft("");
+
+      let promptForEngine = cleaned;
+      try {
+        const research = await launchAutoResearchTasks(cleaned);
+        if (research) {
+          push("assistant", research.plan.kickoff);
+          promptForEngine = `${cleaned}\n\n${buildResearchPromptOverlay(research.plan, research.taskIds)}`;
+        }
+      } catch {
+        promptForEngine = cleaned;
+      }
+
+      try {
+        const memoryModule = await loadConversationMemoryModule();
+        let memoryRuntime = runtimeRef.current;
+        if (!memoryRuntime.recentProjects.length) {
+          try {
+            const store = await loadProjectStore();
+            const snapshots = await store.listRecentConversationSnapshots(8);
+            memoryRuntime = {
+              ...memoryRuntime,
+              recentProjects: snapshots,
+            };
+          } catch {
+            memoryRuntime = runtimeRef.current;
+          }
+        }
+
+        const memoryCorpus = memoryModule.buildConversationMemoryCorpus(memoryRuntime);
+        const memoryHits = memoryModule.searchConversationMemory(
+          cleaned,
+          memoryCorpus,
+          runtimeRef.current.currentProjectSnapshot?.projectId,
+        ).filter((document) => document.projectId !== runtimeRef.current.currentProjectSnapshot?.projectId);
+        const memoryPrompt = memoryModule.buildConversationMemoryPrompt(memoryHits);
+        if (memoryPrompt) {
+          flashMaintenanceHint(`已参考 ${memoryHits.length} 条历史经验`, 1800);
+          promptForEngine = `${promptForEngine}\n\n${memoryPrompt}`;
+        }
+      } catch {
+        // Keep the main conversation moving even if memory lookup fails.
+      }
+
       setStreaming(true);
 
       try {
         const activeEngine = await getEngine();
-        for await (const event of activeEngine.submitMessage(cleaned)) {
+        for await (const event of activeEngine.submitMessage(promptForEngine)) {
           if (event.type === "assistant") {
             const parser = await loadStructuredQuestionParser();
             const parsed = parser.extractStructuredQuestion(textOf(event.message.message.content));
@@ -2249,7 +2764,15 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         setStreaming(false);
       }
     },
-    [getEngine, loadStructuredQuestionParser, push],
+    [
+      flashMaintenanceHint,
+      getEngine,
+      launchAutoResearchTasks,
+      loadConversationMemoryModule,
+      loadProjectStore,
+      loadStructuredQuestionParser,
+      push,
+    ],
   );
 
   const reset = useCallback(() => {
@@ -2261,6 +2784,8 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
 
     engineRef.current?.interrupt();
     engineRef.current = null;
+    surfacedTaskIdsRef.current.clear();
+    surfacedTaskFollowupIdsRef.current.clear();
     setQState(null);
     setPopoverOverride(null);
     setSuggested(null);
@@ -2268,6 +2793,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     setMode("idle");
     setMessages([]);
     setDraft("");
+    setCompactedMessageCount(0);
     setActiveProjectId(undefined);
     setRuntime((prev) => ({
       ...prev,
@@ -2308,6 +2834,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
           );
           setMessages(savedSession.messages.length ? savedSession.messages : [mk("assistant", brief(snapshot))]);
           setDraft(savedSession.draft ?? "");
+          setCompactedMessageCount(savedSession.compactedMessageCount ?? 0);
           previousQuestionStepRef.current = savedSession.qState
             ? `${savedSession.qState.request.id}:${savedSession.qState.currentIndex}`
             : null;
@@ -2319,12 +2846,13 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
           setMode("active");
           setMessages([mk("assistant", brief(snapshot))]);
           setDraft("");
+          setCompactedMessageCount(0);
           previousQuestionStepRef.current = null;
         }
 
         setRuntime((prev) => ({
           ...prev,
-          sessionId: crypto.randomUUID(),
+          sessionId: savedSession?.sessionId ?? crypto.randomUUID(),
           currentProjectSnapshot: snapshot,
           currentDramaProject: source.dramaProject,
           currentVideoProject: source.videoProject,
@@ -2457,6 +2985,11 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
 
   const handleOpenMobileNavigation = useCallback(() => {
     setMobileNavOpen(true);
+  }, []);
+
+  const handleStopTask = useCallback((taskId: string) => {
+    stopTask(taskId);
+    setTasks(getAllTasks());
   }, []);
 
   const handleSettingsOpenChange = useCallback(
@@ -2890,6 +3423,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     () => ({
       idle,
       currentProjectLabel: currentProject ? `${currentProject.title} · ${currentProject.derivedStage}` : undefined,
+      maintenanceHint,
       draft,
       setDraft,
       placeholder,
@@ -2916,6 +3450,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
       draft,
       handleChoiceSelect,
       idle,
+      maintenanceHint,
       placeholder,
       qState,
       question,
@@ -2979,6 +3514,8 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
             ) : (
               <ActiveConversationShell
                 messages={deferredMessages}
+                tasks={visibleTasks}
+                onStopTask={handleStopTask}
                 endRef={endRef}
                 composerProps={composerProps}
                 reduceMotion={reduceMotion}

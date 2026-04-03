@@ -11,9 +11,12 @@ const VIDEO_PROJECTS_KEY = "storyforge_projects";
 const DESKTOP_SIDEBAR_COLLAPSE_KEY = "storyforge-home-agent-desktop-sidebar-collapsed-v1";
 
 let assistantReply = "好的，我们开始。";
+let lastQueryEngineConfig: Record<string, unknown> | null = null;
+let lastSubmittedPrompt = "";
 
 const resolveAskUserQuestion = vi.fn(() => true);
 const rejectAskUserQuestion = vi.fn(() => true);
+const refineCompactedConversationSummary = vi.fn(async () => "目标与约束\n- 用户要继续推进项目\n已确认内容\n- 已有历史结论\n待继续推进\n- 继续完成当前阶段");
 const runWorkflowAction = vi.fn(
   async (action: string, _input: Record<string, unknown>, runtime: { currentProjectSnapshot?: unknown }) => ({
     summary: `workflow:${action}`,
@@ -138,9 +141,14 @@ vi.mock("./ComposerChoicePopover", () => ({
 
 vi.mock("@/lib/agent/query-engine", () => ({
   QueryEngine: class MockQueryEngine {
+    constructor(config: Record<string, unknown>) {
+      lastQueryEngineConfig = config;
+    }
+
     interrupt() {}
 
-    async *submitMessage() {
+    async *submitMessage(prompt?: string) {
+      lastSubmittedPrompt = String(prompt ?? "");
       yield {
         type: "assistant",
         message: {
@@ -178,7 +186,12 @@ vi.mock("@/lib/home-agent/workflow-actions", () => ({
   runWorkflowAction,
 }));
 
+vi.mock("@/lib/home-agent/conversation-semantic-summary", () => ({
+  refineCompactedConversationSummary,
+}));
+
 const { default: HomeAgentStudio } = await import("./HomeAgentStudio");
+const { clearTaskRegistry, writeTask, getTask, updateTask } = await import("@/lib/agent/tools/task-tools");
 
 function renderStudio(ui: ReactElement = <HomeAgentStudio />) {
   return act(async () => {
@@ -245,6 +258,8 @@ function createQuestionRequest(overrides?: Partial<AskUserQuestionRequest>): Ask
 
 function createSession(overrides?: Partial<StudioSessionState>): StudioSessionState {
   return {
+    sessionId: "session-current",
+    compactedMessageCount: 0,
     mode: "active",
     messages: [
       {
@@ -285,6 +300,21 @@ function createSession(overrides?: Partial<StudioSessionState>): StudioSessionSt
     selectedValues: ["都市"],
     ...overrides,
   };
+}
+
+function createLongSession(): StudioSessionState {
+  return createSession({
+    qState: null,
+    draft: "",
+    selectedValues: [],
+    recentMessageSummary: "",
+    messages: Array.from({ length: 24 }, (_, index) => ({
+      id: `long-msg-${index}`,
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `第 ${index + 1} 条长消息：围绕角色、市场、风格和分集推进的历史上下文。`,
+      createdAt: `2026-04-03T00:00:${String(index).padStart(2, "0")}.000Z`,
+    })),
+  });
 }
 
 function createScriptMemorySession(overrides?: Partial<StudioSessionState>): StudioSessionState {
@@ -455,10 +485,14 @@ describe("HomeAgentStudio", () => {
   beforeEach(() => {
     vi.useRealTimers();
     assistantReply = "好的，我们开始。";
+    lastQueryEngineConfig = null;
+    lastSubmittedPrompt = "";
     localStorage.clear();
+    clearTaskRegistry();
     resolveAskUserQuestion.mockClear();
     rejectAskUserQuestion.mockClear();
     runWorkflowAction.mockClear();
+    refineCompactedConversationSummary.mockClear();
     vi.clearAllMocks();
     window.history.pushState({}, "", "/");
     window.open = vi.fn();
@@ -482,6 +516,86 @@ describe("HomeAgentStudio", () => {
     expect(window.location.pathname).toBe("/");
   });
 
+  it("auto-compacts long homepage conversations before continuing with the next turn", async () => {
+    localStorage.setItem(STUDIO_SESSION_KEY, JSON.stringify(createLongSession()));
+
+    await renderStudio();
+
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "继续往下推进" } });
+
+    await act(async () => {
+      fireEvent.click(findSendButton()!);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(Array.isArray(lastQueryEngineConfig?.initialMessages)).toBe(true);
+    });
+    expect((lastQueryEngineConfig?.initialMessages as unknown[]).length).toBeLessThan(24);
+    expect(refineCompactedConversationSummary).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("较早对话已静默整理")).toBeInTheDocument();
+  });
+
+  it("automatically launches parallel research tracks for analysis-style requests", async () => {
+    await renderStudio();
+
+    const textarea = (await screen.findByPlaceholderText(/和 Agent 说出你的目标/)) as HTMLTextAreaElement;
+    fireEvent.change(textarea, {
+      target: { value: "请帮我分析这个女频都市短剧项目的市场、风格方向和人物卖点" },
+    });
+
+    await act(async () => {
+      fireEvent.click(findSendButton()!);
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/我先并行研究 3 个方向/);
+    expect(screen.getByText("Agent 任务")).toBeInTheDocument();
+    expect(screen.getByText("目标市场")).toBeInTheDocument();
+    expect(screen.getByText("风格路线")).toBeInTheDocument();
+    expect(screen.getByText("卖点结构")).toBeInTheDocument();
+  });
+
+  it("injects relevant historical memory into the current turn prompt", async () => {
+    localStorage.setItem(
+      STUDIO_SESSION_KEY,
+      JSON.stringify(
+        createSession({
+          qState: null,
+          draft: "",
+          currentProjectSnapshot: {
+            ...createSession().currentProjectSnapshot!,
+            projectId: "project-current",
+            title: "当前项目",
+          },
+        }),
+      ),
+    );
+
+    seedDramaProject("project-old-script");
+
+    await renderStudio();
+
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(textarea, {
+      target: { value: "我想继续做女频都市悬疑的人物关系和反转" },
+    });
+
+    await act(async () => {
+      fireEvent.click(findSendButton()!);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(lastSubmittedPrompt).toContain("以下是与当前输入相关的历史记忆");
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/已参考 \d+ 条历史经验/)).toBeInTheDocument();
+    });
+  });
+
   it("supports a Gemini-style collapsible desktop sidebar and persists its state", async () => {
     await renderStudio();
 
@@ -498,6 +612,158 @@ describe("HomeAgentStudio", () => {
     cleanup();
     await renderStudio();
     expect(screen.getByRole("button", { name: "展开侧栏" })).toBeInTheDocument();
+  });
+
+  it("renders background agent tasks inside the homepage conversation surface", async () => {
+    writeTask({
+      id: "task-1",
+      prompt: "并行研究: 女性短剧市场趋势",
+      status: "running",
+      sessionId: "session-current",
+      projectId: "drama-project-1",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    localStorage.setItem(STUDIO_SESSION_KEY, JSON.stringify(createSession({ qState: null, draft: "" })));
+
+    await renderStudio();
+
+    await waitForVisibleText("Agent 任务");
+    expect(screen.getByText(/女性短剧市场趋势/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "停止" })).toBeInTheDocument();
+  });
+
+  it("collapses older completed tasks into a compact summary row", async () => {
+    localStorage.setItem(STUDIO_SESSION_KEY, JSON.stringify(createSession({ qState: null, draft: "" })));
+
+    writeTask({
+      id: "task-running-current",
+      prompt: "并行研究: 当前市场风向",
+      status: "running",
+      sessionId: "session-current",
+      projectId: "drama-project-1",
+      createdAt: Date.now() - 1000,
+      updatedAt: Date.now() - 1000,
+    });
+
+    for (let index = 0; index < 5; index += 1) {
+      writeTask({
+        id: `task-completed-${index}`,
+        prompt: `并行研究: 已完成方向 ${index + 1}`,
+        status: "completed",
+        output: `结论 ${index + 1}`,
+        sessionId: "session-current",
+        projectId: "drama-project-1",
+        createdAt: Date.now() - 800 + index,
+        updatedAt: Date.now() - 800 + index,
+      });
+    }
+
+    await renderStudio();
+
+    await waitForVisibleText("Agent 任务");
+    expect(screen.getByText("已整理 2 条较早任务记录")).toBeInTheDocument();
+    expect(screen.getByText(/当前市场风向/)).toBeInTheDocument();
+  });
+
+  it("can stop a running background task from the homepage surface", async () => {
+    writeTask({
+      id: "task-stop-1",
+      prompt: "并行研究: 改编方向比较",
+      status: "running",
+      sessionId: "session-current",
+      projectId: "drama-project-1",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    localStorage.setItem(STUDIO_SESSION_KEY, JSON.stringify(createSession({ qState: null, draft: "" })));
+
+    await renderStudio();
+
+    await waitForVisibleText("Agent 任务");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "停止" }));
+      await Promise.resolve();
+    });
+
+    expect(getTask("task-stop-1")?.status).toBe("cancelled");
+  });
+
+  it("auto-injects completed background research back into the homepage conversation", async () => {
+    writeTask({
+      id: "task-complete-1",
+      prompt: "并行研究: 女频都市反转短剧市场",
+      status: "running",
+      sessionId: "session-current",
+      projectId: "drama-project-1",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    localStorage.setItem(STUDIO_SESSION_KEY, JSON.stringify(createSession({ qState: null, draft: "" })));
+
+    await renderStudio();
+    await waitForVisibleText("Agent 任务");
+
+    act(() => {
+      updateTask("task-complete-1", {
+        status: "completed",
+        output: "结论：抖音更适合强钩子、快反转、女性情绪拉扯。",
+      });
+    });
+
+    await waitForVisibleText(/后台研究已完成/);
+    expect(screen.getAllByText(/抖音更适合强钩子/).length).toBeGreaterThan(0);
+  });
+
+  it("offers a follow-up choice popover after background research completes", async () => {
+    writeTask({
+      id: "task-followup-1",
+      prompt: "并行研究 目标市场: 女频都市短剧平台适配",
+      status: "running",
+      sessionId: "session-current",
+      projectId: "drama-project-1",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    localStorage.setItem(STUDIO_SESSION_KEY, JSON.stringify(createSession({ qState: null, draft: "" })));
+
+    await renderStudio();
+    await waitForVisibleText("Agent 任务");
+
+    act(() => {
+      updateTask("task-followup-1", {
+        status: "completed",
+        output: "结论：抖音优先，小红书适合作为角色种草补充。",
+      });
+    });
+
+    await waitForVisibleText("后台研究已返回，下一步怎么推进？");
+    expect(screen.getByRole("button", { name: "先汇总结论" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "整理立项方案" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "推进角色设计" })).toBeInTheDocument();
+  });
+
+  it("hides background tasks from other homepage sessions", async () => {
+    writeTask({
+      id: "task-other-session",
+      prompt: "并行研究: 不应出现在当前会话",
+      status: "running",
+      sessionId: "session-other",
+      projectId: "drama-project-2",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    localStorage.setItem(STUDIO_SESSION_KEY, JSON.stringify(createSession({ qState: null, draft: "" })));
+
+    await renderStudio();
+
+    expect(screen.queryByText("Agent 任务")).not.toBeInTheDocument();
+    expect(screen.queryByText(/不应出现在当前会话/)).not.toBeInTheDocument();
   });
 
   it("resolves multi-step ask-user-question only on the final step", async () => {

@@ -15,6 +15,8 @@ export interface Task {
   id: string
   prompt: string
   status: TaskStatus
+  sessionId?: string
+  projectId?: string
   output?: string
   createdAt: number
   updatedAt: number
@@ -43,7 +45,7 @@ export function writeTask(task: Task): Task {
 
 export function updateTask(
   taskId: string,
-  patch: Partial<Pick<Task, 'status' | 'output' | 'prompt'>>,
+  patch: Partial<Pick<Task, 'status' | 'output' | 'prompt' | 'sessionId' | 'projectId'>>,
 ): Task | undefined {
   const current = tasks.get(taskId)
   if (!current) return undefined
@@ -70,6 +72,17 @@ export function clearTaskRegistry(): void {
   tasks.clear()
   stopHandlers.clear()
   notifyTaskUpdate()
+}
+
+export function stopTask(taskId: string): boolean {
+  const task = tasks.get(taskId)
+  if (!task) return false
+
+  const stop = stopHandlers.get(taskId)
+  stop?.()
+  stopHandlers.delete(taskId)
+  updateTask(taskId, { status: 'cancelled', output: task.output ?? 'Task cancelled by user.' })
+  return true
 }
 
 export class TaskWriteTool extends ToolBase {
@@ -122,13 +135,7 @@ export class TaskStopTool extends ToolBase {
     _parentMessage: AssistantMessage,
   ): Promise<ToolResult> {
     const taskId = args.task_id as string
-    const task = tasks.get(taskId)
-    if (!task) return { data: `Task ${taskId} not found` }
-
-    const stop = stopHandlers.get(taskId)
-    stop?.()
-    stopHandlers.delete(taskId)
-    updateTask(taskId, { status: 'cancelled', output: task.output ?? 'Task cancelled by user.' })
+    if (!stopTask(taskId)) return { data: `Task ${taskId} not found` }
     return { data: `Task ${taskId} cancelled` }
   }
 }

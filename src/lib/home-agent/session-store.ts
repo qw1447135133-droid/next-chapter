@@ -23,6 +23,11 @@ function normalizeStudioSession(session: StudioSessionState | null): StudioSessi
   if (!session || typeof session !== "object") return null;
 
   return {
+    sessionId: typeof session.sessionId === "string" ? session.sessionId : undefined,
+    compactedMessageCount:
+      typeof session.compactedMessageCount === "number" && Number.isFinite(session.compactedMessageCount)
+        ? Math.max(0, session.compactedMessageCount)
+        : 0,
     mode:
       session.mode === "idle" ||
       session.mode === "active" ||

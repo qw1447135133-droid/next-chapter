@@ -71,6 +71,24 @@ export interface ConversationArtifact {
   updatedAt: string;
 }
 
+export type ConversationMemoryKind =
+  | "project-summary"
+  | "artifact"
+  | "maintenance-report"
+  | "skill-draft";
+
+export interface ConversationMemoryDocument {
+  id: string;
+  projectId?: string;
+  projectKind?: ConversationProjectKind;
+  title: string;
+  kind: ConversationMemoryKind;
+  text: string;
+  summary: string;
+  updatedAt: string;
+  tags: string[];
+}
+
 export interface ConversationProjectSnapshot {
   projectId: string;
   projectKind: ConversationProjectKind;
@@ -170,6 +188,8 @@ export interface AgentConversationShellState {
 }
 
 export interface StudioSessionState {
+  sessionId?: string;
+  compactedMessageCount?: number;
   mode: AgentConversationMode;
   messages: HomeAgentMessage[];
   currentProjectSnapshot: ConversationProjectSnapshot | null;

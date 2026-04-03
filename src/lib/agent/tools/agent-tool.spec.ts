@@ -62,6 +62,37 @@ describe("AgentTool", () => {
     expect(getTask(taskId!)?.output).toBe("subagent:拆解这个项目的研究方向");
   });
 
+  it("stores homepage session metadata on background tasks", async () => {
+    const tool = new AgentTool();
+    const context = new ToolUseContext({
+      options: {
+        model: "claude-sonnet-4-6",
+        tools: [],
+        apiKey: "test-key",
+        baseUrl: "https://example.test",
+      },
+      getAppState: () => ({
+        sessionId: "session-home-fallback",
+        currentProjectSnapshot: { projectId: "project-fallback" },
+      }),
+    });
+
+    const result = await tool.call(
+      {
+        prompt: "分析当前项目的下一步",
+        description: "并行研究",
+        run_in_background: true,
+      },
+      context,
+      vi.fn(),
+      parentMessage,
+    );
+
+    const taskId = String(result.data).match(/Task ID:\s*([a-f0-9-]+)/i)?.[1];
+    expect(getTask(taskId!)?.sessionId).toBe("session-home-fallback");
+    expect(getTask(taskId!)?.projectId).toBe("project-fallback");
+  });
+
   it("requires an api key in tool context", async () => {
     const tool = new AgentTool();
     const context = new ToolUseContext({

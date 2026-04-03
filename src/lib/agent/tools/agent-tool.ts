@@ -36,6 +36,8 @@ export class AgentTool extends ToolBase {
           description: 'Type of agent (general-purpose, Explore, Plan, etc.)',
         },
         model: { type: 'string', description: 'Optional model override' },
+        session_id: { type: 'string', description: 'Optional homepage conversation session id' },
+        project_id: { type: 'string', description: 'Optional current project id' },
         run_in_background: {
           type: 'boolean',
           description: 'Run in background; returns task ID immediately',
@@ -56,6 +58,15 @@ export class AgentTool extends ToolBase {
     const runInBackground = (args.run_in_background as boolean) ?? false
     const description = (args.description as string) ?? 'sub-task'
     const subagentType = (args.subagent_type as string) ?? 'general-purpose'
+    const appState = context.getAppState?.() as
+      | { sessionId?: string; currentProjectSnapshot?: { projectId?: string | null } | null }
+      | undefined
+    const sessionId =
+      typeof args.session_id === 'string' ? args.session_id : appState?.sessionId
+    const projectId =
+      typeof args.project_id === 'string'
+        ? args.project_id
+        : appState?.currentProjectSnapshot?.projectId ?? undefined
 
     const apiKey = context.options.apiKey
     const baseUrl = context.options.baseUrl
@@ -92,6 +103,8 @@ export class AgentTool extends ToolBase {
         id: taskId,
         prompt: `${description}: ${prompt}`,
         status: 'running',
+        sessionId,
+        projectId,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       })

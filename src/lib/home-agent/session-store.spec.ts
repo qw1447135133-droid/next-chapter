@@ -12,6 +12,8 @@ const STUDIO_PROJECT_SESSIONS_KEY = "storyforge-home-agent-project-sessions-v1";
 
 function createSession(overrides?: Partial<StudioSessionState>): StudioSessionState {
   return {
+    sessionId: "session-1",
+    compactedMessageCount: 0,
     mode: "active",
     messages: [
       {
@@ -83,6 +85,8 @@ describe("session-store", () => {
     );
 
     expect(readStudioSession()).toEqual({
+      sessionId: undefined,
+      compactedMessageCount: 0,
       mode: "idle",
       messages: [],
       currentProjectSnapshot: null,
