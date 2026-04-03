@@ -407,6 +407,8 @@ async function runMobileSidebarScenario(page) {
   await page.getByText("对话历史").last().waitFor({ state: "visible", timeout: 10000 });
   await page.locator('button[aria-label="契约婚姻反转录"]').last().click();
 
+  await page.getByText("继续保留第 2 集的张力。").waitFor({ state: "visible", timeout: 10000 });
+  await page.getByText("继续选择题材").waitFor({ state: "visible", timeout: 10000 });
   await page.locator("textarea").last().waitFor({ state: "visible", timeout: 10000 });
   const restoredDraft = await page.locator("textarea").last().inputValue();
   assert.equal(restoredDraft, "补充反派动机", "移动端侧栏打开历史项目后应在首页恢复会话草稿");

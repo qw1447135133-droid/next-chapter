@@ -1,46 +1,24 @@
 import * as React from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { useReducedMotion } from "framer-motion";
 import {
-  ArrowUpRight,
-  Bot,
-  ChevronLeft,
-  ChevronRight,
-  Clapperboard,
-  History,
-  Image,
-  Loader2,
-  Menu,
-  Plus,
-  Send,
-  Settings2,
-  Sparkles,
-  Square,
   Wand2,
   Compass,
   PanelsTopLeft,
 } from "lucide-react";
-import BrandMark from "@/components/BrandMark";
-import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Textarea } from "@/components/ui/textarea";
-import { useIsMobile } from "@/hooks/use-mobile";
 import type { PersistedVideoProject } from "@/hooks/use-local-persistence";
-import { QueryEngine } from "@/lib/agent/query-engine";
+import type { QueryEngine } from "@/lib/agent/query-engine";
 import type { Message as QueryMessage } from "@/lib/agent/types";
 import type { AskUserQuestionRequest } from "@/lib/agent/tools/ask-user-question";
 import {
   clearStudioSession,
   readStudioProjectSession,
-  readStudioSession,
   writeStudioSession,
 } from "@/lib/home-agent/session-store";
 import {
-  AUTO_COMPACT_KEEP_RECENT_MESSAGE_COUNT,
   buildCompactedHistoryPrompt,
   planConversationCompaction,
 } from "@/lib/home-agent/conversation-compact";
 import {
-  buildAutoResearchPlan,
   buildResearchFollowupQuestion,
   buildResearchPromptOverlay,
 } from "@/lib/home-agent/auto-research";
@@ -60,26 +38,69 @@ import {
 } from "@/lib/home-agent/workflow-shortcut-runner";
 import type { Scene } from "@/types/project";
 import { cn } from "@/lib/utils";
-import ComposerChoicePopover from "./ComposerChoicePopover";
-import { AgentTool } from "@/lib/agent/tools/agent-tool";
+import {
+  DesktopSidebar,
+  MobileSidebarSheet,
+} from "./home-agent-sidebar";
+import {
+  ActiveConversationShell,
+  HomeComposer,
+  HomeSurfaceBackdrop,
+  IdleLanding,
+  MobileTopbar,
+  type HomeComposerProps,
+} from "./home-agent-shell";
+import {
+  buildRecoveryActionRationale,
+  createInitialStudioSeed,
+  hasSavedSessionContent,
+  qStepKey,
+  qToComposer,
+  serializeQuestionAnswers,
+  summarizeRecoveryArtifacts,
+} from "./home-agent-session-utils";
+import {
+  advanceStructuredAnswer,
+  buildOpenProjectSessionState,
+  buildResetRuntimeState,
+} from "./home-agent-conversation-state";
+import { collectConversationAssets } from "./home-agent-sidebar-utils";
+import {
+  DesktopSettingsPanel,
+  MobileSettingsSheet,
+} from "./home-agent-settings-panels";
+import {
+  createWorkflowShortcutUiBridge,
+  showChoiceNoticeMessage,
+  showChoicePopoverMessage,
+} from "./home-agent-workflow-ui";
+import {
+  applyAutoResearchOverlay,
+  applyConversationMemoryOverlay,
+  applyDreaminaContextOverlay,
+  beginSendFlow,
+  handleSendEngineEvent,
+} from "./home-agent-send-flow";
+import {
+  getOrCreateHomeAgentEngine,
+  launchHomeAgentAutoResearchTasks,
+} from "./home-agent-engine-runtime";
+import {
+  useHomeAgentModuleLoaders,
+  type ProjectStoreModule,
+} from "./use-home-agent-module-loaders";
+import { useHomeAgentBootstrapEffects } from "./use-home-agent-bootstrap-effects";
+import { createScriptProjectChoiceHandler } from "./home-agent-script-choice-handlers";
+import {
+  createVideoAssetChoiceHandler,
+  createVideoProjectChoiceHandler,
+  createVideoReviewChoiceHandler,
+} from "./home-agent-video-choice-handlers";
 import { getAllTasks, stopTask, type Task } from "@/lib/agent/tools/task-tools";
-import { ToolUseContext } from "@/lib/agent/tool";
 
-const {
-  Suspense,
-  lazy,
-  memo,
-  startTransition,
-  useCallback,
-  useDeferredValue,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} = React;
+const { memo, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } = React;
 
 type ReactNode = React.ReactNode;
-type RefObject<T> = React.RefObject<T>;
 
 type UtilityPanelId = "settings" | undefined;
 
@@ -110,23 +131,6 @@ const DESKTOP_SETTINGS_WIDTH = 456;
 const DESKTOP_SIDEBAR_COLLAPSE_KEY = "storyforge-home-agent-desktop-sidebar-collapsed-v1";
 const ACTIVE_TRACK_CLASS = "max-w-[896px]";
 const IDLE_TRACK_CLASS = "max-w-[860px]";
-const SETTINGS_PANEL_CLASS =
-  "rounded-[28px] border border-white/10 bg-[#f4f1ea] text-slate-900 shadow-[0_28px_70px_rgba(0,0,0,0.28)]";
-const MOBILE_SETTINGS_SHEET =
-  "w-full border-r border-[#e7e1d7] bg-[#f4f1ea] p-0 text-slate-900 shadow-[18px_0_48px_rgba(0,0,0,0.24)] overscroll-contain sm:max-w-[440px]";
-const SettingsPage = lazy(() => import("@/pages/Settings"));
-type EngineDeps = {
-  createDefaultTools: typeof import("@/lib/agent/tools").createDefaultTools;
-};
-
-type ProjectStoreModule = typeof import("@/lib/home-agent/project-store");
-type ApiConfigModule = typeof import("@/lib/api-config");
-type AskUserQuestionModule = typeof import("@/lib/agent/tools/ask-user-question");
-type StructuredQuestionParserModule = typeof import("./structured-question-parser");
-type WorkflowActionsModule = typeof import("@/lib/home-agent/workflow-actions");
-type SemanticSummaryModule = typeof import("@/lib/home-agent/conversation-semantic-summary");
-type ConversationMemoryModule = typeof import("@/lib/home-agent/conversation-memory");
-type DreaminaCliModule = typeof import("@/lib/dreamina-cli");
 type RuntimeTask = Task;
 type DreaminaCapabilityState = {
   ready: boolean;
@@ -250,6 +254,76 @@ function isTaskVisibleForSession(task: RuntimeTask, sessionId: string): boolean 
   return task.sessionId === sessionId;
 }
 
+function areTaskListsEquivalent(nextTasks: RuntimeTask[], prevTasks: RuntimeTask[]): boolean {
+  if (nextTasks === prevTasks) return true;
+  if (nextTasks.length !== prevTasks.length) return false;
+
+  return nextTasks.every((task, index) => {
+    const prev = prevTasks[index];
+    return (
+      task.id === prev.id &&
+      task.status === prev.status &&
+      task.updatedAt === prev.updatedAt &&
+      task.sessionId === prev.sessionId &&
+      task.projectId === prev.projectId &&
+      task.prompt === prev.prompt &&
+      task.output === prev.output
+    );
+  });
+}
+
+function areProjectSnapshotsEquivalent(
+  nextProjects: ConversationProjectSnapshot[],
+  prevProjects: ConversationProjectSnapshot[],
+): boolean {
+  if (nextProjects === prevProjects) return true;
+  if (nextProjects.length !== prevProjects.length) return false;
+
+  return nextProjects.every((project, index) => {
+    const prev = prevProjects[index];
+    return (
+      project.projectId === prev.projectId &&
+      project.updatedAt === prev.updatedAt &&
+      project.derivedStage === prev.derivedStage &&
+      project.currentObjective === prev.currentObjective &&
+      project.agentSummary === prev.agentSummary
+    );
+  });
+}
+
+function areRecentSessionsEquivalent(
+  nextSessions: StudioSessionState[] | undefined,
+  prevSessions: StudioSessionState[] | undefined,
+): boolean {
+  if (nextSessions === prevSessions) return true;
+  if (!nextSessions?.length && !prevSessions?.length) return true;
+  if (!nextSessions || !prevSessions) return false;
+  if (nextSessions.length !== prevSessions.length) return false;
+
+  return nextSessions.every((session, index) => {
+    const prev = prevSessions[index];
+    return (
+      session.sessionId === prev.sessionId &&
+      session.projectId === prev.projectId &&
+      session.mode === prev.mode &&
+      session.compactedMessageCount === prev.compactedMessageCount &&
+      session.messages.length === prev.messages.length &&
+      session.draft === prev.draft &&
+      session.qState?.request.id === prev.qState?.request.id &&
+      session.qState?.currentIndex === prev.qState?.currentIndex
+    );
+  });
+}
+
+function mergeRecentProjects(
+  currentProjects: ConversationProjectSnapshot[],
+  nextProject: ConversationProjectSnapshot,
+  limit = 8,
+): ConversationProjectSnapshot[] {
+  const merged = [nextProject, ...currentProjects.filter((item) => item.projectId !== nextProject.projectId)].slice(0, limit);
+  return areProjectSnapshotsEquivalent(merged, currentProjects) ? currentProjects : merged;
+}
+
 const templates = [
   {
     id: "script",
@@ -307,57 +381,6 @@ const toQuery = (messages: HomeAgentMessage[]): QueryMessage[] =>
           } as QueryMessage,
         ],
   );
-
-function createInitialStudioSeed(): {
-  session: StudioSessionState | null;
-  runtime: StudioRuntimeState;
-} {
-  const session = readStudioSession();
-
-  return {
-    session,
-    runtime: {
-      sessionId: session?.sessionId ?? crypto.randomUUID(),
-      currentProjectSnapshot: session?.currentProjectSnapshot ?? null,
-      currentDramaProject: null,
-      currentVideoProject: null,
-      currentSetupDraft: null,
-      skillDrafts: [],
-      maintenanceReports: [],
-      recentProjects: [],
-      recentProjectSessions: [],
-      recentMessageSummary: session?.recentMessageSummary ?? "",
-    },
-  };
-}
-
-function summarizeRecoveryArtifacts(snapshot: ConversationProjectSnapshot): string {
-  const labels = snapshot.artifacts
-    .slice(0, 3)
-    .map((artifact) => artifact.label)
-    .filter(Boolean);
-
-  return labels.length
-    ? `我已对照当前项目产物做了恢复分析，最近可直接承接的内容是：${labels.join("、")}。`
-    : "我已对照当前项目状态做了恢复分析，当前更适合先补齐一份可复用的核心产物。";
-}
-
-function buildRecoveryActionRationale(
-  snapshot: ConversationProjectSnapshot,
-  action: string,
-  index: number,
-): string {
-  const artifact = snapshot.artifacts[index] ?? snapshot.artifacts[0];
-  if (artifact) {
-    return `优先围绕「${artifact.label}」继续推进，保持在${snapshot.derivedStage}阶段内完成。`;
-  }
-
-  if (snapshot.currentObjective.trim()) {
-    return `会先围绕当前目标“${snapshot.currentObjective}”推进，不需要跳出首页。`;
-  }
-
-  return `继续留在${snapshot.derivedStage}阶段里推进这一步，不需要跳出首页。`;
-}
 
 function buildReviewQuestion(snapshot: ConversationProjectSnapshot): ComposerQuestion | null {
   const reviewQueue = listPendingApprovalReviewItems(snapshot);
@@ -1434,56 +1457,6 @@ const qStepKey = (
   question: Pick<AskUserQuestionRequest["questions"][number], "header">,
 ) => `${index}:${question.header}`;
 
-function hasSavedSessionContent(session: StudioSessionState | null | undefined): boolean {
-  return Boolean(
-    session?.messages?.length ||
-      session?.qState ||
-      session?.draft?.trim() ||
-      session?.selectedValues?.length,
-  );
-}
-
-const qToComposer = (state: QState | null): ComposerQuestion | null => {
-  const activeQuestion = state ? state.request.questions[state.currentIndex] : null;
-  if (!state || !activeQuestion) return null;
-
-  return {
-    id: `${state.request.id}:${state.currentIndex}`,
-    title: activeQuestion.question,
-    description: state.request.description,
-    options: activeQuestion.options.map((option, index) => ({
-      id: `${activeQuestion.header}-${index}`,
-      label: option.label,
-      value: option.value || option.label,
-      rationale: option.rationale || option.description,
-    })),
-    allowCustomInput: state.request.allowCustomInput !== false,
-    submissionMode: state.request.submissionMode === "confirm" ? "confirm" : "immediate",
-    multiSelect: activeQuestion.multiSelect,
-    stepIndex: state.currentIndex,
-    totalSteps: state.request.questions.length,
-    answerKey: activeQuestion.header,
-  };
-};
-
-function serializeQuestionAnswers(
-  request: AskUserQuestionRequest,
-  answers: Record<string, string>,
-): string {
-  const rows = request.questions
-    .map((item, index) => {
-      const answer = answers[qStepKey(index, item)]?.trim();
-      return answer ? `${item.header}: ${answer}` : "";
-    })
-    .filter(Boolean);
-
-  if (rows.length <= 1) {
-    return rows[0]?.replace(/^[^:]+:\s*/, "") ?? "";
-  }
-
-  return rows.join("\n");
-}
-
 const projectKindLabel = (kind?: ConversationProjectSnapshot["projectKind"]) =>
   kind === "adaptation" ? "参考改编" : kind === "video" ? "视频工作流" : "原创剧本";
 
@@ -1554,167 +1527,6 @@ function RailSection({
   );
 }
 
-type SidebarAssetItem = {
-  id: string;
-  kind: "image" | "video";
-  label: string;
-  url: string;
-  meta: string;
-};
-
-function collectConversationAssets(
-  videoProject: StudioRuntimeState["currentVideoProject"],
-  projectSnapshot?: StudioRuntimeState["currentProjectSnapshot"] | null,
-): SidebarAssetItem[] {
-  const manifest = projectSnapshot?.memory?.assetManifest;
-  if (manifest?.items.length) {
-    return manifest.items.slice(0, 18).map((item) => ({
-      id: item.id,
-      kind: item.kind === "video-segment" ? "video" : "image",
-      label: item.label,
-      url: item.url,
-      meta: [item.meta, item.reusable ? "可复用" : "当前镜头", item.status === "failed" ? "待修复" : ""]
-        .filter(Boolean)
-        .join(" · "),
-    }));
-  }
-
-  if (!videoProject) return [];
-
-  const items: SidebarAssetItem[] = [];
-  const seen = new Set<string>();
-
-  const pushAsset = (kind: SidebarAssetItem["kind"], label: string, url?: string, meta = "") => {
-    if (!url || seen.has(url)) return;
-    seen.add(url);
-    items.push({
-      id: `${kind}-${items.length}-${label}`,
-      kind,
-      label,
-      url,
-      meta,
-    });
-  };
-
-  videoProject.characters.forEach((character) => {
-    pushAsset("image", `${character.name} 角色图`, character.imageUrl, "角色");
-    character.imageHistory?.forEach((entry) =>
-      pushAsset("image", `${character.name} 历史图`, entry.imageUrl, "角色历史"),
-    );
-    Object.entries(character.threeViewUrls ?? {}).forEach(([view, url]) =>
-      pushAsset("image", `${character.name} ${view}`, url, "三视图"),
-    );
-    character.costumes?.forEach((costume) => {
-      pushAsset("image", `${character.name} · ${costume.label}`, costume.imageUrl, "服装");
-      costume.imageHistory?.forEach((entry) =>
-        pushAsset("image", `${character.name} · ${costume.label}`, entry.imageUrl, "服装历史"),
-      );
-    });
-  });
-
-  videoProject.sceneSettings.forEach((scene) => {
-    pushAsset("image", `${scene.name} 场景图`, scene.imageUrl, "场景");
-    scene.imageHistory?.forEach((entry) =>
-      pushAsset("image", `${scene.name} 历史图`, entry.imageUrl, "场景历史"),
-    );
-    scene.timeVariants?.forEach((variant) => {
-      pushAsset("image", `${scene.name} · ${variant.label}`, variant.imageUrl, "时间变体");
-      variant.imageHistory?.forEach((entry) =>
-        pushAsset("image", `${scene.name} · ${variant.label}`, entry.imageUrl, "时间变体历史"),
-      );
-    });
-  });
-
-  videoProject.scenes.forEach((scene) => {
-    pushAsset("image", `${scene.sceneName} 分镜图`, scene.storyboardUrl, "分镜");
-    scene.storyboardHistory?.forEach((url, index) =>
-      pushAsset("image", `${scene.sceneName} 分镜 ${index + 1}`, url, "分镜历史"),
-    );
-    pushAsset("video", `${scene.sceneName} 视频`, scene.videoUrl, "视频");
-    scene.videoHistory?.forEach((entry, index) =>
-      pushAsset("video", `${scene.sceneName} 视频 ${index + 1}`, entry.videoUrl, "视频历史"),
-    );
-  });
-
-  return items.slice(0, 24);
-}
-
-const SidebarFooter = memo(function SidebarFooter({
-  onOpenSettings,
-  collapsed = false,
-}: {
-  onOpenSettings: () => void;
-  collapsed?: boolean;
-}) {
-  return (
-    <div className={cn("border-t border-white/[0.05] pb-3 pt-2", collapsed ? "px-2" : "px-2.5")}>
-      <button
-        type="button"
-        onClick={onOpenSettings}
-        aria-label="打开设置"
-        title="设置"
-        className={cn(
-          "flex w-full items-center rounded-[12px] px-2.5 py-1.5 text-left text-[11px] text-slate-300 transition-colors hover:bg-white/[0.035] hover:text-slate-100",
-          collapsed ? "justify-center" : "gap-2",
-        )}
-      >
-        <span className="flex h-6.5 w-6.5 items-center justify-center rounded-[10px] bg-white/[0.04] text-slate-200">
-          <Settings2 className="h-3.5 w-3.5" />
-        </span>
-        {!collapsed ? (
-          <span className="min-w-0 flex-1">
-            <span className="block text-[11px] font-medium">设置</span>
-            <span className="block truncate text-[10px] text-slate-500">模型、密钥、路径与外观</span>
-          </span>
-        ) : null}
-      </button>
-    </div>
-  );
-});
-
-const SidebarAssetRow = memo(function SidebarAssetRow({
-  asset,
-  onOpen,
-  collapsed = false,
-}: {
-  asset: SidebarAssetItem;
-  onOpen: (url: string) => void;
-  collapsed?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onOpen(asset.url)}
-      aria-label={asset.label}
-      title={asset.label}
-      className={cn(
-        "flex w-full items-center rounded-[12px] py-1.5 text-left transition-colors hover:bg-white/[0.04]",
-        collapsed ? "justify-center px-0" : "gap-2 px-2",
-      )}
-    >
-      {asset.kind === "image" ? (
-        <span className="relative h-7.5 w-7.5 shrink-0 overflow-hidden rounded-[10px] bg-white/[0.05]">
-          <img src={asset.url} alt={asset.label} className="h-full w-full object-cover" loading="lazy" />
-          <span className="absolute inset-0 rounded-[10px] ring-1 ring-inset ring-white/[0.08]" />
-        </span>
-      ) : (
-        <span className="flex h-7.5 w-7.5 shrink-0 items-center justify-center rounded-[10px] bg-white/[0.04] text-slate-200">
-          <Clapperboard className="h-3.5 w-3.5" />
-        </span>
-      )}
-      {!collapsed ? (
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[10.5px] text-slate-100">{asset.label}</span>
-          <span className="mt-0.5 flex items-center gap-1 text-[9px] text-slate-500">
-            <span className="uppercase tracking-[0.16em] text-slate-400">{asset.kind}</span>
-            <span className="h-1 w-1 rounded-full bg-slate-600" />
-            <span className="truncate">{asset.meta}</span>
-          </span>
-        </span>
-      ) : null}
-    </button>
-  );
-});
 
 const ConversationMessageRow = memo(function ConversationMessageRow({
   message,
@@ -1815,942 +1627,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
   );
 });
 
-interface HomeComposerProps {
-  idle: boolean;
-  currentProjectTitle?: string;
-  currentProjectStage?: string;
-  maintenanceHint?: string | null;
-  initialDraft: string;
-  draftResetVersion: number;
-  draftPresence: boolean;
-  onDraftChange: (value: string) => void;
-  placeholder: string;
-  question: ComposerQuestion | null;
-  qState: QState | null;
-  selectedValues: string[];
-  streaming: boolean;
-  reduceMotion: boolean;
-  composerShellClass: string;
-  activeTheme: boolean;
-  onSelectChoice: (value: string, label: string) => void;
-  onConfirmQuestion?: () => void;
-  onSubmit: () => void;
-  onInterrupt: () => void;
-}
-
-const HomeComposer = memo(function HomeComposer({
-  idle,
-  currentProjectTitle,
-  currentProjectStage,
-  maintenanceHint,
-  initialDraft,
-  draftResetVersion,
-  draftPresence,
-  onDraftChange,
-  placeholder,
-  question,
-  qState,
-  selectedValues,
-  streaming,
-  reduceMotion,
-  composerShellClass,
-  activeTheme,
-  onSelectChoice,
-  onConfirmQuestion,
-  onSubmit,
-  onInterrupt,
-}: HomeComposerProps) {
-  const [draft, setLocalDraft] = useState(initialDraft);
-
-  useEffect(() => {
-    setLocalDraft(initialDraft);
-  }, [initialDraft, draftResetVersion]);
-
-  return (
-    <motion.div
-      layoutId="home-studio-composer"
-      transition={
-        reduceMotion
-          ? { duration: 0 }
-          : {
-              type: "spring",
-              stiffness: 340,
-              damping: 34,
-              mass: 0.9,
-            }
-      }
-      className={cn(
-        "pointer-events-auto relative w-full",
-        idle ? IDLE_TRACK_CLASS : ACTIVE_TRACK_CLASS,
-      )}
-    >
-      <ComposerChoicePopover
-        question={question}
-        onSelect={onSelectChoice}
-        onConfirm={qState ? onConfirmQuestion : undefined}
-        canConfirm={selectedValues.length > 0 || draftPresence || !!draft.trim()}
-        tone={activeTheme ? "dark" : "light"}
-      />
-      <motion.div
-        initial={reduceMotion ? false : { opacity: 0.92, y: idle ? 0 : 14 }}
-        animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
-        transition={
-          reduceMotion
-            ? undefined
-            : {
-                duration: idle ? 0.16 : 0.22,
-                ease: [0.22, 1, 0.36, 1],
-              }
-        }
-        className={composerShellClass}
-      >
-        {idle ? (
-          <div className="flex items-center gap-2 px-4 pb-0 pt-3 text-[10px] text-white/38 md:px-6">
-            <div className="flex h-5.5 w-5.5 shrink-0 items-center justify-center rounded-full bg-white/[0.05] text-white/78">
-              <Sparkles className="h-2.5 w-2.5" />
-            </div>
-            <div className="truncate text-[10.5px] text-white/50">首页主控会话</div>
-          </div>
-        ) : currentProjectTitle || maintenanceHint ? (
-          <div className="flex items-center gap-1.5 px-3.5 pb-0 pt-1 md:px-6">
-            {currentProjectTitle ? (
-              <div className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-white/[0.04] bg-white/[0.025] px-2.5 py-1 text-[9.5px] text-white/38">
-                <span className="truncate text-white/68">{currentProjectTitle}</span>
-                {currentProjectStage ? (
-                  <>
-                    <span className="h-1 w-1 shrink-0 rounded-full bg-white/[0.16]" />
-                    <span className="shrink-0 uppercase tracking-[0.12em] text-white/26">{currentProjectStage}</span>
-                  </>
-                ) : null}
-              </div>
-            ) : null}
-            {maintenanceHint ? (
-              <div className="hidden max-w-[200px] truncate rounded-full border border-white/[0.035] bg-white/[0.018] px-2 py-1 text-[9px] text-white/18 xl:block">
-                {maintenanceHint}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-        <div className={cn("px-3.5 pb-3 pt-1 sm:px-4 sm:pb-3.5 md:px-6 md:pb-3.5", !idle && "pt-1")}>
-          <Textarea
-            value={draft}
-            onChange={(e) => {
-              const nextValue = e.target.value;
-              setLocalDraft(nextValue);
-              onDraftChange(nextValue);
-            }}
-            placeholder={placeholder}
-            rows={idle ? 5 : 3}
-            className={cn(
-              "resize-none border-none bg-transparent px-0 pb-2 pt-1.5 text-[13.5px] leading-6.5 shadow-none ring-0 focus-visible:ring-0 sm:text-[14px]",
-              activeTheme
-                ? "min-h-[78px] text-white placeholder:text-white/28 sm:min-h-[88px]"
-                : "min-h-[104px] text-slate-900 placeholder:text-slate-400",
-              idle && "min-h-[136px] sm:min-h-[154px] md:min-h-[188px]",
-            )}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                onSubmit();
-              }
-            }}
-          />
-          <div className="flex items-end justify-end gap-2">
-            <div className="flex items-center gap-1.5">
-              {streaming && !qState ? (
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className={cn(
-                    "h-9 w-9 rounded-full sm:h-10 sm:w-10",
-                    activeTheme
-                      ? "bg-white/[0.06] text-white hover:bg-white/[0.1]"
-                      : "bg-black/5 text-slate-700 hover:bg-black/10",
-                  )}
-                  onClick={onInterrupt}
-                >
-                  <Square className="h-4 w-4 fill-current" />
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                size="icon"
-                disabled={(!(draftPresence || draft.trim()) && !(qState && selectedValues.length > 0)) || (streaming && !qState)}
-                className={cn(
-                  "h-9 w-9 rounded-full shadow-none sm:h-10 sm:w-10",
-                  activeTheme ? "bg-white text-slate-950 hover:bg-white/90" : "bg-slate-950 text-white hover:bg-slate-900",
-                )}
-                onClick={onSubmit}
-              >
-                {streaming && !qState ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </motion.div>
-    </motion.div>
-  );
-});
-
-const IdleLanding = memo(function IdleLanding({
-  composerProps,
-  reduceMotion,
-}: {
-  composerProps: HomeComposerProps;
-  reduceMotion: boolean;
-}) {
-  return (
-    <div className="mx-auto flex min-h-[calc(100vh-100px)] w-full max-w-[1060px] flex-col justify-center pb-14 pt-4 sm:pb-[4.5rem]">
-      <motion.div
-        initial={reduceMotion ? false : { opacity: 0, y: 10 }}
-        animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
-        transition={reduceMotion ? undefined : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-        className="mx-auto w-full max-w-[760px]"
-      >
-        <div className="mb-4 space-y-1.5 text-center">
-          <div className="inline-flex items-center gap-2 rounded-full bg-white/[0.035] px-3 py-1.5 text-[10.5px] text-white/52">
-            <Bot className="h-3.5 w-3.5" />
-            单首页会话
-          </div>
-          <h1 className="text-[21px] font-medium tracking-[-0.045em] text-white md:text-[28px]">{TITLE}</h1>
-          <p className="mx-auto max-w-[520px] text-[12.5px] leading-5.5 text-white/40 sm:text-[13px]">
-            直接开始说目标。会话启动后，同一个输入框会在这一页自然沉到底部，继续推进完整工作流。
-          </p>
-        </div>
-        <div className={cn("mx-auto w-full", IDLE_TRACK_CLASS)}>
-          <HomeComposer {...composerProps} />
-        </div>
-      </motion.div>
-    </div>
-  );
-});
-
-const BackgroundTaskDock = memo(function BackgroundTaskDock({
-  tasks,
-  onStopTask,
-  floating = false,
-}: {
-  tasks: RuntimeTask[];
-  onStopTask: (taskId: string) => void;
-  floating?: boolean;
-}) {
-  const { visibleTasks, collapsedTerminalTasks, runningCount } = useMemo(() => {
-    const sortedTasks = [...tasks].sort((a, b) => b.updatedAt - a.updatedAt);
-    const activeTasks = sortedTasks.filter((task) => !isTerminalTask(task));
-    const terminalTasks = sortedTasks.filter((task) => isTerminalTask(task));
-    const activeLimit = Math.min(activeTasks.length, 3);
-    const terminalLimit = Math.max(0, 4 - activeLimit);
-
-    return {
-      visibleTasks: [...activeTasks.slice(0, 3), ...terminalTasks.slice(0, terminalLimit)].slice(0, 4),
-      collapsedTerminalTasks: terminalTasks.slice(terminalLimit),
-      runningCount: tasks.filter((task) => task.status === "running").length,
-    };
-  }, [tasks]);
-
-  return (
-    <div className={cn("space-y-1.5", floating ? "w-full max-w-[312px]" : "mb-2.5")}>
-      <div className="flex items-center justify-between px-1">
-        <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-white/34">
-          <Bot className="h-3.5 w-3.5" />
-          Agent 任务
-        </div>
-        <div className="text-[10.5px] text-white/32">
-          {runningCount > 0 ? `${runningCount} 项后台处理中` : `${tasks.length} 项任务记录`}
-        </div>
-      </div>
-      <div className="space-y-1">
-        {visibleTasks.map((task) => (
-          <div key={task.id} className="flex items-start gap-2 rounded-[15px] border border-white/[0.05] bg-white/[0.022] px-3 py-2">
-            <div
-              className={cn(
-                "mt-0.5 inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[9px] tracking-[0.08em]",
-                taskStatusClass(task.status),
-              )}
-            >
-              {taskStatusLabel(task.status)}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <div className="truncate text-[11.5px] text-white/80">
-                  {parseTaskHeading(task.prompt) ?? truncateCopy(task.prompt, 84)}
-                </div>
-                {isTerminalTask(task) ? (
-                  <span className="shrink-0 text-[10px] text-white/20">{formatTaskDockTimestamp(task.updatedAt)}</span>
-                ) : null}
-              </div>
-              {task.output ? (
-                <div className="mt-0.5 line-clamp-2 text-[10px] leading-[1.42] text-white/38">{truncateCopy(task.output, 136)}</div>
-              ) : (
-                <div className="mt-0.5 line-clamp-2 text-[10px] leading-[1.42] text-white/30">
-                  {parseTaskPreview(task.prompt) || "Agent 正在后台处理中，结果会自动回流到当前会话。"}
-                </div>
-              )}
-            </div>
-            {task.status === "running" ? (
-              <button
-                type="button"
-                onClick={() => onStopTask(task.id)}
-                className="shrink-0 rounded-full px-2 py-0.5 text-[10px] text-white/50 transition-colors hover:bg-white/[0.05] hover:text-white/78"
-              >
-                停止
-              </button>
-            ) : null}
-          </div>
-        ))}
-        {collapsedTerminalTasks.length ? (
-          <div className="flex items-center justify-between gap-3 rounded-[15px] border border-white/[0.05] bg-white/[0.02] px-3 py-2">
-            <div className="min-w-0">
-              <div className="text-[10.5px] text-white/50">
-                已整理 {collapsedTerminalTasks.length} 条较早任务记录
-              </div>
-              <div className="mt-0.5 truncate text-[10px] text-white/28">
-                {collapsedTerminalTasks
-                  .slice(0, 3)
-                  .map((task) => parseTaskHeading(task.prompt) ?? truncateCopy(task.prompt, 24))
-                  .join(" · ")}
-              </div>
-            </div>
-            <div className="shrink-0 text-[10px] text-white/22">已折叠</div>
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-});
-
-const ActiveConversationViewport = memo(function ActiveConversationViewport({
-  messages,
-  tasks,
-  onStopTask,
-  endRef,
-  streaming,
-}: {
-  messages: HomeAgentMessage[];
-  tasks: RuntimeTask[];
-  onStopTask: (taskId: string) => void;
-  endRef: RefObject<HTMLDivElement | null>;
-  streaming: boolean;
-}) {
-  const isMobile = useIsMobile();
-
-  return (
-    <div className={cn("relative mx-auto w-full flex-1", ACTIVE_TRACK_CLASS)}>
-      {tasks.length ? (
-        <>
-          {isMobile ? (
-            <div className="mb-2.5">
-              <BackgroundTaskDock tasks={tasks} onStopTask={onStopTask} />
-            </div>
-          ) : (
-            <div className="pointer-events-none absolute right-0 top-1 z-10">
-              <div className="pointer-events-auto">
-                <BackgroundTaskDock tasks={tasks} onStopTask={onStopTask} floating />
-              </div>
-            </div>
-          )}
-        </>
-      ) : null}
-      <ConversationTimeline
-        messages={messages}
-        endRef={endRef}
-        streaming={streaming}
-        hasFloatingDock={tasks.length > 0 && !isMobile}
-      />
-    </div>
-  );
-});
-
-const ActiveComposerDock = memo(function ActiveComposerDock({
-  composerProps,
-}: {
-  composerProps: HomeComposerProps;
-}) {
-  return (
-    <div className={cn("sticky bottom-0 z-20 mx-auto w-full pb-[calc(10px+env(safe-area-inset-bottom))] pt-3", ACTIVE_TRACK_CLASS)}>
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-[linear-gradient(180deg,rgba(19,19,20,0),rgba(19,19,20,0.92)_38%,rgba(19,19,20,0.98))]" />
-      <div className="relative">
-        <HomeComposer {...composerProps} />
-      </div>
-    </div>
-  );
-});
-
-const ActiveConversationShell = memo(function ActiveConversationShell({
-  messages,
-  tasks,
-  onStopTask,
-  endRef,
-  composerProps,
-  streaming,
-}: {
-  messages: HomeAgentMessage[];
-  tasks: RuntimeTask[];
-  onStopTask: (taskId: string) => void;
-  endRef: RefObject<HTMLDivElement | null>;
-  composerProps: HomeComposerProps;
-  streaming: boolean;
-}) {
-  return (
-    <div className="mx-auto flex min-h-[calc(100vh-112px)] w-full flex-col">
-      <ActiveConversationViewport messages={messages} tasks={tasks} onStopTask={onStopTask} endRef={endRef} streaming={streaming} />
-      <ActiveComposerDock composerProps={composerProps} />
-    </div>
-  );
-});
-
-const HomeSurfaceBackdrop = memo(function HomeSurfaceBackdrop({ idle }: { idle: boolean }) {
-  return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      {idle ? (
-        <>
-          <div className="absolute left-[-8%] top-[-10%] h-[24rem] w-[24rem] rounded-full bg-[radial-gradient(circle,rgba(76,94,255,0.12),rgba(76,94,255,0))]" />
-          <div className="absolute right-[-6%] top-[14%] h-[20rem] w-[20rem] rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.04),rgba(255,255,255,0))]" />
-        </>
-      ) : (
-        <>
-          <div className="absolute inset-x-0 top-0 h-32 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0))]" />
-          <div className="absolute right-[-8%] top-[18%] h-[22rem] w-[22rem] rounded-full bg-[radial-gradient(circle,rgba(91,111,255,0.1),rgba(91,111,255,0))]" />
-        </>
-      )}
-    </div>
-  );
-});
-
-const MobileTopbar = memo(function MobileTopbar({
-  idle,
-  onOpenNavigation,
-}: {
-  idle: boolean;
-  onOpenNavigation: () => void;
-}) {
-  return (
-    <header
-      className={cn(
-        "px-4 md:px-8 lg:pl-[320px] lg:hidden",
-        idle ? "flex items-center justify-between pb-2 pt-4" : "flex items-center justify-between pb-0 pt-2.5",
-      )}
-    >
-      <div className="flex min-w-0 items-center gap-2">
-        <BrandMark className="h-8" />
-        <div className="min-w-0">
-          <div className="truncate text-[15px] font-semibold tracking-[0.02em] text-white">{SIDEBAR_BRAND}</div>
-          <div className="hidden truncate text-[11px] text-white/38 sm:block">首页主控会话</div>
-        </div>
-      </div>
-      <Button
-        type="button"
-        size="icon"
-        variant="ghost"
-        className="h-9 w-9 rounded-full bg-white/[0.05] text-white hover:bg-white/[0.08] sm:h-10 sm:w-10"
-        onClick={onOpenNavigation}
-      >
-        <Menu className="h-4.5 w-4.5" />
-      </Button>
-    </header>
-  );
-});
-
-const SidebarBrandHeader = memo(function SidebarBrandHeader({
-  idle,
-  collapsed = false,
-  onToggleCollapse,
-}: {
-  idle: boolean;
-  collapsed?: boolean;
-  onToggleCollapse?: () => void;
-}) {
-  return (
-    <div className={cn("relative flex h-[72px] items-center border-b border-white/[0.06]", collapsed ? "justify-center px-2" : "px-5")}>
-      <div className="flex min-w-0 items-center">
-        <BrandMark className="h-8" />
-        {!collapsed ? (
-          <div className="ml-3 min-w-0">
-            <div className="truncate text-[13px] font-semibold tracking-[0.02em] text-slate-100">{SIDEBAR_BRAND}</div>
-            <div className="truncate text-[10px] text-slate-500">{idle ? "开始一段新会话" : "当前首页会话"}</div>
-          </div>
-        ) : null}
-      </div>
-      {onToggleCollapse ? (
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          aria-label={collapsed ? "展开侧栏" : "收起侧栏"}
-          title={collapsed ? "展开侧栏" : "收起侧栏"}
-          className={cn(
-            "ml-auto flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white/[0.05] hover:text-slate-100",
-            collapsed && "absolute right-2 top-5 ml-0",
-          )}
-        >
-          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-        </button>
-      ) : null}
-    </div>
-  );
-});
-
-const SidebarPrimaryAction = memo(function SidebarPrimaryAction({
-  idle,
-  onClick,
-  collapsed = false,
-}: {
-  idle: boolean;
-  onClick: () => void;
-  collapsed?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={idle ? "开始新项目" : "新建项目"}
-      title={idle ? "开始新项目" : "新建项目"}
-      className={cn(
-        "mb-3 flex w-full items-center rounded-[15px] py-2 text-left text-[12px] text-slate-100 transition-colors hover:bg-white/[0.04]",
-        collapsed ? "justify-center px-0" : "gap-3 px-3",
-      )}
-    >
-      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/[0.92] text-slate-950">
-        <Plus className="h-4 w-4 shrink-0" />
-      </span>
-      {!collapsed ? <span>{idle ? "开始新项目" : "新建项目"}</span> : null}
-    </button>
-  );
-});
-
-const SidebarQuickTasks = memo(function SidebarQuickTasks({
-  templates,
-  onLaunch,
-  bordered = false,
-  collapsed = false,
-}: {
-  templates: typeof templates;
-  onLaunch: (template: (typeof templates)[number]) => void;
-  bordered?: boolean;
-  collapsed?: boolean;
-}) {
-  return (
-    <section className={cn("px-2 pb-2", bordered && "border-b border-white/[0.06]")}>
-      <div
-        className={cn(
-          "mb-1.5 px-1 text-[9.5px] uppercase tracking-[0.18em] text-slate-500",
-          collapsed && "flex items-center justify-center px-0",
-        )}
-      >
-        {collapsed ? <Sparkles className="h-3.5 w-3.5" aria-hidden="true" /> : "快捷任务"}
-      </div>
-      <div className="space-y-px">
-        {templates.map((template) => (
-          <button
-            key={template.id}
-            type="button"
-            onClick={() => onLaunch(template)}
-            aria-label={template.title}
-            title={template.title}
-            className={cn(
-              "flex w-full items-center rounded-[12px] py-1.5 text-left transition-colors hover:bg-white/[0.05]",
-              collapsed ? "justify-center px-0" : "justify-between gap-3 px-3",
-            )}
-          >
-            {collapsed ? (
-              <template.icon className="h-4 w-4 shrink-0 text-slate-300" />
-            ) : (
-              <>
-                <span className="min-w-0">
-                  <span className="block truncate text-[11px] text-slate-100">{template.title}</span>
-                  <span className="block truncate text-[9.5px] text-slate-500">{truncateCopy(template.description, 28)}</span>
-                </span>
-                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-slate-600" />
-              </>
-            )}
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-});
-
-const SidebarProjectHistory = memo(function SidebarProjectHistory({
-  recentProjects,
-  recentProjectsReady,
-  currentProjectId,
-  onOpenProject,
-  emptyClassName,
-  limit = 10,
-  bordered = false,
-  collapsed = false,
-}: {
-  recentProjects: ConversationProjectSnapshot[];
-  recentProjectsReady: boolean;
-  currentProjectId?: string;
-  onOpenProject: (projectId: string) => void;
-  emptyClassName?: string;
-  limit?: number;
-  bordered?: boolean;
-  collapsed?: boolean;
-}) {
-  return (
-    <section className={cn("px-2 py-2.5", bordered && "border-b border-white/[0.06]")}>
-      <div
-        className={cn(
-          "mb-1.5 flex items-center gap-2 px-1 text-[9.5px] uppercase tracking-[0.2em] text-slate-500",
-          collapsed && "justify-center px-0",
-        )}
-      >
-        <History className="h-3.5 w-3.5" />
-        {!collapsed ? "对话历史" : null}
-      </div>
-      <div className="space-y-px">
-        {recentProjects.slice(0, limit).map((project) => {
-          const active = currentProjectId === project.projectId;
-
-          return (
-            <button
-              key={project.projectId}
-              type="button"
-              onClick={() => onOpenProject(project.projectId)}
-              aria-label={project.title}
-              title={project.title}
-              className={cn(
-                "flex w-full rounded-[12px] py-1.5 text-left transition-colors hover:bg-white/[0.04]",
-                collapsed ? "justify-center px-0" : "items-start gap-2 px-3",
-                active && "bg-white/[0.05]",
-              )}
-            >
-              {collapsed ? (
-                <span
-                  className={cn(
-                    "flex h-7 w-7 items-center justify-center rounded-full border text-[10.5px] font-medium",
-                    active
-                      ? "border-[#7c92ff]/60 bg-[#7c92ff]/16 text-white"
-                      : "border-white/[0.08] bg-white/[0.03] text-slate-300",
-                  )}
-                >
-                  {compactSidebarLabel(project.title)}
-                </span>
-              ) : (
-                <>
-                  <span className={cn("mt-1 h-2 w-2 shrink-0 rounded-full bg-white/[0.12]", active && "bg-[#7c92ff]")} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[11px] font-medium text-slate-100">{project.title}</span>
-                    <span className="mt-0.5 block truncate text-[9px] text-slate-500">
-                      {projectKindLabel(project.projectKind)} · {project.derivedStage} · {formatDateLabel(project.updatedAt)}
-                    </span>
-                    <span className={cn("mt-0.5 block truncate text-[9px]", active ? "text-slate-400" : "text-slate-600")}>
-                      {truncateCopy(project.currentObjective || project.agentSummary, active ? 42 : 24)}
-                    </span>
-                  </span>
-                </>
-              )}
-            </button>
-          );
-        })}
-        {!recentProjects.length ? (
-          <div
-            className={cn(
-              "px-3 py-1.5 text-[12px] leading-5.5 text-slate-500",
-              emptyClassName,
-              collapsed && "px-0 text-center text-[10.5px] leading-5",
-            )}
-          >
-            {recentProjectsReady ? (collapsed ? "暂无" : "还没有历史项目。") : collapsed ? "整理中" : "正在整理最近项目…"}
-          </div>
-        ) : null}
-      </div>
-    </section>
-  );
-});
-
-const SidebarAssetLibrary = memo(function SidebarAssetLibrary({
-  assets,
-  onOpenAsset,
-  emptyClassName,
-  collapsed = false,
-}: {
-  assets: SidebarAssetItem[];
-  onOpenAsset: (url: string) => void;
-  emptyClassName?: string;
-  collapsed?: boolean;
-}) {
-  return (
-    <section className="px-2 pb-2 pt-2.5">
-      <div
-        className={cn(
-          "mb-1.5 flex items-center gap-2 px-1 text-[9.5px] uppercase tracking-[0.2em] text-slate-500",
-          collapsed && "justify-center px-0",
-        )}
-      >
-        <Image className="h-3.5 w-3.5" />
-        {!collapsed ? "素材库" : null}
-      </div>
-      <div className="space-y-px">
-        {assets.length ? (
-          assets.map((asset) => (
-            <SidebarAssetRow key={asset.id} asset={asset} onOpen={onOpenAsset} collapsed={collapsed} />
-          ))
-        ) : (
-          <div
-            className={cn(
-              "px-3 py-1.5 text-[12px] leading-5.5 text-slate-500",
-              emptyClassName,
-              collapsed && "px-0 text-center text-[10.5px] leading-5",
-            )}
-          >
-            {collapsed ? "暂无" : "当前对话还没有图像或视频素材。"}
-          </div>
-        )}
-      </div>
-    </section>
-  );
-});
-
-const DesktopSidebar = memo(function DesktopSidebar({
-  idle,
-  recentProjects,
-  recentProjectsReady,
-  templates,
-  assets,
-  currentProjectId,
-  collapsed = false,
-  onTemplateLaunch,
-  onOpenProject,
-  onNewProject,
-  onOpenSettings,
-  onToggleCollapse,
-}: {
-  idle: boolean;
-  recentProjects: ConversationProjectSnapshot[];
-  recentProjectsReady: boolean;
-  templates: typeof templates;
-  assets: SidebarAssetItem[];
-  currentProjectId?: string;
-  collapsed?: boolean;
-  onTemplateLaunch: (prompt: string, title: string) => void;
-  onOpenProject: (projectId: string) => void;
-  onNewProject: () => void;
-  onOpenSettings: () => void;
-  onToggleCollapse: () => void;
-}) {
-  const handleOpenAsset = useCallback((url: string) => {
-    window.open(url, "_blank", "noopener,noreferrer");
-  }, []);
-
-  const handleLaunchTemplate = useCallback(
-    (template: (typeof templates)[number]) => {
-      onTemplateLaunch(template.prompt, template.title);
-    },
-    [onTemplateLaunch],
-  );
-
-  return (
-    <aside className="hidden lg:block">
-      <div
-        className="fixed inset-y-0 left-0 z-40 border-r border-white/[0.06] bg-[#141518] [contain:layout_paint] transition-[width] duration-200 ease-out"
-        style={{ width: collapsed ? DESKTOP_SIDEBAR_COLLAPSED_WIDTH : DESKTOP_SIDEBAR_WIDTH }}
-      >
-        <SidebarBrandHeader idle={idle} collapsed={collapsed} onToggleCollapse={onToggleCollapse} />
-
-        <div className="flex h-[calc(100vh-72px)] flex-col">
-          <div className={cn("flex-1 overflow-y-auto py-4", collapsed ? "px-2.5" : "px-3")}>
-            <SidebarPrimaryAction idle={idle} onClick={onNewProject} collapsed={collapsed} />
-
-            {idle ? (
-              <SidebarQuickTasks templates={templates} onLaunch={handleLaunchTemplate} collapsed={collapsed} />
-            ) : null}
-
-            <SidebarProjectHistory
-              recentProjects={recentProjects}
-              recentProjectsReady={recentProjectsReady}
-              currentProjectId={currentProjectId}
-              onOpenProject={onOpenProject}
-              limit={collapsed ? 8 : 10}
-              collapsed={collapsed}
-            />
-
-            {!idle ? (
-              <SidebarAssetLibrary assets={assets} onOpenAsset={handleOpenAsset} collapsed={collapsed} />
-            ) : null}
-          </div>
-          <SidebarFooter onOpenSettings={onOpenSettings} collapsed={collapsed} />
-        </div>
-      </div>
-    </aside>
-  );
-});
-
-const MobileSidebarSheet = memo(function MobileSidebarSheet({
-  open,
-  onOpenChange,
-  idle,
-  recentProjects,
-  recentProjectsReady,
-  templates,
-  assets,
-  currentProjectId,
-  onTemplateLaunch,
-  onOpenProject,
-  onNewProject,
-  onOpenSettings,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  idle: boolean;
-  recentProjects: ConversationProjectSnapshot[];
-  recentProjectsReady: boolean;
-  templates: typeof templates;
-  assets: SidebarAssetItem[];
-  currentProjectId?: string;
-  onTemplateLaunch: (prompt: string, title: string) => void;
-  onOpenProject: (projectId: string) => void;
-  onNewProject: () => void;
-  onOpenSettings: () => void;
-}) {
-  const handleLaunchTemplate = useCallback(
-    (template: (typeof templates)[number]) => {
-      onTemplateLaunch(template.prompt, template.title);
-      onOpenChange(false);
-    },
-    [onOpenChange, onTemplateLaunch],
-  );
-
-  const handleOpenProjectFromSheet = useCallback(
-    (projectId: string) => {
-      onOpenProject(projectId);
-      onOpenChange(false);
-    },
-    [onOpenChange, onOpenProject],
-  );
-
-  const handleNewProjectFromSheet = useCallback(() => {
-    onNewProject();
-    onOpenChange(false);
-  }, [onNewProject, onOpenChange]);
-
-  const handleOpenAsset = useCallback(
-    (url: string) => {
-      window.open(url, "_blank", "noopener,noreferrer");
-      onOpenChange(false);
-    },
-    [onOpenChange],
-  );
-
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="left" className={cn(MOBILE_NAV_SHEET, "lg:hidden")}>
-        <SheetHeader className="sr-only">
-          <SheetTitle>导航</SheetTitle>
-          <SheetDescription>当前首页会话的导航、历史项目和素材库。</SheetDescription>
-        </SheetHeader>
-        <SidebarBrandHeader idle={idle} />
-
-        <div className="flex h-[calc(100vh-72px)] flex-col">
-          <div className="flex-1 overflow-y-auto px-3 py-4">
-            <SidebarPrimaryAction idle={idle} onClick={handleNewProjectFromSheet} />
-
-            {idle ? <SidebarQuickTasks templates={templates} onLaunch={handleLaunchTemplate} bordered /> : null}
-
-            <SidebarProjectHistory
-              recentProjects={recentProjects}
-              recentProjectsReady={recentProjectsReady}
-              currentProjectId={currentProjectId}
-              onOpenProject={handleOpenProjectFromSheet}
-              emptyClassName="py-2.5 text-[13px]"
-              limit={10}
-              bordered
-            />
-
-            {!idle ? (
-              <SidebarAssetLibrary
-                assets={assets}
-                onOpenAsset={handleOpenAsset}
-                emptyClassName="py-2.5 text-[13px]"
-              />
-            ) : null}
-          </div>
-          <SidebarFooter
-            onOpenSettings={() => {
-              onOpenSettings();
-              onOpenChange(false);
-            }}
-          />
-        </div>
-      </SheetContent>
-    </Sheet>
-  );
-});
-
-const DesktopSettingsPanel = memo(function DesktopSettingsPanel({
-  open,
-  onClose,
-  leftOffset,
-}: {
-  open: boolean;
-  onClose: () => void;
-  leftOffset: number;
-}) {
-  return (
-    <AnimatePresence>
-      {open ? (
-        <motion.aside
-          initial={{ opacity: 0, x: -18, scale: 0.985 }}
-          animate={{ opacity: 1, x: 0, scale: 1 }}
-          exit={{ opacity: 0, x: -12, scale: 0.99 }}
-          transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-          className="fixed bottom-4 top-4 z-50 hidden lg:block"
-          style={{
-            left: leftOffset - 16,
-            width: `min(${DESKTOP_SETTINGS_WIDTH}px, calc(100vw - ${leftOffset + 32}px))`,
-          }}
-        >
-          <div className={cn("flex h-full min-h-0 flex-col overflow-hidden", SETTINGS_PANEL_CLASS)}>
-            <Suspense
-              fallback={
-                <div className="flex h-full items-center justify-center text-sm text-slate-500">
-                  正在加载设置面板…
-                </div>
-              }
-            >
-              <SettingsPage embedded onClose={onClose} />
-            </Suspense>
-          </div>
-        </motion.aside>
-      ) : null}
-    </AnimatePresence>
-  );
-});
-
-const MobileSettingsSheet = memo(function MobileSettingsSheet({
-  open,
-  onOpenChange,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="left" className={cn(MOBILE_SETTINGS_SHEET, "lg:hidden")}>
-        <SheetHeader className="sr-only">
-          <SheetTitle>设置</SheetTitle>
-          <SheetDescription>在首页内完成模型、密钥、路径与外观设置。</SheetDescription>
-        </SheetHeader>
-        <Suspense
-          fallback={
-            <div className="flex min-h-[220px] items-center justify-center px-6 py-10 text-sm text-slate-500">
-              正在加载设置面板…
-            </div>
-          }
-        >
-          <SettingsPage embedded onClose={() => onOpenChange(false)} />
-        </Suspense>
-      </SheetContent>
-    </Sheet>
-  );
-});
-
 export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Props) {
   const seedRef = useRef<{ session: StudioSessionState | null; runtime: StudioRuntimeState }>();
   if (!seedRef.current) seedRef.current = createInitialStudioSeed();
@@ -2797,15 +1673,6 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   const draftRef = useRef(session?.draft ?? "");
   const draftPersistTimerRef = useRef<number | null>(null);
   const engineRef = useRef<QueryEngine | null>(null);
-  const engineDepsRef = useRef<Promise<EngineDeps> | null>(null);
-  const projectStoreRef = useRef<Promise<ProjectStoreModule> | null>(null);
-  const apiConfigRef = useRef<Promise<ApiConfigModule> | null>(null);
-  const askQuestionRef = useRef<Promise<AskUserQuestionModule> | null>(null);
-  const structuredParserRef = useRef<Promise<StructuredQuestionParserModule> | null>(null);
-  const workflowActionsRef = useRef<Promise<WorkflowActionsModule> | null>(null);
-  const semanticSummaryRef = useRef<Promise<SemanticSummaryModule> | null>(null);
-  const conversationMemoryRef = useRef<Promise<ConversationMemoryModule> | null>(null);
-  const dreaminaCliRef = useRef<Promise<DreaminaCliModule> | null>(null);
   const handoffRef = useRef(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const surfacedTaskIdsRef = useRef<Set<string>>(new Set());
@@ -2816,6 +1683,17 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   const previousQuestionStepRef = useRef<string | null>(
     session?.qState ? `${session.qState.request.id}:${session.qState.currentIndex}` : null,
   );
+  const {
+    loadEngineDeps,
+    loadProjectStore,
+    loadApiConfigModule,
+    loadAskUserQuestionModule,
+    loadStructuredQuestionParser,
+    loadWorkflowActionsModule,
+    loadSemanticSummaryModule,
+    loadConversationMemoryModule,
+    loadDreaminaCliModule,
+  } = useHomeAgentModuleLoaders();
 
   const currentProject = runtime.currentProjectSnapshot;
   const baseQuestion = useMemo(
@@ -2926,95 +1804,6 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     runtimeRef.current = runtime;
   }, [runtime]);
 
-  useEffect(
-    () => () => {
-      if (maintenanceHintTimerRef.current && typeof window !== "undefined") {
-        window.clearTimeout(maintenanceHintTimerRef.current);
-      }
-      if (draftPersistTimerRef.current && typeof window !== "undefined") {
-        window.clearTimeout(draftPersistTimerRef.current);
-      }
-    },
-    [],
-  );
-
-  useEffect(() => {
-    surfacedTaskIdsRef.current.clear();
-    surfacedTaskFollowupIdsRef.current.clear();
-  }, [runtime.sessionId]);
-
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
-
-  useEffect(() => {
-    compactedMessageCountRef.current = compactedMessageCount;
-  }, [compactedMessageCount]);
-
-  useEffect(() => {
-    setUtilityPanel(initialUtility);
-  }, [initialUtility]);
-
-  useEffect(() => {
-    writeDesktopSidebarCollapsed(desktopSidebarCollapsed);
-  }, [desktopSidebarCollapsed]);
-
-  const loadProjectStore = useCallback(async () => {
-    if (!projectStoreRef.current) {
-      projectStoreRef.current = import("@/lib/home-agent/project-store");
-    }
-    return projectStoreRef.current;
-  }, []);
-
-  const loadApiConfigModule = useCallback(async () => {
-    if (!apiConfigRef.current) {
-      apiConfigRef.current = import("@/lib/api-config");
-    }
-    return apiConfigRef.current;
-  }, []);
-
-  const loadAskUserQuestionModule = useCallback(async () => {
-    if (!askQuestionRef.current) {
-      askQuestionRef.current = import("@/lib/agent/tools/ask-user-question");
-    }
-    return askQuestionRef.current;
-  }, []);
-
-  const loadStructuredQuestionParser = useCallback(async () => {
-    if (!structuredParserRef.current) {
-      structuredParserRef.current = import("./structured-question-parser");
-    }
-    return structuredParserRef.current;
-  }, []);
-
-  const loadWorkflowActionsModule = useCallback(async () => {
-    if (!workflowActionsRef.current) {
-      workflowActionsRef.current = import("@/lib/home-agent/workflow-actions");
-    }
-    return workflowActionsRef.current;
-  }, []);
-
-  const loadSemanticSummaryModule = useCallback(async () => {
-    if (!semanticSummaryRef.current) {
-      semanticSummaryRef.current = import("@/lib/home-agent/conversation-semantic-summary");
-    }
-    return semanticSummaryRef.current;
-  }, []);
-
-  const loadConversationMemoryModule = useCallback(async () => {
-    if (!conversationMemoryRef.current) {
-      conversationMemoryRef.current = import("@/lib/home-agent/conversation-memory");
-    }
-    return conversationMemoryRef.current;
-  }, []);
-
-  const loadDreaminaCliModule = useCallback(async () => {
-    if (!dreaminaCliRef.current) {
-      dreaminaCliRef.current = import("@/lib/dreamina-cli");
-    }
-    return dreaminaCliRef.current;
-  }, []);
-
   const resolveDreaminaCapability = useCallback(async (): Promise<DreaminaCapabilityState> => {
     if (dreaminaCapability.ready) return dreaminaCapability;
     if (!window.electronAPI?.dreaminaCli?.exec) {
@@ -3042,111 +1831,37 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     }
   }, [dreaminaCapability, loadDreaminaCliModule]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const hydrateRecentProjects = async () => {
-      try {
-        const store = await loadProjectStore();
-        const items = await store.listRecentConversationSnapshots(8);
-        const sessions = items
-          .map((snapshot) => readStudioProjectSession(snapshot.projectId))
-          .filter((session): session is StudioSessionState => Boolean(session));
-        if (cancelled) return;
-        startTransition(() => {
-          setRuntime((prev) => ({ ...prev, recentProjects: items, recentProjectSessions: sessions }));
-          setRecentProjectsReady(true);
-        });
-      } catch {
-        if (cancelled) return;
-        setRecentProjectsReady(true);
-      }
-    };
-
-    const cancelTask = scheduleBackgroundTask(() => {
-      void hydrateRecentProjects();
-    });
-
-    return () => {
-      cancelled = true;
-      cancelTask();
-    };
-  }, [loadProjectStore]);
-
-  useEffect(() => {
-    if (metaReady || mode === "idle") return;
-
-    let cancelled = false;
-    const cancelTask = scheduleBackgroundTask(() => {
-      void loadProjectStore()
-        .then((store) => {
-          if (cancelled) return;
-          startTransition(() => {
-            setRuntime((prev) => ({
-              ...prev,
-              skillDrafts: store.readSkillDrafts(),
-              maintenanceReports: store.readMaintenanceReports(),
-            }));
-            setMetaReady(true);
-          });
-        })
-        .catch(() => {
-          if (cancelled) return;
-          setMetaReady(true);
-        });
-    }, 700);
-
-    return () => {
-      cancelled = true;
-      cancelTask();
-    };
-  }, [loadProjectStore, metaReady, mode]);
-
-  useEffect(() => {
-    if (runtime.currentProjectSnapshot?.projectId) {
-      setActiveProjectId(runtime.currentProjectSnapshot.projectId);
-    }
-  }, [runtime.currentProjectSnapshot?.projectId]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const cancelTask = scheduleBackgroundTask(() => {
-      void resolveDreaminaCapability().then(() => {
-        if (cancelled) return;
-      });
-    }, 900);
-
-    return () => {
-      cancelled = true;
-      cancelTask();
-    };
-  }, [resolveDreaminaCapability]);
-
-  useEffect(() => {
-    if (
-      !dreaminaCapability.available ||
-      surfacedDreaminaHintRef.current ||
-      runtime.currentProjectSnapshot?.projectKind !== "video"
-    ) {
-      return;
-    }
-
-    surfacedDreaminaHintRef.current = true;
-    flashMaintenanceHint("已接入 Dreamina CLI，可直接使用 Seedance 2.0", 2400);
-  }, [dreaminaCapability.available, flashMaintenanceHint, runtime.currentProjectSnapshot?.projectKind]);
-
-  useEffect(() => {
-    const syncTasks = () => {
-      startTransition(() => {
-        setTasks(getAllTasks());
-      });
-    };
-
-    syncTasks();
-    window.addEventListener("agent:tasks-updated", syncTasks);
-    return () => window.removeEventListener("agent:tasks-updated", syncTasks);
-  }, []);
+  useHomeAgentBootstrapEffects({
+    runtime,
+    mode,
+    metaReady,
+    messages,
+    compactedMessageCount,
+    initialUtility,
+    desktopSidebarCollapsed,
+    dreaminaCapability,
+    maintenanceHintTimerRef,
+    draftPersistTimerRef,
+    messagesRef,
+    compactedMessageCountRef,
+    surfacedTaskIdsRef,
+    surfacedTaskFollowupIdsRef,
+    surfacedDreaminaHintRef,
+    setRuntime,
+    setRecentProjectsReady,
+    setMetaReady,
+    setActiveProjectId,
+    setTasks,
+    setUtilityPanel,
+    loadProjectStore,
+    resolveDreaminaCapability,
+    flashMaintenanceHint,
+    scheduleBackgroundTask,
+    areProjectSnapshotsEquivalent,
+    areRecentSessionsEquivalent,
+    areTaskListsEquivalent,
+    writeDesktopSidebarCollapsed,
+  });
 
   useEffect(() => {
     if (qState || streaming || popoverOverride) return;
@@ -3290,10 +2005,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
             currentProjectSnapshot: source.snapshot,
             currentDramaProject: source.dramaProject,
             currentVideoProject: source.videoProject,
-            recentProjects: [
-              source.snapshot,
-              ...prev.recentProjects.filter((item) => item.projectId !== source.snapshot?.projectId),
-            ].slice(0, 8),
+            recentProjects: mergeRecentProjects(prev.recentProjects, source.snapshot),
           }));
         });
       })
@@ -3369,230 +2081,93 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     setPopoverOverride(followupQuestion);
   }, [draftPresence, popoverOverride, push, qState, streaming, visibleTasks]);
 
-  const loadEngineDeps = useCallback(async () => {
-    if (!engineDepsRef.current) {
-      engineDepsRef.current = import("@/lib/agent/tools").then((toolsModule) => ({
-        createDefaultTools: toolsModule.createDefaultTools,
-      }));
-    }
-    return engineDepsRef.current;
-  }, []);
-
   const getEngine = useCallback(
     async () => {
-      if (engineRef.current) return engineRef.current;
-
-      const deps = await loadEngineDeps();
-      const apiConfig = await loadApiConfigModule();
-      const tools = deps
-        .createDefaultTools()
-        .filter((tool) =>
-          ["AskUserQuestion", "HomeStudioWorkflow", "Agent", "TaskOutput", "TaskStop"].includes(tool.name),
-        );
-      const cfg = apiConfig.getApiConfig();
-      const apiKey = cfg.claudeKey || cfg.geminiKey || cfg.gptKey;
-      const baseUrl = cfg.claudeEndpoint || cfg.geminiEndpoint || cfg.gptEndpoint;
-
-      if (!apiKey) {
-        throw new Error("当前没有可用的文本模型 API Key，请先在设置中完成配置。");
-      }
-
-      const preflightPlan = planConversationCompaction(
-        messagesRef.current,
-        compactedMessageCountRef.current,
-        runtimeRef.current.recentMessageSummary,
-      );
-
-      let engineSummary = runtimeRef.current.recentMessageSummary;
-      let engineCompactedCount = compactedMessageCountRef.current;
-      let engineInitialMessages = messagesRef.current.slice(
-        Math.min(
-          compactedMessageCountRef.current,
-          Math.max(0, messagesRef.current.length - AUTO_COMPACT_KEEP_RECENT_MESSAGE_COUNT),
-        ),
-      );
-
-      if (preflightPlan.shouldCompact) {
-        engineSummary = preflightPlan.nextSummary;
-        engineCompactedCount = preflightPlan.nextCompactedMessageCount;
-        engineInitialMessages = preflightPlan.retainedMessages;
-        compactedMessageCountRef.current = engineCompactedCount;
-        setCompactedMessageCount(engineCompactedCount);
-        setRuntime((prev) => ({
-          ...prev,
-          recentMessageSummary: engineSummary,
-        }));
-      }
-
-      const engineCompactedHistoryPrompt =
-        engineCompactedCount > 0 ? buildCompactedHistoryPrompt(engineSummary) : undefined;
-
-      engineRef.current = new QueryEngine({
-        apiKey,
-        baseUrl,
-        model: apiConfig.resolveConfiguredModelName("claude-sonnet-4-6"),
-        tools,
+      engineRef.current = await getOrCreateHomeAgentEngine({
+        existingEngine: engineRef.current,
+        loadEngineDeps,
+        loadApiConfigModule,
+        messages: messagesRef.current,
+        compactedMessageCount: compactedMessageCountRef.current,
+        recentMessageSummary: runtimeRef.current.recentMessageSummary,
         systemPrompt: PROMPT,
-        appendSystemPrompt: engineCompactedHistoryPrompt,
-        initialMessages: toQuery(engineInitialMessages),
-        maxTurns: 12,
+        toQuery,
         getAppState: () => runtimeRef.current,
-        setAppState: (updater) => setRuntime((prev) => updater(prev) as StudioRuntimeState),
+        setRuntime,
+        setCompactedMessageCount: (count) => {
+          compactedMessageCountRef.current = count;
+          setCompactedMessageCount(count);
+        },
       });
-
       return engineRef.current;
     },
     [loadApiConfigModule, loadEngineDeps],
   );
 
   const launchAutoResearchTasks = useCallback(
-    async (prompt: string) => {
-      const plan = buildAutoResearchPlan(prompt, runtimeRef.current.currentProjectSnapshot);
-      if (!plan) return null;
-
-      const apiConfig = await loadApiConfigModule();
-      const cfg = apiConfig.getApiConfig();
-      const apiKey = cfg.claudeKey || cfg.geminiKey || cfg.gptKey;
-      const baseUrl = cfg.claudeEndpoint || cfg.geminiEndpoint || cfg.gptEndpoint;
-      if (!apiKey) return null;
-
-      const tool = new AgentTool();
-      const context = new ToolUseContext({
-        options: {
-          model: apiConfig.resolveConfiguredModelName("claude-sonnet-4-6"),
-          tools: [],
-          apiKey,
-          baseUrl,
-        },
-      });
-
-      const parentMessage = {
-        type: "assistant",
-        uuid: crypto.randomUUID(),
-        message: {
-          role: "assistant",
-          content: "auto-research-launch",
-        },
-      } as const;
-
-      const taskIds: string[] = [];
-
-      const results = await Promise.all(
-        plan.tasks.map((task) =>
-          tool.call(
-            {
-              prompt: task.prompt,
-              description: `并行研究 ${task.title}`,
-              session_id: runtimeRef.current.sessionId,
-              project_id: runtimeRef.current.currentProjectSnapshot?.projectId,
-              subagent_type: "research",
-              run_in_background: true,
-            },
-            context,
-            async () => ({ behavior: "allow" }),
-            parentMessage,
-          ),
-        ),
-      );
-
-      for (const result of results) {
-        const taskId = String(result.data).match(/Task ID:\s*([a-f0-9-]+)/i)?.[1];
-        if (taskId) taskIds.push(taskId);
-      }
-
-      if (!taskIds.length) return null;
-      return { plan, taskIds };
-    },
+    async (prompt: string) =>
+      launchHomeAgentAutoResearchTasks({
+        prompt,
+        runtime: runtimeRef.current,
+        loadApiConfigModule,
+      }),
     [loadApiConfigModule],
   );
 
   const send = useCallback(
     async (prompt: string, shown?: string) => {
-      const cleaned = prompt.trim();
+      const cleaned = beginSendFlow({
+        prompt,
+        shown,
+        push,
+        setPopoverOverride,
+        setSuggested,
+        setMode,
+        resetComposerDraft,
+      });
       if (!cleaned) return;
 
-      push("user", shown || cleaned);
-      setPopoverOverride(null);
-      setSuggested(null);
-      setMode("active");
-      resetComposerDraft("");
-
-      let promptForEngine = cleaned;
-      try {
-        const research = await launchAutoResearchTasks(cleaned);
-        if (research) {
-          push("assistant", research.plan.kickoff);
-          promptForEngine = `${cleaned}\n\n${buildResearchPromptOverlay(research.plan, research.taskIds)}`;
-        }
-      } catch {
-        promptForEngine = cleaned;
-      }
-
-      try {
-        const memoryModule = await loadConversationMemoryModule();
-        let memoryRuntime = runtimeRef.current;
-        if (!memoryRuntime.recentProjects.length) {
-          try {
-            const store = await loadProjectStore();
-            const snapshots = await store.listRecentConversationSnapshots(8);
-            memoryRuntime = {
-              ...memoryRuntime,
-              recentProjects: snapshots,
-            };
-          } catch {
-            memoryRuntime = runtimeRef.current;
-          }
-        }
-
-        const recentProjectSessions = memoryRuntime.recentProjects
-          .map((snapshot) => readStudioProjectSession(snapshot.projectId))
-          .filter((session): session is StudioSessionState => Boolean(session));
-        const memoryCorpus = memoryModule.buildConversationMemoryCorpus({
-          ...memoryRuntime,
-          recentProjectSessions,
-        });
-        const memoryHits = memoryModule.searchConversationMemory(
-          cleaned,
-          memoryCorpus,
-          runtimeRef.current.currentProjectSnapshot?.projectId,
-        ).filter((document) => document.projectId !== runtimeRef.current.currentProjectSnapshot?.projectId);
-        const memoryPrompt = memoryModule.buildConversationMemoryPrompt(memoryHits);
-        if (memoryPrompt) {
-          flashMaintenanceHint(memoryModule.buildConversationMemoryHint(memoryHits) ?? "已参考历史经验", 1800);
-          promptForEngine = `${promptForEngine}\n\n${memoryPrompt}`;
-        }
-      } catch {
-        // Keep the main conversation moving even if memory lookup fails.
-      }
-
-      const shouldUseDreaminaContext = isVideoIntentPrompt(cleaned, runtimeRef.current.currentProjectSnapshot);
-      const currentDreaminaCapability = shouldUseDreaminaContext
-        ? await resolveDreaminaCapability()
-        : dreaminaCapability;
-
-      if (currentDreaminaCapability.available && shouldUseDreaminaContext) {
-        promptForEngine = `${promptForEngine}\n\n${buildDreaminaCapabilityOverlay(currentDreaminaCapability.message)}`;
-        if (!surfacedDreaminaHintRef.current) {
-          surfacedDreaminaHintRef.current = true;
-          flashMaintenanceHint("已接入 Dreamina CLI，可直接使用 Seedance 2.0", 2200);
-        }
-      }
+      let promptForEngine = await applyAutoResearchOverlay({
+        cleaned,
+        launchAutoResearchTasks,
+        push,
+        buildResearchPromptOverlay,
+      });
+      promptForEngine = await applyConversationMemoryOverlay({
+        cleaned,
+        promptForEngine,
+        runtime: runtimeRef.current,
+        loadConversationMemoryModule,
+        loadProjectStore,
+        readProjectSession: readStudioProjectSession,
+        flashMaintenanceHint,
+      });
+      const dreaminaPromptState = await applyDreaminaContextOverlay({
+        cleaned,
+        promptForEngine,
+        currentProjectSnapshot: runtimeRef.current.currentProjectSnapshot,
+        dreaminaCapability,
+        resolveDreaminaCapability,
+        isVideoIntentPrompt,
+        buildDreaminaCapabilityOverlay,
+        flashMaintenanceHint,
+        hasSurfacedHint: surfacedDreaminaHintRef.current,
+      });
+      promptForEngine = dreaminaPromptState.promptForEngine;
+      surfacedDreaminaHintRef.current = dreaminaPromptState.surfacedHint;
 
       setStreaming(true);
 
       try {
         const activeEngine = await getEngine();
         for await (const event of activeEngine.submitMessage(promptForEngine)) {
-          if (event.type === "assistant") {
-            const parser = await loadStructuredQuestionParser();
-            const parsed = parser.extractStructuredQuestion(textOf(event.message.message.content));
-            if (parsed.cleanedText.trim()) push("assistant", parsed.cleanedText.trim());
-            if (parsed.request) setQState(createQState(parsed.request));
-          }
-
-          if (event.type === "result" && event.isError && event.result) {
-            push("assistant", event.result);
-          }
+          await handleSendEngineEvent({
+            event,
+            loadStructuredQuestionParser,
+            textOf,
+            push,
+            setQuestionRequest: (request) => setQState(createQState(request)),
+          });
         }
       } catch (error) {
         push("assistant", error instanceof Error ? error.message : String(error));
@@ -3634,17 +2209,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     resetComposerDraft("");
     setCompactedMessageCount(0);
     setActiveProjectId(undefined);
-    setRuntime((prev) => ({
-      ...prev,
-      sessionId: crypto.randomUUID(),
-      currentProjectSnapshot: null,
-      currentDramaProject: null,
-      currentVideoProject: null,
-      currentSetupDraft: null,
-      skillDrafts: [],
-      maintenanceReports: [],
-      recentMessageSummary: "",
-    }));
+    setRuntime((prev) => buildResetRuntimeState(prev));
     setMetaReady(false);
     clearStudioSession();
   }, [loadAskUserQuestionModule, qState, resetComposerDraft]);
@@ -3659,46 +2224,33 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
 
       engineRef.current = null;
       startTransition(() => {
-        setActiveProjectId(projectId);
+        const nextState = buildOpenProjectSessionState({
+          savedSession,
+          snapshot,
+          videoProject: source.videoProject,
+          buildBrief: brief,
+          createAssistantMessage: (content) => mk("assistant", content),
+          getSuggestedQuestion: recQuestion,
+        });
 
-        if (savedSession) {
-          setQState(savedSession.qState ?? null);
-          setPopoverOverride(null);
-          setSuggested(null);
-          setSelectedValues(savedSession.selectedValues ?? []);
-          setMode(
-            savedSession.mode === "recovering" || savedSession.mode === "maintenance-review"
-              ? savedSession.mode
-              : "active",
-          );
-          setMessages(savedSession.messages.length ? savedSession.messages : [mk("assistant", brief(snapshot))]);
-          resetComposerDraft(savedSession.draft ?? "");
-          setCompactedMessageCount(savedSession.compactedMessageCount ?? 0);
-          previousQuestionStepRef.current = savedSession.qState
-            ? `${savedSession.qState.request.id}:${savedSession.qState.currentIndex}`
-            : null;
-        } else {
-          setQState(null);
-          setPopoverOverride(null);
-          setSuggested(recQuestion(snapshot, source.videoProject));
-          setSelectedValues([]);
-          setMode("active");
-          setMessages([mk("assistant", brief(snapshot))]);
-          resetComposerDraft("");
-          setCompactedMessageCount(0);
-          previousQuestionStepRef.current = null;
-        }
+        setActiveProjectId(projectId);
+        setQState(nextState.qState);
+        setPopoverOverride(nextState.popoverOverride);
+        setSuggested(nextState.suggested);
+        setSelectedValues(nextState.selectedValues);
+        setMode(nextState.mode);
+        setMessages(nextState.messages);
+        resetComposerDraft(nextState.draft);
+        setCompactedMessageCount(nextState.compactedMessageCount);
+        previousQuestionStepRef.current = nextState.previousQuestionStep;
 
         setRuntime((prev) => ({
           ...prev,
-          sessionId: savedSession?.sessionId ?? crypto.randomUUID(),
+          sessionId: nextState.sessionId,
           currentProjectSnapshot: snapshot,
           currentDramaProject: source.dramaProject,
           currentVideoProject: source.videoProject,
-          recentProjects: [
-            snapshot,
-            ...prev.recentProjects.filter((item) => item.projectId !== snapshot.projectId),
-          ].slice(0, 8),
+          recentProjects: mergeRecentProjects(prev.recentProjects, snapshot),
         }));
       });
       if (dreaminaCapability.available && snapshot.projectKind === "video") {
@@ -3759,41 +2311,26 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         return;
       }
 
-      const submittedValue = value.trim();
-      const displayValue = (label || value).trim();
-      if (!submittedValue) return;
-      const stepKey = qStepKey(qState.currentIndex, activeQuestion);
+      const transition = advanceStructuredAnswer({
+        qState,
+        value,
+        label,
+        qStepKey,
+      });
+      if (!transition) return;
 
-      const nextAnswers = {
-        ...qState.answers,
-        [stepKey]: submittedValue,
-      };
-      const nextDisplayAnswers = {
-        ...qState.displayAnswers,
-        [stepKey]: displayValue || submittedValue,
-      };
-      const userBubble = activeQuestion.header
-        ? `${activeQuestion.header}：${nextDisplayAnswers[stepKey]}`
-        : nextDisplayAnswers[stepKey];
+      push("user", transition.userBubble);
 
-      push("user", userBubble);
-
-      const isLastStep = qState.currentIndex >= qState.request.questions.length - 1;
-      if (isLastStep) {
+      if (transition.isLastStep) {
         void loadAskUserQuestionModule().then((mod) => {
           mod.resolveAskUserQuestion(
             qState.request.id,
-            serializeQuestionAnswers(qState.request, nextAnswers),
+            serializeQuestionAnswers(qState.request, transition.nextAnswers),
           );
         });
         setQState(null);
       } else {
-        setQState({
-          request: qState.request,
-          currentIndex: qState.currentIndex + 1,
-          answers: nextAnswers,
-          displayAnswers: nextDisplayAnswers,
-        });
+        setQState(transition.nextQState);
       }
 
       setSelectedValues([]);
@@ -3836,7 +2373,8 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
 
   const handleStopTask = useCallback((taskId: string) => {
     stopTask(taskId);
-    setTasks(getAllTasks());
+    const nextTasks = getAllTasks();
+    setTasks((prev) => (areTaskListsEquivalent(nextTasks, prev) ? prev : nextTasks));
   }, []);
   const handleToggleDesktopSidebar = useCallback(() => {
     setDesktopSidebarCollapsed((current) => !current);
@@ -3881,6 +2419,16 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   const runWorkflowActionShortcut = useCallback(
     async (action: string, input: Record<string, unknown>, userBubble: string) => {
       const workflow = await loadWorkflowActionsModule();
+      const ui = createWorkflowShortcutUiBridge({
+        activateConversation,
+        clearChoiceUi,
+        commitRuntime: commitWorkflowRuntime,
+        getSuggestedQuestion,
+        push,
+        resetComposerDraft,
+        setStreaming,
+        setSuggested,
+      });
 
       await runWorkflowShortcut({
         action,
@@ -3888,17 +2436,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         runtime: runtimeRef.current,
         runAction: (nextAction, nextInput, nextRuntime) =>
           workflow.runWorkflowAction(nextAction, nextInput, nextRuntime),
-        ui: {
-          activateConversation,
-          clearChoiceUi,
-          commitRuntime: commitWorkflowRuntime,
-          getSuggestedQuestion,
-          pushAssistant: (content) => push("assistant", content),
-          pushUser: (content) => push("user", content),
-          resetComposerDraft: () => resetComposerDraft(""),
-          setStreaming,
-          setSuggested,
-        },
+        ui,
         userBubble,
       });
     },
@@ -3916,23 +2454,23 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   const runWorkflowActionShortcutChain = useCallback(
     async (steps: Array<{ action: string; input: Record<string, unknown> }>, userBubble: string) => {
       const workflow = await loadWorkflowActionsModule();
+      const ui = createWorkflowShortcutUiBridge({
+        activateConversation,
+        clearChoiceUi,
+        commitRuntime: commitWorkflowRuntime,
+        getSuggestedQuestion,
+        push,
+        resetComposerDraft,
+        setStreaming,
+        setSuggested,
+      });
 
       await runWorkflowShortcutChain({
         runtime: runtimeRef.current,
         runAction: (nextAction, nextInput, nextRuntime) =>
           workflow.runWorkflowAction(nextAction, nextInput, nextRuntime),
         steps,
-        ui: {
-          activateConversation,
-          clearChoiceUi,
-          commitRuntime: commitWorkflowRuntime,
-          getSuggestedQuestion,
-          pushAssistant: (content) => push("assistant", content),
-          pushUser: (content) => push("user", content),
-          resetComposerDraft: () => resetComposerDraft(""),
-          setStreaming,
-          setSuggested,
-        },
+        ui,
         userBubble,
       });
     },
@@ -3949,890 +2487,132 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
 
   const showChoicePopover = useCallback(
     (label: string, assistantMessage: string, nextQuestion: ComposerQuestion) => {
-      push("user", label);
-      push("assistant", assistantMessage);
-      setPopoverOverride(nextQuestion);
-      setSuggested(null);
-      setMode("active");
-      resetComposerDraft("");
+      showChoicePopoverMessage({
+        label,
+        assistantMessage,
+        nextQuestion,
+        push,
+        setPopoverOverride,
+        setSuggested,
+        setMode,
+        resetComposerDraft,
+      });
     },
     [push, resetComposerDraft],
   );
 
   const showChoiceNotice = useCallback(
     (label: string, assistantMessage: string, nextSuggestion: ComposerQuestion | null = null) => {
-      push("user", label);
-      push("assistant", assistantMessage);
-      setPopoverOverride(null);
-      setSuggested(nextSuggestion);
-      setMode("active");
-      resetComposerDraft("");
+      showChoiceNoticeMessage({
+        label,
+        assistantMessage,
+        nextSuggestion,
+        push,
+        setPopoverOverride,
+        setSuggested,
+        setMode,
+        resetComposerDraft,
+      });
     },
     [push, resetComposerDraft],
   );
 
-  const handleVideoProjectChoice = useCallback(
-    (snapshot: ConversationProjectSnapshot, value: string, label: string): boolean => {
-      const videoProject = runtimeRef.current.currentVideoProject;
-
-      if (value === "video:bridge:analyze") {
-        void runWorkflowActionShortcut("analyze_script_for_video", { projectId: snapshot.projectId }, label);
-        return true;
-      }
-
-      if (value === "video:bridge:entities") {
-        void runWorkflowActionShortcut("extract_video_entities", { projectId: snapshot.projectId }, label);
-        return true;
-      }
-
-      if (value === "video:bridge:storyboard") {
-        void runWorkflowActionShortcut("prepare_storyboard_batch", { projectId: snapshot.projectId }, label);
-        return true;
-      }
-
-      if (value === "video:bridge:shots") {
-        void runWorkflowActionShortcut("compile_video_shot_packets", { projectId: snapshot.projectId }, label);
-        return true;
-      }
-
-      if (value === "video:bridge:prompts") {
-        void runWorkflowActionShortcut("prepare_video_prompt_batch", { projectId: snapshot.projectId }, label);
-        return true;
-      }
-
-      if (value === "video:bridge:platform") {
-        void send(
-          `请基于《${snapshot.title}》当前视频桥接状态，帮我补齐目标平台、镜头风格、出片目标和额外镜头偏好，并直接给出下一步最适合执行的首页动作。`,
-          label,
-        );
-        return true;
-      }
-
-      if (value === "开始第一轮出片") {
-        const nextQuestion = buildVideoGenerationQuestion(snapshot, videoProject);
-        if (nextQuestion && listGeneratableVideoScenes(videoProject).length > 1) {
-          showChoicePopover(label, "先选这一轮要发的镜头。", nextQuestion);
-          return true;
-        }
-
-        void runWorkflowActionShortcut("generate_video_assets", { projectId: snapshot.projectId }, label);
-        return true;
-      }
-
-      if (value === "轮询当前出片结果") {
-        const nextQuestion = buildVideoRefreshQuestion(snapshot, videoProject);
-        if (nextQuestion && listRunningVideoScenes(videoProject).length > 1) {
-          showChoicePopover(label, "先选要刷新的镜头。", nextQuestion);
-          return true;
-        }
-
-        void runWorkflowActionShortcut("refresh_video_assets", { projectId: snapshot.projectId }, label);
-        return true;
-      }
-
-      if (value === "整理待审阅项" || /^检查已生成的\s+\d+\s+条视频资产$/.test(value)) {
-        void runWorkflowActionShortcut("review_video_assets", { projectId: snapshot.projectId }, label);
-        return true;
-      }
-
-      if (/^处理\s+\d+\s+条待审阅项$/.test(value)) {
-        const nextQuestion = buildReviewQuestion(snapshot) ?? buildReviewListQuestion(snapshot);
-        if (nextQuestion) {
-          showChoicePopover(label, "先选这一轮要处理的待审阅项。", nextQuestion);
-          return true;
-        }
-
-        void runWorkflowActionShortcut("review_video_assets", { projectId: snapshot.projectId }, label);
-        return true;
-      }
-
-      if (value === "对需要重做的镜头发起修复") {
-        const nextQuestion = buildVideoRepairQuestion(snapshot);
-        if (nextQuestion) {
-          showChoicePopover(label, "先选要返工的镜头。", nextQuestion);
-          return true;
-        }
-
-        showChoiceNotice(
-          label,
-          "当前还没有已标记为重做的镜头，先继续审阅或轮询当前结果更合适。",
-          buildReviewQuestion(snapshot) ?? buildVideoRefreshQuestion(snapshot, videoProject),
-        );
-        return true;
-      }
-
-      return false;
-    },
+  const videoProjectChoiceHandler = useMemo(
+    () =>
+      createVideoProjectChoiceHandler({
+        getCurrentVideoProject: () => runtimeRef.current.currentVideoProject,
+        runWorkflowActionShortcut,
+        send,
+        showChoicePopover,
+        showChoiceNotice,
+        buildVideoGenerationQuestion,
+        buildVideoRefreshQuestion,
+        buildReviewQuestion,
+        buildReviewListQuestion,
+        buildVideoRepairQuestion,
+        listGeneratableVideoScenes,
+        listRunningVideoScenes,
+      }),
     [runWorkflowActionShortcut, send, showChoiceNotice, showChoicePopover],
   );
 
-  const handleVideoReviewChoice = useCallback(
-    (snapshot: ConversationProjectSnapshot, value: string, label: string): boolean => {
-      if (value === "review:queue") {
-        void runWorkflowActionShortcut("review_video_assets", { projectId: snapshot.projectId }, label);
-        return true;
-      }
-
-      if (value === "review:approve-stable") {
-        const targetIds = collectReviewTargetIds(snapshot, "stable");
-        if (!targetIds.length) {
-          const nextQuestion = buildReviewListQuestion(snapshot);
-          if (nextQuestion) {
-            showChoicePopover(label, "当前没有可直接通过的项，先看待审阅列表。", nextQuestion);
-          }
-          return true;
-        }
-
-        void runWorkflowActionShortcut("approve_video_assets", { projectId: snapshot.projectId, targetIds }, label);
-        return true;
-      }
-
-      if (value === "review:redo-risk") {
-        const targetIds = collectReviewTargetIds(snapshot, "risk");
-        if (!targetIds.length) {
-          const nextQuestion = buildReviewListQuestion(snapshot);
-          if (nextQuestion) {
-            showChoicePopover(label, "当前没有风险项，先看待审阅列表。", nextQuestion);
-          }
-          return true;
-        }
-
-        void runWorkflowActionShortcut(
-          "redo_video_assets",
-          {
-            projectId: snapshot.projectId,
-            targetIds,
-            reason: "集中回退风险项，等待重新生成。",
-          },
-          label,
-        );
-        return true;
-      }
-
-      if (value === "review:list") {
-        const nextQuestion = buildReviewListQuestion(snapshot);
-        if (nextQuestion) {
-          showChoicePopover(label, "先选一条待审阅项。", nextQuestion);
-        }
-        return true;
-      }
-
-      if (value.startsWith("review:item:")) {
-        const reviewId = value.replace("review:item:", "");
-        const item = findReviewItem(snapshot, reviewId);
-        const nextQuestion = buildReviewDecisionQuestion(snapshot, reviewId);
-        if (!item || !nextQuestion) return true;
-
-        showChoicePopover(label, `已定位「${item.title}」，直接通过还是重做？`, nextQuestion);
-        return true;
-      }
-
-      if (value.startsWith("review:item-approve:")) {
-        const reviewId = value.replace("review:item-approve:", "");
-        const item = findReviewItem(snapshot, reviewId);
-        if (!item) return true;
-
-        void runWorkflowActionShortcut(
-          "approve_video_assets",
-          { projectId: snapshot.projectId, targetIds: item.targetIds },
-          label,
-        );
-        return true;
-      }
-
-      if (value.startsWith("review:item-redo:")) {
-        const reviewId = value.replace("review:item-redo:", "");
-        const item = findReviewItem(snapshot, reviewId);
-        if (!item) return true;
-
-        void runWorkflowActionShortcut(
-          "redo_video_assets",
-          {
-            projectId: snapshot.projectId,
-            targetIds: item.targetIds,
-            reason: `已将「${item.title}」退回重做。`,
-          },
-          label,
-        );
-        return true;
-      }
-
-      return false;
-    },
+  const videoReviewChoiceHandler = useMemo(
+    () =>
+      createVideoReviewChoiceHandler({
+        runWorkflowActionShortcut,
+        showChoicePopover,
+        collectReviewTargetIds,
+        buildReviewListQuestion,
+        findReviewItem,
+        buildReviewDecisionQuestion,
+      }),
     [runWorkflowActionShortcut, showChoicePopover],
+  );
+
+  const videoAssetChoiceHandler = useMemo(
+    () =>
+      createVideoAssetChoiceHandler({
+        getCurrentVideoProject: () => runtimeRef.current.currentVideoProject,
+        runWorkflowActionShortcut,
+        runWorkflowActionShortcutChain,
+        showChoicePopover,
+        buildVideoGenerationSceneListQuestion,
+        buildVideoRefreshSceneListQuestion,
+        buildVideoRepairListQuestion,
+        listFailedVideoScenes,
+        listGeneratableVideoScenes,
+        listRedoReviewItems,
+        findReviewItem,
+      }),
+    [runWorkflowActionShortcut, runWorkflowActionShortcutChain, showChoicePopover],
+  );
+
+  const scriptProjectChoiceHandler = useMemo(
+    () =>
+      createScriptProjectChoiceHandler({
+        runWorkflowActionShortcut,
+        send,
+        showChoicePopover,
+        listUnlockedCharacterCards,
+        buildCharacterCardListQuestion,
+        findCharacterCard,
+        buildCharacterCardDecisionQuestion,
+        listPendingCompliancePackets,
+        buildComplianceListQuestion,
+        findCompliancePacket,
+        buildComplianceDecisionQuestion,
+        listUnlockedBeatPackets,
+        buildBeatPacketListQuestion,
+        findBeatPacket,
+        buildBeatPacketDecisionQuestion,
+      }),
+    [runWorkflowActionShortcut, send, showChoicePopover],
   );
 
   const handleChoiceSelect = useCallback(
     (value: string, label: string) => {
       const snapshot = runtimeRef.current.currentProjectSnapshot;
 
-      if (snapshot?.projectKind === "video" && handleVideoProjectChoice(snapshot, value, label)) {
+      if (snapshot?.projectKind === "video" && videoProjectChoiceHandler(snapshot, value, label)) {
         return;
       }
 
       if (snapshot?.projectKind === "video" && question?.id.startsWith("review-")) {
-        if (handleVideoReviewChoice(snapshot, value, label)) {
+        if (videoReviewChoiceHandler(snapshot, value, label)) {
           return;
         }
       }
 
-      if (snapshot?.projectKind === "video") {
-        const videoProject = runtimeRef.current.currentVideoProject;
-
-        if (value === "video:bridge:analyze") {
-          void runWorkflowActionShortcut("analyze_script_for_video", { projectId: snapshot.projectId }, label);
-          return;
-        }
-
-        if (value === "video:bridge:entities") {
-          void runWorkflowActionShortcut("extract_video_entities", { projectId: snapshot.projectId }, label);
-          return;
-        }
-
-        if (value === "video:bridge:storyboard") {
-          void runWorkflowActionShortcut("prepare_storyboard_batch", { projectId: snapshot.projectId }, label);
-          return;
-        }
-
-        if (value === "video:bridge:shots") {
-          void runWorkflowActionShortcut("compile_video_shot_packets", { projectId: snapshot.projectId }, label);
-          return;
-        }
-
-        if (value === "video:bridge:prompts") {
-          void runWorkflowActionShortcut("prepare_video_prompt_batch", { projectId: snapshot.projectId }, label);
-          return;
-        }
-
-        if (value === "video:bridge:platform") {
-          void send(
-            `请基于《${snapshot.title}》当前视频桥接状态，帮我补齐目标平台、镜头风格、出片目标和额外镜头偏好，并直接给出下一步最适合执行的首页动作。`,
-            label,
-          );
-          return;
-        }
-
-        if (value === "开始第一轮出片") {
-          const nextQuestion = buildVideoGenerationQuestion(snapshot, videoProject);
-          if (nextQuestion && listGeneratableVideoScenes(videoProject).length > 1) {
-            push("user", label);
-            push("assistant", "先选这一轮要发的镜头。");
-            setPopoverOverride(nextQuestion);
-            setSuggested(null);
-            setMode("active");
-            resetComposerDraft("");
-            return;
-          }
-
-          void runWorkflowActionShortcut("generate_video_assets", { projectId: snapshot.projectId }, label);
-          return;
-        }
-
-        if (value === "轮询当前出片结果") {
-          const nextQuestion = buildVideoRefreshQuestion(snapshot, videoProject);
-          if (nextQuestion && listRunningVideoScenes(videoProject).length > 1) {
-            push("user", label);
-            push("assistant", "先选要刷新的镜头。");
-            setPopoverOverride(nextQuestion);
-            setSuggested(null);
-            setMode("active");
-            resetComposerDraft("");
-            return;
-          }
-
-          void runWorkflowActionShortcut("refresh_video_assets", { projectId: snapshot.projectId }, label);
-          return;
-        }
-
-        if (value === "整理待审阅项" || /^检查已生成的\s+\d+\s+条视频资产$/.test(value)) {
-          void runWorkflowActionShortcut("review_video_assets", { projectId: snapshot.projectId }, label);
-          return;
-        }
-
-        if (/^处理\s+\d+\s+条待审阅项$/.test(value)) {
-          const nextQuestion = buildReviewQuestion(snapshot) ?? buildReviewListQuestion(snapshot);
-          if (nextQuestion) {
-            push("user", label);
-            push("assistant", "先选这一轮要处理的待审阅项。");
-            setPopoverOverride(nextQuestion);
-            setSuggested(null);
-            setMode("active");
-            resetComposerDraft("");
-            return;
-          }
-
-          void runWorkflowActionShortcut("review_video_assets", { projectId: snapshot.projectId }, label);
-          return;
-        }
-
-        if (value === "对需要重做的镜头发起修复") {
-          const nextQuestion = buildVideoRepairQuestion(snapshot);
-          if (nextQuestion) {
-            push("user", label);
-            push("assistant", "先选要返工的镜头。");
-            setPopoverOverride(nextQuestion);
-            setSuggested(null);
-            setMode("active");
-            resetComposerDraft("");
-            return;
-          }
-
-          push("user", label);
-          push("assistant", "当前还没有已标记为重做的镜头，先继续审阅或轮询当前结果更合适。");
-          setSuggested(buildReviewQuestion(snapshot) ?? buildVideoRefreshQuestion(snapshot, videoProject));
-          resetComposerDraft("");
-          return;
-        }
-
-        if (value === "video:generate:first") {
-          const targetIds = listGeneratableVideoScenes(videoProject)
-            .slice(0, 3)
-            .map((scene) => scene.id);
-          if (!targetIds.length) return;
-
-          void runWorkflowActionShortcut(
-            "generate_video_assets",
-            { projectId: snapshot.projectId, targetIds },
-            label,
-          );
-          return;
-        }
-
-        if (value === "video:generate:failed") {
-          const targetIds = listFailedVideoScenes(videoProject).map((scene) => scene.id);
-          if (!targetIds.length) {
-            push("user", label);
-            push("assistant", "当前没有失败镜头，先看可直接出片的镜头。");
-            setPopoverOverride(buildVideoGenerationSceneListQuestion(snapshot, videoProject));
-            setSuggested(null);
-            setMode("active");
-            resetComposerDraft("");
-            return;
-          }
-
-          void runWorkflowActionShortcut(
-            "generate_video_assets",
-            { projectId: snapshot.projectId, targetIds, forceRegenerate: true },
-            label,
-          );
-          return;
-        }
-
-        if (value === "video:generate:list") {
-          const nextQuestion = buildVideoGenerationSceneListQuestion(snapshot, videoProject);
-          if (!nextQuestion) return;
-
-          push("user", label);
-          push("assistant", "选一条镜头开始出片。");
-          setPopoverOverride(nextQuestion);
-          setSuggested(null);
-          setMode("active");
-          resetComposerDraft("");
-          return;
-        }
-
-        if (value.startsWith("video:generate:scene:")) {
-          const sceneId = value.replace("video:generate:scene:", "");
-          void runWorkflowActionShortcut(
-            "generate_video_assets",
-            { projectId: snapshot.projectId, targetIds: [sceneId] },
-            label,
-          );
-          return;
-        }
-
-        if (value === "video:refresh:all") {
-          void runWorkflowActionShortcut("refresh_video_assets", { projectId: snapshot.projectId }, label);
-          return;
-        }
-
-        if (value === "video:refresh:list") {
-          const nextQuestion = buildVideoRefreshSceneListQuestion(snapshot, videoProject);
-          if (!nextQuestion) return;
-
-          push("user", label);
-          push("assistant", "选一条镜头先看结果。");
-          setPopoverOverride(nextQuestion);
-          setSuggested(null);
-          setMode("active");
-          resetComposerDraft("");
-          return;
-        }
-
-        if (value.startsWith("video:refresh:scene:")) {
-          const sceneId = value.replace("video:refresh:scene:", "");
-          void runWorkflowActionShortcut(
-            "refresh_video_assets",
-            { projectId: snapshot.projectId, targetIds: [sceneId] },
-            label,
-          );
-          return;
-        }
-
-        if (value === "video:review:generated") {
-          void runWorkflowActionShortcut("review_video_assets", { projectId: snapshot.projectId }, label);
-          return;
-        }
-
-        if (value === "video:repair:all") {
-          const targetIds = listRedoReviewItems(snapshot).flatMap((item) =>
-            item.targetIds.length ? item.targetIds : [item.id],
-          );
-          if (!targetIds.length) return;
-
-          void runWorkflowActionShortcutChain(
-            [
-              {
-                action: "redo_video_assets",
-                input: {
-                  projectId: snapshot.projectId,
-                  targetIds,
-                  reason: "根据当前首页审阅结论，集中回退需要修复的镜头。",
-                },
-              },
-              {
-                action: "generate_video_assets",
-                input: {
-                  projectId: snapshot.projectId,
-                  targetIds,
-                  forceRegenerate: true,
-                },
-              },
-            ],
-            label,
-          );
-          return;
-        }
-
-        if (value === "video:repair:list") {
-          const nextQuestion = buildVideoRepairListQuestion(snapshot);
-          if (!nextQuestion) return;
-
-          push("user", label);
-          push("assistant", "选一条镜头先返工。");
-          setPopoverOverride(nextQuestion);
-          setSuggested(null);
-          setMode("active");
-          resetComposerDraft("");
-          return;
-        }
-
-        if (value === "video:repair:review") {
-          const nextQuestion = buildVideoRepairListQuestion(snapshot);
-          if (!nextQuestion) return;
-
-          push("user", label);
-          push("assistant", "先看每条退回镜头。");
-          setPopoverOverride(nextQuestion);
-          setSuggested(null);
-          setMode("active");
-          resetComposerDraft("");
-          return;
-        }
-
-        if (value.startsWith("video:repair:item:")) {
-          const reviewId = value.replace("video:repair:item:", "");
-          const item = findReviewItem(snapshot, reviewId);
-          if (!item) return;
-
-          const targetIds = item.targetIds.length ? item.targetIds : [item.id];
-          void runWorkflowActionShortcutChain(
-            [
-              {
-                action: "redo_video_assets",
-                input: {
-                  projectId: snapshot.projectId,
-                  targetIds,
-                  reason: item.reason || `已将「${item.title}」送回重做。`,
-                },
-              },
-              {
-                action: "generate_video_assets",
-                input: {
-                  projectId: snapshot.projectId,
-                  targetIds,
-                  forceRegenerate: true,
-                },
-              },
-            ],
-            label,
-          );
-          return;
-        }
+      if (snapshot?.projectKind === "video" && videoAssetChoiceHandler(snapshot, value, label)) {
+        return;
       }
 
-      if (snapshot?.projectKind === "video" && question?.id.startsWith("review-")) {
-        if (value === "review:queue") {
-          void runWorkflowActionShortcut("review_video_assets", { projectId: snapshot.projectId }, label);
-          return;
-        }
-
-        if (value === "review:approve-stable") {
-          const targetIds = collectReviewTargetIds(snapshot, "stable");
-          if (!targetIds.length) {
-            push("user", label);
-            push("assistant", "当前没有可直接通过的项，先看待审阅列表。");
-            setPopoverOverride(buildReviewListQuestion(snapshot));
-            setSuggested(null);
-            resetComposerDraft("");
-            return;
-          }
-
-          void runWorkflowActionShortcut(
-            "approve_video_assets",
-            { projectId: snapshot.projectId, targetIds },
-            label,
-          );
-          return;
-        }
-
-        if (value === "review:redo-risk") {
-          const targetIds = collectReviewTargetIds(snapshot, "risk");
-          if (!targetIds.length) {
-            push("user", label);
-            push("assistant", "当前没有风险项，先看待审阅列表。");
-            setPopoverOverride(buildReviewListQuestion(snapshot));
-            setSuggested(null);
-            resetComposerDraft("");
-            return;
-          }
-
-          void runWorkflowActionShortcut(
-            "redo_video_assets",
-            {
-              projectId: snapshot.projectId,
-              targetIds,
-              reason: "集中回退风险项，等待重新生成。",
-            },
-            label,
-          );
-          return;
-        }
-
-        if (value === "review:list") {
-          push("user", label);
-          push("assistant", "先选一条待审阅项。");
-          setPopoverOverride(buildReviewListQuestion(snapshot));
-          setSuggested(null);
-          setMode("active");
-          resetComposerDraft("");
-          return;
-        }
-
-        if (value.startsWith("review:item:")) {
-          const reviewId = value.replace("review:item:", "");
-          const item = findReviewItem(snapshot, reviewId);
-          const nextQuestion = buildReviewDecisionQuestion(snapshot, reviewId);
-          if (!item || !nextQuestion) return;
-
-          push("user", label);
-          push("assistant", `已定位「${item.title}」，直接通过还是重做？`);
-          setPopoverOverride(nextQuestion);
-          setSuggested(null);
-          setMode("active");
-          resetComposerDraft("");
-          return;
-        }
-
-        if (value.startsWith("review:item-approve:")) {
-          const reviewId = value.replace("review:item-approve:", "");
-          const item = findReviewItem(snapshot, reviewId);
-          if (!item) return;
-
-          void runWorkflowActionShortcut(
-            "approve_video_assets",
-            { projectId: snapshot.projectId, targetIds: item.targetIds },
-            label,
-          );
-          return;
-        }
-
-        if (value.startsWith("review:item-redo:")) {
-          const reviewId = value.replace("review:item-redo:", "");
-          const item = findReviewItem(snapshot, reviewId);
-          if (!item) return;
-
-          void runWorkflowActionShortcut(
-            "redo_video_assets",
-            {
-              projectId: snapshot.projectId,
-              targetIds: item.targetIds,
-              reason: `已将「${item.title}」退回重做。`,
-            },
-            label,
-          );
-          return;
-        }
-      }
-
-      if ((snapshot?.projectKind === "script" || snapshot?.projectKind === "adaptation") && question?.id.startsWith("script-")) {
-        if (value === "script:character-lock-next") {
-          const nextCard = listUnlockedCharacterCards(snapshot)[0];
-          if (!nextCard) return;
-
-          void runWorkflowActionShortcut(
-            "lock_character_cards",
-            { projectId: snapshot.projectId, targetIds: [nextCard.id] },
-            label,
-          );
-          return;
-        }
-
-        if (value === "script:character-list") {
-          push("user", label);
-          push("assistant", "先选一张角色卡。");
-          setPopoverOverride(buildCharacterCardListQuestion(snapshot));
-          setSuggested(null);
-          setMode("active");
-          resetComposerDraft("");
-          return;
-        }
-
-        if (value.startsWith("script:character-item:")) {
-          const cardId = value.replace("script:character-item:", "");
-          const card = findCharacterCard(snapshot, cardId);
-          const nextQuestion = buildCharacterCardDecisionQuestion(snapshot, cardId);
-          if (!card || !nextQuestion) return;
-
-          push("user", label);
-          push("assistant", `已定位角色卡「${card.name}」，直接锁定还是继续深化？`);
-          setPopoverOverride(nextQuestion);
-          setSuggested(null);
-          setMode("active");
-          resetComposerDraft("");
-          return;
-        }
-
-        if (value.startsWith("script:character-lock:")) {
-          const cardId = value.replace("script:character-lock:", "");
-          void runWorkflowActionShortcut(
-            "lock_character_cards",
-            { projectId: snapshot.projectId, targetIds: [cardId] },
-            label,
-          );
-          return;
-        }
-
-        if (value.startsWith("script:character-refine:")) {
-          const cardId = value.replace("script:character-refine:", "");
-          const card = findCharacterCard(snapshot, cardId);
-          if (!card) return;
-
-          void send(
-            `请继续深化角色「${card.name}」的状态卡。角色定位：${card.role}。核心冲突：${card.coreConflict}。目标：${card.desire}。风险：${card.riskNote}。关系轴：${card.relationshipAxis.join("、") || "待补充"}。`,
-            label,
-          );
-          return;
-        }
-
-        if (value === "script:compliance-resolve-high") {
-          const targetIds = listPendingCompliancePackets(snapshot)
-            .filter((packet) => packet.riskLevel === "high")
-            .map((packet) => packet.id);
-
-          if (!targetIds.length) {
-            push("user", label);
-            push("assistant", "当前没有高风险项，先看修订列表。");
-            setPopoverOverride(buildComplianceListQuestion(snapshot));
-            setSuggested(null);
-            resetComposerDraft("");
-            return;
-          }
-
-          void runWorkflowActionShortcut(
-            "resolve_compliance_revisions",
-            { projectId: snapshot.projectId, targetIds },
-            label,
-          );
-          return;
-        }
-
-        if (value === "script:compliance-list") {
-          push("user", label);
-          push("assistant", "先选一条修订包。");
-          setPopoverOverride(buildComplianceListQuestion(snapshot));
-          setSuggested(null);
-          setMode("active");
-          resetComposerDraft("");
-          return;
-        }
-
-        if (value === "script:compliance-rerun") {
-          void runWorkflowActionShortcut("run_compliance_review", { projectId: snapshot.projectId }, label);
-          return;
-        }
-
-        if (value.startsWith("script:compliance-item:")) {
-          const packetId = value.replace("script:compliance-item:", "");
-          const packet = findCompliancePacket(snapshot, packetId);
-          const nextQuestion = buildComplianceDecisionQuestion(snapshot, packetId);
-          if (!packet || !nextQuestion) return;
-
-          push("user", label);
-          push("assistant", `已定位修订包「${packet.issueTitle}」，标记已处理还是继续改写？`);
-          setPopoverOverride(nextQuestion);
-          setSuggested(null);
-          setMode("active");
-          resetComposerDraft("");
-          return;
-        }
-
-        if (value.startsWith("script:compliance-resolve:")) {
-          const packetId = value.replace("script:compliance-resolve:", "");
-          void runWorkflowActionShortcut(
-            "resolve_compliance_revisions",
-            { projectId: snapshot.projectId, targetIds: [packetId] },
-            label,
-          );
-          return;
-        }
-
-        if (value.startsWith("script:compliance-rewrite:")) {
-          const packetId = value.replace("script:compliance-rewrite:", "");
-          const packet = findCompliancePacket(snapshot, packetId);
-          if (!packet) return;
-
-          void send(
-            `请根据这条合规修订继续改写当前项目：${packet.issueTitle}。风险等级：${packet.riskLevel}。建议：${packet.recommendation}`,
-            label,
-          );
-          return;
-        }
-
-        if (value === "script:beat-lock-next") {
-          const nextPacket = listUnlockedBeatPackets(snapshot)[0];
-          if (!nextPacket) return;
-
-          void runWorkflowActionShortcut(
-            "lock_story_beats",
-            { projectId: snapshot.projectId, targetIds: [nextPacket.id] },
-            label,
-          );
-          return;
-        }
-
-        if (value === "script:beat-lock-drafted") {
-          const targetIds = listUnlockedBeatPackets(snapshot)
-            .filter((packet) => packet.status === "drafted")
-            .map((packet) => packet.id);
-
-          if (!targetIds.length) {
-            push("user", label);
-            push("assistant", "当前没有已成型 beat，先看剧情列表。");
-            setPopoverOverride(buildBeatPacketListQuestion(snapshot));
-            setSuggested(null);
-            resetComposerDraft("");
-            return;
-          }
-
-          void runWorkflowActionShortcut(
-            "lock_story_beats",
-            { projectId: snapshot.projectId, targetIds },
-            label,
-          );
-          return;
-        }
-
-        if (value === "script:beat-list") {
-          push("user", label);
-          push("assistant", "先选一条剧情 beat。");
-          setPopoverOverride(buildBeatPacketListQuestion(snapshot));
-          setSuggested(null);
-          setMode("active");
-          resetComposerDraft("");
-          return;
-        }
-
-        if (value.startsWith("script:beat-item:")) {
-          const packetId = value.replace("script:beat-item:", "");
-          const packet = findBeatPacket(snapshot, packetId);
-          const nextQuestion = buildBeatPacketDecisionQuestion(snapshot, packetId);
-          if (!packet || !nextQuestion) return;
-
-          push("user", label);
-          push("assistant", `已定位第 ${packet.episodeNumber} 集 · ${packet.title}，锁定还是继续写？`);
-          setPopoverOverride(nextQuestion);
-          setSuggested(null);
-          setMode("active");
-          resetComposerDraft("");
-          return;
-        }
-
-        if (value.startsWith("script:beat-lock:")) {
-          const packetId = value.replace("script:beat-lock:", "");
-          void runWorkflowActionShortcut(
-            "lock_story_beats",
-            { projectId: snapshot.projectId, targetIds: [packetId] },
-            label,
-          );
-          return;
-        }
-
-        if (value.startsWith("script:beat-write:")) {
-          const episodeNumber = Number(value.replace("script:beat-write:", ""));
-          if (!Number.isFinite(episodeNumber)) return;
-
-          void runWorkflowActionShortcut(
-            "generate_episode",
-            { projectId: snapshot.projectId, episodeNumber },
-            label,
-          );
-          return;
-        }
-
-        if (value.startsWith("script:episode-generate:")) {
-          const rawEpisodeNumber = value.replace("script:episode-generate:", "");
-          const episodeNumber = Number(rawEpisodeNumber);
-
-          void runWorkflowActionShortcut(
-            "generate_episode",
-            {
-              projectId: snapshot.projectId,
-              ...(Number.isFinite(episodeNumber) ? { episodeNumber } : {}),
-            },
-            label,
-          );
-          return;
-        }
-
-        if (value === "script:episode-review") {
-          void send(
-            `请基于《${snapshot.title}》当前已完成的分集正文做一轮批量质检，重点检查连续性、节奏、角色口吻和钩子强度，并给我一个可直接继续修改的清单。`,
-            label,
-          );
-          return;
-        }
-
-        if (value === "script:episode-compliance") {
-          void runWorkflowActionShortcut("run_compliance_review", { projectId: snapshot.projectId }, label);
-          return;
-        }
-
-        if (value === "script:export-document") {
-          void runWorkflowActionShortcut("export_project", { projectId: snapshot.projectId }, label);
-          return;
-        }
-
-        if (value === "script:export-refine") {
-          void send(
-            `请继续润色《${snapshot.title}》当前导出稿，帮我统一格式、增强可读性，并保留后续可直接衔接视频出片的结构。`,
-            label,
-          );
-          return;
-        }
-
-        if (value === "script:export-video") {
-          void runWorkflowActionShortcut("prepare_video_generation", { projectId: snapshot.projectId }, label);
-          return;
-        }
-
-        if (value === "script:export-patch") {
-          void send(
-            `请检查《${snapshot.title}》当前项目里还有哪些缺失章节或集数需要回补，并直接给我一个优先补写顺序和下一步建议。`,
-            label,
-          );
-          return;
-        }
+      if (
+        (snapshot?.projectKind === "script" || snapshot?.projectKind === "adaptation") &&
+        question?.id.startsWith("script-") &&
+        scriptProjectChoiceHandler(snapshot, value, label)
+      ) {
+        return;
       }
 
       if (!qState || (!question?.multiSelect && question?.submissionMode !== "confirm")) {
@@ -4851,15 +2631,12 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     },
     [
       answer,
-      handleVideoProjectChoice,
-      handleVideoReviewChoice,
-      push,
       qState,
       question,
-      resetComposerDraft,
-      runWorkflowActionShortcut,
-      runWorkflowActionShortcutChain,
-      send,
+      scriptProjectChoiceHandler,
+      videoAssetChoiceHandler,
+      videoProjectChoiceHandler,
+      videoReviewChoiceHandler,
     ],
   );
 
@@ -4954,6 +2731,22 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
       submitComposer,
     ],
   );
+  const idleComposer = useMemo(
+    () => (
+      <div className={cn("mx-auto w-full", IDLE_TRACK_CLASS)}>
+        <HomeComposer {...composerProps} />
+      </div>
+    ),
+    [composerProps],
+  );
+  const activeComposer = useMemo(
+    () => (
+      <div className={cn("mx-auto w-full", ACTIVE_TRACK_CLASS)}>
+        <HomeComposer {...composerProps} />
+      </div>
+    ),
+    [composerProps],
+  );
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#131314] text-white">
@@ -4966,6 +2759,9 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         assets={deferredSidebarAssets}
         currentProjectId={deferredActiveProjectId}
         collapsed={desktopSidebarCollapsed}
+        brandLabel={SIDEBAR_BRAND}
+        expandedWidth={DESKTOP_SIDEBAR_WIDTH}
+        collapsedWidth={DESKTOP_SIDEBAR_COLLAPSED_WIDTH}
         onTemplateLaunch={handleTemplateLaunch}
         onOpenProject={handleOpenProject}
         onNewProject={handleReset}
@@ -4981,6 +2777,8 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         templates={templates}
         assets={deferredSidebarAssets}
         currentProjectId={deferredActiveProjectId}
+        brandLabel={SIDEBAR_BRAND}
+        sheetClassName={MOBILE_NAV_SHEET}
         onTemplateLaunch={handleTemplateLaunch}
         onOpenProject={handleOpenProject}
         onNewProject={handleReset}
@@ -4990,11 +2788,12 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         open={settingsOpen}
         onClose={handleCloseSettings}
         leftOffset={desktopSidebarOffset}
+        width={DESKTOP_SETTINGS_WIDTH}
       />
       <MobileSettingsSheet open={settingsOpen} onOpenChange={handleSettingsOpenChange} />
 
       <div className="relative z-10 flex min-h-screen flex-col">
-        <MobileTopbar idle={idle} onOpenNavigation={handleOpenMobileNavigation} />
+        <MobileTopbar idle={idle} brandLabel={SIDEBAR_BRAND} onOpenNavigation={handleOpenMobileNavigation} />
         <main
           className={cn(
             "relative flex-1 overflow-x-clip px-3.5 sm:px-4 md:px-8",
@@ -5003,15 +2802,16 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
           style={{ "--home-sidebar-offset": `${desktopSidebarOffset}px` } as React.CSSProperties}
         >
           {idle ? (
-            <IdleLanding composerProps={composerProps} reduceMotion={reduceMotion} />
+            <IdleLanding composer={idleComposer} reduceMotion={reduceMotion} title={TITLE} trackClassName={IDLE_TRACK_CLASS} />
           ) : (
             <ActiveConversationShell
               messages={deferredMessages}
               tasks={deferredVisibleTasks}
               onStopTask={handleStopTask}
               endRef={endRef}
-              composerProps={composerProps}
+              composer={activeComposer}
               streaming={streaming}
+              trackClassName={ACTIVE_TRACK_CLASS}
             />
           )}
         </main>
