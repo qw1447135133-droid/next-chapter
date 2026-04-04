@@ -14,11 +14,13 @@ const SettingsPage = lazy(() => import("@/pages/Settings"));
 export const DesktopSettingsPanel = memo(function DesktopSettingsPanel({
   open,
   onClose,
+  onSaved,
   leftOffset,
   width,
 }: {
   open: boolean;
   onClose: () => void;
+  onSaved?: () => void;
   leftOffset: number;
   width: number;
 }) {
@@ -44,7 +46,7 @@ export const DesktopSettingsPanel = memo(function DesktopSettingsPanel({
                 </div>
               }
             >
-              <SettingsPage embedded onClose={onClose} />
+              <SettingsPage embedded onClose={onClose} onSaved={onSaved} />
             </Suspense>
           </div>
         </motion.aside>
@@ -56,9 +58,11 @@ export const DesktopSettingsPanel = memo(function DesktopSettingsPanel({
 export const MobileSettingsSheet = memo(function MobileSettingsSheet({
   open,
   onOpenChange,
+  onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSaved?: () => void;
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -74,7 +78,7 @@ export const MobileSettingsSheet = memo(function MobileSettingsSheet({
             </div>
           }
         >
-          <SettingsPage embedded onClose={() => onOpenChange(false)} />
+          <SettingsPage embedded onClose={() => onOpenChange(false)} onSaved={onSaved} />
         </Suspense>
       </SheetContent>
     </Sheet>

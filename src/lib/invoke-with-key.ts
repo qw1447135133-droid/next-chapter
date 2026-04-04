@@ -2,7 +2,7 @@
  * 函数调用封装
  * 直接调用各服务 API，使用设置中配置的 API Key
  */
-import { getApiConfig, resolveConfiguredModelName } from "@/lib/api-config";
+import { getApiConfig, prefersJimengCli, resolveConfiguredModelName } from "@/lib/api-config";
 import { getNetworkRetrySettings } from "@/lib/network-retry-settings";
 import {
   callGemini,
@@ -2144,15 +2144,20 @@ ${narrativeContext}
 
 async function localGenerateVideo(body: any) {
   const { action, model, taskId, provider } = body;
+  const apiConfig = getApiConfig();
   const isSora2 = model?.startsWith("sora-2") || provider === "tuzi";
   const requestedJimengProvider = provider === "jimeng" || provider === "dreamina-cli" || !provider;
-  const shouldPreferDreaminaCli =
+  const wantsDreaminaCli =
     requestedJimengProvider &&
     !isSora2 &&
-    (!resolveDirectApiKey("jimeng") || provider === "dreamina-cli") &&
-    await isDreaminaCliAvailable();
+    (provider === "dreamina-cli" || (!provider && prefersJimengCli(apiConfig)));
+  const dreaminaCliAvailable = wantsDreaminaCli ? await isDreaminaCliAvailable() : false;
   const seedanceBaseUrl = getSeedanceBaseUrl();
   const tuziBase = getTuziBaseUrl();
+
+  if (wantsDreaminaCli && !dreaminaCliAvailable) {
+    throw new Error("当前已切换到 Dreamina CLI，但本机未检测到可用的 Dreamina CLI。请先安装并登录，或在设置中切回 API。");
+  }
 
   if (action === "status") {
     if (!taskId) throw new Error("缺少 taskId");
@@ -2177,7 +2182,7 @@ async function localGenerateVideo(body: any) {
             : "processing";
       let videoUrl = data.status === "completed" && data.video_url ? data.video_url : undefined;
       return { status, video_url: videoUrl, state: data.status };
-    } else if (provider === "dreamina-cli" || (requestedJimengProvider && shouldPreferDreaminaCli)) {
+    } else if (provider === "dreamina-cli" || wantsDreaminaCli) {
       return await dreaminaCliQueryResult(taskId);
     } else {
       // Jimeng status query
@@ -2194,7 +2199,7 @@ async function localGenerateVideo(body: any) {
   }
 
   if (action === "models") {
-    if (requestedJimengProvider && shouldPreferDreaminaCli) {
+    if (requestedJimengProvider && wantsDreaminaCli) {
       return getDreaminaCliModelCatalog();
     }
     const res = await videoHttp(
@@ -2285,7 +2290,7 @@ async function localGenerateVideo(body: any) {
       provider: "tuzi",
     };
   } else {
-    if (shouldPreferDreaminaCli) {
+    if (wantsDreaminaCli) {
       return await dreaminaCliGenerateVideo({
         prompt: body.prompt,
         imageUrl: typeof body.imageUrl === "string" ? body.imageUrl : undefined,

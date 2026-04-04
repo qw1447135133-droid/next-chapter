@@ -13,11 +13,17 @@ import {
 } from "lucide-react";
 import BrandMark from "@/components/BrandMark";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import type { JimengExecutionMode } from "@/lib/api-config";
 import type { ConversationProjectSnapshot } from "@/lib/home-agent/types";
 import { cn } from "@/lib/utils";
 import type { SidebarAssetItem } from "./home-agent-sidebar-utils";
 
 const { memo, useCallback } = React;
+
+const EXECUTION_MODE_LABEL: Record<JimengExecutionMode, string> = {
+  api: "API",
+  cli: "CLI",
+};
 
 export type HomeAgentTemplate = {
   id: string;
@@ -57,12 +63,53 @@ function truncateCopy(value: string, max = 120): string {
 const SidebarFooter = memo(function SidebarFooter({
   onOpenSettings,
   collapsed = false,
+  jimengExecutionMode,
+  onChangeJimengExecutionMode,
+  dreaminaCliAvailable,
 }: {
   onOpenSettings: () => void;
   collapsed?: boolean;
+  jimengExecutionMode?: JimengExecutionMode;
+  onChangeJimengExecutionMode?: (mode: JimengExecutionMode) => void;
+  dreaminaCliAvailable?: boolean;
 }) {
   return (
     <div className={cn("border-t border-white/[0.05] pb-3 pt-2", collapsed ? "px-2" : "px-2.5")}>
+      {!collapsed && jimengExecutionMode && onChangeJimengExecutionMode ? (
+        <div className="mb-2 rounded-[14px] border border-white/[0.06] bg-white/[0.02] p-2">
+          <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
+            <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Seedance</span>
+            <span className="text-[10px] text-slate-500">
+              {jimengExecutionMode === "cli"
+                ? dreaminaCliAvailable
+                  ? "CLI 就绪"
+                  : "CLI 未就绪"
+                : "API 默认"}
+            </span>
+          </div>
+          <div className="inline-flex w-full rounded-full border border-white/[0.06] bg-white/[0.03] p-1">
+            {(["api", "cli"] as const).map((mode) => {
+              const active = jimengExecutionMode === mode;
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => onChangeJimengExecutionMode(mode)}
+                  aria-pressed={active}
+                  className={cn(
+                    "flex-1 rounded-full px-3 py-1.5 text-[11px] font-medium transition",
+                    active
+                      ? "bg-white text-slate-950 shadow-sm"
+                      : "text-slate-400 hover:text-slate-100",
+                  )}
+                >
+                  {EXECUTION_MODE_LABEL[mode]}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
       <button
         type="button"
         onClick={onOpenSettings}
@@ -401,6 +448,9 @@ export const DesktopSidebar = memo(function DesktopSidebar({
   onNewProject,
   onOpenSettings,
   onToggleCollapse,
+  jimengExecutionMode,
+  onChangeJimengExecutionMode,
+  dreaminaCliAvailable,
 }: {
   idle: boolean;
   recentProjects: ConversationProjectSnapshot[];
@@ -417,6 +467,9 @@ export const DesktopSidebar = memo(function DesktopSidebar({
   onNewProject: () => void;
   onOpenSettings: () => void;
   onToggleCollapse: () => void;
+  jimengExecutionMode?: JimengExecutionMode;
+  onChangeJimengExecutionMode?: (mode: JimengExecutionMode) => void;
+  dreaminaCliAvailable?: boolean;
 }) {
   const handleOpenAsset = useCallback((url: string) => {
     window.open(url, "_blank", "noopener,noreferrer");
@@ -463,7 +516,13 @@ export const DesktopSidebar = memo(function DesktopSidebar({
               <SidebarAssetLibrary assets={assets} onOpenAsset={handleOpenAsset} collapsed={collapsed} />
             ) : null}
           </div>
-          <SidebarFooter onOpenSettings={onOpenSettings} collapsed={collapsed} />
+          <SidebarFooter
+            onOpenSettings={onOpenSettings}
+            collapsed={collapsed}
+            jimengExecutionMode={jimengExecutionMode}
+            onChangeJimengExecutionMode={onChangeJimengExecutionMode}
+            dreaminaCliAvailable={dreaminaCliAvailable}
+          />
         </div>
       </div>
     </aside>
@@ -485,6 +544,9 @@ export const MobileSidebarSheet = memo(function MobileSidebarSheet({
   onOpenProject,
   onNewProject,
   onOpenSettings,
+  jimengExecutionMode,
+  onChangeJimengExecutionMode,
+  dreaminaCliAvailable,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -500,6 +562,9 @@ export const MobileSidebarSheet = memo(function MobileSidebarSheet({
   onOpenProject: (projectId: string) => void;
   onNewProject: () => void;
   onOpenSettings: () => void;
+  jimengExecutionMode?: JimengExecutionMode;
+  onChangeJimengExecutionMode?: (mode: JimengExecutionMode) => void;
+  dreaminaCliAvailable?: boolean;
 }) {
   const handleLaunchTemplate = useCallback(
     (template: HomeAgentTemplate) => {
@@ -570,6 +635,9 @@ export const MobileSidebarSheet = memo(function MobileSidebarSheet({
               onOpenSettings();
               onOpenChange(false);
             }}
+            jimengExecutionMode={jimengExecutionMode}
+            onChangeJimengExecutionMode={onChangeJimengExecutionMode}
+            dreaminaCliAvailable={dreaminaCliAvailable}
           />
         </div>
       </SheetContent>

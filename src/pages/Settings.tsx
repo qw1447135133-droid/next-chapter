@@ -34,10 +34,12 @@ import {
   DEFAULT_API_CONFIG,
   getStoredApiConfig,
   loadBuiltinApiBundleFromDisk,
+  resolveJimengExecutionMode,
   saveBuiltinApiBundle,
   saveApiConfig,
   type BuiltinApiBundle,
   type ApiConfig,
+  type JimengExecutionMode,
 } from "@/lib/api-config";
 import {
   dreaminaCliGetStatus,
@@ -100,8 +102,8 @@ const API_ROWS: Array<{
     id: "jimeng",
     title: "Seedance API",
     endpointPlaceholder: "https://api.tu-zi.com/v1beta",
-    endpointHint: "Seedance 视频生成 API 根地址。留空时复用 Gemini API 端点；Electron 桌面端在未配置 Key 且本机已登录 Dreamina CLI 时会优先走官方 CLI。",
-    keyHint: "Seedance API Key。留空时复用 Gemini API Key；如果你想直接用本机 Dreamina 登录态，请保持为空。",
+    endpointHint: "Seedance 视频生成 API 根地址。留空时复用 Gemini API 端点；实际走 API 还是 CLI，由下方运行通道开关决定。",
+    keyHint: "Seedance API Key。留空时复用 Gemini API Key；若切到 CLI，本项不会参与本轮出片。",
     models: "doubao-seedance-1-5-pro_720p, doubao-seedance-1-5-pro_1080p, seedance2.0, seedance2.0fast",
   },
   {
@@ -137,11 +139,24 @@ const KEY_FIELD_MAP = {
 type SettingsProps = {
   embedded?: boolean;
   onClose?: () => void;
+  onSaved?: () => void;
 };
 
 type DreaminaCliStatusState = Awaited<ReturnType<typeof dreaminaCliGetStatus>>;
+const JIMENG_EXECUTION_OPTIONS: Array<{ id: JimengExecutionMode; label: string; description: string }> = [
+  {
+    id: "api",
+    label: "API",
+    description: "统一走 Seedance API，适合固定 Key / 网关配置。",
+  },
+  {
+    id: "cli",
+    label: "CLI",
+    description: "统一走本机 Dreamina CLI，直接复用登录态。",
+  },
+];
 
-export default function Settings({ embedded = false, onClose }: SettingsProps) {
+export default function Settings({ embedded = false, onClose, onSaved }: SettingsProps) {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const [config, setConfig] = useState<ApiConfig>(() => getStoredApiConfig());
@@ -265,6 +280,7 @@ export default function Settings({ embedded = false, onClose }: SettingsProps) {
   const handleSave = () => {
     saveApiConfig(config);
     setConfig(getStoredApiConfig());
+    onSaved?.();
     toast({ title: "已保存", description: "设置已保存到本地。" });
   };
 
@@ -342,6 +358,7 @@ export default function Settings({ embedded = false, onClose }: SettingsProps) {
   const handleClear = () => {
     clearApiConfig();
     setConfig({ ...DEFAULT_API_CONFIG });
+    onSaved?.();
     toast({ title: "已清除", description: "所有设置已恢复默认值。" });
   };
 
@@ -374,6 +391,9 @@ export default function Settings({ embedded = false, onClose }: SettingsProps) {
     : dreaminaStatus?.installed
       ? "outline"
       : "destructive";
+  const resolvedJimengMode = resolveJimengExecutionMode(config, {
+    dreaminaCliAccessible: !!window.electronAPI?.dreaminaCli?.exec,
+  });
 
   return (
     <div className={embedded ? "flex h-full min-h-0 flex-col bg-transparent" : "min-h-screen bg-background"}>
@@ -449,8 +469,77 @@ export default function Settings({ embedded = false, onClose }: SettingsProps) {
                   </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  桌面端可直接复用 Dreamina 本机登录态使用 Seedance 2.0 / Fast。若你希望程序优先走官方 CLI，请保持 Seedance Key 为空。
+                  桌面端可直接复用 Dreamina 本机登录态使用 Seedance 2.0 / Fast。下面的运行通道开关会决定默认走 API 还是 CLI。
                 </p>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Seedance 运行通道</p>
+                    <p className="text-xs text-muted-foreground">
+                      默认用于首页会话和视频工作流的出片通道。
+                    </p>
+                  </div>
+                  <Badge variant="outline">
+                    当前：{resolvedJimengMode === "cli" ? "CLI" : "API"}
+                  </Badge>
+                </div>
+
+                <div
+                  className={cn(
+                    "inline-flex rounded-full border p-1",
+                    embedded ? "border-[#ddd5c9] bg-white/78" : "border-border/60 bg-muted/30",
+                  )}
+                >
+                  {JIMENG_EXECUTION_OPTIONS.map((option) => {
+                    const active = resolvedJimengMode === option.id;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        className={cn(
+                          "rounded-full px-3 py-1.5 text-xs font-medium transition",
+                          active
+                            ? "bg-slate-950 text-white shadow-sm"
+                            : "text-slate-600 hover:bg-black/[0.04] hover:text-slate-900",
+                        )}
+                        onClick={() => setConfig((prev) => ({ ...prev, jimengExecutionMode: option.id }))}
+                        aria-pressed={active}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  {config.jimengExecutionMode
+                    ? JIMENG_EXECUTION_OPTIONS.find((option) => option.id === config.jimengExecutionMode)?.description
+                    : `当前未手动锁定，程序会自动判定为 ${resolvedJimengMode === "cli" ? "CLI" : "API"}。`}
+                </p>
+
+                <p className="text-xs text-muted-foreground">
+                  {resolvedJimengMode === "cli"
+                    ? "当前默认会走 Dreamina CLI；如果本机未安装或未登录，提交出片时会直接提示修复。"
+                    : "当前默认会走 Seedance API；即使本机已登录 Dreamina，也不会自动改走 CLI。"}
+                </p>
+                {config.jimengExecutionMode ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={cn("h-auto px-0 text-xs text-muted-foreground", embedded && "hover:bg-transparent")}
+                    onClick={() =>
+                      setConfig((prev) => ({
+                        ...prev,
+                        jimengExecutionMode: undefined,
+                      }))
+                    }
+                  >
+                    恢复自动判定
+                  </Button>
+                ) : null}
               </div>
 
               <div className={cn(
@@ -738,7 +827,7 @@ export default function Settings({ embedded = false, onClose }: SettingsProps) {
             <ul className="text-sm text-muted-foreground space-y-1">
               <li>设置页已移除自定义 API 选项，程序始终使用内置 API。</li>
               <li>历史版本遗留的自定义 API 本地配置会在读取和保存时自动清理。</li>
-              <li>即梦 / Seedance 默认可复用 Gemini 网关与 Key。</li>
+              <li>即梦 / Seedance 默认可复用 Gemini 网关与 Key，实际走 API 还是 CLI 由上方运行通道决定。</li>
             </ul>
           </CardContent>
         </Card>

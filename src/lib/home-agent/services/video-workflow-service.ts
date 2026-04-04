@@ -5,6 +5,7 @@
   upsertStoredVideoProject,
 } from "@/hooks/use-local-persistence";
 import { invokeFunction } from "@/lib/invoke-with-key";
+import { getApiConfig, prefersJimengCli } from "@/lib/api-config";
 import { createVideoSnapshot } from "@/lib/home-agent/project-store";
 import type { WorkflowActionResult, StudioRuntimeState } from "@/lib/home-agent/types";
 import {
@@ -495,7 +496,7 @@ function shouldPreferLocalDreamina(input: Record<string, unknown>): boolean {
     return input.provider.trim() === "dreamina-cli";
   }
 
-  return typeof window !== "undefined" && !!window.electronAPI?.dreaminaCli?.exec;
+  return prefersJimengCli(getApiConfig());
 }
 
 function normalizeSceneStatus(value: string | undefined): string {

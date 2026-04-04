@@ -13,6 +13,7 @@ const DESKTOP_SIDEBAR_COLLAPSE_KEY = "storyforge-home-agent-desktop-sidebar-coll
 let assistantReply = "好的，我们开始。";
 let lastQueryEngineConfig: Record<string, unknown> | null = null;
 let lastSubmittedPrompt = "";
+const consumeAgentHandoff = vi.fn(() => null);
 
 const resolveAskUserQuestion = vi.fn(() => true);
 const rejectAskUserQuestion = vi.fn(() => true);
@@ -179,7 +180,9 @@ vi.mock("@/lib/api-config", () => ({
     geminiEndpoint: "",
     gptKey: "",
     gptEndpoint: "",
+    jimengExecutionMode: "api",
   }),
+  prefersJimengCli: (config: { jimengExecutionMode?: string }) => config.jimengExecutionMode === "cli",
   resolveConfiguredModelName: () => "claude-sonnet-4-6",
 }));
 
@@ -198,6 +201,10 @@ vi.mock("@/lib/home-agent/conversation-semantic-summary", () => ({
 
 vi.mock("@/lib/dreamina-cli", () => ({
   dreaminaCliGetStatus,
+}));
+
+vi.mock("@/lib/agent-intake", () => ({
+  consumeAgentHandoff,
 }));
 
 const { default: HomeAgentStudio } = await import("./HomeAgentStudio");
@@ -740,12 +747,15 @@ describe("HomeAgentStudio", () => {
     lastQueryEngineConfig = null;
     lastSubmittedPrompt = "";
     localStorage.clear();
+    sessionStorage.clear();
     clearTaskRegistry();
     resolveAskUserQuestion.mockClear();
     rejectAskUserQuestion.mockClear();
     runWorkflowAction.mockClear();
     refineCompactedConversationSummary.mockClear();
     dreaminaCliGetStatus.mockClear();
+    consumeAgentHandoff.mockReset();
+    consumeAgentHandoff.mockReturnValue(null);
     dreaminaCliGetStatus.mockResolvedValue({
       ok: false,
       installed: false,
@@ -1730,6 +1740,50 @@ describe("HomeAgentStudio", () => {
     await waitForVisibleText("继续保留第 2 集的张力。");
     expect(screen.getByDisplayValue("补充反派动机")).toBeInTheDocument();
     expect(screen.getByText("继续选择题材")).toBeInTheDocument();
+  });
+
+  it("restores a saved project conversation from agent handoff without leaving the homepage", async () => {
+    seedDramaProject();
+    localStorage.setItem(
+      STUDIO_PROJECT_SESSIONS_KEY,
+      JSON.stringify({
+        "drama-project-1": createSession(),
+      }),
+    );
+    consumeAgentHandoff.mockReturnValueOnce({
+      prompt: "",
+      route: "script-creator",
+      title: "恢复项目",
+      subtitle: "继续推进",
+      resumeProjectId: "drama-project-1",
+      source: "home",
+      createdAt: "2026-04-03T00:00:00.000Z",
+    });
+
+    await renderStudio();
+
+    await waitForVisibleText("继续保留第 2 集的张力。");
+    expect(screen.getByDisplayValue("补充反派动机")).toBeInTheDocument();
+    expect(screen.getByText("继续选择题材")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
+  });
+
+  it("routes prompt handoff through the homepage send flow", async () => {
+    consumeAgentHandoff.mockReturnValueOnce({
+      prompt: "请接着推进这个原创剧本项目",
+      route: "script-creator",
+      title: "继续创作",
+      subtitle: "保持在首页会话中",
+      source: "home",
+      createdAt: "2026-04-03T00:00:00.000Z",
+    });
+
+    await renderStudio();
+
+    await waitFor(() => {
+      expect(lastSubmittedPrompt).toContain("请接着推进这个原创剧本项目");
+    });
+    expect(screen.getAllByText(/继续创作/).length).toBeGreaterThan(0);
   });
 
   it("uses project artifacts and stage analysis when opening history without a saved homepage session", async () => {

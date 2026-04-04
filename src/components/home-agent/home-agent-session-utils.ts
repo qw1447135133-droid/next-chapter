@@ -70,6 +70,58 @@ export function hasSavedSessionContent(session: StudioSessionState | null | unde
   );
 }
 
+export function areProjectSnapshotsEquivalent(
+  nextProjects: ConversationProjectSnapshot[],
+  prevProjects: ConversationProjectSnapshot[],
+): boolean {
+  if (nextProjects === prevProjects) return true;
+  if (nextProjects.length !== prevProjects.length) return false;
+
+  return nextProjects.every((project, index) => {
+    const prev = prevProjects[index];
+    return (
+      project.projectId === prev.projectId &&
+      project.updatedAt === prev.updatedAt &&
+      project.derivedStage === prev.derivedStage &&
+      project.currentObjective === prev.currentObjective &&
+      project.agentSummary === prev.agentSummary
+    );
+  });
+}
+
+export function areRecentSessionsEquivalent(
+  nextSessions: StudioSessionState[] | undefined,
+  prevSessions: StudioSessionState[] | undefined,
+): boolean {
+  if (nextSessions === prevSessions) return true;
+  if (!nextSessions?.length && !prevSessions?.length) return true;
+  if (!nextSessions || !prevSessions) return false;
+  if (nextSessions.length !== prevSessions.length) return false;
+
+  return nextSessions.every((session, index) => {
+    const prev = prevSessions[index];
+    return (
+      session.sessionId === prev.sessionId &&
+      session.projectId === prev.projectId &&
+      session.mode === prev.mode &&
+      session.compactedMessageCount === prev.compactedMessageCount &&
+      session.messages.length === prev.messages.length &&
+      session.draft === prev.draft &&
+      session.qState?.request.id === prev.qState?.request.id &&
+      session.qState?.currentIndex === prev.qState?.currentIndex
+    );
+  });
+}
+
+export function mergeRecentProjects(
+  currentProjects: ConversationProjectSnapshot[],
+  nextProject: ConversationProjectSnapshot,
+  limit = 8,
+): ConversationProjectSnapshot[] {
+  const merged = [nextProject, ...currentProjects.filter((item) => item.projectId !== nextProject.projectId)].slice(0, limit);
+  return areProjectSnapshotsEquivalent(merged, currentProjects) ? currentProjects : merged;
+}
+
 export const qStepKey = (
   index: number,
   question: Pick<AskUserQuestionRequest["questions"][number], "header">,

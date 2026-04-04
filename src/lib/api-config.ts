@@ -1,4 +1,5 @@
 export type ApiMode = "builtin";
+export type JimengExecutionMode = "api" | "cli";
 
 export interface BuiltinApiBundle {
   geminiEndpoint?: string;
@@ -40,6 +41,7 @@ export interface ApiConfig {
   seedreamKey: string;
   jimengEndpoint: string;
   jimengKey: string;
+  jimengExecutionMode: JimengExecutionMode;
   tuziEndpoint: string;
   tuziKey: string;
   modelMappings: Record<string, string>;
@@ -234,6 +236,7 @@ export const DEFAULT_API_CONFIG: ApiConfig = {
   seedreamKey: "",
   jimengEndpoint: "",
   jimengKey: "",
+  jimengExecutionMode: "api",
   tuziEndpoint: "",
   tuziKey: "",
   modelMappings: {},
@@ -269,6 +272,11 @@ function getEnvDefaultApiConfig(): Partial<ApiConfig> {
     seedreamKey: readEnvString("VITE_DEFAULT_SEEDREAM_KEY") || unifiedKey,
     jimengEndpoint: readEnvString("VITE_DEFAULT_JIMENG_ENDPOINT") || videoEndpoint,
     jimengKey: readEnvString("VITE_DEFAULT_JIMENG_KEY") || unifiedKey,
+    jimengExecutionMode:
+      readEnvString("VITE_DEFAULT_JIMENG_EXECUTION_MODE") === "api" ||
+      readEnvString("VITE_DEFAULT_JIMENG_EXECUTION_MODE") === "cli"
+        ? (readEnvString("VITE_DEFAULT_JIMENG_EXECUTION_MODE") as JimengExecutionMode)
+        : undefined,
     tuziEndpoint: readEnvString("VITE_DEFAULT_TUZI_ENDPOINT") || textEndpoint,
     tuziKey: readEnvString("VITE_DEFAULT_TUZI_KEY") || unifiedKey,
   };
@@ -296,6 +304,10 @@ function normalizeStoredConfig(config: Partial<ApiConfig>): ApiConfig {
     jimengEndpoint:
       typeof config.jimengEndpoint === "string" ? config.jimengEndpoint.trim() : "",
     jimengKey: typeof config.jimengKey === "string" ? config.jimengKey.trim() : "",
+    jimengExecutionMode:
+      config.jimengExecutionMode === "api" || config.jimengExecutionMode === "cli"
+        ? config.jimengExecutionMode
+        : "api",
     tuziEndpoint: typeof config.tuziEndpoint === "string" ? config.tuziEndpoint.trim() : "",
     tuziKey: typeof config.tuziKey === "string" ? config.tuziKey.trim() : "",
     modelMappings: normalizeModelMappings(config.modelMappings),
@@ -469,6 +481,7 @@ function applyBuiltinOverlay(config: ApiConfig): ApiConfig {
     seedreamKey: g("seedreamKey") || geminiKey,
     jimengEndpoint: g("jimengEndpoint") || geminiEndpoint,
     jimengKey: g("jimengKey") || geminiKey,
+    jimengExecutionMode: normalizedConfig.jimengExecutionMode,
     tuziEndpoint: g("tuziEndpoint"),
     tuziKey: g("tuziKey"),
     modelMappings: builtinMappings,
@@ -477,6 +490,18 @@ function applyBuiltinOverlay(config: ApiConfig): ApiConfig {
 
 export function resolveApiConfigForRuntime(config: ApiConfig): ApiConfig {
   return applyBuiltinOverlay(config);
+}
+
+export function resolveJimengExecutionMode(
+  config: Pick<ApiConfig, "jimengExecutionMode">,
+  options?: {
+    dreaminaCliAccessible?: boolean;
+  },
+): JimengExecutionMode {
+  if (config.jimengExecutionMode === "api" || config.jimengExecutionMode === "cli") {
+    return config.jimengExecutionMode;
+  }
+  return options?.dreaminaCliAccessible ? "cli" : "api";
 }
 
 export function getApiConfig(): ApiConfig {
@@ -521,4 +546,8 @@ export function resolveConfiguredModelNameFromConfig(
   const trimmed = String(model || "").trim();
   if (!trimmed) return trimmed;
   return config.modelMappings[trimmed]?.trim() || trimmed;
+}
+
+export function prefersJimengCli(config: Pick<ApiConfig, "jimengExecutionMode">): boolean {
+  return resolveJimengExecutionMode(config) === "cli";
 }

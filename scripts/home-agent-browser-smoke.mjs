@@ -51,15 +51,23 @@ async function ensureServer() {
     return { startedLocalServer: false, dispose: async () => {} };
   }
 
-  const npmExecutable = process.platform === "win32" ? "npm.cmd" : "npm";
-  const devServer = spawn(
-    npmExecutable,
-    ["run", "dev", "--", "--host", "127.0.0.1", "--port", DEV_SERVER_PORT],
-    {
-      stdio: "ignore",
-      windowsHide: true,
-    },
-  );
+  const devServer =
+    process.platform === "win32"
+      ? spawn(
+          "cmd.exe",
+          ["/d", "/s", "/c", `npm run dev -- --host 127.0.0.1 --port ${DEV_SERVER_PORT}`],
+          {
+            stdio: "ignore",
+            windowsHide: true,
+            cwd: process.cwd(),
+            env: process.env,
+          },
+        )
+      : spawn("npm", ["run", "dev", "--", "--host", "127.0.0.1", "--port", DEV_SERVER_PORT], {
+          stdio: "ignore",
+          cwd: process.cwd(),
+          env: process.env,
+        });
 
   const ready = await waitForServer(DEFAULT_URL, 30000);
   if (!ready) {
@@ -415,6 +423,8 @@ async function runMobileSidebarScenario(page) {
   assert.equal(new URL(page.url()).pathname, "/", "移动端历史恢复后仍应停留在首页");
 
   return {
+    restoredMessage: true,
+    restoredQuestion: true,
     restoredDraft,
   };
 }

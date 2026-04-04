@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { StudioRuntimeState } from "@/lib/home-agent/types";
 import type { PersistedVideoProject } from "@/hooks/use-local-persistence";
+import { saveApiConfig } from "@/lib/api-config";
 
 const createStoredVideoProject = vi.fn();
 const loadStoredVideoProjectById = vi.fn();
@@ -110,9 +111,12 @@ describe("video-workflow-service execution", () => {
     loadStoredVideoProjectById.mockReset();
     upsertStoredVideoProject.mockClear();
     window.electronAPI = undefined;
+    localStorage.clear();
   });
 
   it("submits homepage video generation through Dreamina-aware workflow action", async () => {
+    saveApiConfig({ jimengExecutionMode: "cli" });
+
     window.electronAPI = {
       dreaminaCli: {
         exec: vi.fn(),

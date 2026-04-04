@@ -95,4 +95,12 @@ describe("api-config builtin mode", () => {
       }),
     );
   });
+
+  it("persists jimeng execution mode alongside other local settings", () => {
+    saveApiConfig({ jimengExecutionMode: "cli" });
+
+    const config = getStoredApiConfig();
+
+    expect(config.jimengExecutionMode).toBe("cli");
+  });
 });
