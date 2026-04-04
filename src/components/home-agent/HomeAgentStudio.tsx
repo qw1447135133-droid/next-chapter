@@ -16,6 +16,7 @@ import type {
 } from "@/lib/home-agent/types";
 import { cn } from "@/lib/utils";
 import type { JimengExecutionMode } from "@/lib/api-config";
+import { API_CONFIG_UPDATED_EVENT } from "@/lib/api-config";
 import {
   DesktopSidebar,
   MobileSidebarSheet,
@@ -95,6 +96,7 @@ import {
 import { useHomeAgentWorkflowShortcuts } from "./use-home-agent-workflow-shortcuts";
 import { useHomeAgentComposerBindings } from "./use-home-agent-composer-bindings";
 import { getAllTasks, type Task } from "@/lib/agent/tools/task-tools";
+import { readHomeAgentLaunchReadiness, type HomeAgentLaunchReadiness } from "@/lib/home-agent/launch-readiness";
 
 const { useCallback, useEffect, useMemo, useRef, useState } = React;
 
@@ -231,6 +233,8 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   const [compactedMessageCount, setCompactedMessageCount] = useState(session?.compactedMessageCount ?? 0);
   const [maintenanceHint, setMaintenanceHint] = useState<string | null>(null);
   const [jimengExecutionMode, setJimengExecutionMode] = useState<JimengExecutionMode>("api");
+  const [launchReadiness, setLaunchReadiness] = useState<HomeAgentLaunchReadiness | null>(null);
+  const [suppressedLaunchNoticeKey, setSuppressedLaunchNoticeKey] = useState<string | null>(null);
   const [dreaminaCapability, setDreaminaCapability] = useState<DreaminaCapabilityState>({
     ready: false,
     available: false,
@@ -331,28 +335,57 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     desktopSidebarOffsetCollapsed: DESKTOP_SIDEBAR_COLLAPSED_OFFSET,
   });
 
-  const syncJimengExecutionMode = useCallback(async () => {
+  const refreshLaunchReadiness = useCallback(async () => {
     try {
-      const apiConfig = await loadApiConfigModule();
-      const nextMode = apiConfig.prefersJimengCli(apiConfig.getApiConfig()) ? "cli" : "api";
-      setJimengExecutionMode((current) => (current === nextMode ? current : nextMode));
-    } catch {
+      const nextReadiness = await readHomeAgentLaunchReadiness();
+      setLaunchReadiness(nextReadiness);
+      setJimengExecutionMode((current) =>
+        current === nextReadiness.video.mode ? current : nextReadiness.video.mode,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "首发运行前检查失败";
+      setLaunchReadiness({
+        checkedAt: new Date().toISOString(),
+        textReady: false,
+        textMessage: message,
+        video: {
+          mode: "api",
+          ready: false,
+          label: "当前默认走 API",
+          detail: message,
+          tone: "warning",
+        },
+        notice: {
+          level: "critical",
+          title: "首发运行前检查失败",
+          description: message,
+          actions: [{ id: "open_settings", label: "去设置检查" }],
+        },
+      });
       setJimengExecutionMode("api");
     }
-  }, [loadApiConfigModule]);
+  }, []);
 
   useEffect(() => {
     runtimeRef.current = runtime;
   }, [runtime]);
 
   useEffect(() => {
-    void syncJimengExecutionMode();
-  }, [syncJimengExecutionMode]);
+    void refreshLaunchReadiness();
+  }, [refreshLaunchReadiness]);
 
   useEffect(() => {
     if (settingsOpen) return;
-    void syncJimengExecutionMode();
-  }, [settingsOpen, syncJimengExecutionMode]);
+    void refreshLaunchReadiness();
+  }, [refreshLaunchReadiness, settingsOpen]);
+
+  useEffect(() => {
+    const handleConfigUpdated = () => {
+      void refreshLaunchReadiness();
+    };
+    window.addEventListener(API_CONFIG_UPDATED_EVENT, handleConfigUpdated);
+    return () => window.removeEventListener(API_CONFIG_UPDATED_EVENT, handleConfigUpdated);
+  }, [refreshLaunchReadiness]);
 
   const push = useCallback((role: HomeAgentMessage["role"], content: string) => {
     if (!content.trim()) return;
@@ -406,9 +439,11 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         const apiConfig = await loadApiConfigModule();
         apiConfig.saveApiConfig({ jimengExecutionMode: nextMode });
         setJimengExecutionMode(nextMode);
+        setSuppressedLaunchNoticeKey(null);
 
         if (nextMode === "cli") {
           const capability = await resolveDreaminaCapability();
+          await refreshLaunchReadiness();
           flashMaintenanceHint(
             capability.available
               ? "已切到 Dreamina CLI，后续视频默认走本机登录态"
@@ -418,6 +453,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
           return;
         }
 
+        await refreshLaunchReadiness();
         flashMaintenanceHint("已切到 Seedance API，后续视频默认走 API", 2400);
       } catch (error) {
         flashMaintenanceHint(
@@ -426,35 +462,39 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         );
       }
     },
-    [flashMaintenanceHint, loadApiConfigModule, resolveDreaminaCapability],
+    [flashMaintenanceHint, loadApiConfigModule, refreshLaunchReadiness, resolveDreaminaCapability],
   );
+
+  const launchNoticeKey = useMemo(() => {
+    const notice = launchReadiness?.notice;
+    if (!notice) return null;
+    return `${notice.level}:${notice.title}:${launchReadiness?.video.mode}:${launchReadiness?.video.detail}:${launchReadiness?.textReady}`;
+  }, [launchReadiness]);
+
+  const launchNotice = useMemo(() => {
+    const notice = launchReadiness?.notice;
+    if (!notice || !launchNoticeKey) return null;
+    if (suppressedLaunchNoticeKey === launchNoticeKey) return null;
+    if (!idle && notice.level !== "critical" && currentProject?.projectKind !== "video") {
+      return null;
+    }
+    return notice;
+  }, [currentProject?.projectKind, idle, launchNoticeKey, launchReadiness?.notice, suppressedLaunchNoticeKey]);
 
   const videoTransportHint = useMemo(() => {
     const snapshot = deferredProjectSnapshot ?? currentProject;
     if (snapshot?.projectKind !== "video") return null;
 
-    if (jimengExecutionMode === "api") {
-      return {
-        label: "当前实际走 API",
-        detail: "Seedance API",
-        tone: "neutral" as const,
-      };
-    }
-
-    if (dreaminaCapability.available) {
-      return {
-        label: "当前实际走 CLI",
-        detail: "Dreamina CLI / Seedance 2.0",
-        tone: "ready" as const,
-      };
+    if (launchReadiness?.video) {
+      return launchReadiness.video;
     }
 
     return {
-      label: "当前选择 CLI",
-      detail: "Dreamina 未就绪，不会自动回退到 API",
-      tone: "warning" as const,
+      label: jimengExecutionMode === "cli" ? "当前选择 CLI" : "当前实际走 API",
+      detail: jimengExecutionMode === "cli" ? "Dreamina 状态检查中" : "Seedance API",
+      tone: "neutral" as const,
     };
-  }, [currentProject, deferredProjectSnapshot, dreaminaCapability.available, jimengExecutionMode]);
+  }, [currentProject, deferredProjectSnapshot, jimengExecutionMode, launchReadiness?.video]);
 
   useHomeAgentBootstrapEffects({
     runtime,
@@ -595,6 +635,31 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     areTaskListsEquivalent,
   });
 
+  const handleLaunchNoticeAction = useCallback(
+    (actionId: string) => {
+      if (actionId === "open_settings") {
+        handleOpenSettings();
+        return;
+      }
+
+      if (actionId === "switch_to_api") {
+        void handleJimengExecutionModeChange("api");
+        return;
+      }
+
+      if (actionId === "switch_to_cli") {
+        void handleJimengExecutionModeChange("cli");
+        return;
+      }
+
+      if (actionId === "continue_script_only" && launchNoticeKey) {
+        setSuppressedLaunchNoticeKey(launchNoticeKey);
+        flashMaintenanceHint("已按仅剧本 / 改编模式继续，视频配置提醒本轮先收起。", 2400);
+      }
+    },
+    [flashMaintenanceHint, handleJimengExecutionModeChange, handleOpenSettings, launchNoticeKey],
+  );
+
   const { runWorkflowActionShortcut, runWorkflowActionShortcutChain } = useHomeAgentWorkflowShortcuts({
     runtimeRef,
     loadWorkflowActionsModule,
@@ -662,6 +727,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     currentProject,
     maintenanceHint,
     videoTransportHint,
+    launchNotice,
     draftInitialValue,
     draftResetVersion,
     draftPresence,
@@ -686,6 +752,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     videoReviewChoiceHandler,
     videoAssetChoiceHandler,
     scriptProjectChoiceHandler,
+    onLaunchAction: handleLaunchNoticeAction,
     activeTrackClassName: ACTIVE_TRACK_CLASS,
     idleTrackClassName: IDLE_TRACK_CLASS,
   });
@@ -736,7 +803,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         open={settingsOpen}
         onClose={handleCloseSettings}
         onSaved={() => {
-          void syncJimengExecutionMode();
+          void refreshLaunchReadiness();
         }}
         leftOffset={desktopSidebarOffset}
         width={DESKTOP_SETTINGS_WIDTH}
@@ -745,7 +812,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         open={settingsOpen}
         onOpenChange={handleSettingsOpenChange}
         onSaved={() => {
-          void syncJimengExecutionMode();
+          void refreshLaunchReadiness();
         }}
       />
 

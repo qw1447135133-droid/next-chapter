@@ -76,6 +76,7 @@ export function useHomeAgentWorkflowShortcuts(params: {
         getSuggestedQuestion,
         push,
         resetComposerDraft,
+        setPopoverQuestion: setPopoverOverride,
         setStreaming,
         setSuggested,
       });
@@ -114,6 +115,7 @@ export function useHomeAgentWorkflowShortcuts(params: {
         getSuggestedQuestion,
         push,
         resetComposerDraft,
+        setPopoverQuestion: setPopoverOverride,
         setStreaming,
         setSuggested,
       });

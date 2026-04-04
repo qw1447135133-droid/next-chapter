@@ -52,6 +52,8 @@ export interface ApiConfig {
   storagePath?: string;
 }
 
+export const API_CONFIG_UPDATED_EVENT = "storyforge:api-config-updated";
+
 export const SUPPORTED_MODEL_MAPPINGS: SupportedModelMapping[] = [
   {
     key: "gemini-3-pro",
@@ -191,6 +193,11 @@ export const SUPPORTED_MODEL_MAPPINGS: SupportedModelMapping[] = [
 const STORAGE_KEY = "storyforge_api_config";
 const OBF_PREFIX = "obf:";
 let builtinApiBundleCache: BuiltinApiBundle | null | undefined;
+
+function emitApiConfigUpdated(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(API_CONFIG_UPDATED_EVENT));
+}
 
 function obfuscate(value: string): string {
   if (!value) return "";
@@ -388,6 +395,7 @@ export async function saveBuiltinApiBundle(
     throw new Error(result.error || "写入内置 API 配置失败");
   }
   builtinApiBundleCache = nextBundle;
+  emitApiConfigUpdated();
   return nextBundle;
 }
 
@@ -526,10 +534,12 @@ export function saveApiConfig(config: Partial<ApiConfig>): void {
     }
   }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore));
+  emitApiConfigUpdated();
 }
 
 export function clearApiConfig(): void {
   localStorage.removeItem(STORAGE_KEY);
+  emitApiConfigUpdated();
 }
 
 export function resolveConfiguredModelName(model: string): string {

@@ -18,6 +18,17 @@ let lastQueryEngineConfig: Record<string, unknown> | null = null;
 let lastSubmittedPrompt = "";
 let lastEngineInterrupt = vi.fn();
 const consumeAgentHandoff = vi.fn(() => null);
+let mockApiConfig = {
+  claudeKey: "test-key",
+  claudeEndpoint: "https://example.test",
+  geminiKey: "",
+  geminiEndpoint: "",
+  gptKey: "",
+  gptEndpoint: "",
+  jimengKey: "seedance-key",
+  jimengEndpoint: "https://video.example.test",
+  jimengExecutionMode: "api" as "api" | "cli",
+};
 
 const resolveAskUserQuestion = vi.fn(() => true);
 const rejectAskUserQuestion = vi.fn(() => true);
@@ -365,17 +376,40 @@ vi.mock("@/lib/agent/tools", () => ({
 }));
 
 vi.mock("@/lib/api-config", () => ({
-  getApiConfig: () => ({
-    claudeKey: "test-key",
-    claudeEndpoint: "https://example.test",
-    geminiKey: "",
-    geminiEndpoint: "",
-    gptKey: "",
-    gptEndpoint: "",
-    jimengExecutionMode: "api",
-  }),
+  API_CONFIG_UPDATED_EVENT: "storyforge:api-config-updated",
+  getApiConfig: () => ({ ...mockApiConfig }),
   prefersJimengCli: (config: { jimengExecutionMode?: string }) => config.jimengExecutionMode === "cli",
+  resolveJimengExecutionMode: (
+    config: { jimengExecutionMode?: string },
+    options?: { dreaminaCliAccessible?: boolean },
+  ) => {
+    if (config.jimengExecutionMode === "cli" || config.jimengExecutionMode === "api") {
+      return config.jimengExecutionMode;
+    }
+    return options?.dreaminaCliAccessible ? "cli" : "api";
+  },
   resolveConfiguredModelName: () => "claude-sonnet-4-6",
+  saveApiConfig: (partial: Partial<typeof mockApiConfig>) => {
+    mockApiConfig = {
+      ...mockApiConfig,
+      ...partial,
+    };
+    window.dispatchEvent(new CustomEvent("storyforge:api-config-updated"));
+  },
+  clearApiConfig: () => {
+    mockApiConfig = {
+      claudeKey: "",
+      claudeEndpoint: "",
+      geminiKey: "",
+      geminiEndpoint: "",
+      gptKey: "",
+      gptEndpoint: "",
+      jimengKey: "",
+      jimengEndpoint: "",
+      jimengExecutionMode: "api",
+    };
+    window.dispatchEvent(new CustomEvent("storyforge:api-config-updated"));
+  },
 }));
 
 vi.mock("@/lib/agent/tools/ask-user-question", () => ({
@@ -939,6 +973,17 @@ describe("HomeAgentStudio", () => {
     lastQueryEngineConfig = null;
     lastSubmittedPrompt = "";
     lastEngineInterrupt = vi.fn();
+    mockApiConfig = {
+      claudeKey: "test-key",
+      claudeEndpoint: "https://example.test",
+      geminiKey: "",
+      geminiEndpoint: "",
+      gptKey: "",
+      gptEndpoint: "",
+      jimengKey: "seedance-key",
+      jimengEndpoint: "https://video.example.test",
+      jimengExecutionMode: "api",
+    };
     localStorage.clear();
     sessionStorage.clear();
     clearTaskRegistry();
@@ -983,6 +1028,62 @@ describe("HomeAgentStudio", () => {
 
     await waitForVisibleText("我想做一个新项目");
     expect(window.location.pathname).toBe("/");
+  });
+
+  it("shows a launch-readiness notice instead of a raw error when no text model is configured", async () => {
+    mockApiConfig = {
+      claudeKey: "",
+      claudeEndpoint: "",
+      geminiKey: "",
+      geminiEndpoint: "",
+      gptKey: "",
+      gptEndpoint: "",
+      jimengKey: "",
+      jimengEndpoint: "",
+      jimengExecutionMode: "api",
+    };
+
+    await renderStudio();
+
+    await waitFor(() => {
+      expect(screen.getByText("主对话模型尚未就绪")).toBeInTheDocument();
+    });
+    expect(screen.getByText(/当前首页还没有可用的文本模型 Key/)).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "去设置补齐" }));
+      await Promise.resolve();
+    });
+    expect(window.location.pathname).toBe("/");
+  });
+
+  it("lets the homepage switch a broken CLI default back to API from the launch notice", async () => {
+    mockApiConfig = {
+      claudeKey: "test-key",
+      claudeEndpoint: "https://example.test",
+      geminiKey: "",
+      geminiEndpoint: "",
+      gptKey: "",
+      gptEndpoint: "",
+      jimengKey: "seedance-key",
+      jimengEndpoint: "https://video.example.test",
+      jimengExecutionMode: "cli",
+    };
+
+    await renderStudio();
+
+    await waitFor(() => {
+      expect(screen.getByText("视频默认走 CLI，但当前还不能直接出片")).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "切到 API" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("视频默认走 CLI，但当前还不能直接出片")).not.toBeInTheDocument();
+    });
   });
 
   it("auto-compacts long homepage conversations before continuing with the next turn", async () => {
@@ -1586,6 +1687,74 @@ describe("HomeAgentStudio", () => {
     await waitFor(() => {
       expect(screen.getByText(/已参考 \d+ 条(?:项目经验|素材记录|维护记录|技能草案|历史经验)/)).toBeInTheDocument();
     });
+  });
+
+  it("injects current-project runtime memory for failed and pending video retrieval requests", async () => {
+    localStorage.setItem(
+      STUDIO_SESSION_KEY,
+      JSON.stringify(
+        createSession({
+          currentProjectSnapshot: {
+            projectId: "video-project-runtime-memory",
+            projectKind: "video",
+            title: "雨夜追击预告片",
+            currentObjective: "先把失败镜头补发，再处理待审项。",
+            derivedStage: "审阅与修复",
+            agentSummary: "当前有失败镜头和待审素材。",
+            recommendedActions: ["补发失败镜头", "处理待审项"],
+            artifacts: [],
+            memory: {
+              styleLock: null,
+              worldModel: null,
+              assetManifest: null,
+              videoScenes: [
+                {
+                  id: "scene-failed-1",
+                  sceneNumber: 3,
+                  sceneName: "雨夜追车",
+                  videoStatus: "failed",
+                  videoFailureMessage: "当前镜头生成失败，需要重新补发。",
+                },
+              ],
+              shotPackets: [],
+              reviewQueue: [
+                {
+                  id: "review-1",
+                  title: "审阅镜头 5",
+                  summary: "需要决定是否通过。",
+                  targetIds: ["scene-review-1"],
+                  status: "pending",
+                  createdAt: "2026-04-03T00:00:00.000Z",
+                  updatedAt: "2026-04-03T00:00:00.000Z",
+                },
+              ],
+            },
+          },
+          recentMessageSummary: "assistant: 当前有失败镜头和待审素材。",
+          projectId: "video-project-runtime-memory",
+          qState: null,
+          selectedValues: [],
+          draft: "",
+        }),
+      ),
+    );
+
+    await renderStudio();
+
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(textarea, {
+      target: { value: "把上次失败的镜头和待审项找出来" },
+    });
+
+    await act(async () => {
+      fireEvent.click(findSendButton()!);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(lastSubmittedPrompt).toContain("雨夜追击预告片 · 失败镜头");
+    });
+    expect(lastSubmittedPrompt).toContain("雨夜追击预告片 · 待审镜头");
   });
 
   it("injects local Dreamina capability context into video-related turns", async () => {
@@ -3199,6 +3368,335 @@ describe("HomeAgentStudio", () => {
       { timeout: 3000 },
     );
     expect(screen.getByText("workflow:approve_video_assets")).toBeInTheDocument();
+  });
+
+  it("can run a one-click review cleanup chain from the homepage", async () => {
+    localStorage.setItem(
+      STUDIO_SESSION_KEY,
+      JSON.stringify({
+        sessionId: "video-review-cleanup-session",
+        compactedMessageCount: 0,
+        mode: "active",
+        messages: [
+          {
+            id: "assistant-video-review-cleanup-1",
+            role: "assistant",
+            content: "当前既有稳定项，也有需要退回重做的风险项。",
+            createdAt: "2026-04-03T00:00:00.000Z",
+          },
+        ],
+        currentProjectSnapshot: {
+          projectId: "video-project-review-cleanup",
+          projectKind: "video",
+          title: "夜雨追击预告片",
+          currentObjective: "先清理这一轮审阅结论。",
+          derivedStage: "审阅与修复",
+          agentSummary: "当前既有待通过的稳定项，也有待重做的风险项。",
+          recommendedActions: ["继续审阅"],
+          artifacts: [],
+          memory: {
+            styleLock: null,
+            worldModel: null,
+            assetManifest: null,
+            shotPackets: [],
+            reviewQueue: [
+              {
+                id: "review:packet:video-project-review-cleanup:scene-1",
+                title: "审阅镜头 1 · 雨夜追击",
+                summary: "镜头 1 已经稳定，可以直接通过。",
+                targetIds: ["packet:video-project-review-cleanup:scene-1"],
+                status: "pending",
+                createdAt: "2026-04-03T00:00:00.000Z",
+                updatedAt: "2026-04-03T00:00:00.000Z",
+              },
+              {
+                id: "review:packet:video-project-review-cleanup:scene-2",
+                title: "审阅镜头 2 · 巷口回头",
+                summary: "镜头 2 的动作连贯性需要修复。",
+                targetIds: ["packet:video-project-review-cleanup:scene-2"],
+                status: "redo",
+                reason: "动作连贯性不足，需要返工。",
+                createdAt: "2026-04-03T00:00:00.000Z",
+                updatedAt: "2026-04-03T00:00:00.000Z",
+              },
+            ],
+          },
+        },
+        recentMessageSummary: "assistant: 当前既有稳定项，也有需要退回重做的风险项。",
+        projectId: "video-project-review-cleanup",
+        draft: "",
+        qState: null,
+        selectedValues: [],
+      }),
+    );
+
+    await renderStudio();
+
+    await waitForVisibleText(/待审阅素材/);
+    expect(screen.getByRole("button", { name: "一键清理本轮审阅" })).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "一键清理本轮审阅" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(runWorkflowAction).toHaveBeenNthCalledWith(
+        1,
+        "approve_video_assets",
+        expect.objectContaining({
+          projectId: "video-project-review-cleanup",
+          targetIds: ["packet:video-project-review-cleanup:scene-1"],
+        }),
+        expect.anything(),
+      );
+      expect(runWorkflowAction).toHaveBeenNthCalledWith(
+        2,
+        "redo_video_assets",
+        expect.objectContaining({
+          projectId: "video-project-review-cleanup",
+          targetIds: ["packet:video-project-review-cleanup:scene-2"],
+        }),
+        expect.anything(),
+      );
+      expect(runWorkflowAction).toHaveBeenNthCalledWith(
+        3,
+        "generate_video_assets",
+        expect.objectContaining({
+          projectId: "video-project-review-cleanup",
+          targetIds: ["packet:video-project-review-cleanup:scene-2"],
+          forceRegenerate: true,
+        }),
+        expect.anything(),
+      );
+    });
+  });
+
+  it("exposes auto-advance for video workflow stages on the homepage", async () => {
+    localStorage.setItem(
+      STUDIO_SESSION_KEY,
+      JSON.stringify({
+        sessionId: "video-auto-advance-session",
+        compactedMessageCount: 0,
+        mode: "active",
+        messages: [
+          {
+            id: "assistant-video-auto-advance-1",
+            role: "assistant",
+            content: "当前视频桥接可以让我直接判断下一步。",
+            createdAt: "2026-04-03T00:00:00.000Z",
+          },
+        ],
+        currentProjectSnapshot: {
+          projectId: "video-auto-advance-project",
+          projectKind: "video",
+          title: "契约婚姻反转录",
+          currentObjective: "导入脚本，开始第一轮视频拆解。",
+          derivedStage: "脚本拆解",
+          agentSummary: "当前适合先拆镜，再继续角色与场景整理。",
+          recommendedActions: ["导入脚本开始拆解", "补充镜头风格偏好", "先完成第一轮镜头拆解"],
+          artifacts: [],
+        },
+        recentMessageSummary: "assistant: 当前视频桥接可以让我直接判断下一步。",
+        projectId: "video-auto-advance-project",
+        draft: "",
+        qState: null,
+        selectedValues: [],
+      }),
+    );
+
+    await renderStudio();
+
+    await waitForVisibleText(/已经进入视频桥接阶段/);
+    expect(screen.getByRole("button", { name: "让 Agent 自动推进下一步" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "让 Agent 连续推进一轮" })).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "让 Agent 自动推进下一步" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(runWorkflowAction).toHaveBeenCalledWith(
+        "advance_video_workflow",
+        expect.objectContaining({
+          projectId: "video-auto-advance-project",
+        }),
+        expect.anything(),
+      );
+    });
+  });
+
+  it("routes round-based auto-advance from the homepage into the dedicated workflow action", async () => {
+    localStorage.setItem(
+      STUDIO_SESSION_KEY,
+      JSON.stringify({
+        sessionId: "video-auto-advance-round-session",
+        compactedMessageCount: 0,
+        mode: "active",
+        messages: [
+          {
+            id: "assistant-video-auto-advance-round-1",
+            role: "assistant",
+            content: "当前视频桥接可以连续推进一轮。",
+            createdAt: "2026-04-03T00:00:00.000Z",
+          },
+        ],
+        currentProjectSnapshot: {
+          projectId: "video-auto-advance-round-project",
+          projectKind: "video",
+          title: "契约婚姻反转录",
+          currentObjective: "导入脚本，开始第一轮视频拆解。",
+          derivedStage: "脚本拆解",
+          agentSummary: "当前适合连续推进桥接链路。",
+          recommendedActions: ["导入脚本开始拆解", "补充镜头风格偏好", "先完成第一轮镜头拆解"],
+          artifacts: [],
+        },
+        recentMessageSummary: "assistant: 当前视频桥接可以连续推进一轮。",
+        projectId: "video-auto-advance-round-project",
+        draft: "",
+        qState: null,
+        selectedValues: [],
+      }),
+    );
+
+    await renderStudio();
+
+    await waitForVisibleText(/已经进入视频桥接阶段/);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "让 Agent 连续推进一轮" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(runWorkflowAction).toHaveBeenCalledWith(
+        "advance_video_workflow_round",
+        expect.objectContaining({
+          projectId: "video-auto-advance-round-project",
+        }),
+        expect.anything(),
+      );
+    });
+  });
+
+  it("auto-opens the next homepage popover after a round-based video advance completes", async () => {
+    localStorage.setItem(
+      STUDIO_SESSION_KEY,
+      JSON.stringify({
+        sessionId: "video-auto-advance-round-followup-session",
+        compactedMessageCount: 0,
+        mode: "active",
+        messages: [
+          {
+            id: "assistant-video-auto-advance-round-followup-1",
+            role: "assistant",
+            content: "当前视频桥接可以连续推进一轮。",
+            createdAt: "2026-04-03T00:00:00.000Z",
+          },
+        ],
+        currentProjectSnapshot: {
+          projectId: "video-auto-advance-round-followup-project",
+          projectKind: "video",
+          title: "契约婚姻反转录",
+          currentObjective: "导入脚本，开始第一轮视频拆解。",
+          derivedStage: "脚本拆解",
+          agentSummary: "当前适合连续推进桥接链路。",
+          recommendedActions: ["导入脚本开始拆解", "补充镜头风格偏好", "先完成第一轮镜头拆解"],
+          artifacts: [],
+        },
+        recentMessageSummary: "assistant: 当前视频桥接可以连续推进一轮。",
+        projectId: "video-auto-advance-round-followup-project",
+        draft: "",
+        qState: null,
+        selectedValues: [],
+      }),
+    );
+
+    runWorkflowAction.mockImplementationOnce(async () => ({
+      summary: "本轮连续推进了 5 步，并把项目推进到视频提示词阶段。",
+      projectSnapshot: {
+        projectId: "video-auto-advance-round-followup-project",
+        projectKind: "video",
+        title: "契约婚姻反转录",
+        currentObjective: "把已整理好的提示词批次接入视频生成。",
+        derivedStage: "视频提示词",
+        agentSummary: "视频提示词已经就绪，适合直接开始第一轮出片。",
+        recommendedActions: ["开始第一轮出片", "轮询当前出片结果", "整理待审阅项"],
+        artifacts: [],
+      },
+      data: {
+        videoProject: {
+          id: "video-auto-advance-round-followup-project",
+          title: "契约婚姻反转录",
+          script: "第1集内容……",
+          targetPlatform: "抖音",
+          shotStyle: "电影感短剧",
+          outputGoal: "预告片",
+          productionNotes: "",
+          scenes: [
+            {
+              id: "scene-ready-1",
+              sceneNumber: 1,
+              sceneName: "雨夜起跑",
+              description: "女主冲出长街。",
+              characters: ["沈昭"],
+              dialogue: "",
+              cameraDirection: "跟拍",
+              duration: 5,
+            },
+            {
+              id: "scene-ready-2",
+              sceneNumber: 2,
+              sceneName: "巷口回头",
+              description: "她急停回头。",
+              characters: ["沈昭"],
+              dialogue: "",
+              cameraDirection: "推近",
+              duration: 5,
+            },
+          ],
+          characters: [],
+          sceneSettings: [],
+          artStyle: "live-action",
+          currentStep: 4,
+          systemPrompt: "",
+          analysisSummary: "视频提示词已经就绪。",
+          storyboardPlan: "分镜批次已整理",
+          videoPromptBatch: "批次 1：雨夜起跑；批次 2：巷口回头",
+          sourceProjectId: "script-project-current",
+          createdAt: "2026-04-03T00:00:00.000Z",
+          updatedAt: "2026-04-03T01:00:00.000Z",
+          styleLock: null,
+          worldModel: null,
+          assetManifest: null,
+          shotPackets: [],
+          reviewQueue: [],
+        },
+        projectSnapshot: {
+          projectId: "video-auto-advance-round-followup-project",
+          projectKind: "video",
+          title: "契约婚姻反转录",
+          currentObjective: "把已整理好的提示词批次接入视频生成。",
+          derivedStage: "视频提示词",
+          agentSummary: "视频提示词已经就绪，适合直接开始第一轮出片。",
+          recommendedActions: ["开始第一轮出片", "轮询当前出片结果", "整理待审阅项"],
+          artifacts: [],
+        },
+      },
+    }));
+
+    await renderStudio();
+
+    await waitForVisibleText(/已经进入视频桥接阶段/);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "让 Agent 连续推进一轮" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/视频提示词已就绪，先怎么开始出片/);
+    expect(screen.getByRole("button", { name: "先生成前 2 条镜头" })).toBeInTheDocument();
   });
 
   it("supports nested per-item review decisions without leaving the homepage", async () => {

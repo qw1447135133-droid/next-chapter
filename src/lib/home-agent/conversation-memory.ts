@@ -19,6 +19,7 @@ const MEMORY_KIND_HINT_LABEL: Record<ConversationMemoryKind, string> = {
 };
 const SAME_PROJECT_PENALTY = 12;
 const SAME_KIND_PENALTY = 4;
+const CURRENT_PROJECT_INTERNAL_BOOST = 18;
 
 function normalize(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
@@ -97,7 +98,171 @@ export function buildMemoryDocumentsFromSnapshot(
     tags: [snapshot.projectKind, snapshot.derivedStage, artifact.kind, artifact.label].filter(Boolean),
   }));
 
-  return [baseDocument, ...artifactDocuments];
+  return [
+    baseDocument,
+    ...artifactDocuments,
+    ...buildProjectRuntimeMemoryDocuments(snapshot),
+  ];
+}
+
+function buildProjectRuntimeMemoryDocuments(
+  snapshot: ConversationProjectSnapshot,
+): ConversationMemoryDocument[] {
+  const memory = snapshot.memory;
+  if (!memory) return [];
+
+  const updatedAt = snapshot.updatedAt ?? snapshot.artifacts[0]?.updatedAt ?? new Date().toISOString();
+  const runtimeDocuments: ConversationMemoryDocument[] = [];
+
+  if (snapshot.projectKind === "video") {
+    const videoScenes = memory.videoScenes ?? [];
+    const failedScenes = videoScenes.filter((scene) => String(scene.videoStatus || "").toLowerCase() === "failed");
+    const runningScenes = videoScenes.filter((scene) => {
+      const status = String(scene.videoStatus || "").toLowerCase();
+      return !!scene.videoTaskId && (status === "queued" || status === "processing");
+    });
+    const readyScenes = videoScenes.filter((scene) => {
+      const status = String(scene.videoStatus || "").toLowerCase();
+      return !scene.videoUrl && status !== "queued" && status !== "processing";
+    });
+    const reviewQueue = (memory.reviewQueue ?? []).filter((item) => item.status === "pending" || item.status === "redo");
+
+    if (failedScenes.length) {
+      runtimeDocuments.push({
+        id: `memory:${snapshot.projectId}:runtime:failed-scenes`,
+        projectId: snapshot.projectId,
+        projectKind: snapshot.projectKind,
+        title: `${snapshot.title} · 失败镜头`,
+        kind: "artifact",
+        text: failedScenes
+          .slice(0, 8)
+          .map((scene) =>
+            `镜头 ${scene.sceneNumber}${scene.segmentLabel ? ` / ${scene.segmentLabel}` : ""} · ${scene.sceneName}\n${scene.videoFailureMessage || "当前镜头生成失败"}`,
+          )
+          .join("\n\n"),
+        summary: truncate(
+          `当前有 ${failedScenes.length} 条失败镜头${
+            failedScenes[0] ? `，首条为镜头 ${failedScenes[0].sceneNumber} · ${failedScenes[0].sceneName}` : ""
+          }。`,
+          150,
+        ),
+        updatedAt,
+        tags: ["video", "scene", "failed", "镜头", "失败"],
+      });
+    }
+
+    if (runningScenes.length) {
+      runtimeDocuments.push({
+        id: `memory:${snapshot.projectId}:runtime:running-scenes`,
+        projectId: snapshot.projectId,
+        projectKind: snapshot.projectKind,
+        title: `${snapshot.title} · 进行中镜头`,
+        kind: "artifact",
+        text: runningScenes
+          .slice(0, 8)
+          .map((scene) =>
+            `镜头 ${scene.sceneNumber}${scene.segmentLabel ? ` / ${scene.segmentLabel}` : ""} · ${scene.sceneName}\n状态：${scene.videoStatus || "processing"}`,
+          )
+          .join("\n\n"),
+        summary: truncate(`当前有 ${runningScenes.length} 条镜头仍在后台出片。`, 150),
+        updatedAt,
+        tags: ["video", "scene", "running", "镜头", "生成中"],
+      });
+    }
+
+    if (reviewQueue.length) {
+      runtimeDocuments.push({
+        id: `memory:${snapshot.projectId}:runtime:review-queue`,
+        projectId: snapshot.projectId,
+        projectKind: snapshot.projectKind,
+        title: `${snapshot.title} · 待审镜头`,
+        kind: "artifact",
+        text: reviewQueue
+          .slice(0, 8)
+          .map((item) => `${item.title}\n${item.summary}\n状态：${item.status}`)
+          .join("\n\n"),
+        summary: truncate(`当前有 ${reviewQueue.length} 条待审镜头或待处理审阅项。`, 150),
+        updatedAt,
+        tags: ["video", "review", "待审", "镜头", "审阅"],
+      });
+    }
+
+    if (readyScenes.length) {
+      runtimeDocuments.push({
+        id: `memory:${snapshot.projectId}:runtime:ready-scenes`,
+        projectId: snapshot.projectId,
+        projectKind: snapshot.projectKind,
+        title: `${snapshot.title} · 可继续出片镜头`,
+        kind: "artifact",
+        text: readyScenes
+          .slice(0, 8)
+          .map((scene) => `镜头 ${scene.sceneNumber}${scene.segmentLabel ? ` / ${scene.segmentLabel}` : ""} · ${scene.sceneName}`)
+          .join("\n"),
+        summary: truncate(`当前还有 ${readyScenes.length} 条镜头可继续生成或补发。`, 150),
+        updatedAt,
+        tags: ["video", "scene", "ready", "待生成", "镜头"],
+      });
+    }
+  } else {
+    const unlockedCharacterCards = (memory.characterStateCards ?? []).filter((card) => card.status !== "locked");
+    const pendingBeatPackets = (memory.storyBeatPackets ?? []).filter((packet) => packet.status !== "locked");
+    const pendingCompliancePackets = (memory.complianceRevisionPackets ?? []).filter(
+      (packet) => packet.status === "pending",
+    );
+
+    if (unlockedCharacterCards.length) {
+      runtimeDocuments.push({
+        id: `memory:${snapshot.projectId}:runtime:character-cards`,
+        projectId: snapshot.projectId,
+        projectKind: snapshot.projectKind,
+        title: `${snapshot.title} · 待锁定角色卡`,
+        kind: "artifact",
+        text: unlockedCharacterCards
+          .slice(0, 8)
+          .map((card) => `${card.name}\n${card.coreConflict}\n${card.desire}`)
+          .join("\n\n"),
+        summary: truncate(`当前有 ${unlockedCharacterCards.length} 张角色状态卡待锁定。`, 150),
+        updatedAt,
+        tags: ["script", "角色卡", "待锁定", "character-card"],
+      });
+    }
+
+    if (pendingBeatPackets.length) {
+      runtimeDocuments.push({
+        id: `memory:${snapshot.projectId}:runtime:beat-packets`,
+        projectId: snapshot.projectId,
+        projectKind: snapshot.projectKind,
+        title: `${snapshot.title} · 待锁定剧情 beat`,
+        kind: "artifact",
+        text: pendingBeatPackets
+          .slice(0, 8)
+          .map((packet) => `第 ${packet.episodeNumber} 集 · ${packet.title}\n${packet.beatSummary}`)
+          .join("\n\n"),
+        summary: truncate(`当前有 ${pendingBeatPackets.length} 条剧情 beat 待锁定。`, 150),
+        updatedAt,
+        tags: ["script", "beat", "剧情", "待锁定"],
+      });
+    }
+
+    if (pendingCompliancePackets.length) {
+      runtimeDocuments.push({
+        id: `memory:${snapshot.projectId}:runtime:compliance-packets`,
+        projectId: snapshot.projectId,
+        projectKind: snapshot.projectKind,
+        title: `${snapshot.title} · 待处理修订包`,
+        kind: "artifact",
+        text: pendingCompliancePackets
+          .slice(0, 8)
+          .map((packet) => `${packet.issueTitle}\n${packet.recommendation}`)
+          .join("\n\n"),
+        summary: truncate(`当前有 ${pendingCompliancePackets.length} 条合规修订包待处理。`, 150),
+        updatedAt,
+        tags: ["script", "compliance", "修订包", "待处理"],
+      });
+    }
+  }
+
+  return runtimeDocuments;
 }
 
 function buildConversationMemoryText(session: StudioSessionState): {
@@ -204,7 +369,12 @@ export function buildConversationMemoryCorpus(
   ];
 }
 
-function scoreDocument(queryTokens: string[], document: ConversationMemoryDocument, currentProjectId?: string): number {
+function scoreDocument(
+  queryTokens: string[],
+  document: ConversationMemoryDocument,
+  currentProjectId?: string,
+  preferCurrentProject = false,
+): number {
   const titleHaystack = normalize(document.title);
   const summaryHaystack = normalize(document.summary);
   const tagHaystack = normalize(document.tags.join(" "));
@@ -223,21 +393,63 @@ function scoreDocument(queryTokens: string[], document: ConversationMemoryDocume
   if (document.kind === "conversation-summary") score += 5;
   if (document.kind === "artifact") score += 4;
   if (document.projectId && document.projectId === currentProjectId) score += 3;
+  if (preferCurrentProject && document.projectId && document.projectId === currentProjectId) {
+    score += CURRENT_PROJECT_INTERNAL_BOOST;
+  }
   return score;
+}
+
+export function isProjectInternalMemoryQuery(query: string): boolean {
+  const normalized = normalize(query);
+  if (!normalized) return false;
+
+  const internalKeywords = [
+    "失败",
+    "待审",
+    "审阅",
+    "重做",
+    "补发",
+    "镜头",
+    "素材",
+    "资产",
+    "角色卡",
+    "角色状态卡",
+    "剧情 beat",
+    "beat",
+    "修订包",
+    "合规",
+    "导出",
+    "状态包",
+    "bundle",
+    "scene",
+    "shot",
+    "review",
+  ];
+  if (internalKeywords.some((keyword) => normalized.includes(keyword))) {
+    return true;
+  }
+
+  const continuationWords = ["当前", "这轮", "这一轮", "上次", "刚才", "恢复", "继续", "回到"];
+  const projectNouns = ["项目", "结果", "内容", "记录", "状态"];
+  return continuationWords.some((word) => normalized.includes(word)) && projectNouns.some((noun) => normalized.includes(noun));
 }
 
 export function searchConversationMemory(
   query: string,
   documents: ConversationMemoryDocument[],
   currentProjectId?: string,
+  options?: {
+    preferCurrentProject?: boolean;
+  },
 ): ConversationMemoryDocument[] {
   const queryTokens = tokenize(query);
   if (!queryTokens.length) return [];
+  const preferCurrentProject = options?.preferCurrentProject === true;
 
   const rankedEntries = documents
     .map((document) => ({
       document,
-      score: scoreDocument(queryTokens, document, currentProjectId),
+      score: scoreDocument(queryTokens, document, currentProjectId, preferCurrentProject),
     }))
     .filter((entry) => entry.score > 0)
     .sort((a, b) => {
@@ -259,7 +471,11 @@ export function searchConversationMemory(
       if (selected.some((picked) => picked.document.id === entry.document.id)) continue;
 
       let adjustedScore = entry.score;
-      if (entry.document.projectId && selectedProjectIds.has(entry.document.projectId)) {
+      const isCurrentProjectDocument =
+        preferCurrentProject &&
+        entry.document.projectId &&
+        entry.document.projectId === currentProjectId;
+      if (!isCurrentProjectDocument && entry.document.projectId && selectedProjectIds.has(entry.document.projectId)) {
         adjustedScore -= SAME_PROJECT_PENALTY;
       }
       if (selectedKinds.has(entry.document.kind)) {

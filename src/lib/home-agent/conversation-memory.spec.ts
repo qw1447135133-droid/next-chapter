@@ -3,6 +3,7 @@ import {
   buildConversationMemoryHint,
   buildConversationMemoryCorpus,
   buildConversationMemoryPrompt,
+  isProjectInternalMemoryQuery,
   searchConversationMemory,
 } from "./conversation-memory";
 import type { StudioRuntimeState } from "./types";
@@ -192,5 +193,65 @@ describe("conversation-memory", () => {
 
     expect(buildConversationMemoryHint([skillDraft])).toBe("已参考 1 条技能草案");
     expect(buildConversationMemoryHint([skillDraft, projectSummary])).toBe("已参考 2 条历史经验");
+  });
+
+  it("prioritizes current-project runtime memory for internal retrieval queries", () => {
+    const runtime = createRuntime();
+    runtime.currentProjectSnapshot = {
+      projectId: "project-current-video",
+      projectKind: "video",
+      title: "雨夜追击预告片",
+      currentObjective: "先把失败镜头补发，再处理待审项。",
+      derivedStage: "审阅与修复",
+      agentSummary: "当前有失败镜头和待审素材需要继续处理。",
+      recommendedActions: ["补发失败镜头", "处理待审项"],
+      artifacts: [],
+      memory: {
+        styleLock: null,
+        worldModel: null,
+        assetManifest: null,
+        videoScenes: [
+          {
+            id: "scene-failed-1",
+            sceneNumber: 3,
+            sceneName: "雨夜追车",
+            videoStatus: "failed",
+            videoFailureMessage: "当前镜头生成失败，需要重新补发。",
+          },
+          {
+            id: "scene-running-1",
+            sceneNumber: 4,
+            sceneName: "高架疾驰",
+            videoStatus: "processing",
+            videoTaskId: "task-4",
+          },
+        ],
+        shotPackets: [],
+        reviewQueue: [
+          {
+            id: "review-1",
+            title: "审阅镜头 5",
+            summary: "需要决定是否通过。",
+            targetIds: ["scene-review-1"],
+            status: "pending",
+            createdAt: "2026-04-03T00:00:00.000Z",
+            updatedAt: "2026-04-03T00:00:00.000Z",
+          },
+        ],
+      },
+    };
+    runtime.recentProjects = [];
+
+    const corpus = buildConversationMemoryCorpus(runtime);
+    const results = searchConversationMemory(
+      "把上次失败的镜头找出来",
+      corpus,
+      "project-current-video",
+      { preferCurrentProject: true },
+    );
+
+    expect(isProjectInternalMemoryQuery("把上次失败的镜头找出来")).toBe(true);
+    expect(results[0]?.title).toContain("失败镜头");
+    expect(results[0]?.projectId).toBe("project-current-video");
   });
 });

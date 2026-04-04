@@ -280,5 +280,339 @@ describe("workflow continuation planners", () => {
     const plan = planVideoWorkflowContinuation(project);
 
     expect(plan.actionKind).toBe("generate_video_assets");
+    expect(plan.input).toMatchObject({
+      targetIds: ["scene-1"],
+    });
+  });
+
+  it("prioritizes refreshing running video tasks before any other follow-up", () => {
+    const project = createVideoProject({
+      scenes: [
+        {
+          id: "scene-1",
+          sceneNumber: 1,
+          sceneName: "开场",
+          description: "角色进入空间",
+          characters: ["主角"],
+          dialogue: "",
+          cameraDirection: "",
+          duration: 5,
+          videoTaskId: "task-1",
+          videoStatus: "processing",
+        },
+      ],
+      characters: [
+        {
+          id: "char-1",
+          name: "主角",
+          description: "女主角",
+          isAIGenerated: false,
+          source: "auto",
+        },
+      ],
+      sceneSettings: [
+        {
+          id: "setting-1",
+          name: "大厅",
+          description: "空旷大厅",
+          isAIGenerated: false,
+          source: "auto",
+        },
+      ],
+      storyboardPlan: "镜头 1：主角进入大厅",
+      shotPackets: [
+        {
+          id: "packet:video-project-1:scene-1",
+          sceneId: "scene-1",
+          sceneNumber: 1,
+          title: "开场",
+          durationSec: 5,
+          camera: { shotSize: "中景", movement: "推进" },
+          characterRefs: [],
+          sourceAssetIds: [],
+          promptSeed: "主角进入大厅",
+          forbiddenChanges: [],
+          renderMode: "text2video",
+          reviewStatus: "pending",
+        },
+      ],
+      videoPromptBatch: "批次 1：主角进入大厅",
+    });
+
+    const plan = planVideoWorkflowContinuation(project);
+
+    expect(plan.actionKind).toBe("refresh_video_assets");
+    expect(plan.input).toMatchObject({
+      targetIds: ["scene-1"],
+    });
+  });
+
+  it("prioritizes review when actionable review items exist", () => {
+    const project = createVideoProject({
+      scenes: [
+        {
+          id: "scene-1",
+          sceneNumber: 1,
+          sceneName: "开场",
+          description: "角色进入空间",
+          characters: ["主角"],
+          dialogue: "",
+          cameraDirection: "",
+          duration: 5,
+          videoUrl: "https://example.com/video-1.mp4",
+          videoStatus: "completed",
+        },
+      ],
+      characters: [
+        {
+          id: "char-1",
+          name: "主角",
+          description: "女主角",
+          isAIGenerated: false,
+          source: "auto",
+        },
+      ],
+      sceneSettings: [
+        {
+          id: "setting-1",
+          name: "大厅",
+          description: "空旷大厅",
+          isAIGenerated: false,
+          source: "auto",
+        },
+      ],
+      storyboardPlan: "镜头 1：主角进入大厅",
+      shotPackets: [
+        {
+          id: "packet:video-project-1:scene-1",
+          sceneId: "scene-1",
+          sceneNumber: 1,
+          title: "开场",
+          durationSec: 5,
+          camera: { shotSize: "中景", movement: "推进" },
+          characterRefs: [],
+          sourceAssetIds: [],
+          promptSeed: "主角进入大厅",
+          forbiddenChanges: [],
+          renderMode: "text2video",
+          reviewStatus: "pending",
+        },
+      ],
+      videoPromptBatch: "批次 1：主角进入大厅",
+      reviewQueue: [
+        {
+          id: "review:packet:video-project-1:scene-1",
+          title: "审阅镜头 1",
+          summary: "镜头需要确认是否通过。",
+          targetIds: ["packet:video-project-1:scene-1"],
+          status: "pending",
+          createdAt: "2026-04-02T00:00:00.000Z",
+          updatedAt: "2026-04-02T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const plan = planVideoWorkflowContinuation(project);
+
+    expect(plan.actionKind).toBe("review_video_assets");
+    expect(plan.input).toMatchObject({
+      targetIds: ["packet:video-project-1:scene-1"],
+    });
+  });
+
+  it("prioritizes regenerating failed scenes before generating new ones", () => {
+    const project = createVideoProject({
+      scenes: [
+        {
+          id: "scene-1",
+          sceneNumber: 1,
+          sceneName: "开场",
+          description: "角色进入空间",
+          characters: ["主角"],
+          dialogue: "",
+          cameraDirection: "",
+          duration: 5,
+          videoStatus: "failed",
+        },
+        {
+          id: "scene-2",
+          sceneNumber: 2,
+          sceneName: "转场",
+          description: "角色穿过走廊",
+          characters: ["主角"],
+          dialogue: "",
+          cameraDirection: "",
+          duration: 5,
+        },
+      ],
+      characters: [
+        {
+          id: "char-1",
+          name: "主角",
+          description: "女主角",
+          isAIGenerated: false,
+          source: "auto",
+        },
+      ],
+      sceneSettings: [
+        {
+          id: "setting-1",
+          name: "大厅",
+          description: "空旷大厅",
+          isAIGenerated: false,
+          source: "auto",
+        },
+      ],
+      storyboardPlan: "镜头 1-2 已整理",
+      shotPackets: [
+        {
+          id: "packet:video-project-1:scene-1",
+          sceneId: "scene-1",
+          sceneNumber: 1,
+          title: "开场",
+          durationSec: 5,
+          camera: { shotSize: "中景", movement: "推进" },
+          characterRefs: [],
+          sourceAssetIds: [],
+          promptSeed: "主角进入大厅",
+          forbiddenChanges: [],
+          renderMode: "text2video",
+          reviewStatus: "pending",
+        },
+      ],
+      videoPromptBatch: "批次 1：主角进入大厅",
+    });
+
+    const plan = planVideoWorkflowContinuation(project);
+
+    expect(plan.actionKind).toBe("generate_video_assets");
+    expect(plan.input).toMatchObject({
+      targetIds: ["scene-1"],
+      forceRegenerate: true,
+    });
+  });
+
+  it("caps failed-scene regeneration into a small batch and reports the remainder", () => {
+    const project = createVideoProject({
+      scenes: Array.from({ length: 5 }, (_, index) => ({
+        id: `scene-failed-${index + 1}`,
+        sceneNumber: index + 1,
+        sceneName: `失败镜头 ${index + 1}`,
+        description: "失败镜头",
+        characters: ["主角"],
+        dialogue: "",
+        cameraDirection: "",
+        duration: 5,
+        videoStatus: "failed",
+      })),
+      characters: [
+        {
+          id: "char-1",
+          name: "主角",
+          description: "女主角",
+          isAIGenerated: false,
+          source: "auto",
+        },
+      ],
+      sceneSettings: [
+        {
+          id: "setting-1",
+          name: "大厅",
+          description: "空旷大厅",
+          isAIGenerated: false,
+          source: "auto",
+        },
+      ],
+      storyboardPlan: "镜头已整理",
+      shotPackets: [
+        {
+          id: "packet:video-project-1:scene-failed-1",
+          sceneId: "scene-failed-1",
+          sceneNumber: 1,
+          title: "失败镜头 1",
+          durationSec: 5,
+          camera: { shotSize: "中景", movement: "推进" },
+          characterRefs: [],
+          sourceAssetIds: [],
+          promptSeed: "失败镜头",
+          forbiddenChanges: [],
+          renderMode: "text2video",
+          reviewStatus: "pending",
+        },
+      ],
+      videoPromptBatch: "批次 1：失败镜头",
+    });
+
+    const plan = planVideoWorkflowContinuation(project);
+
+    expect(plan.policy).toBe("repair-failed");
+    expect(plan.input).toMatchObject({
+      targetIds: ["scene-failed-1", "scene-failed-2", "scene-failed-3"],
+      forceRegenerate: true,
+    });
+    expect(plan.targetCount).toBe(3);
+    expect(plan.totalTargetCount).toBe(5);
+    expect(plan.remainingTargetCount).toBe(2);
+  });
+
+  it("tracks remaining generatable scenes when only the first batch is submitted", () => {
+    const project = createVideoProject({
+      scenes: Array.from({ length: 4 }, (_, index) => ({
+        id: `scene-ready-${index + 1}`,
+        sceneNumber: index + 1,
+        sceneName: `待生成镜头 ${index + 1}`,
+        description: "待生成镜头",
+        characters: ["主角"],
+        dialogue: "",
+        cameraDirection: "",
+        duration: 5,
+      })),
+      characters: [
+        {
+          id: "char-1",
+          name: "主角",
+          description: "女主角",
+          isAIGenerated: false,
+          source: "auto",
+        },
+      ],
+      sceneSettings: [
+        {
+          id: "setting-1",
+          name: "大厅",
+          description: "空旷大厅",
+          isAIGenerated: false,
+          source: "auto",
+        },
+      ],
+      storyboardPlan: "镜头已整理",
+      shotPackets: [
+        {
+          id: "packet:video-project-1:scene-ready-1",
+          sceneId: "scene-ready-1",
+          sceneNumber: 1,
+          title: "待生成镜头 1",
+          durationSec: 5,
+          camera: { shotSize: "中景", movement: "推进" },
+          characterRefs: [],
+          sourceAssetIds: [],
+          promptSeed: "待生成镜头",
+          forbiddenChanges: [],
+          renderMode: "text2video",
+          reviewStatus: "pending",
+        },
+      ],
+      videoPromptBatch: "批次 1：待生成镜头",
+    });
+
+    const plan = planVideoWorkflowContinuation(project);
+
+    expect(plan.policy).toBe("generate-next-batch");
+    expect(plan.input).toMatchObject({
+      targetIds: ["scene-ready-1", "scene-ready-2", "scene-ready-3"],
+    });
+    expect(plan.targetCount).toBe(3);
+    expect(plan.totalTargetCount).toBe(4);
+    expect(plan.remainingTargetCount).toBe(1);
   });
 });

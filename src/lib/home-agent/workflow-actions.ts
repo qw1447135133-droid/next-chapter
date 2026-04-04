@@ -43,6 +43,7 @@ import {
 import {
   approveVideoAssetsAction,
   advanceVideoWorkflowAction,
+  advanceVideoWorkflowRoundAction,
   analyzeScriptForVideoAction,
   compileVideoShotPacketsAction,
   continueVideoStepAction,
@@ -573,6 +574,11 @@ const workflowActions: WorkflowAction[] = [
     id: "advance-video-workflow",
     kind: "advance_video_workflow",
     run: advanceVideoWorkflowAction,
+  },
+  {
+    id: "advance-video-workflow-round",
+    kind: "advance_video_workflow_round",
+    run: advanceVideoWorkflowRoundAction,
   },
   {
     id: "analyze-script-for-video",

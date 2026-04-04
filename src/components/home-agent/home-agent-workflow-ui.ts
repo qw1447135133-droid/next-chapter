@@ -17,6 +17,7 @@ export function createWorkflowShortcutUiBridge(params: {
   ) => ComposerQuestion | null;
   push: PushMessage;
   resetComposerDraft: (value?: string) => void;
+  setPopoverQuestion: (question: ComposerQuestion | null) => void;
   setStreaming: (streaming: boolean) => void;
   setSuggested: (question: ComposerQuestion | null) => void;
 }) {
@@ -27,6 +28,7 @@ export function createWorkflowShortcutUiBridge(params: {
     getSuggestedQuestion,
     push,
     resetComposerDraft,
+    setPopoverQuestion,
     setStreaming,
     setSuggested,
   } = params;
@@ -39,6 +41,7 @@ export function createWorkflowShortcutUiBridge(params: {
     pushAssistant: (content: string) => push("assistant", content),
     pushUser: (content: string) => push("user", content),
     resetComposerDraft: () => resetComposerDraft(""),
+    setPopoverQuestion,
     setStreaming,
     setSuggested,
   };

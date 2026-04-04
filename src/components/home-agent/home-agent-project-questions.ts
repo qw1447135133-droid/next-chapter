@@ -32,9 +32,32 @@ export function collectReviewTargetIds(snapshot: ConversationProjectSnapshot, mo
   );
 }
 
+export function buildVideoAdvanceOption(snapshot: ConversationProjectSnapshot) {
+  if (snapshot.projectKind !== "video") return null;
+  return {
+    id: `${snapshot.projectId}-video-advance`,
+    label: "让 Agent 自动推进下一步",
+    value: "video:advance",
+    rationale: "由 Agent 按当前项目状态自动判断下一步最合适的动作并直接推进。",
+  };
+}
+
+export function buildVideoAdvanceRoundOption(snapshot: ConversationProjectSnapshot) {
+  if (snapshot.projectKind !== "video") return null;
+  return {
+    id: `${snapshot.projectId}-video-advance-round`,
+    label: "让 Agent 连续推进一轮",
+    value: "video:advance-round",
+    rationale: "由 Agent 在安全边界内连续推进多步，直到进入出片、轮询、审阅或修复前沿。",
+  };
+}
+
 export function buildReviewQuestion(snapshot: ConversationProjectSnapshot): ComposerQuestion | null {
   const reviewQueue = listPendingApprovalReviewItems(snapshot);
   if (!reviewQueue.length) return null;
+  const redoItems = listRedoReviewItems(snapshot);
+  const advanceOption = buildVideoAdvanceOption(snapshot);
+  const advanceRoundOption = buildVideoAdvanceRoundOption(snapshot);
   const productionBundleOption = buildVideoProductionBundleOption(snapshot);
   const productionFollowups = buildVideoProductionBundleFollowupOptions(snapshot);
   return {
@@ -45,6 +68,16 @@ export function buildReviewQuestion(snapshot: ConversationProjectSnapshot): Comp
       { id: `${snapshot.projectId}-review-open`, label: "整理待审阅项", value: "review:queue", rationale: "先同步待审阅状态，再决定具体通过还是重做。" },
       { id: `${snapshot.projectId}-review-pass`, label: "通过稳定项", value: "review:approve-stable", rationale: "先收口已经稳定的素材，减少后续反复。" },
       { id: `${snapshot.projectId}-review-redo`, label: "只重做风险项", value: "review:redo-risk", rationale: "先把风险镜头统一退回重做。" },
+      ...(redoItems.length
+        ? [{
+            id: `${snapshot.projectId}-review-cleanup`,
+            label: "一键清理本轮审阅",
+            value: "review:cleanup-round",
+            rationale: "通过稳定项，再把风险项退回重做并立即补发，减少来回切换。",
+          }]
+        : []),
+      advanceOption,
+      advanceRoundOption,
       { id: `${snapshot.projectId}-review-list`, label: "逐条审阅", value: "review:list", rationale: "展开逐条处理入口，再决定每条素材的去留。" },
       productionBundleOption,
       ...productionFollowups,
@@ -61,6 +94,8 @@ export function buildReviewQuestion(snapshot: ConversationProjectSnapshot): Comp
 export function buildVideoRepairQuestion(snapshot: ConversationProjectSnapshot): ComposerQuestion | null {
   const redoItems = listRedoReviewItems(snapshot);
   if (!redoItems.length) return null;
+  const advanceOption = buildVideoAdvanceOption(snapshot);
+  const advanceRoundOption = buildVideoAdvanceRoundOption(snapshot);
   const productionBundleOption = buildVideoProductionBundleOption(snapshot);
   const productionFollowups = buildVideoProductionBundleFollowupOptions(snapshot);
   return {
@@ -71,6 +106,8 @@ export function buildVideoRepairQuestion(snapshot: ConversationProjectSnapshot):
       { id: `${snapshot.projectId}-video-repair-all`, label: redoItems.length === 1 ? "直接重做这条镜头" : "重做全部退回镜头", value: "video:repair:all", rationale: "先把已明确需要返工的镜头统一送回重做。" },
       { id: `${snapshot.projectId}-video-repair-list`, label: "指定镜头重做", value: "video:repair:list", rationale: "只挑当前最关键的镜头先返工，保持修复节奏可控。" },
       { id: `${snapshot.projectId}-video-repair-review`, label: "先复核重做原因", value: "video:repair:review", rationale: "先看清每条镜头为什么被退回，再决定是否整批重做。" },
+      advanceOption,
+      advanceRoundOption,
       productionBundleOption,
       ...productionFollowups,
     ].filter((option): option is NonNullable<typeof option> => Boolean(option)),
@@ -179,6 +216,8 @@ export function buildVideoBridgeQuestion(snapshot: ConversationProjectSnapshot, 
   const sceneCount = project?.scenes.length ?? 0;
   const storyboardedSceneCount = countStoryboardedScenes(project);
   const shotPacketCount = countShotPackets(project);
+  const advanceOption = buildVideoAdvanceOption(snapshot);
+  const advanceRoundOption = buildVideoAdvanceRoundOption(snapshot);
   const productionBundleOption = buildVideoProductionBundleOption(snapshot);
   const productionFollowups = buildVideoProductionBundleFollowupOptions(snapshot);
 
@@ -192,6 +231,8 @@ export function buildVideoBridgeQuestion(snapshot: ConversationProjectSnapshot, 
           { id: `${snapshot.projectId}-video-analyze`, label: sceneCount ? "梳理脚本拆解结果" : "先完成第一轮镜头拆解", value: "video:bridge:analyze", rationale: "先把剧本转换成首页可继续推进的镜头序列。" },
           { id: `${snapshot.projectId}-video-entities`, label: "继续提取角色与场景", value: "video:bridge:entities", rationale: "先抽出角色和场景资产，避免后面分镜与出片漂移。" },
           { id: `${snapshot.projectId}-video-platform`, label: "补充平台和镜头偏好", value: "video:bridge:platform", rationale: "先补足平台、风格和目标，有助于后续镜头语言统一。" },
+          advanceOption,
+          advanceRoundOption,
         ],
         allowCustomInput: true,
         submissionMode: "immediate",
@@ -208,6 +249,8 @@ export function buildVideoBridgeQuestion(snapshot: ConversationProjectSnapshot, 
         options: [
           { id: `${snapshot.projectId}-video-entities-refresh`, label: "先整理角色和场景资产", value: "video:bridge:entities", rationale: "优先收口角色与场景设定，后续分镜更稳。" },
           { id: `${snapshot.projectId}-video-storyboard`, label: storyboardedSceneCount ? "继续整理分镜批次" : "开始整理分镜批次", value: "video:bridge:storyboard", rationale: "把已有镜头推进到分镜层，保持首页单链路生产。" },
+          advanceOption,
+          advanceRoundOption,
         ],
         allowCustomInput: true,
         submissionMode: "immediate",
@@ -224,6 +267,8 @@ export function buildVideoBridgeQuestion(snapshot: ConversationProjectSnapshot, 
         options: [
           { id: `${snapshot.projectId}-video-storyboard-next`, label: storyboardedSceneCount ? "继续补齐剩余分镜批次" : "继续生成分镜批次", value: "video:bridge:storyboard", rationale: "先补齐分镜，让后续提示词和出片建立在完整镜头语言上。" },
           { id: `${snapshot.projectId}-video-shot-packets`, label: shotPacketCount ? "更新镜头指令包" : "编译镜头指令包", value: "video:bridge:shots", rationale: "把分镜压成可复用的 shot packet，方便继续生成提示词。" },
+          advanceOption,
+          advanceRoundOption,
         ],
         allowCustomInput: true,
         submissionMode: "immediate",
@@ -240,6 +285,8 @@ export function buildVideoBridgeQuestion(snapshot: ConversationProjectSnapshot, 
         options: [
           { id: `${snapshot.projectId}-video-shot-review`, label: shotPacketCount ? `复核 ${shotPacketCount} 个镜头指令包` : "编译镜头指令包", value: "video:bridge:shots", rationale: "先把镜头指令包收口，避免后续提示词批次反复返工。" },
           { id: `${snapshot.projectId}-video-prompts`, label: "准备视频提示词批次", value: "video:bridge:prompts", rationale: "直接把镜头指令包推进到提示词批次，准备进入第一轮出片。" },
+          advanceOption,
+          advanceRoundOption,
           productionBundleOption,
           ...productionFollowups,
         ].filter((option): option is NonNullable<typeof option> => Boolean(option)),
@@ -260,12 +307,16 @@ export function buildVideoGenerationQuestion(snapshot: ConversationProjectSnapsh
   if (!candidates.length) return null;
   const failedScenes = listFailedVideoScenes(project);
   const firstBatchSize = Math.min(3, candidates.length);
+  const advanceOption = buildVideoAdvanceOption(snapshot);
+  const advanceRoundOption = buildVideoAdvanceRoundOption(snapshot);
   const productionBundleOption = buildVideoProductionBundleOption(snapshot);
   const productionFollowups = buildVideoProductionBundleFollowupOptions(snapshot);
   const options = [
     { id: `${snapshot.projectId}-video-generate-first`, label: candidates.length === 1 ? `直接生成 ${formatSceneOptionLabel(candidates[0])}` : `先生成前 ${firstBatchSize} 条镜头`, value: "video:generate:first", rationale: candidates.length === 1 ? "直接把当前最靠前的镜头送去出片，继续留在首页等待结果。" : `优先验证最靠前的 ${firstBatchSize} 条镜头，保持第一轮出片节奏。` },
     ...(failedScenes.length ? [{ id: `${snapshot.projectId}-video-generate-failed`, label: `补发 ${Math.min(failedScenes.length, 3)} 条失败镜头`, value: "video:generate:failed", rationale: "先把失败镜头回补一轮，避免卡住后续审阅。" }] : []),
     ...(candidates.length > 1 ? [{ id: `${snapshot.projectId}-video-generate-list`, label: "指定镜头出片", value: "video:generate:list", rationale: "先点选具体镜头，再只发这一小批。" }] : []),
+    advanceOption,
+    advanceRoundOption,
     ...(productionBundleOption ? [productionBundleOption] : []),
     ...productionFollowups,
   ];
@@ -282,12 +333,16 @@ export function buildVideoRefreshQuestion(snapshot: ConversationProjectSnapshot,
   const runningScenes = listRunningVideoScenes(project);
   if (!runningScenes.length) return null;
   const completedScenes = listCompletedVideoScenes(project);
+  const advanceOption = buildVideoAdvanceOption(snapshot);
+  const advanceRoundOption = buildVideoAdvanceRoundOption(snapshot);
   const productionBundleOption = buildVideoProductionBundleOption(snapshot);
   const productionFollowups = buildVideoProductionBundleFollowupOptions(snapshot);
   const options = [
     { id: `${snapshot.projectId}-video-refresh-all`, label: runningScenes.length === 1 ? `刷新 ${formatSceneOptionLabel(runningScenes[0])}` : "刷新全部进行中镜头", value: "video:refresh:all", rationale: runningScenes.length === 1 ? "回收这一条镜头的最新状态，看是否已经能进入审阅。" : `当前有 ${runningScenes.length} 条镜头在后台处理中，先统一刷新结果。` },
     ...(runningScenes.length > 1 ? [{ id: `${snapshot.projectId}-video-refresh-list`, label: "指定镜头查看结果", value: "video:refresh:list", rationale: "只查看某一条镜头的最新结果，减少打断。" }] : []),
     ...(completedScenes.length ? [{ id: `${snapshot.projectId}-video-review-generated`, label: `检查已生成的 ${completedScenes.length} 条视频资产`, value: "video:review:generated", rationale: "直接切到首页内的审阅动作，不再跳去别的工作区。" }] : []),
+    advanceOption,
+    advanceRoundOption,
     ...(productionBundleOption ? [productionBundleOption] : []),
     ...productionFollowups,
   ];

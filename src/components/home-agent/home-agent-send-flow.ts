@@ -95,11 +95,15 @@ export async function applyConversationMemoryOverlay(params: {
       ...memoryRuntime,
       recentProjectSessions,
     });
+    const preferCurrentProject = memoryModule.isProjectInternalMemoryQuery(cleaned);
     const memoryHits = memoryModule.searchConversationMemory(
       cleaned,
       memoryCorpus,
       runtime.currentProjectSnapshot?.projectId,
-    ).filter((document) => document.projectId !== runtime.currentProjectSnapshot?.projectId);
+      { preferCurrentProject },
+    ).filter((document) =>
+      preferCurrentProject ? true : document.projectId !== runtime.currentProjectSnapshot?.projectId,
+    );
     const memoryPrompt = memoryModule.buildConversationMemoryPrompt(memoryHits);
     if (!memoryPrompt) return promptForEngine;
 

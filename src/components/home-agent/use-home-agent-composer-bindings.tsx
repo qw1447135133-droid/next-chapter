@@ -1,7 +1,12 @@
 import { useCallback, useMemo } from "react";
 import type { ComposerQuestion, ConversationProjectSnapshot, StudioQuestionState, StudioRuntimeState } from "@/lib/home-agent/types";
 import { cn } from "@/lib/utils";
-import { HomeComposer, type HomeComposerProps, type HomeComposerVideoTransportHint } from "./home-agent-shell";
+import {
+  HomeComposer,
+  type HomeComposerLaunchNotice,
+  type HomeComposerProps,
+  type HomeComposerVideoTransportHint,
+} from "./home-agent-shell";
 import { buildConfirmedStructuredAnswer, handleHomeAgentChoiceSelection, submitHomeAgentComposer } from "./home-agent-session-actions";
 
 type ChoiceHandler = (snapshot: ConversationProjectSnapshot, value: string, label: string) => boolean;
@@ -12,6 +17,7 @@ export function useHomeAgentComposerBindings(params: {
   currentProject: ConversationProjectSnapshot | null;
   maintenanceHint?: string | null;
   videoTransportHint?: HomeComposerVideoTransportHint | null;
+  launchNotice?: HomeComposerLaunchNotice | null;
   draftInitialValue: string;
   draftResetVersion: number;
   draftPresence: boolean;
@@ -36,6 +42,7 @@ export function useHomeAgentComposerBindings(params: {
   videoReviewChoiceHandler: ChoiceHandler;
   videoAssetChoiceHandler: ChoiceHandler;
   scriptProjectChoiceHandler: ChoiceHandler;
+  onLaunchAction?: (actionId: string) => void;
   activeTrackClassName: string;
   idleTrackClassName: string;
 }) {
@@ -44,6 +51,7 @@ export function useHomeAgentComposerBindings(params: {
     currentProject,
     maintenanceHint,
     videoTransportHint,
+    launchNotice,
     draftInitialValue,
     draftResetVersion,
     draftPresence,
@@ -68,6 +76,7 @@ export function useHomeAgentComposerBindings(params: {
     videoReviewChoiceHandler,
     videoAssetChoiceHandler,
     scriptProjectChoiceHandler,
+    onLaunchAction,
     activeTrackClassName,
     idleTrackClassName,
   } = params;
@@ -137,6 +146,7 @@ export function useHomeAgentComposerBindings(params: {
       currentProjectStage: currentProject?.derivedStage,
       maintenanceHint,
       videoTransportHint,
+      launchNotice,
       initialDraft: draftInitialValue,
       draftResetVersion,
       draftPresence,
@@ -151,6 +161,7 @@ export function useHomeAgentComposerBindings(params: {
       activeTheme,
       onSelectChoice: handleChoiceSelect,
       onConfirmQuestion: qState ? confirmStructuredAnswer : undefined,
+      onLaunchAction,
       onSubmit: submitComposer,
       onInterrupt: handleInterrupt,
     }),
@@ -166,6 +177,7 @@ export function useHomeAgentComposerBindings(params: {
       handleInterrupt,
       idle,
       maintenanceHint,
+      launchNotice,
       placeholder,
       qState,
       question,
@@ -175,6 +187,7 @@ export function useHomeAgentComposerBindings(params: {
       submitComposer,
       syncComposerDraft,
       videoTransportHint,
+      onLaunchAction,
     ],
   );
 

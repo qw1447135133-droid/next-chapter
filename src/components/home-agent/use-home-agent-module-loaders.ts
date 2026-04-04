@@ -1,4 +1,6 @@
 import * as React from "react";
+import * as apiConfigModule from "@/lib/api-config";
+import * as dreaminaCliModule from "@/lib/dreamina-cli";
 import type { HomeAgentApiConfigModule, HomeAgentEngineDeps } from "./home-agent-engine-runtime";
 
 const { useCallback, useRef } = React;
@@ -40,7 +42,7 @@ export function useHomeAgentModuleLoaders() {
 
   const loadApiConfigModule = useCallback(async () => {
     if (!apiConfigRef.current) {
-      apiConfigRef.current = import("@/lib/api-config");
+      apiConfigRef.current = Promise.resolve(apiConfigModule);
     }
     return apiConfigRef.current;
   }, []);
@@ -82,7 +84,7 @@ export function useHomeAgentModuleLoaders() {
 
   const loadDreaminaCliModule = useCallback(async () => {
     if (!dreaminaCliRef.current) {
-      dreaminaCliRef.current = import("@/lib/dreamina-cli");
+      dreaminaCliRef.current = Promise.resolve(dreaminaCliModule);
     }
     return dreaminaCliRef.current;
   }, []);

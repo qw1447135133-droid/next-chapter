@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import {
@@ -10,6 +10,7 @@ import {
   Loader2,
   Moon,
   Save,
+  Sparkles,
   Sun,
   Trash2,
   X,
@@ -30,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import {
+  API_CONFIG_UPDATED_EVENT,
   clearApiConfig,
   DEFAULT_API_CONFIG,
   getStoredApiConfig,
@@ -46,6 +48,7 @@ import {
   dreaminaCliLogin,
   dreaminaCliRelogin,
 } from "@/lib/dreamina-cli";
+import { readHomeAgentLaunchReadiness, type HomeAgentLaunchReadiness } from "@/lib/home-agent/launch-readiness";
 import { cn } from "@/lib/utils";
 
 type ProviderId = "gemini" | "gpt" | "claude" | "grok" | "seedream" | "jimeng" | "tuzi";
@@ -185,6 +188,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
   const [dreaminaStatus, setDreaminaStatus] = useState<DreaminaCliStatusState | null>(null);
   const [dreaminaLoading, setDreaminaLoading] = useState(false);
   const [dreaminaAction, setDreaminaAction] = useState<"login" | "relogin" | null>(null);
+  const [launchReadiness, setLaunchReadiness] = useState<HomeAgentLaunchReadiness | null>(null);
 
   useEffect(() => {
     const loadDefaultPath = async () => {
@@ -199,7 +203,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
     void loadDefaultPath();
   }, []);
 
-  const refreshDreaminaStatus = async (silent = false) => {
+  const refreshDreaminaStatus = useCallback(async (silent = false) => {
     if (!window.electronAPI?.dreaminaCli?.exec) {
       setDreaminaStatus({
         ok: false,
@@ -244,11 +248,45 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
     } finally {
       setDreaminaLoading(false);
     }
-  };
+  }, []);
+
+  const refreshLaunchReadiness = useCallback(async () => {
+    try {
+      setLaunchReadiness(await readHomeAgentLaunchReadiness());
+    } catch (error) {
+      setLaunchReadiness({
+        checkedAt: new Date().toISOString(),
+        textReady: false,
+        textMessage: error instanceof Error ? error.message : "运行前检查失败",
+        video: {
+          mode: "api",
+          ready: false,
+          label: "当前默认走 API",
+          detail: "运行前检查失败",
+          tone: "warning",
+        },
+        notice: {
+          level: "critical",
+          title: "首发运行前检查失败",
+          description: error instanceof Error ? error.message : "请先检查设置或稍后再试。",
+          actions: [{ id: "open_settings", label: "检查设置" }],
+        },
+      });
+    }
+  }, []);
 
   useEffect(() => {
     void refreshDreaminaStatus(true);
-  }, []);
+    void refreshLaunchReadiness();
+  }, [refreshDreaminaStatus, refreshLaunchReadiness]);
+
+  useEffect(() => {
+    const handleConfigUpdate = () => {
+      void refreshLaunchReadiness();
+    };
+    window.addEventListener(API_CONFIG_UPDATED_EVENT, handleConfigUpdate);
+    return () => window.removeEventListener(API_CONFIG_UPDATED_EVENT, handleConfigUpdate);
+  }, [refreshLaunchReadiness]);
 
   const handleDreaminaAction = async (action: "login" | "relogin") => {
     setDreaminaAction(action);
@@ -266,6 +304,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
         variant: result.ok ? "default" : "destructive",
       });
       await refreshDreaminaStatus(true);
+      await refreshLaunchReadiness();
     } catch (error) {
       toast({
         title: action === "login" ? "Dreamina 登录启动失败" : "Dreamina 重新登录失败",
@@ -280,6 +319,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
   const handleSave = () => {
     saveApiConfig(config);
     setConfig(getStoredApiConfig());
+    void refreshLaunchReadiness();
     onSaved?.();
     toast({ title: "已保存", description: "设置已保存到本地。" });
   };
@@ -340,6 +380,8 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
         modelMappings: builtinDraft.modelMappings || {},
       });
       setBuiltinEditorOpen(false);
+      await refreshLaunchReadiness();
+      onSaved?.();
       toast({
         title: "内置 API 已更新",
         description: "新的 API Key 已写入内置配置，当前运行可立即生效。",
@@ -358,6 +400,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
   const handleClear = () => {
     clearApiConfig();
     setConfig({ ...DEFAULT_API_CONFIG });
+    void refreshLaunchReadiness();
     onSaved?.();
     toast({ title: "已清除", description: "所有设置已恢复默认值。" });
   };
@@ -369,6 +412,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
       if (!folderPath) return;
       saveApiConfig({ storagePath: folderPath });
       setConfig((prev) => ({ ...prev, storagePath: folderPath }));
+      onSaved?.();
       toast({ title: "已保存", description: `存储路径：${folderPath}` });
     } catch (error) {
       toast({ title: "选择失败", description: String(error), variant: "destructive" });
@@ -378,6 +422,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
   const handleResetStoragePath = () => {
     saveApiConfig({ storagePath: "" });
     setConfig((prev) => ({ ...prev, storagePath: "" }));
+    onSaved?.();
     toast({ title: "已重置", description: "存储路径已恢复默认值。" });
   };
 
@@ -432,6 +477,34 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
       )}
 
       <main className={embedded ? "flex-1 overflow-y-auto px-4 py-4 space-y-4" : "max-w-3xl mx-auto px-6 py-6 space-y-6"}>
+        <div className="space-y-2.5">
+          <h2 className={sectionTitleClass}>
+            <Sparkles className="h-4 w-4" />
+            首发运行前检查
+          </h2>
+          <Card className={cardClass}>
+            <CardContent className={cardContentClass}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={launchReadiness?.textReady ? "secondary" : "destructive"}>
+                  {launchReadiness?.textReady ? "主会话已就绪" : "主会话待配置"}
+                </Badge>
+                <Badge variant={launchReadiness?.video.ready ? "outline" : "destructive"}>
+                  视频通道：{launchReadiness?.video.mode === "cli" ? "CLI" : "API"}
+                </Badge>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-foreground">
+                  {launchReadiness?.notice?.title || "当前首页已具备最小可用配置。"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {launchReadiness?.notice?.description ||
+                    `${launchReadiness?.textMessage || "主对话模型已就绪"}；${launchReadiness?.video.label || "当前默认走 API"}：${launchReadiness?.video.detail || "可直接继续工作流"}`}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
         <div className="space-y-2.5">
           <h2 className={sectionTitleClass}>
             <Globe className="h-4 w-4" />

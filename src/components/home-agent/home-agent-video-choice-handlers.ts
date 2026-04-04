@@ -64,6 +64,7 @@ type VideoProjectChoiceDeps = {
 
 type VideoReviewChoiceDeps = {
   runWorkflowActionShortcut: WorkflowShortcutRunner;
+  runWorkflowActionShortcutChain: WorkflowShortcutChainRunner;
   showChoicePopover: ShowChoicePopover;
   collectReviewTargetIds: (snapshot: ConversationProjectSnapshot, mode: "stable" | "risk") => string[];
   buildReviewListQuestion: (snapshot: ConversationProjectSnapshot) => ComposerQuestion | null;
@@ -128,6 +129,16 @@ export function createVideoProjectChoiceHandler(deps: VideoProjectChoiceDeps): V
         `请基于《${snapshot.title}》当前视频桥接状态，帮我补齐目标平台、镜头风格、出片目标和额外镜头偏好，并直接给出下一步最适合执行的首页动作。`,
         label,
       );
+      return true;
+    }
+
+    if (value === "video:advance") {
+      void deps.runWorkflowActionShortcut("advance_video_workflow", { projectId: snapshot.projectId }, label);
+      return true;
+    }
+
+    if (value === "video:advance-round") {
+      void deps.runWorkflowActionShortcut("advance_video_workflow_round", { projectId: snapshot.projectId }, label);
       return true;
     }
 
@@ -210,6 +221,16 @@ export function createVideoReviewChoiceHandler(deps: VideoReviewChoiceDeps): Vid
       return true;
     }
 
+    if (value === "video:advance") {
+      void deps.runWorkflowActionShortcut("advance_video_workflow", { projectId: snapshot.projectId }, label);
+      return true;
+    }
+
+    if (value === "video:advance-round") {
+      void deps.runWorkflowActionShortcut("advance_video_workflow_round", { projectId: snapshot.projectId }, label);
+      return true;
+    }
+
     if (value === "review:approve-stable") {
       const targetIds = deps.collectReviewTargetIds(snapshot, "stable");
       if (!targetIds.length) {
@@ -243,6 +264,48 @@ export function createVideoReviewChoiceHandler(deps: VideoReviewChoiceDeps): Vid
         },
         label,
       );
+      return true;
+    }
+
+    if (value === "review:cleanup-round") {
+      const stableTargetIds = deps.collectReviewTargetIds(snapshot, "stable");
+      const riskTargetIds = deps.collectReviewTargetIds(snapshot, "risk");
+
+      if (!stableTargetIds.length && !riskTargetIds.length) {
+        const nextQuestion = deps.buildReviewListQuestion(snapshot);
+        if (nextQuestion) {
+          deps.showChoicePopover(label, "当前没有可处理的审阅项，先看待审阅列表。", nextQuestion);
+        }
+        return true;
+      }
+
+      const steps: Array<{ action: string; input: Record<string, unknown> }> = [];
+      if (stableTargetIds.length) {
+        steps.push({
+          action: "approve_video_assets",
+          input: { projectId: snapshot.projectId, targetIds: stableTargetIds },
+        });
+      }
+      if (riskTargetIds.length) {
+        steps.push({
+          action: "redo_video_assets",
+          input: {
+            projectId: snapshot.projectId,
+            targetIds: riskTargetIds,
+            reason: "根据当前首页审阅结论，集中回退风险镜头。",
+          },
+        });
+        steps.push({
+          action: "generate_video_assets",
+          input: {
+            projectId: snapshot.projectId,
+            targetIds: riskTargetIds,
+            forceRegenerate: true,
+          },
+        });
+      }
+
+      void deps.runWorkflowActionShortcutChain(steps, label);
       return true;
     }
 
@@ -305,6 +368,16 @@ export function createVideoAssetChoiceHandler(deps: VideoAssetChoiceDeps): Video
     }
 
     const videoProject = deps.getCurrentVideoProject();
+
+    if (value === "video:advance") {
+      void deps.runWorkflowActionShortcut("advance_video_workflow", { projectId: snapshot.projectId }, label);
+      return true;
+    }
+
+    if (value === "video:advance-round") {
+      void deps.runWorkflowActionShortcut("advance_video_workflow_round", { projectId: snapshot.projectId }, label);
+      return true;
+    }
 
     if (value === "video:generate:first") {
       const targetIds = deps.listGeneratableVideoScenes(videoProject)

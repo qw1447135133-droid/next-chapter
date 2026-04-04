@@ -30,6 +30,16 @@ export interface HomeComposerVideoTransportHint {
   tone?: "neutral" | "ready" | "warning";
 }
 
+export interface HomeComposerLaunchNotice {
+  level: "warning" | "critical";
+  title: string;
+  description: string;
+  actions: Array<{
+    id: string;
+    label: string;
+  }>;
+}
+
 const ConversationMessageRow = memo(function ConversationMessageRow({
   message,
   shouldAnimate,
@@ -374,6 +384,7 @@ export interface HomeComposerProps {
   currentProjectStage?: string;
   maintenanceHint?: string | null;
   videoTransportHint?: HomeComposerVideoTransportHint | null;
+  launchNotice?: HomeComposerLaunchNotice | null;
   initialDraft: string;
   draftResetVersion: number;
   draftPresence: boolean;
@@ -388,6 +399,7 @@ export interface HomeComposerProps {
   activeTheme: boolean;
   onSelectChoice: (value: string, label: string) => void;
   onConfirmQuestion?: () => void;
+  onLaunchAction?: (actionId: string) => void;
   onSubmit: () => void;
   onInterrupt: () => void;
 }
@@ -398,6 +410,7 @@ export const HomeComposer = memo(function HomeComposer({
   currentProjectStage,
   maintenanceHint,
   videoTransportHint,
+  launchNotice,
   initialDraft,
   draftResetVersion,
   draftPresence,
@@ -412,6 +425,7 @@ export const HomeComposer = memo(function HomeComposer({
   activeTheme,
   onSelectChoice,
   onConfirmQuestion,
+  onLaunchAction,
   onSubmit,
   onInterrupt,
 }: HomeComposerProps) {
@@ -505,6 +519,38 @@ export const HomeComposer = memo(function HomeComposer({
                 <span className="shrink-0 uppercase tracking-[0.14em] text-white/26">视频通道</span>
                 <span className="shrink-0 text-white/68">{videoTransportHint.label}</span>
                 <span className="truncate text-white/34">{videoTransportHint.detail}</span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {launchNotice ? (
+          <div
+            className={cn(
+              "mx-3.5 mt-2 rounded-[18px] border px-3.5 py-3 md:mx-6",
+              launchNotice.level === "critical"
+                ? "border-amber-300/18 bg-amber-300/[0.06]"
+                : "border-white/[0.05] bg-white/[0.03]",
+            )}
+          >
+            <div className="text-[12px] font-medium text-white/88">{launchNotice.title}</div>
+            <div className="mt-1 text-[11px] leading-[1.6] text-white/52">{launchNotice.description}</div>
+            {launchNotice.actions.length ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {launchNotice.actions.map((action) => (
+                  <button
+                    key={action.id}
+                    type="button"
+                    className={cn(
+                      "rounded-full px-2.5 py-1 text-[10.5px] transition",
+                      launchNotice.level === "critical"
+                        ? "bg-amber-50 text-slate-950 hover:bg-white"
+                        : "bg-white/[0.07] text-white/82 hover:bg-white/[0.11]",
+                    )}
+                    onClick={() => onLaunchAction?.(action.id)}
+                  >
+                    {action.label}
+                  </button>
+                ))}
               </div>
             ) : null}
           </div>

@@ -52,6 +52,7 @@ type WorkflowShortcutUiBridge = {
   pushAssistant: (content: string) => void;
   pushUser: (content: string) => void;
   resetComposerDraft: () => void;
+  setPopoverQuestion: (question: ComposerQuestion | null) => void;
   setStreaming: (streaming: boolean) => void;
   setSuggested: (question: ComposerQuestion | null) => void;
 };
@@ -60,6 +61,37 @@ type WorkflowShortcutStep = {
   action: string;
   input: Record<string, unknown>;
 };
+
+function shouldAutoOpenFollowupPopover(action: string, nextSuggestion: ComposerQuestion | null): boolean {
+  if (!nextSuggestion) return false;
+  return action === "advance_video_workflow_round";
+}
+
+function normalizeWorkflowShortcutError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (/文本模型 API Key|可用的文本模型/i.test(message)) {
+    return `${message}\n\n下一步建议：打开设置补齐内置 API 配置后，再回到首页继续当前会话。`;
+  }
+
+  if (/Dreamina CLI 尚未登录/i.test(message)) {
+    return `${message}\n\n下一步建议：去设置完成 Dreamina 登录，或把侧栏视频通道切回 API 后继续出片。`;
+  }
+
+  if (/Dreamina CLI 未安装|Dreamina CLI 未检测到|当前环境不支持/i.test(message)) {
+    return `${message}\n\n下一步建议：去设置检查本机 CLI 状态，或把侧栏视频通道切回 API。`;
+  }
+
+  if (/缺少 .*API Key|缺少 Seedance \/ Gemini 可用 Key|缺少可用 API Key/i.test(message)) {
+    return `${message}\n\n下一步建议：去设置补齐 Key，或切换到另一条已可用的视频通道后继续。`;
+  }
+
+  if (/恢复失败|打开目录/i.test(message)) {
+    return `${message}\n\n下一步建议：先留在首页继续查看摘要或重试，不需要离开当前会话。`;
+  }
+
+  return message;
+}
 
 export async function runWorkflowShortcut(params: {
   action: string;
@@ -87,13 +119,24 @@ export async function runWorkflowShortcut(params: {
       ui.commitRuntime(nextRuntime, nextProjectSnapshot?.projectId);
     }
 
-    ui.setSuggested(nextSuggestion);
+    if (shouldAutoOpenFollowupPopover(action, nextSuggestion)) {
+      ui.setPopoverQuestion(nextSuggestion);
+      ui.setSuggested(null);
+    } else {
+      ui.setSuggested(nextSuggestion);
+    }
 
     if (result.summary.trim()) {
       ui.pushAssistant(result.summary.trim());
     }
   } catch (error) {
-    ui.pushAssistant(error instanceof Error ? error.message : String(error));
+    const nextSuggestion = runtime.currentProjectSnapshot
+      ? ui.getSuggestedQuestion(runtime.currentProjectSnapshot, runtime)
+      : null;
+    if (nextSuggestion) {
+      ui.setSuggested(nextSuggestion);
+    }
+    ui.pushAssistant(normalizeWorkflowShortcutError(error));
   } finally {
     ui.setStreaming(false);
   }
@@ -143,7 +186,13 @@ export async function runWorkflowShortcutChain(params: {
       ui.pushAssistant(summaries.join("\n\n"));
     }
   } catch (error) {
-    ui.pushAssistant(error instanceof Error ? error.message : String(error));
+    const nextSuggestion = runtime.currentProjectSnapshot
+      ? ui.getSuggestedQuestion(runtime.currentProjectSnapshot, runtime)
+      : null;
+    if (nextSuggestion) {
+      ui.setSuggested(nextSuggestion);
+    }
+    ui.pushAssistant(normalizeWorkflowShortcutError(error));
   } finally {
     ui.setStreaming(false);
   }

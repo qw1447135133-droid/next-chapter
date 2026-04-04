@@ -64,10 +64,33 @@ export interface VideoWorkflowContinuationPlan {
     | "prepare_video_prompt_batch"
     | "generate_video_assets"
     | "refresh_video_assets"
+    | "review_video_assets"
     | "create_video_bridge_artifact";
+  policy:
+    | "bootstrap-analysis"
+    | "bootstrap-entities"
+    | "bootstrap-storyboard"
+    | "bootstrap-shot-packets"
+    | "bootstrap-prompt-batch"
+    | "refresh-running"
+    | "review-ready"
+    | "repair-failed"
+    | "generate-next-batch"
+    | "bridge-summary";
   input: Record<string, unknown>;
   reason: string;
+  targetCount?: number;
+  totalTargetCount?: number;
+  remainingTargetCount?: number;
 }
+
+const VIDEO_ROUND_TERMINAL_POLICIES = new Set<VideoWorkflowContinuationPlan["policy"]>([
+  "refresh-running",
+  "review-ready",
+  "repair-failed",
+  "generate-next-batch",
+  "bridge-summary",
+]);
 
 function truncate(text: string, max = 240): string {
   const normalized = text.replace(/\s+/g, " ").trim();
@@ -204,6 +227,65 @@ function batchSceneRange(
   return { sceneStart: start, sceneEnd: end };
 }
 
+function listFailedSceneIds(project: PersistedVideoProject): string[] {
+  return project.scenes
+    .filter((scene) => normalizeSceneStatus(scene.videoStatus) === "failed")
+    .map((scene) => scene.id);
+}
+
+function listRunningSceneIds(project: PersistedVideoProject): string[] {
+  return project.scenes
+    .filter(
+      (scene) =>
+        !!scene.videoTaskId &&
+        ["queued", "processing"].includes(normalizeSceneStatus(scene.videoStatus)),
+    )
+    .map((scene) => scene.id);
+}
+
+function listGeneratableSceneIds(project: PersistedVideoProject, limit = 3): string[] {
+  return project.scenes
+    .filter((scene) => {
+      const status = normalizeSceneStatus(scene.videoStatus);
+      if (["queued", "processing"].includes(status)) return false;
+      return !scene.videoUrl;
+    })
+    .slice(0, limit)
+    .map((scene) => scene.id);
+}
+
+function listActionableReviewTargetIds(project: PersistedVideoProject): string[] {
+  return (project.reviewQueue || [])
+    .filter((item) => item.status === "pending" || item.status === "redo")
+    .flatMap((item) => (item.targetIds.length ? item.targetIds : [item.id]));
+}
+
+function buildVideoContinuationBatchHint(plan: VideoWorkflowContinuationPlan): string {
+  const targetCount = plan.targetCount ?? 0;
+  const remainingTargetCount = plan.remainingTargetCount ?? 0;
+  if (!targetCount) {
+    return "";
+  }
+
+  switch (plan.policy) {
+    case "generate-next-batch":
+    case "repair-failed":
+      return remainingTargetCount > 0
+        ? `当前按批次推进：本轮先处理 ${targetCount} 条镜头，剩余 ${remainingTargetCount} 条可继续让 Agent 自动推进。`
+        : `当前批次会直接处理这 ${targetCount} 条镜头，处理完成后就会自然衔接到下一轮轮询或审阅。`;
+    case "refresh-running":
+      return remainingTargetCount > 0
+        ? `本轮先刷新 ${targetCount} 条进行中镜头，剩余 ${remainingTargetCount} 条任务稍后也能继续自动回收。`
+        : `本轮会先刷新这 ${targetCount} 条进行中镜头，再根据结果决定进入审阅还是继续补发。`;
+    case "review-ready":
+      return remainingTargetCount > 0
+        ? `本轮先处理 ${targetCount} 条待审项，剩余 ${remainingTargetCount} 条仍可继续让 Agent 分批收口。`
+        : `本轮会先处理这 ${targetCount} 条待审项，处理完就能继续回到生成或修复。`;
+    default:
+      return "";
+  }
+}
+
 export function planVideoWorkflowContinuation(
   project: PersistedVideoProject,
   input: Record<string, unknown> = {},
@@ -215,6 +297,7 @@ export function planVideoWorkflowContinuation(
   if (!project.scenes.length) {
     return {
       actionKind: "analyze_script_for_video",
+      policy: "bootstrap-analysis",
       input,
       reason: "先把当前脚本拆成镜头，首页会话才能继续推进视频生产。",
     };
@@ -223,6 +306,7 @@ export function planVideoWorkflowContinuation(
   if (!project.characters.length || !project.sceneSettings.length) {
     return {
       actionKind: "extract_video_entities",
+      policy: "bootstrap-entities",
       input,
       reason: "镜头已经拆完，下一步先整理角色和场景资产。",
     };
@@ -231,6 +315,7 @@ export function planVideoWorkflowContinuation(
   if (!project.storyboardPlan?.trim()) {
     return {
       actionKind: "prepare_storyboard_batch",
+      policy: "bootstrap-storyboard",
       input: { ...batchSceneRange(project.scenes, 6), ...input },
       reason: "角色与场景已就绪，先整理第一批分镜说明。",
     };
@@ -239,6 +324,7 @@ export function planVideoWorkflowContinuation(
   if (!project.shotPackets?.length) {
     return {
       actionKind: "compile_video_shot_packets",
+      policy: "bootstrap-shot-packets",
       input,
       reason: "分镜说明已经就绪，下一步先把镜头压成可复用的 shot packet。",
     };
@@ -247,33 +333,90 @@ export function planVideoWorkflowContinuation(
   if (!project.videoPromptBatch?.trim()) {
     return {
       actionKind: "prepare_video_prompt_batch",
+      policy: "bootstrap-prompt-batch",
       input: { ...batchSceneRange(project.scenes, 4), ...input },
       reason: "分镜批次已经完成，下一步生成对应的视频提示词。",
     };
   }
 
-  const hasRunningVideoTasks = project.scenes.some(
-    (scene) => !!scene.videoTaskId && ["queued", "processing"].includes(normalizeSceneStatus(scene.videoStatus)),
-  );
-  if (hasRunningVideoTasks) {
+  const runningSceneIds = listRunningSceneIds(project);
+  if (runningSceneIds.length) {
+    const targetIds = runningSceneIds.slice(0, 6);
     return {
       actionKind: "refresh_video_assets",
-      input,
-      reason: "已有镜头在后台出片，先刷新当前批次结果。",
+      policy: "refresh-running",
+      input: { ...input, targetIds },
+      reason:
+        targetIds.length === 1
+          ? "已有镜头仍在后台出片，先刷新这一条镜头结果。"
+          : `已有 ${runningSceneIds.length} 条镜头在后台出片，先刷新当前批次结果。`,
+      targetCount: targetIds.length,
+      totalTargetCount: runningSceneIds.length,
+      remainingTargetCount: Math.max(runningSceneIds.length - targetIds.length, 0),
     };
   }
 
-  const hasGeneratedVideo = project.scenes.some((scene) => !!scene.videoUrl);
-  if (!hasGeneratedVideo) {
+  const reviewTargetIds = listActionableReviewTargetIds(project);
+  if (reviewTargetIds.length) {
+    const targetIds = reviewTargetIds.slice(0, 6);
+    return {
+      actionKind: "review_video_assets",
+      policy: "review-ready",
+      input: { ...input, targetIds },
+      reason:
+        targetIds.length === 1
+          ? "已有 1 条镜头进入待审阅状态，先确认是否通过或重做。"
+          : `已有 ${reviewTargetIds.length} 条镜头进入待审阅状态，先处理这一轮审阅。`,
+      targetCount: targetIds.length,
+      totalTargetCount: reviewTargetIds.length,
+      remainingTargetCount: Math.max(reviewTargetIds.length - targetIds.length, 0),
+    };
+  }
+
+  const failedSceneIds = listFailedSceneIds(project);
+  if (failedSceneIds.length) {
+    const targetIds = failedSceneIds.slice(0, 3);
     return {
       actionKind: "generate_video_assets",
-      input,
-      reason: "视频提示词已经就绪，下一步先提交第一轮出片。",
+      policy: "repair-failed",
+      input: {
+        ...input,
+        targetIds,
+        forceRegenerate: true,
+      },
+      reason:
+        targetIds.length === 1
+          ? "当前有 1 条镜头出片失败，先直接补发这条失败镜头。"
+          : `当前有 ${failedSceneIds.length} 条镜头出片失败，先统一补发失败镜头。`,
+      targetCount: targetIds.length,
+      totalTargetCount: failedSceneIds.length,
+      remainingTargetCount: Math.max(failedSceneIds.length - targetIds.length, 0),
+    };
+  }
+
+  const generatableSceneIds = listGeneratableSceneIds(project, 3);
+  if (generatableSceneIds.length) {
+    const totalGeneratableSceneIds = listGeneratableSceneIds(project, Number.MAX_SAFE_INTEGER);
+    return {
+      actionKind: "generate_video_assets",
+      policy: "generate-next-batch",
+      input: {
+        ...input,
+        targetIds: generatableSceneIds,
+      },
+      reason:
+        generatableSceneIds.length === 1
+          ? "视频提示词已经就绪，下一步先提交这一条镜头出片。"
+          : `视频提示词已经就绪，下一步先提交前 ${generatableSceneIds.length} 条镜头出片。`,
+      targetCount: generatableSceneIds.length,
+      totalTargetCount: totalGeneratableSceneIds.length,
+      remainingTargetCount: Math.max(totalGeneratableSceneIds.length - generatableSceneIds.length, 0),
     };
   }
 
   return {
     actionKind: "create_video_bridge_artifact",
+    policy: "bridge-summary",
     input,
     reason: "当前视频项目已经具备首页继续出片所需的桥接摘要。",
   };
@@ -1302,11 +1445,30 @@ async function runVideoContinuationPlan(
       return generateVideoAssetsAction(plan.input, runtime);
     case "refresh_video_assets":
       return refreshVideoAssetsAction(plan.input, runtime);
+    case "review_video_assets":
+      return reviewVideoAssetsAction(plan.input, runtime);
     case "create_video_bridge_artifact":
       return createVideoBridgeArtifactAction(plan.input, runtime);
     default:
       throw new Error(`Unsupported video continuation action: ${plan.actionKind}`);
   }
+}
+
+function buildRoundStepLabel(plan: VideoWorkflowContinuationPlan): string {
+  const labels: Record<VideoWorkflowContinuationPlan["policy"], string> = {
+    "bootstrap-analysis": "完成脚本拆镜",
+    "bootstrap-entities": "整理角色与场景",
+    "bootstrap-storyboard": "补齐分镜批次",
+    "bootstrap-shot-packets": "编译镜头指令包",
+    "bootstrap-prompt-batch": "生成视频提示词批次",
+    "refresh-running": "刷新进行中镜头",
+    "review-ready": "整理待审阅项",
+    "repair-failed": "补发失败镜头",
+    "generate-next-batch": "提交下一批镜头出片",
+    "bridge-summary": "整理桥接摘要",
+  };
+
+  return labels[plan.policy];
 }
 
 export async function advanceVideoWorkflowAction(
@@ -1340,10 +1502,75 @@ export async function advanceVideoWorkflowAction(
     plan,
     withVideoProject(preparedRuntime, preparedProject),
   );
+  const batchHint = buildVideoContinuationBatchHint(plan);
 
   return {
     ...result,
-    summary: `${plan.reason}\n\n${result.summary}`,
+    summary: [plan.reason, result.summary, batchHint].filter(Boolean).join("\n\n"),
+  };
+}
+
+export async function advanceVideoWorkflowRoundAction(
+  input: Record<string, unknown>,
+  runtime: StudioRuntimeState,
+): Promise<WorkflowActionResult> {
+  const prepared = await prepareVideoGenerationAction(input, runtime);
+  const preparedProject = prepared.data?.videoProject;
+  if (!preparedProject) {
+    return prepared;
+  }
+
+  if (!preparedProject.script?.trim()) {
+    return advanceVideoWorkflowAction(input, runtime);
+  }
+
+  let workingRuntime = withVideoProject(runtime, preparedProject);
+  let latestResult: WorkflowActionResult = prepared;
+  const executedPlans: VideoWorkflowContinuationPlan[] = [];
+  const maxSteps =
+    typeof input.maxSteps === "number" && Number.isFinite(input.maxSteps)
+      ? Math.max(1, Math.min(8, Math.floor(input.maxSteps)))
+      : 6;
+
+  for (let stepIndex = 0; stepIndex < maxSteps; stepIndex += 1) {
+    const currentProject = workingRuntime.currentVideoProject;
+    if (!currentProject?.script?.trim()) break;
+
+    const plan = planVideoWorkflowContinuation(currentProject, input);
+    executedPlans.push(plan);
+    latestResult = await runVideoContinuationPlan(plan, workingRuntime);
+
+    const nextProject = latestResult.data?.videoProject ?? workingRuntime.currentVideoProject;
+    if (nextProject) {
+      workingRuntime = withVideoProject(
+        {
+          ...workingRuntime,
+          currentVideoProject: nextProject,
+          currentProjectSnapshot: latestResult.data?.projectSnapshot ?? createVideoSnapshot(nextProject),
+        },
+        nextProject,
+      );
+    } else if (latestResult.data?.projectSnapshot) {
+      workingRuntime = {
+        ...workingRuntime,
+        currentProjectSnapshot: latestResult.data.projectSnapshot,
+      };
+    }
+
+    if (VIDEO_ROUND_TERMINAL_POLICIES.has(plan.policy)) {
+      break;
+    }
+  }
+
+  const roundSummary = executedPlans.length
+    ? `本轮连续推进了 ${executedPlans.length} 步：${executedPlans.map(buildRoundStepLabel).join(" -> ")}。`
+    : "";
+  const finalPlan = executedPlans.at(-1);
+  const batchHint = finalPlan ? buildVideoContinuationBatchHint(finalPlan) : "";
+
+  return {
+    ...latestResult,
+    summary: [roundSummary, latestResult.summary, batchHint].filter(Boolean).join("\n\n"),
   };
 }
 

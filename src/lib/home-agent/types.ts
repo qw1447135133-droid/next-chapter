@@ -78,6 +78,17 @@ export type ConversationMemoryKind =
   | "maintenance-report"
   | "skill-draft";
 
+export interface ConversationVideoSceneMemory {
+  id: string;
+  sceneNumber: number;
+  sceneName: string;
+  segmentLabel?: string;
+  videoStatus?: string;
+  videoTaskId?: string;
+  videoUrl?: string;
+  videoFailureMessage?: string;
+}
+
 export interface ConversationMemoryDocument {
   id: string;
   projectId?: string;
@@ -104,6 +115,7 @@ export interface ConversationProjectSnapshot {
     styleLock?: VideoStyleLock | null;
     worldModel?: VideoWorldModel | null;
     assetManifest?: ProductionAssetManifest | null;
+    videoScenes?: ConversationVideoSceneMemory[];
     shotPackets?: VideoShotPacket[];
     reviewQueue?: VideoReviewItem[];
     characterStateCards?: CharacterStateCard[];

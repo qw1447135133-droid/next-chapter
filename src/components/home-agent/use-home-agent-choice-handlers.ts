@@ -247,6 +247,7 @@ export function useHomeAgentChoiceHandlers(params: {
     () =>
       createVideoReviewChoiceHandler({
         runWorkflowActionShortcut,
+        runWorkflowActionShortcutChain,
         showChoicePopover,
         collectReviewTargetIds,
         buildReviewListQuestion,
@@ -259,6 +260,7 @@ export function useHomeAgentChoiceHandlers(params: {
       collectReviewTargetIds,
       findReviewItem,
       runWorkflowActionShortcut,
+      runWorkflowActionShortcutChain,
       showChoicePopover,
     ],
   );

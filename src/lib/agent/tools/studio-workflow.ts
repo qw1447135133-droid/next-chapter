@@ -26,6 +26,7 @@ function buildWorkflowProgressLabel(actionName: string): string {
     reopen_compliance_revisions: "重新打开修订项",
     prepare_video_generation: "接管视频项目",
     advance_video_workflow: "继续视频工作流",
+    advance_video_workflow_round: "连续推进视频一轮",
     analyze_script_for_video: "拆解视频脚本",
     extract_video_entities: "整理角色与场景",
     prepare_storyboard_batch: "整理分镜批次",
@@ -111,7 +112,7 @@ export class StudioWorkflowTool extends ToolBase {
         action: {
           type: "string",
           description:
-            "Workflow action: get_context, save_setup, continue_project, continue_drama_step, analyze_reference_script, generate_creative_plan, generate_structure_transform, generate_characters, generate_character_transform, generate_directory, generate_outlines, generate_episode, run_compliance_review, lock_character_cards, lock_story_beats, resolve_compliance_revisions, reopen_compliance_revisions, prepare_video_generation, advance_video_workflow, analyze_script_for_video, extract_video_entities, prepare_storyboard_batch, compile_video_shot_packets, prepare_video_prompt_batch, generate_video_assets, refresh_video_assets, review_video_assets, approve_video_assets, redo_video_assets, continue_video_step, create_video_bridge_artifact, export_project, create_skill_draft, export_approved_skill_drafts, export_approved_skill_draft_bundle, export_approved_skill_install_candidates, export_video_production_bundle, preview_video_production_bundle, open_video_production_bundle_directory, run_maintenance",
+            "Workflow action: get_context, save_setup, continue_project, continue_drama_step, analyze_reference_script, generate_creative_plan, generate_structure_transform, generate_characters, generate_character_transform, generate_directory, generate_outlines, generate_episode, run_compliance_review, lock_character_cards, lock_story_beats, resolve_compliance_revisions, reopen_compliance_revisions, prepare_video_generation, advance_video_workflow, advance_video_workflow_round, analyze_script_for_video, extract_video_entities, prepare_storyboard_batch, compile_video_shot_packets, prepare_video_prompt_batch, generate_video_assets, refresh_video_assets, review_video_assets, approve_video_assets, redo_video_assets, continue_video_step, create_video_bridge_artifact, export_project, create_skill_draft, export_approved_skill_drafts, export_approved_skill_draft_bundle, export_approved_skill_install_candidates, export_video_production_bundle, preview_video_production_bundle, open_video_production_bundle_directory, run_maintenance",
         },
         projectKind: {
           type: "string",
@@ -249,6 +250,10 @@ export class StudioWorkflowTool extends ToolBase {
         batchSize: {
           type: "number",
           description: "How many scenes to submit in one homepage generation batch",
+        },
+        maxSteps: {
+          type: "number",
+          description: "Maximum steps to auto-run when using advance_video_workflow_round",
         },
         resolution: {
           type: "string",
