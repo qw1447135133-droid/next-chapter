@@ -2,11 +2,19 @@ import * as React from "react";
 import { clearStudioSession, writeStudioSession } from "@/lib/home-agent/session-store";
 import { planConversationCompaction } from "@/lib/home-agent/conversation-compact";
 import { buildResearchFollowupQuestion } from "@/lib/home-agent/auto-research";
-import type { HomeAgentMessage, ComposerQuestion, ConversationProjectSnapshot, StudioQuestionState, StudioRuntimeState } from "@/lib/home-agent/types";
+import { mergeRuntimeWithWorkflowDelta } from "@/lib/home-agent/workflow-shortcut-runner";
+import type {
+  HomeAgentMessage,
+  ComposerQuestion,
+  ConversationProjectSnapshot,
+  MaintenanceReport,
+  StudioQuestionState,
+  StudioRuntimeState,
+} from "@/lib/home-agent/types";
 import type { Task } from "@/lib/agent/tools/task-tools";
-import { recQuestion } from "./home-agent-project-questions";
+import { buildMaintenanceReviewQuestion, recQuestion } from "./home-agent-project-questions";
 
-const { useEffect, startTransition } = React;
+const { useEffect, useRef, startTransition } = React;
 
 export function useHomeAgentConversationEffects(params: {
   idle: boolean;
@@ -33,6 +41,8 @@ export function useHomeAgentConversationEffects(params: {
   previousQuestionStepRef: React.MutableRefObject<string | null>;
   surfacedTaskIdsRef: React.MutableRefObject<Set<string>>;
   surfacedTaskFollowupIdsRef: React.MutableRefObject<Set<string>>;
+  surfacedProjectSuggestionKeysRef: React.MutableRefObject<Set<string>>;
+  restoredProjectSuggestionKeysRef: React.MutableRefObject<Set<string>>;
   compactionJobVersionRef: React.MutableRefObject<number>;
   setRuntime: React.Dispatch<React.SetStateAction<StudioRuntimeState>>;
   setCompactedMessageCount: React.Dispatch<React.SetStateAction<number>>;
@@ -45,6 +55,7 @@ export function useHomeAgentConversationEffects(params: {
   loadApiConfigModule: () => Promise<typeof import("@/lib/api-config")>;
   loadSemanticSummaryModule: () => Promise<typeof import("@/lib/home-agent/conversation-semantic-summary")>;
   loadProjectStore: () => Promise<typeof import("@/lib/home-agent/project-store")>;
+  loadWorkflowActionsModule: () => Promise<typeof import("@/lib/home-agent/workflow-actions")>;
   scheduleBackgroundTask: (task: () => void, timeout?: number) => () => void;
   mergeRecentProjects: (
     currentProjects: ConversationProjectSnapshot[],
@@ -52,6 +63,10 @@ export function useHomeAgentConversationEffects(params: {
     limit?: number,
   ) => ConversationProjectSnapshot[];
   buildTaskResultMessage: (task: Task) => string;
+  buildProjectSuggestionKey: (
+    snapshot: ConversationProjectSnapshot | null | undefined,
+    question: ComposerQuestion | null | undefined,
+  ) => string | null;
   parseTaskHeading: (prompt: string) => string | null;
 }) {
   const {
@@ -79,6 +94,8 @@ export function useHomeAgentConversationEffects(params: {
     previousQuestionStepRef,
     surfacedTaskIdsRef,
     surfacedTaskFollowupIdsRef,
+    surfacedProjectSuggestionKeysRef,
+    restoredProjectSuggestionKeysRef,
     compactionJobVersionRef,
     setRuntime,
     setCompactedMessageCount,
@@ -91,36 +108,57 @@ export function useHomeAgentConversationEffects(params: {
     loadApiConfigModule,
     loadSemanticSummaryModule,
     loadProjectStore,
+    loadWorkflowActionsModule,
     scheduleBackgroundTask,
     mergeRecentProjects,
     buildTaskResultMessage,
+    buildProjectSuggestionKey,
     parseTaskHeading,
   } = params;
+  const videoRefreshInFlightKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (qState || streaming || popoverOverride) return;
     if (draftPresence) return;
     if (!runtime.currentProjectSnapshot) {
-      if (suggested) setSuggested(null);
+      const nextMaintenanceSuggestion = buildMaintenanceReviewQuestion(runtime);
+      setSuggested((previous) => {
+        const previousId = previous?.id ?? null;
+        const nextId = nextMaintenanceSuggestion?.id ?? null;
+        return previousId === nextId ? previous : nextMaintenanceSuggestion;
+      });
       return;
     }
 
     const nextSuggestion = recQuestion(runtime.currentProjectSnapshot, runtime.currentVideoProject);
+    const suggestionKey = buildProjectSuggestionKey(runtime.currentProjectSnapshot, nextSuggestion);
     setSuggested((previous) => {
+      if (suggestionKey && restoredProjectSuggestionKeysRef.current.has(suggestionKey)) {
+        restoredProjectSuggestionKeysRef.current.delete(suggestionKey);
+        return previous?.id ? null : previous;
+      }
       const previousId = previous?.id ?? null;
       const nextId = nextSuggestion?.id ?? null;
       if (previousId === nextId) return previous;
+      if (suggestionKey && nextSuggestion) {
+        surfacedProjectSuggestionKeysRef.current.add(suggestionKey);
+      }
       return nextSuggestion;
     });
   }, [
+    buildProjectSuggestionKey,
     draftPresence,
     popoverOverride,
     qState,
     runtime.currentProjectSnapshot,
+    runtime.maintenanceReports,
     runtime.currentVideoProject,
+    runtime.skillDrafts,
     streaming,
     suggested,
     setSuggested,
+    surfacedProjectSuggestionKeysRef,
+    restoredProjectSuggestionKeysRef,
   ]);
 
   useEffect(() => {
@@ -141,12 +179,37 @@ export function useHomeAgentConversationEffects(params: {
 
     engineRef.current?.interrupt?.();
     engineRef.current = null;
+    const maintenanceReport: MaintenanceReport = {
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      summary: "已静默压缩首页长会话，保留最近上下文与项目摘要。",
+      compressedConversationCount: 1,
+      archivedProjectCount: 0,
+      clearedCacheKeys: [],
+      mergedDraftCount: 0,
+      notes: [
+        runtime.currentProjectSnapshot
+          ? `当前项目：${runtime.currentProjectSnapshot.title} / ${runtime.currentProjectSnapshot.derivedStage}`
+          : "当前没有绑定项目。",
+        `本次整理压缩了 ${plan.compactedMessages.length} 条较早消息。`,
+      ],
+    };
     setCompactedMessageCount(plan.nextCompactedMessageCount);
     setRuntime((prev) => ({
       ...prev,
+      maintenanceReports: [maintenanceReport, ...prev.maintenanceReports].slice(0, 20),
       recentMessageSummary: plan.nextSummary,
     }));
     flashMaintenanceHint("较早对话已静默整理");
+
+    void loadProjectStore()
+      .then((store) => {
+        const nextReports = [maintenanceReport, ...store.readMaintenanceReports()].slice(0, 20);
+        store.writeMaintenanceReports(nextReports);
+      })
+      .catch(() => {
+        // Keep the in-memory report even if persistence fails.
+      });
 
     const jobVersion = compactionJobVersionRef.current + 1;
     compactionJobVersionRef.current = jobVersion;
@@ -184,6 +247,7 @@ export function useHomeAgentConversationEffects(params: {
         // Keep the deterministic summary on failure.
       }
     })();
+
   }, [
     compactedMessageCount,
     compactionJobVersionRef,
@@ -218,6 +282,9 @@ export function useHomeAgentConversationEffects(params: {
         draft: draftRef.current || persistedDraft,
         qState,
         selectedValues,
+        surfacedTaskIds: [...surfacedTaskIdsRef.current],
+        surfacedTaskFollowupKeys: [...surfacedTaskFollowupIdsRef.current],
+        surfacedProjectSuggestionKeys: [...surfacedProjectSuggestionKeysRef.current],
       });
     }, 720);
 
@@ -237,6 +304,9 @@ export function useHomeAgentConversationEffects(params: {
     runtimeRef,
     scheduleBackgroundTask,
     selectedValues,
+    surfacedProjectSuggestionKeysRef,
+    surfacedTaskFollowupIdsRef,
+    surfacedTaskIdsRef,
   ]);
 
   useEffect(() => {
@@ -271,6 +341,75 @@ export function useHomeAgentConversationEffects(params: {
     mergeRecentProjects,
     runtime.currentDramaProject,
     runtime.currentVideoProject,
+    setRuntime,
+  ]);
+
+  useEffect(() => {
+    if (idle) return;
+
+    const project = runtime.currentVideoProject;
+    const snapshotProjectId = runtime.currentProjectSnapshot?.projectId;
+    if (!project || snapshotProjectId !== project.id) return;
+
+    const runningScenes = project.scenes.filter(
+      (scene) =>
+        !!scene.videoTaskId?.trim() &&
+        ["queued", "processing"].includes(String(scene.videoStatus || "").toLowerCase()),
+    );
+    if (!runningScenes.length) return;
+
+    const refreshKey = `${runtime.sessionId}:${project.id}:${runningScenes
+      .map((scene) => `${scene.id}:${scene.videoTaskId}:${scene.videoStatus || ""}`)
+      .sort()
+      .join("|")}`;
+    if (videoRefreshInFlightKeyRef.current === refreshKey) return;
+    videoRefreshInFlightKeyRef.current = refreshKey;
+
+    const cancelTask = scheduleBackgroundTask(() => {
+      const sessionId = runtimeRef.current.sessionId;
+      const projectId = project.id;
+
+      void loadWorkflowActionsModule()
+        .then((workflow) =>
+          workflow.runWorkflowAction(
+            "refresh_video_assets",
+            { projectId },
+            runtimeRef.current,
+          ),
+        )
+        .then((result) => {
+          if (!result.data) return;
+
+          startTransition(() => {
+            setRuntime((previous) => {
+              if (previous.sessionId !== sessionId) return previous;
+              if (previous.currentProjectSnapshot?.projectId !== projectId) return previous;
+              return mergeRuntimeWithWorkflowDelta(previous, result.data);
+            });
+          });
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (videoRefreshInFlightKeyRef.current === refreshKey) {
+            videoRefreshInFlightKeyRef.current = null;
+          }
+        });
+    }, 2800);
+
+    return () => {
+      cancelTask();
+      if (videoRefreshInFlightKeyRef.current === refreshKey) {
+        videoRefreshInFlightKeyRef.current = null;
+      }
+    };
+  }, [
+    idle,
+    loadWorkflowActionsModule,
+    runtime.currentProjectSnapshot?.projectId,
+    runtime.currentVideoProject,
+    runtime.sessionId,
+    runtimeRef,
+    scheduleBackgroundTask,
     setRuntime,
   ]);
 

@@ -1,5 +1,11 @@
 import type { PersistedVideoProject } from "@/hooks/use-local-persistence";
-import type { ComposerQuestion, ConversationProjectSnapshot } from "@/lib/home-agent/types";
+import type {
+  ComposerQuestion,
+  ConversationProjectSnapshot,
+  MaintenanceReport,
+  SkillDraft,
+  StudioRuntimeState,
+} from "@/lib/home-agent/types";
 import type { Scene, VideoReviewItem } from "@/types/project";
 import { buildRecoveryActionRationale, summarizeRecoveryArtifacts } from "./home-agent-session-utils";
 import { truncateCopy } from "./home-agent-task-utils";
@@ -111,7 +117,14 @@ export function formatSceneOptionLabel(scene: Scene): string {
 }
 
 export function summarizeSceneOption(scene: Scene): string {
-  const fragments = [scene.description, scene.cameraDirection, scene.dialogue].map((value) => value?.trim()).filter(Boolean);
+  const fragments = [
+    scene.videoFailure?.message,
+    scene.description,
+    scene.cameraDirection,
+    scene.dialogue,
+  ]
+    .map((value) => value?.trim())
+    .filter(Boolean);
   return truncateCopy(fragments[0] ?? "使用当前镜头设定继续推进出片。", 88);
 }
 
@@ -456,4 +469,106 @@ export function buildDreaminaCapabilityOverlay(message?: string): string {
     `${capabilitySummary}，可直接使用官方 Dreamina CLI 继续 Seedance 2.0 / Seedance 2.0 Fast 视频生成。`,
     "当用户进入视频工作流、镜头出片、提示词批次或资产续接时，你应把这项能力纳入分析，并优先给出基于当前本机能力可直接执行的建议。",
   ].join("\n");
+}
+
+export function listPendingSkillDrafts(drafts: SkillDraft[]): SkillDraft[] {
+  return drafts.filter((draft) => draft.status === "pending");
+}
+
+export function findSkillDraft(drafts: SkillDraft[], draftId: string): SkillDraft | null {
+  return drafts.find((draft) => draft.id === draftId) ?? null;
+}
+
+export function buildMaintenanceReviewQuestion(
+  runtime: Pick<StudioRuntimeState, "skillDrafts" | "maintenanceReports">,
+): ComposerQuestion | null {
+  const pendingDrafts = listPendingSkillDrafts(runtime.skillDrafts);
+  const latestReport = runtime.maintenanceReports[0] ?? null;
+  if (!pendingDrafts.length && !latestReport) return null;
+
+  const options = [
+    latestReport
+      ? {
+          id: "maintenance-report-latest",
+          label: "查看最近维护结论",
+          value: "maintenance:report:latest",
+          rationale: "先看最近一次静默压缩和本地整理结论，再决定是否继续处理。",
+        }
+      : null,
+    pendingDrafts.length
+      ? {
+          id: "maintenance-skill-drafts",
+          label: `查看 ${pendingDrafts.length} 份待审核技能草案`,
+          value: "maintenance:skills",
+          rationale: "先浏览待审核草案，决定哪些值得继续沉淀成正式能力。",
+        }
+      : null,
+    {
+      id: "maintenance-run",
+      label: "执行一次维护检查",
+      value: "maintenance:run",
+      rationale: "重新整理长会话、草案队列和维护状态，生成新的本地报告。",
+    },
+  ].filter((option): option is NonNullable<typeof option> => Boolean(option));
+
+  return {
+    id: "maintenance-review-home",
+    title: pendingDrafts.length
+      ? `我已整理出 ${pendingDrafts.length} 份待审核技能草案${latestReport ? "，并带着最近维护结论" : ""}。`
+      : "我已整理出最近一次首页维护结论。",
+    description: latestReport
+      ? `${latestReport.summary} 你也可以直接输入新的创作或维护指令。`
+      : "你也可以直接输入新的创作或维护指令。",
+    options,
+    allowCustomInput: true,
+    submissionMode: "immediate",
+    multiSelect: false,
+    stepIndex: 0,
+    totalSteps: 1,
+    answerKey: "maintenance-review",
+  };
+}
+
+export function buildSkillDraftListQuestion(drafts: SkillDraft[]): ComposerQuestion | null {
+  const pendingDrafts = listPendingSkillDrafts(drafts);
+  if (!pendingDrafts.length) return null;
+
+  return {
+    id: "maintenance-skill-drafts-list",
+    title: "先看哪一份待审核技能草案？",
+    description: "只会在首页展开草案摘要，不会自动生效。",
+    options: pendingDrafts.slice(0, 5).map((draft) => ({
+      id: draft.id,
+      label: draft.proposedSkillName,
+      value: `maintenance:skill:${draft.id}`,
+      rationale: draft.reason || "查看这份草案的来源和建议内容。",
+    })),
+    allowCustomInput: true,
+    submissionMode: "immediate",
+    multiSelect: false,
+    stepIndex: 0,
+    totalSteps: 1,
+    answerKey: "maintenance-skill-drafts",
+  };
+}
+
+export function buildMaintenanceReportMessage(report: MaintenanceReport): string {
+  return [
+    `最近一次维护已完成：${report.summary}`,
+    `压缩会话 ${report.compressedConversationCount} 条，归档项目 ${report.archivedProjectCount} 条，归并重复草案 ${report.mergedDraftCount} 条。`,
+    report.notes.length ? `维护备注：${report.notes.slice(0, 3).join("；")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function buildSkillDraftSummaryMessage(draft: SkillDraft): string {
+  return [
+    `待审核技能草案《${draft.proposedSkillName}》`,
+    `来源：${draft.sourceConversationIds.length} 条会话`,
+    `原因：${draft.reason}`,
+    draft.proposedContent.trim() ? `草案内容：${truncateCopy(draft.proposedContent, 220)}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }

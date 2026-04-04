@@ -390,13 +390,13 @@ export function deriveVideoReviewQueue(project: PersistedVideoProject): VideoRev
       id: `review:${packet.id}`,
       title: `审阅镜头 ${packet.sceneNumber} · ${packet.title}`,
       summary: failed
-        ? "当前镜头生成失败，建议根据现有资产直接发起重做。"
+        ? `当前镜头生成失败${scene?.videoFailure?.message ? `：${scene.videoFailure.message}` : ""}`
         : packetAssets.some((item) => item.kind === "video-segment")
           ? "镜头已有可审阅素材，确认是否通过或需要重做。"
           : "镜头资产已齐备，后续生成后可直接进入审阅。",
       targetIds: unique([packet.id, ...packetAssets.map((item) => item.id)]),
       status: previous?.status || (failed ? "redo" : "pending"),
-      reason: previous?.reason,
+      reason: previous?.reason || scene?.videoFailure?.message,
       createdAt: previous?.createdAt || now,
       updatedAt: now,
     };
@@ -419,6 +419,15 @@ export function synchronizeVideoProductionState(
     styleLock,
     worldModel,
     shotPackets: project.shotPackets || [],
-    reviewQueue: project.reviewQueue || [],
+    reviewQueue:
+      project.reviewQueue?.length
+        ? project.reviewQueue
+        : deriveVideoReviewQueue({
+            ...project,
+            assetManifest,
+            styleLock,
+            worldModel,
+            shotPackets: project.shotPackets || [],
+          }),
   };
 }

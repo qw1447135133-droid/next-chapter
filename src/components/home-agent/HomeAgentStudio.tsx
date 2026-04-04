@@ -29,6 +29,7 @@ import {
 import {
   areProjectSnapshotsEquivalent,
   areRecentSessionsEquivalent,
+  buildProjectSuggestionKey,
   createInitialStudioSeed,
   hasSavedSessionContent,
   qStepKey,
@@ -42,9 +43,11 @@ import {
   buildCharacterCardListQuestion,
   buildComplianceDecisionQuestion,
   buildComplianceListQuestion,
+  buildMaintenanceReviewQuestion,
   buildReviewDecisionQuestion,
   buildReviewListQuestion,
   buildReviewQuestion,
+  buildSkillDraftListQuestion,
   buildVideoGenerationQuestion,
   buildVideoGenerationSceneListQuestion,
   buildVideoRefreshQuestion,
@@ -241,12 +244,26 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   const endRef = useRef<HTMLDivElement | null>(null);
   const surfacedTaskIdsRef = useRef<Set<string>>(new Set());
   const surfacedTaskFollowupIdsRef = useRef<Set<string>>(new Set());
+  const surfacedProjectSuggestionKeysRef = useRef<Set<string>>(new Set());
+  const restoredProjectSuggestionKeysRef = useRef<Set<string>>(new Set());
   const surfacedDreaminaHintRef = useRef(false);
   const maintenanceHintTimerRef = useRef<number | null>(null);
   const compactionJobVersionRef = useRef(0);
   const previousQuestionStepRef = useRef<string | null>(
     session?.qState ? `${session.qState.request.id}:${session.qState.currentIndex}` : null,
   );
+  if (surfacedTaskIdsRef.current.size === 0 && session?.surfacedTaskIds?.length) {
+    surfacedTaskIdsRef.current = new Set(session.surfacedTaskIds);
+  }
+  if (surfacedTaskFollowupIdsRef.current.size === 0 && session?.surfacedTaskFollowupKeys?.length) {
+    surfacedTaskFollowupIdsRef.current = new Set(session.surfacedTaskFollowupKeys);
+  }
+  if (surfacedProjectSuggestionKeysRef.current.size === 0 && session?.surfacedProjectSuggestionKeys?.length) {
+    surfacedProjectSuggestionKeysRef.current = new Set(session.surfacedProjectSuggestionKeys);
+  }
+  if (restoredProjectSuggestionKeysRef.current.size === 0 && session?.surfacedProjectSuggestionKeys?.length) {
+    restoredProjectSuggestionKeysRef.current = new Set(session.surfacedProjectSuggestionKeys);
+  }
   const {
     loadEngineDeps,
     loadProjectStore,
@@ -349,6 +366,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     compactedMessageCountRef,
     surfacedTaskIdsRef,
     surfacedTaskFollowupIdsRef,
+    surfacedProjectSuggestionKeysRef,
     surfacedDreaminaHintRef,
     loadEngineDeps,
     loadApiConfigModule,
@@ -409,6 +427,33 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     [flashMaintenanceHint, loadApiConfigModule, resolveDreaminaCapability],
   );
 
+  const videoTransportHint = useMemo(() => {
+    const snapshot = deferredProjectSnapshot ?? currentProject;
+    if (snapshot?.projectKind !== "video") return null;
+
+    if (jimengExecutionMode === "api") {
+      return {
+        label: "当前实际走 API",
+        detail: "Seedance API",
+        tone: "neutral" as const,
+      };
+    }
+
+    if (dreaminaCapability.available) {
+      return {
+        label: "当前实际走 CLI",
+        detail: "Dreamina CLI / Seedance 2.0",
+        tone: "ready" as const,
+      };
+    }
+
+    return {
+      label: "当前选择 CLI",
+      detail: "Dreamina 未就绪，不会自动回退到 API",
+      tone: "warning" as const,
+    };
+  }, [currentProject, deferredProjectSnapshot, dreaminaCapability.available, jimengExecutionMode]);
+
   useHomeAgentBootstrapEffects({
     runtime,
     mode,
@@ -439,6 +484,8 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     areRecentSessionsEquivalent,
     areTaskListsEquivalent,
     writeDesktopSidebarCollapsed,
+    surfacedProjectSuggestionKeysRef,
+    restoredProjectSuggestionKeysRef,
   });
 
   useHomeAgentConversationEffects({
@@ -466,6 +513,8 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     previousQuestionStepRef,
     surfacedTaskIdsRef,
     surfacedTaskFollowupIdsRef,
+    surfacedProjectSuggestionKeysRef,
+    restoredProjectSuggestionKeysRef,
     compactionJobVersionRef,
     setRuntime,
     setCompactedMessageCount,
@@ -478,9 +527,11 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     loadApiConfigModule,
     loadSemanticSummaryModule,
     loadProjectStore,
+    loadWorkflowActionsModule,
     scheduleBackgroundTask,
     mergeRecentProjects,
     buildTaskResultMessage,
+    buildProjectSuggestionKey,
     parseTaskHeading,
   });
 
@@ -488,11 +539,14 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     handoffRef,
     engineRef,
     loadProjectStore,
+    loadAskUserQuestionModule,
+    qState,
     setActiveProjectId,
     setQState,
     setPopoverOverride,
     setSuggested,
     setSelectedValues,
+    setStreaming,
     setMode,
     setMessages,
     setCompactedMessageCount,
@@ -500,6 +554,16 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     setMetaReady,
     resetComposerDraft,
     previousQuestionStepRef,
+    clearSurfacedTasks: () => {
+      surfacedTaskIdsRef.current.clear();
+      surfacedTaskFollowupIdsRef.current.clear();
+      surfacedProjectSuggestionKeysRef.current.clear();
+      restoredProjectSuggestionKeysRef.current.clear();
+    },
+    surfacedTaskIdsRef,
+    surfacedTaskFollowupIdsRef,
+    surfacedProjectSuggestionKeysRef,
+    restoredProjectSuggestionKeysRef,
     dreaminaCapability,
     flashMaintenanceHint,
     surfacedDreaminaHintRef,
@@ -543,6 +607,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   });
 
   const {
+    maintenanceChoiceHandler,
     videoProjectChoiceHandler,
     videoReviewChoiceHandler,
     videoAssetChoiceHandler,
@@ -584,12 +649,15 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     buildBeatPacketListQuestion,
     findBeatPacket,
     buildBeatPacketDecisionQuestion,
+    buildMaintenanceReviewQuestion,
+    buildSkillDraftListQuestion,
   });
 
   const { idleComposer, activeComposer } = useHomeAgentComposerBindings({
     idle,
     currentProject,
     maintenanceHint,
+    videoTransportHint,
     draftInitialValue,
     draftResetVersion,
     draftPresence,
@@ -609,6 +677,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     answer,
     send,
     setSelectedValues,
+    maintenanceChoiceHandler,
     videoProjectChoiceHandler,
     videoReviewChoiceHandler,
     videoAssetChoiceHandler,
@@ -680,10 +749,16 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         <MobileTopbar idle={idle} brandLabel={SIDEBAR_BRAND} onOpenNavigation={handleOpenMobileNavigation} />
         <main
           className={cn(
-            "relative flex-1 overflow-x-clip px-3.5 sm:px-4 md:px-8",
+            "relative flex-1 overflow-x-clip px-3.5 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none sm:px-4 md:px-8",
             idle ? "pb-0 pt-4 lg:pl-[var(--home-sidebar-offset)]" : "pb-0 pt-2 lg:pl-[var(--home-sidebar-offset)]",
           )}
-          style={{ "--home-sidebar-offset": `${desktopSidebarOffset}px` } as React.CSSProperties}
+          style={
+            {
+              "--home-sidebar-offset": `${desktopSidebarOffset}px`,
+              transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+              willChange: "padding-left",
+            } as React.CSSProperties
+          }
         >
           {idle ? (
             <IdleLanding composer={idleComposer} reduceMotion={reduceMotion} title={TITLE} trackClassName={IDLE_TRACK_CLASS} />

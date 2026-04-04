@@ -27,8 +27,12 @@ export function toQuery(messages: HomeAgentMessage[]): QueryMessage[] {
   );
 }
 
-export function createQuestionState(request: AskUserQuestionRequest): StudioQuestionState {
+export function createQuestionState(
+  request: AskUserQuestionRequest,
+  source: StudioQuestionState["source"] = "live",
+): StudioQuestionState {
   return {
+    source,
     request,
     currentIndex: 0,
     answers: {},

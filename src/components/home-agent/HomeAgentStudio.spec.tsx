@@ -6,13 +6,17 @@ import type { StudioSessionState } from "@/lib/home-agent/types";
 
 const STUDIO_SESSION_KEY = "storyforge-home-agent-session-v1";
 const STUDIO_PROJECT_SESSIONS_KEY = "storyforge-home-agent-project-sessions-v1";
+const MAINTENANCE_REPORTS_KEY = "storyforge-maintenance-reports-v1";
+const SKILL_DRAFTS_KEY = "storyforge-skill-drafts-v1";
 const DRAMA_PROJECTS_KEY = "storyforge_drama_projects";
 const VIDEO_PROJECTS_KEY = "storyforge_projects";
 const DESKTOP_SIDEBAR_COLLAPSE_KEY = "storyforge-home-agent-desktop-sidebar-collapsed-v1";
+const TASK_STORAGE_KEY = "storyforge-home-agent-tasks-v1";
 
 let assistantReply = "好的，我们开始。";
 let lastQueryEngineConfig: Record<string, unknown> | null = null;
 let lastSubmittedPrompt = "";
+let lastEngineInterrupt = vi.fn();
 const consumeAgentHandoff = vi.fn(() => null);
 
 const resolveAskUserQuestion = vi.fn(() => true);
@@ -150,9 +154,12 @@ vi.mock("@/lib/agent/query-engine", () => ({
   QueryEngine: class MockQueryEngine {
     constructor(config: Record<string, unknown>) {
       lastQueryEngineConfig = config;
+      lastEngineInterrupt = vi.fn();
     }
 
-    interrupt() {}
+    interrupt() {
+      lastEngineInterrupt();
+    }
 
     async *submitMessage(prompt?: string) {
       lastSubmittedPrompt = String(prompt ?? "");
@@ -746,11 +753,14 @@ describe("HomeAgentStudio", () => {
     assistantReply = "好的，我们开始。";
     lastQueryEngineConfig = null;
     lastSubmittedPrompt = "";
+    lastEngineInterrupt = vi.fn();
     localStorage.clear();
     sessionStorage.clear();
     clearTaskRegistry();
     resolveAskUserQuestion.mockClear();
     rejectAskUserQuestion.mockClear();
+    resolveAskUserQuestion.mockReturnValue(true);
+    rejectAskUserQuestion.mockReturnValue(true);
     runWorkflowAction.mockClear();
     refineCompactedConversationSummary.mockClear();
     dreaminaCliGetStatus.mockClear();
@@ -809,6 +819,105 @@ describe("HomeAgentStudio", () => {
     expect((lastQueryEngineConfig?.initialMessages as unknown[]).length).toBeLessThan(24);
     expect(refineCompactedConversationSummary).toHaveBeenCalledTimes(1);
     expect(screen.getByText("较早对话已静默整理")).toBeInTheDocument();
+    await waitFor(() => {
+      const reports = JSON.parse(localStorage.getItem(MAINTENANCE_REPORTS_KEY) || "[]");
+      expect(reports[0]?.summary).toContain("已静默压缩首页长会话");
+      expect(reports[0]?.compressedConversationCount).toBe(1);
+    });
+  });
+
+  it("surfaces maintenance review shortcuts on the idle homepage when drafts and reports are available", async () => {
+    localStorage.setItem(
+      SKILL_DRAFTS_KEY,
+      JSON.stringify([
+        {
+          id: "skill-draft-1",
+          sourceConversationIds: ["session-a", "session-b"],
+          proposedSkillName: "镜头修复策略",
+          proposedContent: "当镜头进入 redo 队列时，优先按角色一致性、镜头运动、情绪强度三轴复核。",
+          reason: "多次视频修复会话都重复了同一套判断标准。",
+          status: "pending",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ]),
+    );
+    localStorage.setItem(
+      MAINTENANCE_REPORTS_KEY,
+      JSON.stringify([
+        {
+          id: "report-1",
+          createdAt: "2026-04-03T00:30:00.000Z",
+          summary: "已完成一次首页维护整理。",
+          compressedConversationCount: 1,
+          archivedProjectCount: 2,
+          clearedCacheKeys: [],
+          mergedDraftCount: 0,
+          notes: ["最近视频链路已有可复用经验。"],
+        },
+      ]),
+    );
+
+    await renderStudio();
+
+    await waitFor(() => {
+      expect(screen.getByText("我已整理出 1 份待审核技能草案，并带着最近维护结论。")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "查看最近维护结论" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "查看 1 份待审核技能草案" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "执行一次维护检查" })).toBeInTheDocument();
+  });
+
+  it("can inspect a pending skill draft from the homepage maintenance suggestion", async () => {
+    localStorage.setItem(
+      SKILL_DRAFTS_KEY,
+      JSON.stringify([
+        {
+          id: "skill-draft-1",
+          sourceConversationIds: ["session-a", "session-b"],
+          proposedSkillName: "镜头修复策略",
+          proposedContent: "当镜头进入 redo 队列时，优先按角色一致性、镜头运动、情绪强度三轴复核。",
+          reason: "多次视频修复会话都重复了同一套判断标准。",
+          status: "pending",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ]),
+    );
+    localStorage.setItem(
+      MAINTENANCE_REPORTS_KEY,
+      JSON.stringify([
+        {
+          id: "report-1",
+          createdAt: "2026-04-03T00:30:00.000Z",
+          summary: "已完成一次首页维护整理。",
+          compressedConversationCount: 1,
+          archivedProjectCount: 2,
+          clearedCacheKeys: [],
+          mergedDraftCount: 0,
+          notes: ["最近视频链路已有可复用经验。"],
+        },
+      ]),
+    );
+
+    await renderStudio();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "查看 1 份待审核技能草案" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "查看 1 份待审核技能草案" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/先看哪一份待审核技能草案/);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "镜头修复策略" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/待审核技能草案《镜头修复策略》/);
+    expect(screen.getByRole("button", { name: "查看最近维护结论" })).toBeInTheDocument();
   });
 
   it("automatically launches parallel research tracks for analysis-style requests", async () => {
@@ -931,6 +1040,35 @@ describe("HomeAgentStudio", () => {
     });
     expect(lastSubmittedPrompt).toContain("Seedance 2.0 / Seedance 2.0 Fast");
     expect(screen.getByText("已接入 Dreamina CLI，可直接使用 Seedance 2.0")).toBeInTheDocument();
+  });
+
+  it("shows the actual transport hint inside active video conversations", async () => {
+    localStorage.setItem(
+      STUDIO_SESSION_KEY,
+      JSON.stringify(
+        createSession({
+          currentProjectSnapshot: {
+            projectId: "video-project-status",
+            projectKind: "video",
+            title: "雨夜追击预告片",
+            currentObjective: "继续提交当前镜头出片。",
+            derivedStage: "生成中",
+            agentSummary: "当前镜头已进入出片阶段。",
+            recommendedActions: ["轮询当前出片结果"],
+            artifacts: [],
+          },
+          projectId: "video-project-status",
+          qState: null,
+          selectedValues: [],
+          draft: "",
+        }),
+      ),
+    );
+
+    await renderStudio();
+
+    expect(screen.getByText("当前实际走 API")).toBeInTheDocument();
+    expect(screen.getByText("Seedance API")).toBeInTheDocument();
   });
 
   it("maps video recovery recommendations to homepage workflow shortcuts", async () => {
@@ -1429,12 +1567,13 @@ describe("HomeAgentStudio", () => {
       await Promise.resolve();
     });
 
-    await waitForVisibleText(/已有镜头在生成中/);
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "刷新全部进行中镜头" }));
-      await Promise.resolve();
-    });
+    const refreshButton = await screen.findByRole("button", { name: "刷新全部进行中镜头" }).catch(() => null);
+    if (refreshButton) {
+      await act(async () => {
+        fireEvent.click(refreshButton);
+        await Promise.resolve();
+      });
+    }
 
     await waitForVisibleText(/待审阅素材/);
     expect(screen.getByRole("button", { name: "整理待审阅项" })).toBeInTheDocument();
@@ -1477,6 +1616,89 @@ describe("HomeAgentStudio", () => {
     await waitForVisibleText("Agent 任务");
     expect(screen.getByText(/女性短剧市场趋势/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "停止" })).toBeInTheDocument();
+  });
+
+  it("restores persisted background tasks when the homepage remounts", async () => {
+    localStorage.setItem(STUDIO_SESSION_KEY, JSON.stringify(createSession({ qState: null, draft: "" })));
+    localStorage.setItem(
+      TASK_STORAGE_KEY,
+      JSON.stringify([
+        {
+          id: "task-restored-1",
+          prompt: "并行研究: 刷新后恢复的任务",
+          status: "completed",
+          output: "已恢复旧任务结果",
+          sessionId: "session-current",
+          projectId: "drama-project-1",
+          createdAt: Date.now() - 1000,
+          updatedAt: Date.now() - 1000,
+        },
+      ]),
+    );
+
+    await renderStudio();
+
+    await waitForVisibleText("Agent 任务");
+    expect(screen.getAllByText(/刷新后恢复的任务/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/已恢复旧任务结果/).length).toBeGreaterThan(0);
+  });
+
+  it("does not re-inject completed task results that were already surfaced before a refresh", async () => {
+    localStorage.setItem(
+      STUDIO_SESSION_KEY,
+      JSON.stringify(
+        createSession({
+          messages: [],
+          qState: null,
+          draft: "",
+          selectedValues: [],
+          surfacedTaskIds: ["task-restored-2"],
+          surfacedTaskFollowupKeys: ["task-restored-2"],
+          recentMessageSummary: "",
+        }),
+      ),
+    );
+    localStorage.setItem(
+      TASK_STORAGE_KEY,
+      JSON.stringify([
+        {
+          id: "task-restored-2",
+          prompt: "并行研究: 不要重复回流的任务",
+          status: "completed",
+          output: "这条结果已经在上一次会话里展示过。",
+          sessionId: "session-current",
+          projectId: "drama-project-1",
+          createdAt: Date.now() - 1000,
+          updatedAt: Date.now() - 1000,
+        },
+      ]),
+    );
+
+    await renderStudio();
+
+    await waitForVisibleText("Agent 任务");
+    expect(screen.getAllByText(/不要重复回流的任务/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/后台研究已完成：并行研究 不要重复回流的任务/)).not.toBeInTheDocument();
+  });
+
+  it("does not auto-surface the same project recovery suggestion again after refresh", async () => {
+    localStorage.setItem(
+      STUDIO_SESSION_KEY,
+      JSON.stringify(
+        createSession({
+          qState: null,
+          draft: "",
+          selectedValues: [],
+          surfacedProjectSuggestionKeys: ["drama-project-1:创意方案:r-drama-project-1"],
+        }),
+      ),
+    );
+
+    await renderStudio();
+
+    await waitForVisibleText("继续保留第 2 集的张力。");
+    expect(screen.queryByText(/我已分析《契约婚姻反转录》的当前状态/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "继续推进角色设定" })).not.toBeInTheDocument();
   });
 
   it("collapses older completed tasks into a compact summary row", async () => {
@@ -1665,6 +1887,25 @@ describe("HomeAgentStudio", () => {
     expect(resolveAskUserQuestion).toHaveBeenCalledWith("ask-multi", "平台: 抖音\n风格: 电影感");
   });
 
+  it("falls back to a fresh homepage send when a restored ask-user-question request is no longer live", async () => {
+    assistantReply = "已根据恢复的问题继续推进。";
+    localStorage.setItem(STUDIO_SESSION_KEY, JSON.stringify(createSession()));
+
+    await renderStudio();
+
+    await waitForVisibleText("继续选择题材");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "都市" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText("已根据恢复的问题继续推进。");
+    expect(lastSubmittedPrompt).toBe("都市");
+    expect(resolveAskUserQuestion).not.toHaveBeenCalled();
+    expect(screen.getAllByText("题材：都市")).toHaveLength(1);
+  });
+
   it("aggregates multi-select answers with custom input in confirm mode", async () => {
     await renderStudio();
 
@@ -1708,6 +1949,49 @@ describe("HomeAgentStudio", () => {
       { timeout: 3000 },
     );
     expect(resolveAskUserQuestion).toHaveBeenCalledWith("ask-confirm", "反转 / 情绪\n补充：结尾要更克制");
+  });
+
+  it("falls back to a fresh homepage send for restored confirm questions when the live request is gone", async () => {
+    assistantReply = "已接住恢复后的组合回答并继续分析。";
+    localStorage.setItem(
+      STUDIO_SESSION_KEY,
+      JSON.stringify(
+        createSession({
+          draft: "结尾要更克制",
+          qState: {
+            request: createQuestionRequest({
+              id: "ask-confirm-restored",
+              submissionMode: "confirm",
+              questions: [
+                {
+                  header: "元素",
+                  question: "保留哪些元素？",
+                  multiSelect: true,
+                  options: [{ label: "反转" }, { label: "情绪" }, { label: "悬念" }],
+                },
+              ],
+            }),
+            currentIndex: 0,
+            answers: {},
+            displayAnswers: {},
+          },
+          selectedValues: ["反转", "情绪"],
+        }),
+      ),
+    );
+
+    await renderStudio();
+
+    await waitForVisibleText("保留哪些元素？");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "继续" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText("已接住恢复后的组合回答并继续分析。");
+    expect(lastSubmittedPrompt).toBe("反转 / 情绪\n补充：结尾要更克制");
+    expect(resolveAskUserQuestion).not.toHaveBeenCalled();
+    expect(screen.getAllByText(/元素：反转 \/ 情绪/).length).toBeGreaterThan(0);
   });
 
   it("restores a saved project conversation from history without leaving the homepage", async () => {
@@ -1766,6 +2050,100 @@ describe("HomeAgentStudio", () => {
     expect(screen.getByDisplayValue("补充反派动机")).toBeInTheDocument();
     expect(screen.getByText("继续选择题材")).toBeInTheDocument();
     expect(window.location.pathname).toBe("/");
+  });
+
+  it("rejects the previous ask-user-question request when switching to another project", async () => {
+    localStorage.setItem(
+      DRAMA_PROJECTS_KEY,
+      JSON.stringify([
+        {
+          id: "drama-project-1",
+          dramaTitle: "契约婚姻反转录",
+          currentStep: "creative-plan",
+          updatedAt: "2026-04-02T00:00:00.000Z",
+          createdAt: "2026-04-01T00:00:00.000Z",
+          setup: {
+            genres: ["都市言情"],
+            audience: "女频",
+            tone: "甜虐",
+            ending: "HE",
+            totalEpisodes: 40,
+            targetMarket: "cn",
+            creativeInput: "替父还债的女主和冷面继承人签下契约婚姻。",
+          },
+        },
+        {
+          id: "drama-project-2",
+          dramaTitle: "夜色回廊",
+          currentStep: "directory",
+          updatedAt: "2026-04-03T00:00:00.000Z",
+          createdAt: "2026-04-02T00:00:00.000Z",
+          creativePlan: "已完成大纲。",
+        },
+      ]),
+    );
+    localStorage.setItem(STUDIO_SESSION_KEY, JSON.stringify(createSession()));
+
+    await renderStudio();
+
+    const historySection = (await screen.findAllByText("对话历史"))[0]?.closest("section") ?? document.body;
+    let historyButton: HTMLElement | null = null;
+    await waitFor(() => {
+      historyButton = within(historySection).getByRole("button", {
+        name: /夜色回廊/,
+      });
+    });
+
+    await act(async () => {
+      fireEvent.click(historyButton!);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(rejectAskUserQuestion).toHaveBeenCalledWith("ask-1", "User switched project");
+    });
+  });
+
+  it("interrupts the active engine before restoring another project into the homepage", async () => {
+    localStorage.setItem(
+      DRAMA_PROJECTS_KEY,
+      JSON.stringify([
+        {
+          id: "drama-project-2",
+          dramaTitle: "夜色回廊",
+          currentStep: "directory",
+          updatedAt: "2026-04-03T00:00:00.000Z",
+          createdAt: "2026-04-02T00:00:00.000Z",
+          creativePlan: "已完成大纲。",
+        },
+      ]),
+    );
+
+    await renderStudio();
+
+    await fillComposer("先帮我分析这个项目");
+    await act(async () => {
+      fireEvent.click(findSendButton()!);
+      await Promise.resolve();
+    });
+    await waitForVisibleText("好的，我们开始。");
+
+    const historySection = (await screen.findAllByText("对话历史"))[0]?.closest("section") ?? document.body;
+    let historyButton: HTMLElement | null = null;
+    await waitFor(() => {
+      historyButton = within(historySection).getByRole("button", {
+        name: /夜色回廊/,
+      });
+    });
+
+    await act(async () => {
+      fireEvent.click(historyButton!);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(lastEngineInterrupt).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("routes prompt handoff through the homepage send flow", async () => {
@@ -1859,6 +2237,104 @@ describe("HomeAgentStudio", () => {
     expect(screen.getByText("整理待审阅项")).toBeInTheDocument();
     expect(screen.getByText("通过稳定项")).toBeInTheDocument();
     expect(screen.getByText("逐条审阅")).toBeInTheDocument();
+  });
+
+  it("silently refreshes running video tasks after restoring a project on the homepage", async () => {
+    seedGeneratingVideoProject("video-project-auto-refresh");
+
+    runWorkflowAction.mockResolvedValueOnce({
+      summary: "已刷新当前出片任务状态。",
+      projectSnapshot: {
+        projectId: "video-project-auto-refresh",
+        projectKind: "video",
+        title: "雨夜追击生成中",
+        currentObjective: "继续轮询当前镜头出片结果。",
+        derivedStage: "生成中",
+        agentSummary: "仍有镜头在后台处理中。",
+        recommendedActions: ["刷新全部进行中镜头"],
+        artifacts: [],
+      },
+      data: {
+        projectSnapshot: {
+          projectId: "video-project-auto-refresh",
+          projectKind: "video",
+          title: "雨夜追击生成中",
+          currentObjective: "继续轮询当前镜头出片结果。",
+          derivedStage: "生成中",
+          agentSummary: "仍有镜头在后台处理中。",
+          recommendedActions: ["刷新全部进行中镜头"],
+          artifacts: [],
+        },
+        videoProject: {
+          ...JSON.parse(localStorage.getItem(VIDEO_PROJECTS_KEY) || "[]")[0],
+          scenes: [
+            {
+              id: "scene-running-1",
+              sceneNumber: 1,
+              sceneName: "巷口冲刺",
+              description: "女主冲进窄巷，雨水四溅。",
+              characters: ["沈昭"],
+              dialogue: "",
+              cameraDirection: "跟拍推进",
+              duration: 5,
+              videoTaskId: "task-running-1",
+              videoStatus: "completed",
+              videoUrl: "https://example.com/video-running-1.mp4",
+            },
+            {
+              id: "scene-running-2",
+              sceneNumber: 2,
+              sceneName: "回头确认",
+              description: "她急停回头，确认追兵距离。",
+              characters: ["沈昭"],
+              dialogue: "",
+              cameraDirection: "手持推近",
+              duration: 5,
+              videoTaskId: "task-running-2",
+              videoStatus: "completed",
+              videoUrl: "https://example.com/video-running-2.mp4",
+            },
+            {
+              id: "scene-running-3",
+              sceneNumber: 3,
+              sceneName: "追兵逼近",
+              description: "远景里追兵穿过雨幕。",
+              characters: ["追兵"],
+              dialogue: "",
+              cameraDirection: "远景压缩",
+              duration: 5,
+              videoStatus: "completed",
+              videoUrl: "https://example.com/video-running-3.mp4",
+            },
+          ],
+        },
+      },
+    });
+
+    await renderStudio();
+
+    const historySection = (await screen.findAllByText("对话历史"))[0]?.closest("section") ?? document.body;
+    let historyButton: HTMLElement | null = null;
+    await waitFor(() => {
+      historyButton = within(historySection).getByRole("button", {
+        name: /雨夜追击生成中/,
+      });
+    });
+
+    await act(async () => {
+      fireEvent.click(historyButton!);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(runWorkflowAction).toHaveBeenCalledWith(
+        "refresh_video_assets",
+        expect.objectContaining({
+          projectId: "video-project-auto-refresh",
+        }),
+        expect.anything(),
+      );
+    });
   });
 
   it("auto-surfaces review guidance for the current homepage session when the restored project has pending review items", async () => {

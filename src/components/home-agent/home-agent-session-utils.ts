@@ -107,6 +107,7 @@ export function areRecentSessionsEquivalent(
       session.compactedMessageCount === prev.compactedMessageCount &&
       session.messages.length === prev.messages.length &&
       session.draft === prev.draft &&
+      session.qState?.source === prev.qState?.source &&
       session.qState?.request.id === prev.qState?.request.id &&
       session.qState?.currentIndex === prev.qState?.currentIndex
     );
@@ -120,6 +121,20 @@ export function mergeRecentProjects(
 ): ConversationProjectSnapshot[] {
   const merged = [nextProject, ...currentProjects.filter((item) => item.projectId !== nextProject.projectId)].slice(0, limit);
   return areProjectSnapshotsEquivalent(merged, currentProjects) ? currentProjects : merged;
+}
+
+export function buildProjectSuggestionKey(
+  snapshot: ConversationProjectSnapshot | null | undefined,
+  question: ComposerQuestion | null | undefined,
+): string | null {
+  if (!snapshot || !question) return null;
+  return [
+    snapshot.projectId,
+    snapshot.updatedAt || snapshot.derivedStage || snapshot.currentObjective,
+    question.id,
+  ]
+    .filter(Boolean)
+    .join(":");
 }
 
 export const qStepKey = (

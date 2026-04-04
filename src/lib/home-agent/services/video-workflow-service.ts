@@ -6,6 +6,7 @@
 } from "@/hooks/use-local-persistence";
 import { invokeFunction } from "@/lib/invoke-with-key";
 import { getApiConfig, prefersJimengCli } from "@/lib/api-config";
+import { dreaminaCliGetStatus } from "@/lib/dreamina-cli";
 import { createVideoSnapshot } from "@/lib/home-agent/project-store";
 import type { WorkflowActionResult, StudioRuntimeState } from "@/lib/home-agent/types";
 import {
@@ -45,6 +46,13 @@ interface VideoGenerationStatusResult {
   status: string;
   video_url?: string;
   state?: string;
+}
+
+function summarizeVideoGenerationError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error || "");
+  const normalized = message.replace(/\s+/g, " ").trim();
+  if (!normalized) return "视频生成失败，请检查当前运行通道与提示词后重试。";
+  return truncate(normalized, 120);
 }
 
 export interface VideoWorkflowContinuationPlan {
@@ -499,6 +507,65 @@ function shouldPreferLocalDreamina(input: Record<string, unknown>): boolean {
   return prefersJimengCli(getApiConfig());
 }
 
+type VideoGenerationTransport = {
+  mode: "api" | "cli";
+  provider?: string;
+  providerLabel: string;
+};
+
+async function ensureVideoGenerationTransport(
+  input: Record<string, unknown>,
+): Promise<VideoGenerationTransport> {
+  const config = getApiConfig();
+  const provider =
+    typeof input.provider === "string" && input.provider.trim()
+      ? input.provider.trim()
+      : undefined;
+
+  if (shouldPreferLocalDreamina(input)) {
+    if (!window.electronAPI?.dreaminaCli?.exec) {
+      throw new Error("当前已锁定 CLI，但 Dreamina CLI 未安装或当前环境不支持，无法发起出片。");
+    }
+
+    const status = await dreaminaCliGetStatus();
+    if (!status.loggedIn) {
+      throw new Error(
+        status.installed
+          ? "当前已锁定 CLI，但 Dreamina CLI 尚未登录，无法发起出片。请先完成登录，或切回 API。"
+          : "当前已锁定 CLI，但 Dreamina CLI 未安装或不可用，无法发起出片。请先安装并登录，或切回 API。",
+      );
+    }
+
+    return {
+      mode: "cli",
+      provider: "dreamina-cli",
+      providerLabel: "Dreamina CLI / Seedance 2.0",
+    };
+  }
+
+  if (provider === "tuzi") {
+    if (!config.tuziKey?.trim()) {
+      throw new Error("当前指定了 Tuzi / Sora 2，但缺少可用 API Key，无法发起出片。");
+    }
+
+    return {
+      mode: "api",
+      provider: "tuzi",
+      providerLabel: "Tuzi API / Sora 2",
+    };
+  }
+
+  if (!config.jimengKey?.trim() && !config.geminiKey?.trim()) {
+    throw new Error("当前已锁定 API，但缺少 Seedance / Gemini 可用 Key，无法发起出片。");
+  }
+
+  return {
+    mode: "api",
+    provider,
+    providerLabel: "Seedance API",
+  };
+}
+
 function normalizeSceneStatus(value: string | undefined): string {
   if (!value?.trim()) return "";
   const lowered = String(value || "").toLowerCase();
@@ -854,7 +921,7 @@ export async function generateVideoAssetsAction(
     throw new Error("当前没有可提交出片的镜头，先轮询结果或指定新的镜头范围。");
   }
 
-  const preferLocalDreamina = shouldPreferLocalDreamina(input);
+  const transport = await ensureVideoGenerationTransport(input);
   const nextScenes = [...project.scenes];
   let submittedCount = 0;
   const failedScenes: string[] = [];
@@ -869,7 +936,7 @@ export async function generateVideoAssetsAction(
         duration: prompt.duration ?? scene.recommendedDuration ?? scene.duration ?? 5,
         aspectRatio: typeof input.aspectRatio === "string" ? input.aspectRatio : "16:9",
         resolution: typeof input.resolution === "string" ? input.resolution : "720p",
-        provider: preferLocalDreamina ? "dreamina-cli" : input.provider,
+        provider: transport.provider,
       });
 
       if (error) throw error;
@@ -883,27 +950,33 @@ export async function generateVideoAssetsAction(
         videoUrl: undefined,
         videoTaskId: data?.task_id || nextScenes[sceneIndex].videoTaskId,
         videoProvider:
-          data?.provider || (preferLocalDreamina ? "dreamina-cli" : nextScenes[sceneIndex].videoProvider),
+          data?.provider || transport.provider || nextScenes[sceneIndex].videoProvider,
         videoStatus: normalizeSceneStatus(data?.status),
+        videoFailure: undefined,
         recommendedDuration: prompt.duration ?? nextScenes[sceneIndex].recommendedDuration,
       };
       submittedCount += 1;
-    } catch {
+    } catch (error) {
       const sceneIndex = nextScenes.findIndex((item) => item.id === scene.id);
       if (sceneIndex >= 0) {
         nextScenes[sceneIndex] = {
           ...nextScenes[sceneIndex],
           videoStatus: "failed",
+          videoFailure: {
+            message: summarizeVideoGenerationError(error),
+            provider: transport.provider,
+            stage: "submit",
+            updatedAt: new Date().toISOString(),
+          },
         };
       }
       failedScenes.push(scene.sceneName);
     }
   }
 
-  const providerLabel = preferLocalDreamina ? "Dreamina CLI / Seedance 2.0" : "当前视频模型";
   const summary = [
     submittedCount
-      ? `已提交 ${submittedCount} 条镜头出片任务，当前优先走 ${providerLabel}。`
+      ? `已提交 ${submittedCount} 条镜头出片任务，当前优先走 ${transport.providerLabel}。`
       : "当前没有镜头成功提交出片任务。",
     failedScenes.length ? `提交失败：${failedScenes.slice(0, 3).join("、")}` : "",
   ]
@@ -957,6 +1030,19 @@ export async function refreshVideoAssetsAction(
     });
 
     if (error) {
+      const sceneIndex = nextScenes.findIndex((item) => item.id === scene.id);
+      if (sceneIndex >= 0) {
+        nextScenes[sceneIndex] = {
+          ...nextScenes[sceneIndex],
+          videoStatus: "failed",
+          videoFailure: {
+            message: summarizeVideoGenerationError(error),
+            provider: scene.videoProvider,
+            stage: "status",
+            updatedAt: new Date().toISOString(),
+          },
+        };
+      }
       failedCount += 1;
       continue;
     }
@@ -971,6 +1057,7 @@ export async function refreshVideoAssetsAction(
         videoHistory: appendVideoHistory(nextScenes[sceneIndex], data.video_url),
         videoUrl: data.video_url,
         videoStatus: "completed",
+        videoFailure: undefined,
       };
       completedCount += 1;
       continue;
@@ -980,6 +1067,12 @@ export async function refreshVideoAssetsAction(
       nextScenes[sceneIndex] = {
         ...nextScenes[sceneIndex],
         videoStatus: "failed",
+        videoFailure: {
+          message: "轮询结果显示当前镜头生成失败，建议直接重做或调整提示词后补发。",
+          provider: scene.videoProvider,
+          stage: "status",
+          updatedAt: new Date().toISOString(),
+        },
       };
       failedCount += 1;
       continue;
@@ -988,6 +1081,7 @@ export async function refreshVideoAssetsAction(
     nextScenes[sceneIndex] = {
       ...nextScenes[sceneIndex],
       videoStatus: normalizedStatus,
+      videoFailure: undefined,
     };
     processingCount += 1;
   }

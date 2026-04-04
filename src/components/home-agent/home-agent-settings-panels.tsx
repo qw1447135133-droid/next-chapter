@@ -1,6 +1,6 @@
 import * as React from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 const { Suspense, lazy, memo } = React;
@@ -24,34 +24,28 @@ export const DesktopSettingsPanel = memo(function DesktopSettingsPanel({
   leftOffset: number;
   width: number;
 }) {
+  if (!open) return null;
+
   return (
-    <AnimatePresence>
-      {open ? (
-        <motion.aside
-          initial={{ opacity: 0, x: -18, scale: 0.985 }}
-          animate={{ opacity: 1, x: 0, scale: 1 }}
-          exit={{ opacity: 0, x: -12, scale: 0.99 }}
-          transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-          className="fixed bottom-4 top-4 z-50 hidden lg:block"
-          style={{
-            left: leftOffset - 16,
-            width: `min(${width}px, calc(100vw - ${leftOffset + 32}px))`,
-          }}
+    <aside
+      className="fixed bottom-4 top-4 z-50 hidden lg:block"
+      style={{
+        left: leftOffset - 16,
+        width: `min(${width}px, calc(100vw - ${leftOffset + 32}px))`,
+      }}
+    >
+      <div className={cn("flex h-full min-h-0 flex-col overflow-hidden", SETTINGS_PANEL_CLASS)}>
+        <Suspense
+          fallback={
+            <div className="flex h-full items-center justify-center text-sm text-slate-500">
+              正在加载设置面板…
+            </div>
+          }
         >
-          <div className={cn("flex h-full min-h-0 flex-col overflow-hidden", SETTINGS_PANEL_CLASS)}>
-            <Suspense
-              fallback={
-                <div className="flex h-full items-center justify-center text-sm text-slate-500">
-                  正在加载设置面板…
-                </div>
-              }
-            >
-              <SettingsPage embedded onClose={onClose} onSaved={onSaved} />
-            </Suspense>
-          </div>
-        </motion.aside>
-      ) : null}
-    </AnimatePresence>
+          <SettingsPage embedded onClose={onClose} onSaved={onSaved} />
+        </Suspense>
+      </div>
+    </aside>
   );
 });
 
@@ -64,9 +58,17 @@ export const MobileSettingsSheet = memo(function MobileSettingsSheet({
   onOpenChange: (open: boolean) => void;
   onSaved?: () => void;
 }) {
+  const isMobile = useIsMobile();
+
+  if (!isMobile) return null;
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="left" className={cn(MOBILE_SETTINGS_SHEET, "lg:hidden")}>
+      <SheetContent
+        side="left"
+        overlayClassName="bg-black/58 backdrop-blur-0"
+        className={cn(MOBILE_SETTINGS_SHEET, "lg:hidden")}
+      >
         <SheetHeader className="sr-only">
           <SheetTitle>设置</SheetTitle>
           <SheetDescription>在首页内完成模型、密钥、路径与外观设置。</SheetDescription>

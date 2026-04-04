@@ -48,6 +48,9 @@ export function buildOpenProjectSessionState(params: {
       messages: savedSession.messages.length ? savedSession.messages : [createAssistantMessage(buildBrief(snapshot))],
       draft: savedSession.draft ?? "",
       compactedMessageCount: savedSession.compactedMessageCount ?? 0,
+      surfacedTaskIds: savedSession.surfacedTaskIds ?? [],
+      surfacedTaskFollowupKeys: savedSession.surfacedTaskFollowupKeys ?? [],
+      surfacedProjectSuggestionKeys: savedSession.surfacedProjectSuggestionKeys ?? [],
       previousQuestionStep: savedSession.qState
         ? `${savedSession.qState.request.id}:${savedSession.qState.currentIndex}`
         : null,
@@ -64,6 +67,9 @@ export function buildOpenProjectSessionState(params: {
     messages: [createAssistantMessage(buildBrief(snapshot))],
     draft: "",
     compactedMessageCount: 0,
+    surfacedTaskIds: [],
+    surfacedTaskFollowupKeys: [],
+    surfacedProjectSuggestionKeys: [],
     previousQuestionStep: null,
     sessionId: crypto.randomUUID(),
   };
@@ -108,6 +114,7 @@ export function advanceStructuredAnswer(params: {
     nextQState: isLastStep
       ? null
       : {
+          source: qState.source,
           request: qState.request,
           currentIndex: qState.currentIndex + 1,
           answers: nextAnswers,

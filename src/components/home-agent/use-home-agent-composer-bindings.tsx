@@ -1,15 +1,17 @@
 import { useCallback, useMemo } from "react";
 import type { ComposerQuestion, ConversationProjectSnapshot, StudioQuestionState, StudioRuntimeState } from "@/lib/home-agent/types";
 import { cn } from "@/lib/utils";
-import { HomeComposer, type HomeComposerProps } from "./home-agent-shell";
+import { HomeComposer, type HomeComposerProps, type HomeComposerVideoTransportHint } from "./home-agent-shell";
 import { buildConfirmedStructuredAnswer, handleHomeAgentChoiceSelection, submitHomeAgentComposer } from "./home-agent-session-actions";
 
 type ChoiceHandler = (snapshot: ConversationProjectSnapshot, value: string, label: string) => boolean;
+type MaintenanceChoiceHandler = (value: string, label: string) => boolean;
 
 export function useHomeAgentComposerBindings(params: {
   idle: boolean;
   currentProject: ConversationProjectSnapshot | null;
   maintenanceHint?: string | null;
+  videoTransportHint?: HomeComposerVideoTransportHint | null;
   draftInitialValue: string;
   draftResetVersion: number;
   draftPresence: boolean;
@@ -29,6 +31,7 @@ export function useHomeAgentComposerBindings(params: {
   answer: (value: string, label?: string) => void;
   send: (value: string, shown?: string) => Promise<void>;
   setSelectedValues: React.Dispatch<React.SetStateAction<string[]>>;
+  maintenanceChoiceHandler: MaintenanceChoiceHandler;
   videoProjectChoiceHandler: ChoiceHandler;
   videoReviewChoiceHandler: ChoiceHandler;
   videoAssetChoiceHandler: ChoiceHandler;
@@ -40,6 +43,7 @@ export function useHomeAgentComposerBindings(params: {
     idle,
     currentProject,
     maintenanceHint,
+    videoTransportHint,
     draftInitialValue,
     draftResetVersion,
     draftPresence,
@@ -59,6 +63,7 @@ export function useHomeAgentComposerBindings(params: {
     answer,
     send,
     setSelectedValues,
+    maintenanceChoiceHandler,
     videoProjectChoiceHandler,
     videoReviewChoiceHandler,
     videoAssetChoiceHandler,
@@ -77,6 +82,7 @@ export function useHomeAgentComposerBindings(params: {
         qState,
         answer,
         setSelectedValues,
+        maintenanceChoiceHandler,
         videoProjectChoiceHandler,
         videoReviewChoiceHandler,
         videoAssetChoiceHandler,
@@ -88,6 +94,7 @@ export function useHomeAgentComposerBindings(params: {
       qState,
       question,
       runtimeRef,
+      maintenanceChoiceHandler,
       scriptProjectChoiceHandler,
       setSelectedValues,
       videoAssetChoiceHandler,
@@ -129,6 +136,7 @@ export function useHomeAgentComposerBindings(params: {
       currentProjectTitle: currentProject?.title,
       currentProjectStage: currentProject?.derivedStage,
       maintenanceHint,
+      videoTransportHint,
       initialDraft: draftInitialValue,
       draftResetVersion,
       draftPresence,
@@ -166,6 +174,7 @@ export function useHomeAgentComposerBindings(params: {
       streaming,
       submitComposer,
       syncComposerDraft,
+      videoTransportHint,
     ],
   );
 

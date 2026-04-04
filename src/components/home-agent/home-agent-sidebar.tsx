@@ -25,6 +25,11 @@ const EXECUTION_MODE_LABEL: Record<JimengExecutionMode, string> = {
   cli: "CLI",
 };
 
+function executionModeHint(mode: JimengExecutionMode, dreaminaCliAvailable?: boolean): string {
+  if (mode === "api") return "云端";
+  return dreaminaCliAvailable ? "已连接" : "未连接";
+}
+
 export type HomeAgentTemplate = {
   id: string;
   title: string;
@@ -76,18 +81,31 @@ const SidebarFooter = memo(function SidebarFooter({
   return (
     <div className={cn("border-t border-white/[0.05] pb-3 pt-2", collapsed ? "px-2" : "px-2.5")}>
       {!collapsed && jimengExecutionMode && onChangeJimengExecutionMode ? (
-        <div className="mb-2 rounded-[14px] border border-white/[0.06] bg-white/[0.02] p-2">
-          <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
-            <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Seedance</span>
-            <span className="text-[10px] text-slate-500">
-              {jimengExecutionMode === "cli"
-                ? dreaminaCliAvailable
-                  ? "CLI 就绪"
-                  : "CLI 未就绪"
-                : "API 默认"}
+        <div className="mb-1 flex items-center gap-2 px-2.5 py-0.5 text-[10px] text-slate-500">
+          <div className="min-w-0 flex items-center gap-1.5">
+            <span className="uppercase tracking-[0.22em] text-slate-600">Seedance</span>
+            <span
+              className={cn(
+                "h-1 w-1 shrink-0 rounded-full",
+                jimengExecutionMode === "cli"
+                  ? dreaminaCliAvailable
+                    ? "bg-emerald-300/70"
+                    : "bg-amber-300/70"
+                  : "bg-slate-400/50",
+              )}
+            />
+            <span
+              className={cn(
+                "min-w-0 truncate text-[10px]",
+                jimengExecutionMode === "cli" && !dreaminaCliAvailable
+                  ? "text-amber-200/70"
+                  : "text-slate-500",
+              )}
+            >
+              {executionModeHint(jimengExecutionMode, dreaminaCliAvailable)}
             </span>
           </div>
-          <div className="inline-flex w-full rounded-full border border-white/[0.06] bg-white/[0.03] p-1">
+          <div className="ml-auto inline-flex shrink-0 rounded-full bg-white/[0.015] p-[1px]">
             {(["api", "cli"] as const).map((mode) => {
               const active = jimengExecutionMode === mode;
               return (
@@ -97,10 +115,10 @@ const SidebarFooter = memo(function SidebarFooter({
                   onClick={() => onChangeJimengExecutionMode(mode)}
                   aria-pressed={active}
                   className={cn(
-                    "flex-1 rounded-full px-3 py-1.5 text-[11px] font-medium transition",
+                    "rounded-full px-2.5 py-1 text-[10px] font-medium transition",
                     active
-                      ? "bg-white text-slate-950 shadow-sm"
-                      : "text-slate-400 hover:text-slate-100",
+                      ? "bg-white/[0.08] text-white/92"
+                      : "text-slate-600 hover:text-slate-300",
                   )}
                 >
                   {EXECUTION_MODE_LABEL[mode]}
@@ -116,18 +134,15 @@ const SidebarFooter = memo(function SidebarFooter({
         aria-label="打开设置"
         title="设置"
         className={cn(
-          "flex w-full items-center rounded-[12px] px-2.5 py-1.5 text-left text-[11px] text-slate-300 transition-colors hover:bg-white/[0.035] hover:text-slate-100",
+          "flex w-full items-center rounded-[12px] px-2.5 py-1 text-left text-[11px] text-slate-300 transition-colors hover:bg-white/[0.03] hover:text-slate-100",
           collapsed ? "justify-center" : "gap-2",
         )}
       >
-        <span className="flex h-6.5 w-6.5 items-center justify-center rounded-[10px] bg-white/[0.04] text-slate-200">
-          <Settings2 className="h-3.5 w-3.5" />
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[9px] bg-white/[0.03] text-slate-300">
+          <Settings2 className="h-3.25 w-3.25" />
         </span>
         {!collapsed ? (
-          <span className="min-w-0 flex-1">
-            <span className="block text-[11px] font-medium">设置</span>
-            <span className="block truncate text-[10px] text-slate-500">模型、密钥、路径与外观</span>
-          </span>
+          <span className="min-w-0 flex-1 truncate text-[11px] font-medium">设置</span>
         ) : null}
       </button>
     </div>
@@ -485,8 +500,12 @@ export const DesktopSidebar = memo(function DesktopSidebar({
   return (
     <aside className="hidden lg:block">
       <div
-        className="fixed inset-y-0 left-0 z-40 border-r border-white/[0.06] bg-[#141518] [contain:layout_paint] transition-[width] duration-200 ease-out"
-        style={{ width: collapsed ? collapsedWidth : expandedWidth }}
+        className="fixed inset-y-0 left-0 z-40 border-r border-white/[0.06] bg-[#141518] [contain:layout_paint] transition-[width] duration-300"
+        style={{
+          width: collapsed ? collapsedWidth : expandedWidth,
+          transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+          willChange: "width",
+        }}
       >
         <SidebarBrandHeader
           idle={idle}
@@ -496,7 +515,7 @@ export const DesktopSidebar = memo(function DesktopSidebar({
         />
 
         <div className="flex h-[calc(100vh-72px)] flex-col">
-          <div className={cn("flex-1 overflow-y-auto py-4", collapsed ? "px-2.5" : "px-3")}>
+          <div className={cn("sidebar-scrollbar flex-1 overflow-y-auto py-4", collapsed ? "px-2.5" : "px-3")}>
             <SidebarPrimaryAction idle={idle} onClick={onNewProject} collapsed={collapsed} />
 
             {idle ? (
@@ -607,7 +626,7 @@ export const MobileSidebarSheet = memo(function MobileSidebarSheet({
         <SidebarBrandHeader idle={idle} brandLabel={brandLabel} />
 
         <div className="flex h-[calc(100vh-72px)] flex-col">
-          <div className="flex-1 overflow-y-auto px-3 py-4">
+          <div className="sidebar-scrollbar flex-1 overflow-y-auto px-3 py-4">
             <SidebarPrimaryAction idle={idle} onClick={handleNewProjectFromSheet} />
 
             {idle ? <SidebarQuickTasks templates={templates} onLaunch={handleLaunchTemplate} bordered /> : null}

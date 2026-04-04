@@ -5,9 +5,16 @@ import type {
   ComposerQuestion,
   ConversationProjectSnapshot,
   HomeAgentMessage,
+  SkillDraft,
   StudioRuntimeState,
 } from "@/lib/home-agent/types";
 import { createScriptProjectChoiceHandler } from "./home-agent-script-choice-handlers";
+import {
+  buildMaintenanceReportMessage,
+  buildSkillDraftSummaryMessage,
+  findSkillDraft,
+  listPendingSkillDrafts,
+} from "./home-agent-project-questions";
 import {
   createVideoAssetChoiceHandler,
   createVideoProjectChoiceHandler,
@@ -26,6 +33,7 @@ type WorkflowShortcutChainRunner = (
   steps: Array<{ action: string; input: Record<string, unknown> }>,
   userBubble: string,
 ) => void | Promise<void>;
+type MaintenanceChoiceHandler = (value: string, label: string) => boolean;
 type SceneLike = { id: string };
 type ReviewItem = { id: string; title: string; targetIds: string[] };
 type CharacterCard = {
@@ -111,6 +119,12 @@ export function useHomeAgentChoiceHandlers(params: {
     snapshot: ConversationProjectSnapshot,
     packetId: string,
   ) => ComposerQuestion | null;
+  buildMaintenanceReviewQuestion: (
+    runtime: Pick<StudioRuntimeState, "skillDrafts" | "maintenanceReports">,
+  ) => ComposerQuestion | null;
+  buildSkillDraftListQuestion: (
+    drafts: SkillDraft[],
+  ) => ComposerQuestion | null;
 }) {
   const {
     runtimeRef,
@@ -149,6 +163,8 @@ export function useHomeAgentChoiceHandlers(params: {
     buildBeatPacketListQuestion,
     findBeatPacket,
     buildBeatPacketDecisionQuestion,
+    buildMaintenanceReviewQuestion,
+    buildSkillDraftListQuestion,
   } = params;
 
   const showChoicePopover = useCallback(
@@ -303,7 +319,71 @@ export function useHomeAgentChoiceHandlers(params: {
     ],
   );
 
+  const maintenanceChoiceHandler = useMemo<MaintenanceChoiceHandler>(
+    () => (value, label) => {
+      const runtime = runtimeRef.current;
+      const pendingDrafts = listPendingSkillDrafts(runtime.skillDrafts);
+      const latestReport = runtime.maintenanceReports[0] ?? null;
+
+      if (value === "maintenance:run") {
+        void runWorkflowActionShortcut("run_maintenance", {}, label);
+        return true;
+      }
+
+      if (value === "maintenance:report:latest" && latestReport) {
+        showChoiceNotice(
+          label,
+          buildMaintenanceReportMessage(latestReport),
+          buildMaintenanceReviewQuestion(runtime),
+        );
+        return true;
+      }
+
+      if (value === "maintenance:skills") {
+        const nextQuestion = buildSkillDraftListQuestion(runtime.skillDrafts);
+        if (!nextQuestion) {
+          showChoiceNotice(
+            label,
+            pendingDrafts.length ? "当前没有可展开的技能草案。" : "当前没有待审核技能草案。",
+            buildMaintenanceReviewQuestion(runtime),
+          );
+          return true;
+        }
+
+        showChoicePopover(
+          label,
+          `当前共有 ${pendingDrafts.length} 份待审核技能草案，我先按草案逐条给你看。`,
+          nextQuestion,
+        );
+        return true;
+      }
+
+      if (value.startsWith("maintenance:skill:")) {
+        const draftId = value.replace("maintenance:skill:", "");
+        const draft = findSkillDraft(runtime.skillDrafts, draftId);
+        if (!draft) {
+          showChoiceNotice(label, "这份技能草案已经不存在或已被清理。", buildMaintenanceReviewQuestion(runtime));
+          return true;
+        }
+
+        showChoiceNotice(label, buildSkillDraftSummaryMessage(draft), buildMaintenanceReviewQuestion(runtime));
+        return true;
+      }
+
+      return false;
+    },
+    [
+      buildMaintenanceReviewQuestion,
+      buildSkillDraftListQuestion,
+      runWorkflowActionShortcut,
+      runtimeRef,
+      showChoiceNotice,
+      showChoicePopover,
+    ],
+  );
+
   return {
+    maintenanceChoiceHandler,
     videoProjectChoiceHandler,
     videoReviewChoiceHandler,
     videoAssetChoiceHandler,

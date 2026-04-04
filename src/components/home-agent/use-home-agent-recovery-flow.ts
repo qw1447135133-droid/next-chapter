@@ -5,7 +5,7 @@ import type { ComposerQuestion, ConversationProjectSnapshot, HomeAgentMessage, S
 import type { AskUserQuestionRequest } from "@/lib/agent/tools/ask-user-question";
 import { brief, recQuestion } from "./home-agent-project-questions";
 
-const { useCallback, useEffect, startTransition } = React;
+const { useCallback, useEffect, useRef, startTransition } = React;
 
 type DreaminaCapabilityState = {
   ready: boolean;
@@ -17,11 +17,14 @@ export function useHomeAgentRecoveryFlow(params: {
   handoffRef: React.MutableRefObject<boolean>;
   engineRef: React.MutableRefObject<{ interrupt?: () => void } | null>;
   loadProjectStore: () => Promise<typeof import("@/lib/home-agent/project-store")>;
+  loadAskUserQuestionModule: () => Promise<typeof import("@/lib/agent/tools/ask-user-question")>;
+  qState: StudioQuestionState | null;
   setActiveProjectId: React.Dispatch<React.SetStateAction<string | undefined>>;
   setQState: React.Dispatch<React.SetStateAction<StudioQuestionState | null>>;
   setPopoverOverride: React.Dispatch<React.SetStateAction<ComposerQuestion | null>>;
   setSuggested: React.Dispatch<React.SetStateAction<ComposerQuestion | null>>;
   setSelectedValues: React.Dispatch<React.SetStateAction<string[]>>;
+  setStreaming: React.Dispatch<React.SetStateAction<boolean>>;
   setMode: React.Dispatch<React.SetStateAction<"idle" | "active" | "recovering" | "maintenance-review">>;
   setMessages: React.Dispatch<React.SetStateAction<HomeAgentMessage[]>>;
   setCompactedMessageCount: React.Dispatch<React.SetStateAction<number>>;
@@ -29,6 +32,11 @@ export function useHomeAgentRecoveryFlow(params: {
   setMetaReady: React.Dispatch<React.SetStateAction<boolean>>;
   resetComposerDraft: (value?: string) => void;
   previousQuestionStepRef: React.MutableRefObject<string | null>;
+  clearSurfacedTasks: () => void;
+  surfacedTaskIdsRef: React.MutableRefObject<Set<string>>;
+  surfacedTaskFollowupIdsRef: React.MutableRefObject<Set<string>>;
+  surfacedProjectSuggestionKeysRef: React.MutableRefObject<Set<string>>;
+  restoredProjectSuggestionKeysRef: React.MutableRefObject<Set<string>>;
   dreaminaCapability: DreaminaCapabilityState;
   flashMaintenanceHint: (message: string, duration?: number) => void;
   surfacedDreaminaHintRef: React.MutableRefObject<boolean>;
@@ -45,11 +53,14 @@ export function useHomeAgentRecoveryFlow(params: {
     handoffRef,
     engineRef,
     loadProjectStore,
+    loadAskUserQuestionModule,
+    qState,
     setActiveProjectId,
     setQState,
     setPopoverOverride,
     setSuggested,
     setSelectedValues,
+    setStreaming,
     setMode,
     setMessages,
     setCompactedMessageCount,
@@ -57,6 +68,11 @@ export function useHomeAgentRecoveryFlow(params: {
     setMetaReady,
     resetComposerDraft,
     previousQuestionStepRef,
+    clearSurfacedTasks,
+    surfacedTaskIdsRef,
+    surfacedTaskFollowupIdsRef,
+    surfacedProjectSuggestionKeysRef,
+    restoredProjectSuggestionKeysRef,
     dreaminaCapability,
     flashMaintenanceHint,
     surfacedDreaminaHintRef,
@@ -65,16 +81,38 @@ export function useHomeAgentRecoveryFlow(params: {
     mk,
     mergeRecentProjects,
   } = params;
+  const openProjectVersionRef = useRef(0);
 
   const openProject = useCallback(
     async (projectId: string) => {
+      const openVersion = openProjectVersionRef.current + 1;
+      openProjectVersionRef.current = openVersion;
+      const requestId = qState?.request.id;
+      if (requestId) {
+        void loadAskUserQuestionModule().then((mod) => {
+          mod.rejectAskUserQuestion(requestId, "User switched project");
+        });
+      }
+
+      engineRef.current?.interrupt?.();
+      engineRef.current = null;
+      clearSurfacedTasks();
+
+      startTransition(() => {
+        setStreaming(false);
+        setQState(null);
+        setPopoverOverride(null);
+        setSuggested(null);
+        setSelectedValues([]);
+      });
+
       const store = await loadProjectStore();
       const savedSession = readStudioProjectSession(projectId);
       const source = await store.loadConversationSourceById(projectId);
       const snapshot = source.snapshot ?? savedSession?.currentProjectSnapshot;
+      if (openProjectVersionRef.current !== openVersion) return;
       if (!snapshot) return;
 
-      engineRef.current = null;
       startTransition(() => {
         const nextState = buildOpenProjectSessionState({
           savedSession,
@@ -84,6 +122,7 @@ export function useHomeAgentRecoveryFlow(params: {
           createAssistantMessage: (content) => mk("assistant", content),
           getSuggestedQuestion: recQuestion,
         });
+        restoredProjectSuggestionKeysRef.current = new Set(nextState.surfacedProjectSuggestionKeys);
 
         setActiveProjectId(projectId);
         setQState(nextState.qState);
@@ -95,6 +134,9 @@ export function useHomeAgentRecoveryFlow(params: {
         resetComposerDraft(nextState.draft);
         setCompactedMessageCount(nextState.compactedMessageCount);
         previousQuestionStepRef.current = nextState.previousQuestionStep;
+        surfacedTaskIdsRef.current = new Set(nextState.surfacedTaskIds);
+        surfacedTaskFollowupIdsRef.current = new Set(nextState.surfacedTaskFollowupKeys);
+        surfacedProjectSuggestionKeysRef.current = new Set(nextState.surfacedProjectSuggestionKeys);
 
         setRuntime((prev) => ({
           ...prev,
@@ -112,13 +154,16 @@ export function useHomeAgentRecoveryFlow(params: {
       setMetaReady(false);
     },
     [
+      clearSurfacedTasks,
       dreaminaCapability.available,
       engineRef,
       flashMaintenanceHint,
+      loadAskUserQuestionModule,
       loadProjectStore,
       mergeRecentProjects,
       mk,
       previousQuestionStepRef,
+      qState,
       resetComposerDraft,
       setActiveProjectId,
       setCompactedMessageCount,
@@ -130,6 +175,11 @@ export function useHomeAgentRecoveryFlow(params: {
       setRuntime,
       setSelectedValues,
       setSuggested,
+      setStreaming,
+      surfacedTaskFollowupIdsRef,
+      surfacedTaskIdsRef,
+      surfacedProjectSuggestionKeysRef,
+      restoredProjectSuggestionKeysRef,
       surfacedDreaminaHintRef,
     ],
   );

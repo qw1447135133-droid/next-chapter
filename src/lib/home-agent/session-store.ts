@@ -19,6 +19,38 @@ function safeWriteJson(key: string, value: unknown): void {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+function normalizeQuestionState(
+  qState: StudioSessionState["qState"],
+  forceRestored = false,
+): StudioSessionState["qState"] {
+  if (!qState || typeof qState !== "object" || !qState.request) return null;
+
+  return {
+    source: forceRestored ? "restored" : qState.source === "live" ? "live" : "restored",
+    request: qState.request,
+    currentIndex:
+      typeof qState.currentIndex === "number" && Number.isFinite(qState.currentIndex)
+        ? Math.max(0, qState.currentIndex)
+        : 0,
+    answers:
+      qState.answers && typeof qState.answers === "object"
+        ? Object.fromEntries(
+            Object.entries(qState.answers).filter(
+              (entry): entry is [string, string] => typeof entry[0] === "string" && typeof entry[1] === "string",
+            ),
+          )
+        : {},
+    displayAnswers:
+      qState.displayAnswers && typeof qState.displayAnswers === "object"
+        ? Object.fromEntries(
+            Object.entries(qState.displayAnswers).filter(
+              (entry): entry is [string, string] => typeof entry[0] === "string" && typeof entry[1] === "string",
+            ),
+          )
+        : {},
+  };
+}
+
 function normalizeStudioSession(session: StudioSessionState | null): StudioSessionState | null {
   if (!session || typeof session !== "object") return null;
 
@@ -41,9 +73,18 @@ function normalizeStudioSession(session: StudioSessionState | null): StudioSessi
       typeof session.recentMessageSummary === "string" ? session.recentMessageSummary : "",
     projectId: typeof session.projectId === "string" ? session.projectId : undefined,
     draft: typeof session.draft === "string" ? session.draft : "",
-    qState: session.qState ?? null,
+    qState: normalizeQuestionState(session.qState, true),
     selectedValues: Array.isArray(session.selectedValues)
       ? session.selectedValues.filter((value): value is string => typeof value === "string")
+      : [],
+    surfacedTaskIds: Array.isArray(session.surfacedTaskIds)
+      ? session.surfacedTaskIds.filter((value): value is string => typeof value === "string")
+      : [],
+    surfacedTaskFollowupKeys: Array.isArray(session.surfacedTaskFollowupKeys)
+      ? session.surfacedTaskFollowupKeys.filter((value): value is string => typeof value === "string")
+      : [],
+    surfacedProjectSuggestionKeys: Array.isArray(session.surfacedProjectSuggestionKeys)
+      ? session.surfacedProjectSuggestionKeys.filter((value): value is string => typeof value === "string")
       : [],
   };
 }

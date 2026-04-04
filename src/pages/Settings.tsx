@@ -381,11 +381,17 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
     toast({ title: "已重置", description: "存储路径已恢复默认值。" });
   };
 
-  const sectionTitleClass = embedded ? "text-[12px] font-medium flex items-center gap-2 text-slate-700" : "text-sm font-medium flex items-center gap-2";
-  const cardClass = embedded ? "border-white/80 bg-white/72 shadow-[0_10px_24px_rgba(148,163,184,0.08)]" : "";
-  const cardContentClass = embedded ? "pt-5 space-y-3.5" : "pt-6 space-y-4";
-  const compactInputClass = embedded ? "font-mono text-[12.5px] h-10" : "font-mono text-sm";
-  const gridClass = embedded ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 md:grid-cols-2 gap-6";
+  const sectionTitleClass = embedded
+    ? "flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500"
+    : "text-sm font-medium flex items-center gap-2";
+  const cardClass = embedded
+    ? "rounded-[24px] border border-black/[0.045] bg-[rgba(255,255,255,0.56)] shadow-[0_8px_24px_rgba(15,23,42,0.035)]"
+    : "";
+  const cardContentClass = embedded ? "pt-4 space-y-3" : "pt-6 space-y-4";
+  const compactInputClass = embedded
+    ? "h-9 border-[#d9d1c6] bg-white/74 font-mono text-[12px] shadow-none"
+    : "font-mono text-sm";
+  const gridClass = embedded ? "grid grid-cols-1 gap-3" : "grid grid-cols-1 md:grid-cols-2 gap-6";
   const dreaminaStatusTone = dreaminaStatus?.loggedIn
     ? "secondary"
     : dreaminaStatus?.installed
@@ -407,16 +413,16 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
       )}
 
       {embedded && (
-        <div className="flex items-center justify-between border-b border-[#ddd5c9] px-5 py-4">
+        <div className="flex items-center justify-between border-b border-black/[0.055] px-4 py-3.5">
           <div>
-            <h1 className="text-[1.25rem] font-semibold tracking-[-0.03em] text-slate-900">设置</h1>
-            <p className="mt-1 text-[12.5px] text-slate-500">在首页内调整模型、路径与界面行为。</p>
+            <h1 className="text-[1.18rem] font-semibold tracking-[-0.035em] text-slate-900">设置</h1>
+            <p className="mt-0.5 text-[12px] text-slate-500">在首页内调整模型、路径与界面行为。</p>
           </div>
           {onClose && (
             <Button
               variant="ghost"
               size="icon"
-              className="rounded-full border border-[#e5ddd2] bg-white/78 text-slate-700 hover:bg-white"
+              className="h-9 w-9 rounded-full border border-black/[0.055] bg-white/70 text-slate-700 hover:bg-white"
               onClick={onClose}
             >
               <X className="h-4 w-4" />
@@ -425,8 +431,8 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
         </div>
       )}
 
-      <main className={embedded ? "flex-1 overflow-y-auto px-5 py-5 space-y-5" : "max-w-3xl mx-auto px-6 py-6 space-y-6"}>
-        <div className="space-y-3">
+      <main className={embedded ? "flex-1 overflow-y-auto px-4 py-4 space-y-4" : "max-w-3xl mx-auto px-6 py-6 space-y-6"}>
+        <div className="space-y-2.5">
           <h2 className={sectionTitleClass}>
             <Globe className="h-4 w-4" />
             API 设置
@@ -448,7 +454,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                   type="button"
                   variant="outline"
                   size="sm"
-                  className={embedded ? "h-9 gap-1.5 rounded-full border-[#ddd5c9] bg-white/80 px-3 text-[12.5px] hover:bg-white" : "gap-1.5"}
+                  className={embedded ? "h-8.5 gap-1.5 rounded-full border-[#d9d1c6] bg-white/74 px-3 text-[12px] hover:bg-white" : "gap-1.5"}
                   onClick={() => void handleOpenBuiltinAdminDialog()}
                   disabled={!window.electronAPI?.storage?.writeText}
                 >
@@ -461,7 +467,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
 
           <Card className={cardClass}>
             <CardContent className={cardContentClass}>
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="text-sm font-medium">Dreamina CLI</h3>
                   <Badge variant={dreaminaStatusTone}>
@@ -489,7 +495,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                 <div
                   className={cn(
                     "inline-flex rounded-full border p-1",
-                    embedded ? "border-[#ddd5c9] bg-white/78" : "border-border/60 bg-muted/30",
+                    embedded ? "border-[#d9d1c6] bg-white/74" : "border-border/60 bg-muted/30",
                   )}
                 >
                   {JIMENG_EXECUTION_OPTIONS.map((option) => {
@@ -502,7 +508,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                           "rounded-full px-3 py-1.5 text-xs font-medium transition",
                           active
                             ? "bg-slate-950 text-white shadow-sm"
-                            : "text-slate-600 hover:bg-black/[0.04] hover:text-slate-900",
+                            : "text-slate-500 hover:bg-black/[0.035] hover:text-slate-900",
                         )}
                         onClick={() => setConfig((prev) => ({ ...prev, jimengExecutionMode: option.id }))}
                         aria-pressed={active}
@@ -543,8 +549,8 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
               </div>
 
               <div className={cn(
-                "rounded-2xl border px-3.5 py-3 text-sm",
-                embedded ? "border-[#ddd5c9] bg-[#fbfaf7]" : "border-border/60 bg-muted/35",
+                "rounded-[20px] border px-3.5 py-3 text-sm",
+                embedded ? "border-[#ddd5c9] bg-[rgba(251,250,247,0.92)]" : "border-border/60 bg-muted/35",
               )}>
                 <p className="text-sm text-foreground">
                   {dreaminaLoading ? "正在检查 Dreamina CLI 状态..." : dreaminaStatus?.message || "尚未检查 Dreamina CLI 状态。"}
@@ -561,7 +567,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                   type="button"
                   variant="outline"
                   size="sm"
-                  className={embedded ? "h-9 rounded-full border-[#ddd5c9] bg-white/80 px-3 text-[12.5px] hover:bg-white" : ""}
+                  className={embedded ? "h-8.5 rounded-full border-[#d9d1c6] bg-white/74 px-3 text-[12px] hover:bg-white" : ""}
                   onClick={() => void refreshDreaminaStatus()}
                   disabled={dreaminaLoading || !!dreaminaAction}
                 >
@@ -572,7 +578,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                   type="button"
                   variant="outline"
                   size="sm"
-                  className={embedded ? "h-9 rounded-full border-[#ddd5c9] bg-white/80 px-3 text-[12.5px] hover:bg-white" : ""}
+                  className={embedded ? "h-8.5 rounded-full border-[#d9d1c6] bg-white/74 px-3 text-[12px] hover:bg-white" : ""}
                   onClick={() => void handleDreaminaAction("login")}
                   disabled={!window.electronAPI?.dreaminaCli?.exec || !!dreaminaAction}
                 >
@@ -583,7 +589,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                   type="button"
                   variant="outline"
                   size="sm"
-                  className={embedded ? "h-9 rounded-full border-[#ddd5c9] bg-white/80 px-3 text-[12.5px] hover:bg-white" : ""}
+                  className={embedded ? "h-8.5 rounded-full border-[#d9d1c6] bg-white/74 px-3 text-[12px] hover:bg-white" : ""}
                   onClick={() => void handleDreaminaAction("relogin")}
                   disabled={!window.electronAPI?.dreaminaCli?.exec || !!dreaminaAction}
                 >
@@ -687,7 +693,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
           </DialogContent>
         </Dialog>
 
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           <h2 className={sectionTitleClass}>
             {theme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
             外观设置
@@ -705,7 +711,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
           </Card>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           <h2 className={sectionTitleClass}>
             <FolderOpen className="h-4 w-4" />
             存储位置
@@ -728,7 +734,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                     variant="outline"
                     className={cn(
                       embedded
-                        ? "h-9 w-full justify-center gap-1.5 rounded-full border-[#ddd5c9] bg-white/80 px-3 text-[12.5px] hover:bg-white"
+                        ? "h-8.5 w-full justify-center gap-1.5 rounded-full border-[#d9d1c6] bg-white/74 px-3 text-[12px] hover:bg-white"
                         : "shrink-0 gap-1.5",
                     )}
                     onClick={handleSelectStoragePath}
@@ -753,7 +759,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
           </Card>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           <h2 className={sectionTitleClass}>首帧图片压缩</h2>
           <Card className={cardClass}>
             <CardContent className={embedded ? "pt-5" : "pt-6"}>
@@ -787,7 +793,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
           </Card>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           <h2 className={sectionTitleClass}>网络重试</h2>
           <Card className={cardClass}>
             <CardContent className={embedded ? "pt-5" : "pt-6"}>
@@ -821,10 +827,10 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
           </Card>
         </div>
 
-        <Card className={cn("bg-muted/50", embedded && "border-white/70 bg-white/52")}>
+        <Card className={cn("bg-muted/50", embedded && "rounded-[22px] border border-black/[0.04] bg-[rgba(255,255,255,0.42)] shadow-none")}>
           <CardContent className={embedded ? "pt-5" : "pt-6"}>
             <h3 className="font-medium mb-2">说明</h3>
-            <ul className="text-sm text-muted-foreground space-y-1">
+            <ul className="space-y-1 text-[12.5px] text-muted-foreground">
               <li>设置页已移除自定义 API 选项，程序始终使用内置 API。</li>
               <li>历史版本遗留的自定义 API 本地配置会在读取和保存时自动清理。</li>
               <li>即梦 / Seedance 默认可复用 Gemini 网关与 Key，实际走 API 还是 CLI 由上方运行通道决定。</li>
@@ -835,18 +841,18 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
         <div
           className={cn(
             embedded
-              ? "sticky bottom-0 -mx-5 border-t border-[#ddd5c9] bg-[#f4f1ea]/95 px-5 pb-5 pt-4 backdrop-blur"
+              ? "sticky bottom-0 -mx-4 border-t border-black/[0.055] bg-[#f4f1ea] px-4 pb-4 pt-3"
               : "",
           )}
         >
-          <div className={cn(embedded ? "flex flex-col gap-2" : "flex gap-3")}>
-          <Button onClick={handleSave} className={cn("gap-2", embedded ? "h-10 w-full rounded-full bg-slate-950 text-white hover:bg-slate-900" : "flex-1")}>
+          <div className={cn(embedded ? "flex flex-col gap-1.5" : "flex gap-3")}>
+          <Button onClick={handleSave} className={cn("gap-2", embedded ? "h-10 w-full rounded-full bg-slate-950 text-white shadow-none hover:bg-slate-900" : "flex-1")}>
             <Save className="h-4 w-4" />
             保存设置
           </Button>
           <Button
             variant="destructive"
-            className={cn("gap-2", embedded && "h-10 w-full rounded-full")}
+            className={cn("gap-2", embedded && "h-10 w-full rounded-full shadow-none")}
             onClick={handleClear}
           >
             <Trash2 className="h-4 w-4" />

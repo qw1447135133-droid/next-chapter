@@ -24,6 +24,12 @@ const { memo, useEffect, useMemo, useState } = React;
 type ReactNode = React.ReactNode;
 type RefObject<T> = React.RefObject<T>;
 
+export interface HomeComposerVideoTransportHint {
+  label: string;
+  detail: string;
+  tone?: "neutral" | "ready" | "warning";
+}
+
 const ConversationMessageRow = memo(function ConversationMessageRow({
   message,
   shouldAnimate,
@@ -367,6 +373,7 @@ export interface HomeComposerProps {
   currentProjectTitle?: string;
   currentProjectStage?: string;
   maintenanceHint?: string | null;
+  videoTransportHint?: HomeComposerVideoTransportHint | null;
   initialDraft: string;
   draftResetVersion: number;
   draftPresence: boolean;
@@ -390,6 +397,7 @@ export const HomeComposer = memo(function HomeComposer({
   currentProjectTitle,
   currentProjectStage,
   maintenanceHint,
+  videoTransportHint,
   initialDraft,
   draftResetVersion,
   draftPresence,
@@ -455,8 +463,8 @@ export const HomeComposer = memo(function HomeComposer({
             </div>
             <div className="truncate text-[10.5px] text-white/50">首页主控会话</div>
           </div>
-        ) : currentProjectTitle || maintenanceHint ? (
-          <div className="flex items-center gap-1.5 px-3.5 pb-0 pt-1 md:px-6">
+        ) : currentProjectTitle || maintenanceHint || videoTransportHint ? (
+          <div className="flex flex-wrap items-center gap-1.5 px-3.5 pb-0 pt-1 md:px-6">
             {currentProjectTitle ? (
               <div className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-white/[0.04] bg-white/[0.025] px-2.5 py-1 text-[9.5px] text-white/38">
                 <span className="truncate text-white/68">{currentProjectTitle}</span>
@@ -471,6 +479,32 @@ export const HomeComposer = memo(function HomeComposer({
             {maintenanceHint ? (
               <div className="hidden max-w-[200px] truncate rounded-full border border-white/[0.035] bg-white/[0.018] px-2 py-1 text-[9px] text-white/18 xl:block">
                 {maintenanceHint}
+              </div>
+            ) : null}
+            {videoTransportHint ? (
+              <div
+                className={cn(
+                  "inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[9.5px]",
+                  videoTransportHint.tone === "ready"
+                    ? "border-emerald-300/14 bg-emerald-300/[0.06] text-emerald-100/82"
+                    : videoTransportHint.tone === "warning"
+                      ? "border-amber-300/14 bg-amber-300/[0.06] text-amber-100/82"
+                      : "border-white/[0.04] bg-white/[0.022] text-white/42",
+                )}
+              >
+                <span
+                  className={cn(
+                    "h-1 w-1 shrink-0 rounded-full",
+                    videoTransportHint.tone === "ready"
+                      ? "bg-emerald-300/80"
+                      : videoTransportHint.tone === "warning"
+                        ? "bg-amber-300/80"
+                        : "bg-white/28",
+                  )}
+                />
+                <span className="shrink-0 uppercase tracking-[0.14em] text-white/26">视频通道</span>
+                <span className="shrink-0 text-white/68">{videoTransportHint.label}</span>
+                <span className="truncate text-white/34">{videoTransportHint.detail}</span>
               </div>
             ) : null}
           </div>

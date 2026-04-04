@@ -37,6 +37,7 @@ function createSession(overrides?: Partial<StudioSessionState>): StudioSessionSt
     projectId: "project-1",
     draft: "补充反派动机",
     qState: {
+      source: "restored",
       request: {
         id: "ask-1",
         allowCustomInput: true,
@@ -55,6 +56,9 @@ function createSession(overrides?: Partial<StudioSessionState>): StudioSessionSt
       displayAnswers: {},
     },
     selectedValues: ["都市"],
+    surfacedTaskIds: ["task-1"],
+    surfacedTaskFollowupKeys: ["task-1,task-2"],
+    surfacedProjectSuggestionKeys: ["project-1:creative-plan:script-project-1"],
     ...overrides,
   };
 }
@@ -95,6 +99,9 @@ describe("session-store", () => {
       draft: "",
       qState: null,
       selectedValues: ["ok"],
+      surfacedTaskIds: [],
+      surfacedTaskFollowupKeys: [],
+      surfacedProjectSuggestionKeys: [],
     });
   });
 

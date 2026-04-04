@@ -10,6 +10,12 @@ const upsertStoredVideoProject = vi.fn(async (project: PersistedVideoProject) =>
   updatedAt: "2026-04-03T01:00:00.000Z",
 }));
 const invokeFunction = vi.fn();
+const dreaminaCliGetStatus = vi.fn(async () => ({
+  ok: true,
+  installed: true,
+  loggedIn: true,
+  message: "已登录 Dreamina CLI",
+}));
 
 vi.mock("@/hooks/use-local-persistence", () => ({
   createStoredVideoProject,
@@ -19,6 +25,10 @@ vi.mock("@/hooks/use-local-persistence", () => ({
 
 vi.mock("@/lib/invoke-with-key", () => ({
   invokeFunction,
+}));
+
+vi.mock("@/lib/dreamina-cli", () => ({
+  dreaminaCliGetStatus,
 }));
 
 const {
@@ -110,6 +120,13 @@ describe("video-workflow-service execution", () => {
     createStoredVideoProject.mockReset();
     loadStoredVideoProjectById.mockReset();
     upsertStoredVideoProject.mockClear();
+    dreaminaCliGetStatus.mockReset();
+    dreaminaCliGetStatus.mockResolvedValue({
+      ok: true,
+      installed: true,
+      loggedIn: true,
+      message: "已登录 Dreamina CLI",
+    });
     window.electronAPI = undefined;
     localStorage.clear();
   });
@@ -159,6 +176,54 @@ describe("video-workflow-service execution", () => {
     expect(result.summary).toContain("已提交 1 条镜头出片任务");
   });
 
+  it("fails fast when CLI mode is selected but Dreamina CLI is unavailable", async () => {
+    saveApiConfig({ jimengExecutionMode: "cli" });
+
+    const runtime = createRuntime(createVideoProject());
+
+    await expect(generateVideoAssetsAction({}, runtime)).rejects.toThrow(
+      "当前已锁定 CLI，但 Dreamina CLI 未安装或当前环境不支持，无法发起出片。",
+    );
+    expect(invokeFunction).not.toHaveBeenCalled();
+  });
+
+  it("fails fast when CLI mode is selected but Dreamina CLI is not logged in", async () => {
+    saveApiConfig({ jimengExecutionMode: "cli" });
+    window.electronAPI = {
+      dreaminaCli: {
+        exec: vi.fn(),
+      },
+    } as unknown as Window["electronAPI"];
+    dreaminaCliGetStatus.mockResolvedValueOnce({
+      ok: false,
+      installed: true,
+      loggedIn: false,
+      message: "请先登录 Dreamina CLI",
+    });
+
+    const runtime = createRuntime(createVideoProject());
+
+    await expect(generateVideoAssetsAction({}, runtime)).rejects.toThrow(
+      "当前已锁定 CLI，但 Dreamina CLI 尚未登录，无法发起出片。请先完成登录，或切回 API。",
+    );
+    expect(invokeFunction).not.toHaveBeenCalled();
+  });
+
+  it("fails fast when API mode is selected but no Seedance-compatible key is available", async () => {
+    saveApiConfig({
+      jimengExecutionMode: "api",
+      jimengKey: "",
+      geminiKey: "",
+    });
+
+    const runtime = createRuntime(createVideoProject());
+
+    await expect(generateVideoAssetsAction({}, runtime)).rejects.toThrow(
+      "当前已锁定 API，但缺少 Seedance / Gemini 可用 Key，无法发起出片。",
+    );
+    expect(invokeFunction).not.toHaveBeenCalled();
+  });
+
   it("refreshes generated video results back into the homepage project state", async () => {
     invokeFunction.mockResolvedValue({
       data: {
@@ -205,5 +270,36 @@ describe("video-workflow-service execution", () => {
     expect(scene?.videoStatus).toBe("completed");
     expect(scene?.videoHistory?.[0]?.videoUrl).toBe("https://example.com/video-old.mp4");
     expect(result.summary).toContain("已完成 1 条镜头出片");
+  });
+
+  it("stores structured failure details when video submission fails", async () => {
+    saveApiConfig({ jimengExecutionMode: "api", geminiKey: "test-gemini-key" });
+
+    invokeFunction.mockImplementation(async (name: string) => {
+      if (name === "enhance-video-prompt") {
+        return {
+          data: { enhanced: "增强后的视频提示词", duration: 6 },
+          error: null,
+        };
+      }
+
+      if (name === "generate-video") {
+        return {
+          data: null,
+          error: new Error("Seedance rate limit exceeded"),
+        };
+      }
+
+      throw new Error(`unexpected function: ${name}`);
+    });
+
+    const runtime = createRuntime(createVideoProject());
+    const result = await generateVideoAssetsAction({}, runtime);
+    const scene = result.data?.videoProject?.scenes[0];
+
+    expect(scene?.videoStatus).toBe("failed");
+    expect(scene?.videoFailure?.stage).toBe("submit");
+    expect(scene?.videoFailure?.message).toContain("Seedance rate limit exceeded");
+    expect(result.summary).toContain("提交失败");
   });
 });

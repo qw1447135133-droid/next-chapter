@@ -823,6 +823,7 @@ function deriveVideoStage(project: PersistedVideoProject): string {
 function buildVideoRecommendations(project: PersistedVideoProject): string[] {
   const stage = deriveVideoStage(project);
   const generatedVideoCount = project.scenes.filter((scene) => scene.videoUrl).length;
+  const failedVideoCount = project.scenes.filter((scene) => scene.videoStatus === "failed").length;
   const storyboardedSceneCount = project.scenes.filter((scene) => scene.storyboardUrl).length;
   const shotPacketCount = project.shotPackets?.length ?? 0;
   const pendingReviews = project.reviewQueue?.filter(
@@ -859,13 +860,13 @@ function buildVideoRecommendations(project: PersistedVideoProject): string[] {
       ];
     case "视频提示词":
       return [
-        "开始第一轮出片",
+        failedVideoCount ? `补发 ${failedVideoCount} 条失败镜头` : "开始第一轮出片",
         project.videoPromptBatch?.trim() ? "继续微调视频提示词批次" : "回到对话里补充出片要求",
         generatedVideoCount ? `检查已生成的 ${generatedVideoCount} 条视频资产` : "整理待审阅项",
       ];
     case "生成中":
       return [
-        "轮询当前出片结果",
+        failedVideoCount ? `补发 ${failedVideoCount} 条失败镜头` : "轮询当前出片结果",
         runningTasks ? `等待剩余 ${runningTasks} 条镜头完成` : "继续等待当前批次",
         generatedVideoCount ? `检查已生成的 ${generatedVideoCount} 条视频资产` : "补充下一轮镜头要求",
       ];
@@ -1098,6 +1099,11 @@ export function createVideoSnapshot(project: PersistedVideoProject): Conversatio
     .join("，");
   const artifactLabels = summarizeArtifactLabels(artifacts.map((artifact) => artifact.label));
   const nextAction = buildVideoRecommendations(syncedProject)[0];
+  const failedScenes = syncedProject.scenes.filter((scene) => scene.videoStatus === "failed");
+  const failedSceneSummary = failedScenes
+    .slice(0, 2)
+    .map((scene) => `镜头 ${scene.sceneNumber}「${scene.sceneName}」${scene.videoFailure?.message ? `：${scene.videoFailure.message}` : "生成失败"}`)
+    .join("；");
 
   const currentObjective = hasReviewableOutputs &&
     syncedProject.reviewQueue?.some((item) => item.status === "pending" || item.status === "redo")
@@ -1126,8 +1132,8 @@ export function createVideoSnapshot(project: PersistedVideoProject): Conversatio
     derivedStage: stage,
     agentSummary:
       artifacts.length > 0
-        ? `视频项目当前位于“${stage}”，已整理 ${syncedProject.scenes.length} 个镜头、${syncedProject.characters.length} 个角色和 ${syncedProject.sceneSettings.length} 个场景${artifactLabels ? `，当前可直接使用${artifactLabels}` : ""}。${syncedProject.assetManifest ? `已建立 ${syncedProject.assetManifest.items.length} 项资产清单。` : ""}${contextSummary ? `当前${contextSummary}。` : ""}建议下一步先${nextAction}。`
-        : `视频项目当前位于“${stage}”，适合先${nextAction}。${contextSummary ? `当前${contextSummary}。` : ""}`,
+        ? `视频项目当前位于“${stage}”，已整理 ${syncedProject.scenes.length} 个镜头、${syncedProject.characters.length} 个角色和 ${syncedProject.sceneSettings.length} 个场景${artifactLabels ? `，当前可直接使用${artifactLabels}` : ""}。${syncedProject.assetManifest ? `已建立 ${syncedProject.assetManifest.items.length} 项资产清单。` : ""}${failedSceneSummary ? `当前失败项：${failedSceneSummary}。` : ""}${contextSummary ? `当前${contextSummary}。` : ""}建议下一步先${nextAction}。`
+        : `视频项目当前位于“${stage}”，适合先${nextAction}。${failedSceneSummary ? `当前失败项：${failedSceneSummary}。` : ""}${contextSummary ? `当前${contextSummary}。` : ""}`,
     recommendedActions: buildVideoRecommendations(syncedProject),
     artifacts,
     updatedAt,

@@ -3,7 +3,7 @@ import { getAllTasks, type Task } from "@/lib/agent/tools/task-tools";
 import { readStudioProjectSession } from "@/lib/home-agent/session-store";
 import type { ConversationProjectSnapshot, StudioRuntimeState, StudioSessionState } from "@/lib/home-agent/types";
 
-const { useEffect } = React;
+const { useEffect, useRef } = React;
 
 type UtilityPanelId = "settings" | undefined;
 type DreaminaCapabilityState = {
@@ -27,6 +27,8 @@ export function useHomeAgentBootstrapEffects(params: {
   compactedMessageCountRef: React.MutableRefObject<number>;
   surfacedTaskIdsRef: React.MutableRefObject<Set<string>>;
   surfacedTaskFollowupIdsRef: React.MutableRefObject<Set<string>>;
+  surfacedProjectSuggestionKeysRef: React.MutableRefObject<Set<string>>;
+  restoredProjectSuggestionKeysRef: React.MutableRefObject<Set<string>>;
   surfacedDreaminaHintRef: React.MutableRefObject<boolean>;
   setRuntime: React.Dispatch<React.SetStateAction<StudioRuntimeState>>;
   setRecentProjectsReady: React.Dispatch<React.SetStateAction<boolean>>;
@@ -68,6 +70,8 @@ export function useHomeAgentBootstrapEffects(params: {
     compactedMessageCountRef,
     surfacedTaskIdsRef,
     surfacedTaskFollowupIdsRef,
+    surfacedProjectSuggestionKeysRef,
+    restoredProjectSuggestionKeysRef,
     surfacedDreaminaHintRef,
     setRuntime,
     setRecentProjectsReady,
@@ -84,6 +88,7 @@ export function useHomeAgentBootstrapEffects(params: {
     areTaskListsEquivalent,
     writeDesktopSidebarCollapsed,
   } = params;
+  const previousSessionIdRef = useRef(runtime.sessionId);
 
   useEffect(
     () => () => {
@@ -98,9 +103,19 @@ export function useHomeAgentBootstrapEffects(params: {
   );
 
   useEffect(() => {
+    if (previousSessionIdRef.current === runtime.sessionId) return;
+    previousSessionIdRef.current = runtime.sessionId;
     surfacedTaskIdsRef.current.clear();
     surfacedTaskFollowupIdsRef.current.clear();
-  }, [runtime.sessionId, surfacedTaskFollowupIdsRef, surfacedTaskIdsRef]);
+    surfacedProjectSuggestionKeysRef.current.clear();
+    restoredProjectSuggestionKeysRef.current.clear();
+  }, [
+    runtime.sessionId,
+    restoredProjectSuggestionKeysRef,
+    surfacedProjectSuggestionKeysRef,
+    surfacedTaskFollowupIdsRef,
+    surfacedTaskIdsRef,
+  ]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -166,7 +181,7 @@ export function useHomeAgentBootstrapEffects(params: {
   ]);
 
   useEffect(() => {
-    if (metaReady || mode === "idle") return;
+    if (metaReady) return;
 
     let cancelled = false;
     const cancelTask = scheduleBackgroundTask(() => {
@@ -192,7 +207,7 @@ export function useHomeAgentBootstrapEffects(params: {
       cancelled = true;
       cancelTask();
     };
-  }, [loadProjectStore, metaReady, mode, scheduleBackgroundTask, setMetaReady, setRuntime]);
+  }, [loadProjectStore, metaReady, scheduleBackgroundTask, setMetaReady, setRuntime]);
 
   useEffect(() => {
     if (runtime.currentProjectSnapshot?.projectId) {

@@ -142,6 +142,7 @@ export interface HomeAgentMessage {
 }
 
 export interface StudioQuestionState {
+  source?: "live" | "restored";
   request: AskUserQuestionRequest;
   currentIndex: number;
   answers: Record<string, string>;
@@ -199,6 +200,9 @@ export interface StudioSessionState {
   draft?: string;
   qState?: StudioQuestionState | null;
   selectedValues?: string[];
+  surfacedTaskIds?: string[];
+  surfacedTaskFollowupKeys?: string[];
+  surfacedProjectSuggestionKeys?: string[];
 }
 
 export interface StudioRuntimeState {

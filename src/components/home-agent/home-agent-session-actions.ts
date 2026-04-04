@@ -74,7 +74,7 @@ export function answerHomeAgentQuestion(params: {
   setSuggested: (value: ComposerQuestion | null) => void;
   send: (value: string, shown?: string) => Promise<void>;
   push: PushMessage;
-  resolveQuestion: (requestId: string, output: string) => void;
+  resolveQuestion: (requestId: string, output: string) => boolean | Promise<boolean>;
   setQState: (value: StudioQuestionState | null) => void;
   setSelectedValues: (value: string[]) => void;
   resetComposerDraft: (value?: string) => void;
@@ -115,17 +115,34 @@ export function answerHomeAgentQuestion(params: {
   });
   if (!transition) return;
 
-  push("user", transition.userBubble);
-
   if (transition.isLastStep) {
-    resolveQuestion(qState.request.id, serializeQuestionAnswers(qState.request, transition.nextAnswers));
+    const output = serializeQuestionAnswers(qState.request, transition.nextAnswers);
     setQState(null);
-  } else {
-    setQState(transition.nextQState);
-  }
+    setSelectedValues([]);
+    resetComposerDraft("");
 
-  setSelectedValues([]);
-  resetComposerDraft("");
+    if (qState.source === "restored") {
+      void send(output, transition.userBubble);
+      return;
+    }
+
+    void Promise.resolve(resolveQuestion(qState.request.id, output))
+      .catch(() => false)
+      .then((resolved) => {
+        if (resolved) {
+          push("user", transition.userBubble);
+          return;
+        }
+
+        void send(output, transition.userBubble);
+      });
+    return;
+  } else {
+    push("user", transition.userBubble);
+    setQState(transition.nextQState);
+    setSelectedValues([]);
+    resetComposerDraft("");
+  }
 }
 
 export function buildConfirmedStructuredAnswer(params: {
@@ -188,6 +205,7 @@ export function handleHomeAgentChoiceSelection(params: {
   qState: StudioQuestionState | null;
   answer: (value: string, label?: string) => void;
   setSelectedValues: React.Dispatch<React.SetStateAction<string[]>>;
+  maintenanceChoiceHandler: (value: string, label: string) => boolean;
   videoProjectChoiceHandler: (snapshot: ConversationProjectSnapshot, value: string, label: string) => boolean;
   videoReviewChoiceHandler: (snapshot: ConversationProjectSnapshot, value: string, label: string) => boolean;
   videoAssetChoiceHandler: (snapshot: ConversationProjectSnapshot, value: string, label: string) => boolean;
@@ -201,11 +219,16 @@ export function handleHomeAgentChoiceSelection(params: {
     qState,
     answer,
     setSelectedValues,
+    maintenanceChoiceHandler,
     videoProjectChoiceHandler,
     videoReviewChoiceHandler,
     videoAssetChoiceHandler,
     scriptProjectChoiceHandler,
   } = params;
+
+  if (question?.id.startsWith("maintenance-") && maintenanceChoiceHandler(value, label)) {
+    return;
+  }
 
   if (snapshot?.projectKind === "video" && videoProjectChoiceHandler(snapshot, value, label)) {
     return;

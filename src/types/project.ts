@@ -15,11 +15,19 @@ export interface Scene {
   videoTaskId?: string;
   videoProvider?: string;
   videoStatus?: string; // queued | processing | completed | failed
+  videoFailure?: VideoFailureInfo;
   videoHistory?: VideoHistoryEntry[];
   recommendedDuration?: number;
   isManualDuration?: boolean; // true when user manually set duration
   characterCostumes?: Record<string, string>; // { characterName: costumeId }
   sceneTimeVariantId?: string; // explicit time variant chosen for this shot
+}
+
+export interface VideoFailureInfo {
+  message: string;
+  provider?: string;
+  stage?: "submit" | "status";
+  updatedAt: string;
 }
 
 export interface VideoHistoryEntry {

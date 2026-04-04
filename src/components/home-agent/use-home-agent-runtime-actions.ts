@@ -1,4 +1,4 @@
-import { startTransition, useCallback } from "react";
+import { startTransition, useCallback, useRef } from "react";
 import type { AskUserQuestionRequest } from "@/lib/agent/tools/ask-user-question";
 import { readStudioProjectSession } from "@/lib/home-agent/session-store";
 import type { HomeAgentMessage, StudioQuestionState, StudioRuntimeState } from "@/lib/home-agent/types";
@@ -110,6 +110,7 @@ export function useHomeAgentRuntimeActions(params: {
     setMetaReady,
     setActiveProjectId,
   } = params;
+  const sendRunIdRef = useRef(0);
 
   const resolveDreaminaCapability = useCallback(async (): Promise<DreaminaCapabilityState> => {
     if (dreaminaCapability.ready) return dreaminaCapability;
@@ -181,6 +182,8 @@ export function useHomeAgentRuntimeActions(params: {
 
   const send = useCallback(
     async (rawPrompt: string, shown?: string) => {
+      const runId = sendRunIdRef.current + 1;
+      sendRunIdRef.current = runId;
       const cleaned = beginSendFlow({
         prompt: rawPrompt,
         shown,
@@ -225,7 +228,11 @@ export function useHomeAgentRuntimeActions(params: {
 
       try {
         const activeEngine = await getEngine();
+        const sendSessionId = runtimeRef.current.sessionId;
         for await (const event of activeEngine.submitMessage(promptForEngine)) {
+          if (sendRunIdRef.current !== runId) break;
+          if (engineRef.current !== activeEngine) break;
+          if (runtimeRef.current.sessionId !== sendSessionId) break;
           await handleSendEngineEvent({
             event,
             loadStructuredQuestionParser,
@@ -235,15 +242,20 @@ export function useHomeAgentRuntimeActions(params: {
           });
         }
       } catch (error) {
-        push("assistant", error instanceof Error ? error.message : String(error));
+        if (sendRunIdRef.current === runId) {
+          push("assistant", error instanceof Error ? error.message : String(error));
+        }
       } finally {
-        setStreaming(false);
+        if (sendRunIdRef.current === runId) {
+          setStreaming(false);
+        }
       }
     },
     [
       buildResearchPromptOverlay,
       createQuestionState,
       dreaminaCapability,
+      engineRef,
       flashMaintenanceHint,
       getEngine,
       launchAutoResearchTasks,
@@ -259,6 +271,7 @@ export function useHomeAgentRuntimeActions(params: {
       setQState,
       setStreaming,
       setSuggested,
+      sendRunIdRef,
       surfacedDreaminaHintRef,
       textOf,
     ],
@@ -321,10 +334,13 @@ export function useHomeAgentRuntimeActions(params: {
         setSuggested,
         send,
         push,
-        resolveQuestion: (requestId, output) => {
-          void loadAskUserQuestionModule().then((mod) => {
-            mod.resolveAskUserQuestion(requestId, output);
-          });
+        resolveQuestion: async (requestId, output) => {
+          try {
+            const mod = await loadAskUserQuestionModule();
+            return mod.resolveAskUserQuestion(requestId, output);
+          } catch {
+            return false;
+          }
         },
         setQState,
         setSelectedValues,

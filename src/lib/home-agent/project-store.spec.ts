@@ -302,4 +302,76 @@ describe("project-store legacy compatibility", () => {
     expect(snapshot.memory?.shotPackets?.length).toBe(1);
     expect(snapshot.artifacts.some((artifact) => artifact.kind === "shot-packet")).toBe(true);
   });
+
+  it("includes failed video reasons in homepage recovery snapshots", () => {
+    const videoProject: PersistedVideoProject = {
+      id: "video-project-failed",
+      title: "失败镜头回补",
+      script: "女主在雨巷回头，追兵逼近。",
+      targetPlatform: "抖音",
+      shotStyle: "电影感预告片",
+      outputGoal: "补发失败镜头",
+      productionNotes: "保持夜雨和红衣识别点。",
+      scenes: [
+        {
+          id: "scene-failed-1",
+          sceneNumber: 1,
+          sceneName: "雨巷回头",
+          description: "女主回头确认追兵距离。",
+          characters: ["沈昭"],
+          dialogue: "",
+          cameraDirection: "手持推近",
+          duration: 5,
+          videoTaskId: "task-failed-1",
+          videoStatus: "failed",
+          videoFailure: {
+            message: "Seedance rate limit exceeded",
+            provider: "jimeng",
+            stage: "submit",
+            updatedAt: "2026-04-03T01:00:00.000Z",
+          },
+        },
+      ],
+      characters: [],
+      sceneSettings: [],
+      artStyle: "live-action",
+      currentStep: 5,
+      systemPrompt: "",
+      analysisSummary: "有失败镜头待回补。",
+      storyboardPlan: "镜头 1：雨巷回头",
+      videoPromptBatch: "批次 1：雨巷回头",
+      sourceProjectId: "drama-failed-1",
+      createdAt: "2026-04-03T00:00:00.000Z",
+      updatedAt: "2026-04-03T01:00:00.000Z",
+      styleLock: null,
+      worldModel: null,
+      assetManifest: null,
+      shotPackets: [
+        {
+          id: "packet:video-project-failed:scene-failed-1",
+          sceneId: "scene-failed-1",
+          sceneNumber: 1,
+          title: "雨巷回头",
+          durationSec: 5,
+          camera: {
+            shotSize: "标准镜头",
+            movement: "手持推近",
+          },
+          characterRefs: [],
+          sourceAssetIds: [],
+          promptSeed: "女主回头确认追兵距离。",
+          forbiddenChanges: [],
+          renderMode: "text2video",
+          reviewStatus: "redo",
+        },
+      ],
+      reviewQueue: [],
+    };
+
+    const snapshot = createVideoSnapshot(videoProject);
+
+    expect(snapshot.agentSummary).toContain("Seedance rate limit exceeded");
+    expect(snapshot.recommendedActions.join(" ")).toContain("对需要重做的镜头发起修复");
+    expect(snapshot.memory?.reviewQueue?.[0]?.reason).toContain("Seedance rate limit exceeded");
+  });
 });

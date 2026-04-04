@@ -106,6 +106,15 @@
 }
 
 @layer utilities {
+  .sidebar-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .sidebar-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
   .shimmer-progress > [data-state] > [data-state] {
     position: relative;
     overflow: hidden;
