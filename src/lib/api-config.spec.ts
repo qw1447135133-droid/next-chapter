@@ -49,7 +49,7 @@ describe("api-config builtin mode", () => {
     expect(runtime.modelMappings["gemini-3-flash-preview"]).toBe("gemini-3-pro");
   });
 
-  it("normalizes legacy custom mode config back to builtin", () => {
+  it("normalizes legacy custom mode config back to builtin while keeping local keys", () => {
     localStorage.setItem(
       "storyforge_api_config",
       JSON.stringify({
@@ -65,12 +65,14 @@ describe("api-config builtin mode", () => {
     const config = getStoredApiConfig();
 
     expect(config.apiMode).toBe("builtin");
-    expect(config.geminiEndpoint).toBe("");
-    expect(config.geminiKey).toBe("");
-    expect(config.modelMappings).toEqual({});
+    expect(config.geminiEndpoint).toBe("https://custom.example.com");
+    expect(config.geminiKey).toBe("custom-key");
+    expect(config.modelMappings).toEqual({
+      "gemini-3-flash-preview": "custom-model",
+    });
   });
 
-  it("scrubs legacy custom api fields when saving other settings", () => {
+  it("preserves local api fields when saving other settings", () => {
     localStorage.setItem(
       "storyforge_api_config",
       JSON.stringify({
@@ -86,8 +88,8 @@ describe("api-config builtin mode", () => {
     expect(JSON.parse(localStorage.getItem("storyforge_api_config") || "{}")).toEqual(
       expect.objectContaining({
         apiMode: "builtin",
-        geminiEndpoint: "",
-        geminiKey: "",
+        geminiEndpoint: "https://custom.example.com",
+        geminiKey: expect.any(String),
         storagePath: "C:\\workspace",
         retryCount: 5,
       }),

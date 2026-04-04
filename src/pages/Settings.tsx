@@ -12,6 +12,7 @@ import {
   Save,
   Sun,
   Trash2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +39,12 @@ import {
   type BuiltinApiBundle,
   type ApiConfig,
 } from "@/lib/api-config";
+import {
+  dreaminaCliGetStatus,
+  dreaminaCliLogin,
+  dreaminaCliRelogin,
+} from "@/lib/dreamina-cli";
+import { cn } from "@/lib/utils";
 
 type ProviderId = "gemini" | "gpt" | "claude" | "grok" | "seedream" | "jimeng" | "tuzi";
 
@@ -93,9 +100,9 @@ const API_ROWS: Array<{
     id: "jimeng",
     title: "Seedance API",
     endpointPlaceholder: "https://api.tu-zi.com/v1beta",
-    endpointHint: "Seedance 视频生成 API 根地址。留空时复用 Gemini API 端点。",
-    keyHint: "Seedance API Key。留空时复用 Gemini API Key。",
-    models: "doubao-seedance-1-5-pro_720p, doubao-seedance-1-5-pro_1080p",
+    endpointHint: "Seedance 视频生成 API 根地址。留空时复用 Gemini API 端点；Electron 桌面端在未配置 Key 且本机已登录 Dreamina CLI 时会优先走官方 CLI。",
+    keyHint: "Seedance API Key。留空时复用 Gemini API Key；如果你想直接用本机 Dreamina 登录态，请保持为空。",
+    models: "doubao-seedance-1-5-pro_720p, doubao-seedance-1-5-pro_1080p, seedance2.0, seedance2.0fast",
   },
   {
     id: "tuzi",
@@ -127,12 +134,18 @@ const KEY_FIELD_MAP = {
   tuzi: "tuziKey",
 } as const;
 
-export default function Settings() {
+type SettingsProps = {
+  embedded?: boolean;
+  onClose?: () => void;
+};
+
+type DreaminaCliStatusState = Awaited<ReturnType<typeof dreaminaCliGetStatus>>;
+
+export default function Settings({ embedded = false, onClose }: SettingsProps) {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const [config, setConfig] = useState<ApiConfig>(() => getStoredApiConfig());
   const [defaultStoragePath, setDefaultStoragePath] = useState("");
-  const [defaultDownloadPath, setDefaultDownloadPath] = useState("");
   const [adminPasswordDialogOpen, setAdminPasswordDialogOpen] = useState(false);
   const [builtinEditorOpen, setBuiltinEditorOpen] = useState(false);
   const [adminPassword, setAdminPassword] = useState("");
@@ -154,6 +167,9 @@ export default function Settings() {
     modelMappings: {},
   });
   const [builtinSaving, setBuiltinSaving] = useState(false);
+  const [dreaminaStatus, setDreaminaStatus] = useState<DreaminaCliStatusState | null>(null);
+  const [dreaminaLoading, setDreaminaLoading] = useState(false);
+  const [dreaminaAction, setDreaminaAction] = useState<"login" | "relogin" | null>(null);
 
   useEffect(() => {
     const loadDefaultPath = async () => {
@@ -161,13 +177,90 @@ export default function Settings() {
       try {
         const paths = await window.electronAPI.storage.getDefaultPath();
         setDefaultStoragePath(paths.files);
-        setDefaultDownloadPath(paths.files);
       } catch (error) {
         console.error("加载默认路径失败:", error);
       }
     };
     void loadDefaultPath();
   }, []);
+
+  const refreshDreaminaStatus = async (silent = false) => {
+    if (!window.electronAPI?.dreaminaCli?.exec) {
+      setDreaminaStatus({
+        ok: false,
+        installed: false,
+        loggedIn: false,
+        message: "当前环境不支持 Dreamina CLI，仅 Electron 桌面端可用。",
+      });
+      return;
+    }
+
+    setDreaminaLoading(true);
+    try {
+      const status = await dreaminaCliGetStatus();
+      setDreaminaStatus(status);
+      if (!silent) {
+        const title = status.loggedIn
+          ? "Dreamina CLI 已就绪"
+          : status.installed
+            ? "Dreamina CLI 已检测到"
+            : "未检测到 Dreamina CLI";
+        toast({
+          title,
+          description: status.message,
+          variant: status.installed || status.loggedIn ? "default" : "destructive",
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setDreaminaStatus({
+        ok: false,
+        installed: true,
+        loggedIn: false,
+        message,
+      });
+      if (!silent) {
+        toast({
+          title: "Dreamina CLI 状态检查失败",
+          description: message,
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setDreaminaLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshDreaminaStatus(true);
+  }, []);
+
+  const handleDreaminaAction = async (action: "login" | "relogin") => {
+    setDreaminaAction(action);
+    try {
+      const result = action === "login" ? await dreaminaCliLogin() : await dreaminaCliRelogin();
+      toast({
+        title: result.ok
+          ? action === "login"
+            ? "Dreamina 登录已启动"
+            : "Dreamina 重新登录已启动"
+          : action === "login"
+            ? "Dreamina 登录启动失败"
+            : "Dreamina 重新登录失败",
+        description: result.message,
+        variant: result.ok ? "default" : "destructive",
+      });
+      await refreshDreaminaStatus(true);
+    } catch (error) {
+      toast({
+        title: action === "login" ? "Dreamina 登录启动失败" : "Dreamina 重新登录失败",
+        description: error instanceof Error ? error.message : String(error),
+        variant: "destructive",
+      });
+    } finally {
+      setDreaminaAction(null);
+    }
+  };
 
   const handleSave = () => {
     saveApiConfig(config);
@@ -271,43 +364,56 @@ export default function Settings() {
     toast({ title: "已重置", description: "存储路径已恢复默认值。" });
   };
 
-  const handleSelectReverseDownloadPath = async () => {
-    if (!window.electronAPI?.storage?.selectFolder) return;
-    try {
-      const folderPath = await window.electronAPI.storage.selectFolder();
-      if (!folderPath) return;
-      saveApiConfig({ reverseDownloadPath: folderPath });
-      setConfig((prev) => ({ ...prev, reverseDownloadPath: folderPath }));
-      toast({ title: "已保存", description: `下载路径：${folderPath}` });
-    } catch (error) {
-      toast({ title: "选择失败", description: String(error), variant: "destructive" });
-    }
-  };
-
-  const handleResetReverseDownloadPath = () => {
-    saveApiConfig({ reverseDownloadPath: "" });
-    setConfig((prev) => ({ ...prev, reverseDownloadPath: "" }));
-    toast({ title: "已重置", description: "逆向下载目录已恢复默认值。" });
-  };
+  const sectionTitleClass = embedded ? "text-[12px] font-medium flex items-center gap-2 text-slate-700" : "text-sm font-medium flex items-center gap-2";
+  const cardClass = embedded ? "border-white/80 bg-white/72 shadow-[0_10px_24px_rgba(148,163,184,0.08)]" : "";
+  const cardContentClass = embedded ? "pt-5 space-y-3.5" : "pt-6 space-y-4";
+  const compactInputClass = embedded ? "font-mono text-[12.5px] h-10" : "font-mono text-sm";
+  const gridClass = embedded ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 md:grid-cols-2 gap-6";
+  const dreaminaStatusTone = dreaminaStatus?.loggedIn
+    ? "secondary"
+    : dreaminaStatus?.installed
+      ? "outline"
+      : "destructive";
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="flex items-center gap-3 px-6 py-4 border-b border-border/50">
-        <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <h1 className="text-lg font-semibold font-[Space_Grotesk]">设置</h1>
-      </header>
+    <div className={embedded ? "flex h-full min-h-0 flex-col bg-transparent" : "min-h-screen bg-background"}>
+      {!embedded && (
+        <header className="flex items-center gap-3 px-6 py-4 border-b border-border/50">
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <h1 className="text-lg font-semibold font-[Space_Grotesk]">设置</h1>
+        </header>
+      )}
 
-      <main className="max-w-3xl mx-auto px-6 py-6 space-y-6">
-        <div className="space-y-4">
-          <h2 className="text-sm font-medium flex items-center gap-2">
+      {embedded && (
+        <div className="flex items-center justify-between border-b border-[#ddd5c9] px-5 py-4">
+          <div>
+            <h1 className="text-[1.25rem] font-semibold tracking-[-0.03em] text-slate-900">设置</h1>
+            <p className="mt-1 text-[12.5px] text-slate-500">在首页内调整模型、路径与界面行为。</p>
+          </div>
+          {onClose && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-full border border-[#e5ddd2] bg-white/78 text-slate-700 hover:bg-white"
+              onClick={onClose}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      )}
+
+      <main className={embedded ? "flex-1 overflow-y-auto px-5 py-5 space-y-5" : "max-w-3xl mx-auto px-6 py-6 space-y-6"}>
+        <div className="space-y-3">
+          <h2 className={sectionTitleClass}>
             <Globe className="h-4 w-4" />
             API 设置
           </h2>
 
-          <Card>
-            <CardContent className="pt-6 space-y-4">
+          <Card className={cardClass}>
+            <CardContent className={cardContentClass}>
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="text-sm font-medium">内置 API</h3>
@@ -322,12 +428,78 @@ export default function Settings() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="gap-1.5"
+                  className={embedded ? "h-9 gap-1.5 rounded-full border-[#ddd5c9] bg-white/80 px-3 text-[12.5px] hover:bg-white" : "gap-1.5"}
                   onClick={() => void handleOpenBuiltinAdminDialog()}
                   disabled={!window.electronAPI?.storage?.writeText}
                 >
                   <Key className="h-4 w-4" />
                   修改内置 API
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className={cardClass}>
+            <CardContent className={cardContentClass}>
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-medium">Dreamina CLI</h3>
+                  <Badge variant={dreaminaStatusTone}>
+                    {dreaminaStatus?.loggedIn ? "已登录" : dreaminaStatus?.installed ? "待登录" : "未安装"}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  桌面端可直接复用 Dreamina 本机登录态使用 Seedance 2.0 / Fast。若你希望程序优先走官方 CLI，请保持 Seedance Key 为空。
+                </p>
+              </div>
+
+              <div className={cn(
+                "rounded-2xl border px-3.5 py-3 text-sm",
+                embedded ? "border-[#ddd5c9] bg-[#fbfaf7]" : "border-border/60 bg-muted/35",
+              )}>
+                <p className="text-sm text-foreground">
+                  {dreaminaLoading ? "正在检查 Dreamina CLI 状态..." : dreaminaStatus?.message || "尚未检查 Dreamina CLI 状态。"}
+                </p>
+                {dreaminaStatus?.path ? (
+                  <p className="mt-1.5 break-all font-mono text-[11.5px] text-muted-foreground">
+                    {dreaminaStatus.path}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={embedded ? "h-9 rounded-full border-[#ddd5c9] bg-white/80 px-3 text-[12.5px] hover:bg-white" : ""}
+                  onClick={() => void refreshDreaminaStatus()}
+                  disabled={dreaminaLoading || !!dreaminaAction}
+                >
+                  {dreaminaLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  检查状态
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={embedded ? "h-9 rounded-full border-[#ddd5c9] bg-white/80 px-3 text-[12.5px] hover:bg-white" : ""}
+                  onClick={() => void handleDreaminaAction("login")}
+                  disabled={!window.electronAPI?.dreaminaCli?.exec || !!dreaminaAction}
+                >
+                  {dreaminaAction === "login" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  浏览器登录
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={embedded ? "h-9 rounded-full border-[#ddd5c9] bg-white/80 px-3 text-[12.5px] hover:bg-white" : ""}
+                  onClick={() => void handleDreaminaAction("relogin")}
+                  disabled={!window.electronAPI?.dreaminaCli?.exec || !!dreaminaAction}
+                >
+                  {dreaminaAction === "relogin" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  重新登录
                 </Button>
               </div>
             </CardContent>
@@ -426,13 +598,13 @@ export default function Settings() {
           </DialogContent>
         </Dialog>
 
-        <div className="space-y-4">
-          <h2 className="text-sm font-medium flex items-center gap-2">
+        <div className="space-y-3">
+          <h2 className={sectionTitleClass}>
             {theme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
             外观设置
           </h2>
-          <Card>
-            <CardContent className="pt-6">
+          <Card className={cardClass}>
+            <CardContent className={embedded ? "pt-5" : "pt-6"}>
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
                   <Label className="text-sm font-medium">深色模式</Label>
@@ -444,16 +616,16 @@ export default function Settings() {
           </Card>
         </div>
 
-        <div className="space-y-4">
-          <h2 className="text-sm font-medium flex items-center gap-2">
+        <div className="space-y-3">
+          <h2 className={sectionTitleClass}>
             <FolderOpen className="h-4 w-4" />
             存储位置
           </h2>
-          <Card>
-            <CardContent className="pt-6 space-y-4">
+          <Card className={cardClass}>
+            <CardContent className={cardContentClass}>
               <div>
                 <Label className="text-sm">缓存存储路径</Label>
-                <div className="flex gap-2 mt-1.5">
+                <div className={embedded ? "mt-1.5 space-y-2" : "mt-1.5 flex gap-2"}>
                   <Input
                     value={
                       config.storagePath ||
@@ -461,11 +633,15 @@ export default function Settings() {
                       (window.electronAPI?.storage ? "正在获取路径..." : "仅桌面端可显示本地路径")
                     }
                     readOnly
-                    className="font-mono text-sm flex-1"
+                    className={cn(compactInputClass, !embedded && "flex-1")}
                   />
                   <Button
                     variant="outline"
-                    className="shrink-0 gap-1.5"
+                    className={cn(
+                      embedded
+                        ? "h-9 w-full justify-center gap-1.5 rounded-full border-[#ddd5c9] bg-white/80 px-3 text-[12.5px] hover:bg-white"
+                        : "shrink-0 gap-1.5",
+                    )}
                     onClick={handleSelectStoragePath}
                     disabled={!window.electronAPI?.storage?.selectFolder}
                   >
@@ -474,39 +650,11 @@ export default function Settings() {
                   </Button>
                 </div>
                 {config.storagePath ? (
-                  <Button variant="ghost" size="sm" className="mt-2 text-xs text-muted-foreground" onClick={handleResetStoragePath}>
-                    恢复默认
-                  </Button>
-                ) : null}
-              </div>
-              <div>
-                <Label className="text-sm">逆向下载路径</Label>
-                <div className="flex gap-2 mt-1.5">
-                  <Input
-                    value={
-                      config.reverseDownloadPath ||
-                      defaultDownloadPath ||
-                      (window.electronAPI?.storage ? "正在获取路径..." : "仅桌面端可显示本地路径")
-                    }
-                    readOnly
-                    className="font-mono text-sm flex-1"
-                  />
-                  <Button
-                    variant="outline"
-                    className="shrink-0 gap-1.5"
-                    onClick={handleSelectReverseDownloadPath}
-                    disabled={!window.electronAPI?.storage?.selectFolder}
-                  >
-                    <FolderCog className="h-4 w-4" />
-                    设置路径
-                  </Button>
-                </div>
-                {config.reverseDownloadPath ? (
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="mt-2 text-xs text-muted-foreground"
-                    onClick={handleResetReverseDownloadPath}
+                    className={cn("mt-2 text-xs text-muted-foreground", embedded && "px-0 hover:bg-transparent")}
+                    onClick={handleResetStoragePath}
                   >
                     恢复默认
                   </Button>
@@ -516,11 +664,11 @@ export default function Settings() {
           </Card>
         </div>
 
-        <div className="space-y-4">
-          <h2 className="text-sm font-medium">首帧图片压缩</h2>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="space-y-3">
+          <h2 className={sectionTitleClass}>首帧图片压缩</h2>
+          <Card className={cardClass}>
+            <CardContent className={embedded ? "pt-5" : "pt-6"}>
+              <div className={gridClass}>
                 <div>
                   <Label className="text-sm">最大尺寸</Label>
                   <Input
@@ -530,7 +678,7 @@ export default function Settings() {
                     step={64}
                     value={config.firstFrameMaxDim ?? 2048}
                     onChange={(e) => setConfig((prev) => ({ ...prev, firstFrameMaxDim: Number(e.target.value) || 2048 }))}
-                    className="font-mono text-sm mt-1"
+                    className={cn(compactInputClass, "mt-1")}
                   />
                 </div>
                 <div>
@@ -542,7 +690,7 @@ export default function Settings() {
                     step={100}
                     value={config.firstFrameMaxKB ?? 1024}
                     onChange={(e) => setConfig((prev) => ({ ...prev, firstFrameMaxKB: Number(e.target.value) || 1024 }))}
-                    className="font-mono text-sm mt-1"
+                    className={cn(compactInputClass, "mt-1")}
                   />
                 </div>
               </div>
@@ -550,11 +698,11 @@ export default function Settings() {
           </Card>
         </div>
 
-        <div className="space-y-4">
-          <h2 className="text-sm font-medium">网络重试</h2>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="space-y-3">
+          <h2 className={sectionTitleClass}>网络重试</h2>
+          <Card className={cardClass}>
+            <CardContent className={embedded ? "pt-5" : "pt-6"}>
+              <div className={gridClass}>
                 <div>
                   <Label className="text-sm">最大重试次数</Label>
                   <Input
@@ -564,7 +712,7 @@ export default function Settings() {
                     step={1}
                     value={config.retryCount ?? 2}
                     onChange={(e) => setConfig((prev) => ({ ...prev, retryCount: Number(e.target.value) || 0 }))}
-                    className="font-mono text-sm mt-1"
+                    className={cn(compactInputClass, "mt-1")}
                   />
                 </div>
                 <div>
@@ -576,7 +724,7 @@ export default function Settings() {
                     step={500}
                     value={config.retryDelayMs ?? 3000}
                     onChange={(e) => setConfig((prev) => ({ ...prev, retryDelayMs: Number(e.target.value) || 3000 }))}
-                    className="font-mono text-sm mt-1"
+                    className={cn(compactInputClass, "mt-1")}
                   />
                 </div>
               </div>
@@ -584,8 +732,8 @@ export default function Settings() {
           </Card>
         </div>
 
-        <Card className="bg-muted/50">
-          <CardContent className="pt-6">
+        <Card className={cn("bg-muted/50", embedded && "border-white/70 bg-white/52")}>
+          <CardContent className={embedded ? "pt-5" : "pt-6"}>
             <h3 className="font-medium mb-2">说明</h3>
             <ul className="text-sm text-muted-foreground space-y-1">
               <li>设置页已移除自定义 API 选项，程序始终使用内置 API。</li>
@@ -595,15 +743,27 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        <div className="flex gap-3">
-          <Button onClick={handleSave} className="flex-1 gap-2">
+        <div
+          className={cn(
+            embedded
+              ? "sticky bottom-0 -mx-5 border-t border-[#ddd5c9] bg-[#f4f1ea]/95 px-5 pb-5 pt-4 backdrop-blur"
+              : "",
+          )}
+        >
+          <div className={cn(embedded ? "flex flex-col gap-2" : "flex gap-3")}>
+          <Button onClick={handleSave} className={cn("gap-2", embedded ? "h-10 w-full rounded-full bg-slate-950 text-white hover:bg-slate-900" : "flex-1")}>
             <Save className="h-4 w-4" />
             保存设置
           </Button>
-          <Button variant="destructive" className="gap-2" onClick={handleClear}>
+          <Button
+            variant="destructive"
+            className={cn("gap-2", embedded && "h-10 w-full rounded-full")}
+            onClick={handleClear}
+          >
             <Trash2 className="h-4 w-4" />
             清除本地缓存
           </Button>
+          </div>
         </div>
       </main>
     </div>

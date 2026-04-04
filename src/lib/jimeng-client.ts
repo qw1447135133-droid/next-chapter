@@ -261,16 +261,6 @@ export function jimengOnStatusChange(
   return () => {};
 }
 
-/** 打开即梦登录页（已废弃） */
-export async function jimengOpenSetup(): Promise<void> {
-  window.open("https://jimeng.jianying.com/ai-tool/home");
-}
-
-/** 打开浏览器数据目录（已废弃） */
-export async function jimengOpenBrowserData(): Promise<void> {
-  // No-op
-}
-
 // =========================== xlsx 生成 & 写入 ===========================
 
 function isElectronBridge(): boolean {

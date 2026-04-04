@@ -29,6 +29,12 @@ import {
   readStoredDecomposeModel,
 } from "@/lib/gemini-text-models";
 import { compressImage } from "@/lib/image-compress";
+import {
+  dreaminaCliGenerateVideo,
+  dreaminaCliQueryResult,
+  getDreaminaCliModelCatalog,
+  isDreaminaCliAvailable,
+} from "@/lib/dreamina-cli";
 
 const TUZI_BASE_URL = "https://api.tuziapi.com";
 
@@ -2139,6 +2145,12 @@ ${narrativeContext}
 async function localGenerateVideo(body: any) {
   const { action, model, taskId, provider } = body;
   const isSora2 = model?.startsWith("sora-2") || provider === "tuzi";
+  const requestedJimengProvider = provider === "jimeng" || provider === "dreamina-cli" || !provider;
+  const shouldPreferDreaminaCli =
+    requestedJimengProvider &&
+    !isSora2 &&
+    (!resolveDirectApiKey("jimeng") || provider === "dreamina-cli") &&
+    await isDreaminaCliAvailable();
   const seedanceBaseUrl = getSeedanceBaseUrl();
   const tuziBase = getTuziBaseUrl();
 
@@ -2165,6 +2177,8 @@ async function localGenerateVideo(body: any) {
             : "processing";
       let videoUrl = data.status === "completed" && data.video_url ? data.video_url : undefined;
       return { status, video_url: videoUrl, state: data.status };
+    } else if (provider === "dreamina-cli" || (requestedJimengProvider && shouldPreferDreaminaCli)) {
+      return await dreaminaCliQueryResult(taskId);
     } else {
       // Jimeng status query
       const res = await videoHttp(
@@ -2180,6 +2194,9 @@ async function localGenerateVideo(body: any) {
   }
 
   if (action === "models") {
+    if (requestedJimengProvider && shouldPreferDreaminaCli) {
+      return getDreaminaCliModelCatalog();
+    }
     const res = await videoHttp(
       `${seedanceBaseUrl}/models`,
       {},
@@ -2268,6 +2285,15 @@ async function localGenerateVideo(body: any) {
       provider: "tuzi",
     };
   } else {
+    if (shouldPreferDreaminaCli) {
+      return await dreaminaCliGenerateVideo({
+        prompt: body.prompt,
+        imageUrl: typeof body.imageUrl === "string" ? body.imageUrl : undefined,
+        duration: Number(body.duration) || 5,
+        aspectRatio: body.aspectRatio || "16:9",
+      });
+    }
+
     // Jimeng (Seedance) implementation
     // Determine model based on resolution: 720p -> doubao-seedance-1-5-pro_720p, 1080p -> doubao-seedance-1-5-pro_1080p
     const resolution = body.resolution || "1080p";

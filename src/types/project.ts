@@ -13,6 +13,7 @@ export interface Scene {
   panoramaUrl?: string; // panoramic positioning reference for scene group
   videoUrl?: string;
   videoTaskId?: string;
+  videoProvider?: string;
   videoStatus?: string; // queued | processing | completed | failed
   videoHistory?: VideoHistoryEntry[];
   recommendedDuration?: number;
@@ -84,6 +85,117 @@ export interface SceneSetting {
   activeTimeVariantId?: string;
 }
 
+export type ProductionAssetKind =
+  | "character-reference"
+  | "costume-reference"
+  | "scene-reference"
+  | "time-variant"
+  | "storyboard-frame"
+  | "video-segment";
+
+export type ProductionAssetStatus = "ready" | "needs-review" | "failed";
+
+export interface ProductionAssetRecord {
+  id: string;
+  kind: ProductionAssetKind;
+  label: string;
+  url: string;
+  meta: string;
+  reusable: boolean;
+  status: ProductionAssetStatus;
+  sourceEntityId?: string;
+  sceneId?: string;
+  sceneNumber?: number;
+  version: number;
+  createdAt: string;
+}
+
+export interface ProductionAssetManifest {
+  version: string;
+  summary: string;
+  items: ProductionAssetRecord[];
+}
+
+export interface VideoStyleLock {
+  genre: string[];
+  tone: string;
+  visualStyle: string;
+  colorMood: string;
+  cinematography: string;
+  forbidden: string[];
+  referencePromptTemplate: string;
+}
+
+export interface VideoWorldModelCharacter {
+  id: string;
+  name: string;
+  description: string;
+  aliases: string[];
+  currentState: string;
+  constraints: string[];
+  referenceAssetIds: string[];
+}
+
+export interface VideoWorldModelScene {
+  id: string;
+  name: string;
+  description: string;
+  timeVariantLabels: string[];
+  referenceAssetIds: string[];
+}
+
+export interface VideoWorldModel {
+  version: string;
+  synopsis: string;
+  continuityRules: string[];
+  characters: VideoWorldModelCharacter[];
+  scenes: VideoWorldModelScene[];
+}
+
+export interface ShotPacketCharacterRef {
+  characterId: string;
+  name: string;
+  assetIds: string[];
+  mustPreserve: string[];
+}
+
+export interface ShotPacketBackgroundRef {
+  sceneSettingId?: string;
+  name: string;
+  assetIds: string[];
+  timeVariant?: string;
+}
+
+export interface VideoShotPacket {
+  id: string;
+  sceneId: string;
+  sceneNumber: number;
+  title: string;
+  durationSec: number;
+  camera: {
+    shotSize: string;
+    movement: string;
+  };
+  characterRefs: ShotPacketCharacterRef[];
+  backgroundRef?: ShotPacketBackgroundRef;
+  sourceAssetIds: string[];
+  promptSeed: string;
+  forbiddenChanges: string[];
+  renderMode: "img2video" | "text2video";
+  reviewStatus: "pending" | "approved" | "redo";
+}
+
+export interface VideoReviewItem {
+  id: string;
+  title: string;
+  summary: string;
+  targetIds: string[];
+  status: "pending" | "approved" | "redo";
+  reason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Project {
   id: string;
   title: string;
@@ -109,15 +221,19 @@ export const ART_STYLE_LABELS: Record<ArtStyle, string> = {
   'custom': '自定义',
 };
 
-export type VideoModel = 'seedance-1.5-pro' | 'sora-2';
+export type VideoModel = 'seedance-1.5-pro' | 'seedance-2.0' | 'seedance-2.0-fast' | 'sora-2';
 
 export const VIDEO_MODEL_LABELS: Record<VideoModel, string> = {
   'seedance-1.5-pro': '即梦 1.5 Pro',
+  'seedance-2.0': '即梦 Seedance 2.0',
+  'seedance-2.0-fast': '即梦 Seedance 2.0 Fast',
   'sora-2': 'Sora 2',
 };
 
 export const VIDEO_MODEL_API_MAP: Record<VideoModel, string> = {
   'seedance-1.5-pro': 'doubao-seedance-1-5-pro', // Will be mapped based on resolution
+  'seedance-2.0': 'seedance2.0',
+  'seedance-2.0-fast': 'seedance2.0fast',
   'sora-2': 'sora-2', // Will be mapped to sora-2 or sora-2-pro based on resolution
 };
 

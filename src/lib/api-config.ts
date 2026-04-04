@@ -48,7 +48,6 @@ export interface ApiConfig {
   retryCount: number;
   retryDelayMs: number;
   storagePath?: string;
-  reverseDownloadPath?: string;
 }
 
 export const SUPPORTED_MODEL_MAPPINGS: SupportedModelMapping[] = [
@@ -158,6 +157,20 @@ export const SUPPORTED_MODEL_MAPPINGS: SupportedModelMapping[] = [
     defaultModelName: "doubao-seedance-1-5-pro_1080p",
   },
   {
+    key: "seedance2.0",
+    label: "Seedance 2.0 (Dreamina CLI)",
+    provider: "jimeng",
+    category: "video",
+    defaultModelName: "seedance2.0",
+  },
+  {
+    key: "seedance2.0fast",
+    label: "Seedance 2.0 Fast (Dreamina CLI)",
+    provider: "jimeng",
+    category: "video",
+    defaultModelName: "seedance2.0fast",
+  },
+  {
     key: "sora-2",
     label: "Sora 2 (720p)",
     provider: "tuzi",
@@ -229,29 +242,63 @@ export const DEFAULT_API_CONFIG: ApiConfig = {
   retryCount: 2,
   retryDelayMs: 3000,
   storagePath: "",
-  reverseDownloadPath: "",
 };
+
+function readEnvString(name: string): string {
+  const env = import.meta.env as Record<string, string | undefined>;
+  const value = env[name];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function getEnvDefaultApiConfig(): Partial<ApiConfig> {
+  const unifiedKey = readEnvString("VITE_DEFAULT_UNIFIED_API_KEY");
+  const textEndpoint = readEnvString("VITE_DEFAULT_TEXT_ENDPOINT");
+  const imageEndpoint = readEnvString("VITE_DEFAULT_IMAGE_ENDPOINT") || textEndpoint;
+  const videoEndpoint = readEnvString("VITE_DEFAULT_VIDEO_ENDPOINT") || imageEndpoint || textEndpoint;
+
+  return {
+    geminiEndpoint: readEnvString("VITE_DEFAULT_GEMINI_ENDPOINT") || imageEndpoint,
+    geminiKey: readEnvString("VITE_DEFAULT_GEMINI_KEY") || unifiedKey,
+    gptEndpoint: readEnvString("VITE_DEFAULT_GPT_ENDPOINT") || textEndpoint,
+    gptKey: readEnvString("VITE_DEFAULT_GPT_KEY") || unifiedKey,
+    claudeEndpoint: readEnvString("VITE_DEFAULT_CLAUDE_ENDPOINT") || textEndpoint,
+    claudeKey: readEnvString("VITE_DEFAULT_CLAUDE_KEY") || unifiedKey,
+    grokEndpoint: readEnvString("VITE_DEFAULT_GROK_ENDPOINT") || textEndpoint,
+    grokKey: readEnvString("VITE_DEFAULT_GROK_KEY") || unifiedKey,
+    seedreamEndpoint: readEnvString("VITE_DEFAULT_SEEDREAM_ENDPOINT") || imageEndpoint,
+    seedreamKey: readEnvString("VITE_DEFAULT_SEEDREAM_KEY") || unifiedKey,
+    jimengEndpoint: readEnvString("VITE_DEFAULT_JIMENG_ENDPOINT") || videoEndpoint,
+    jimengKey: readEnvString("VITE_DEFAULT_JIMENG_KEY") || unifiedKey,
+    tuziEndpoint: readEnvString("VITE_DEFAULT_TUZI_ENDPOINT") || textEndpoint,
+    tuziKey: readEnvString("VITE_DEFAULT_TUZI_KEY") || unifiedKey,
+  };
+}
 
 function normalizeStoredConfig(config: Partial<ApiConfig>): ApiConfig {
   return {
     ...DEFAULT_API_CONFIG,
     ...config,
     apiMode: "builtin",
-    geminiEndpoint: "",
-    geminiKey: "",
-    gptEndpoint: "",
-    gptKey: "",
-    claudeEndpoint: "",
-    claudeKey: "",
-    grokEndpoint: "",
-    grokKey: "",
-    seedreamEndpoint: "",
-    seedreamKey: "",
-    jimengEndpoint: "",
-    jimengKey: "",
-    tuziEndpoint: "",
-    tuziKey: "",
-    modelMappings: {},
+    geminiEndpoint:
+      typeof config.geminiEndpoint === "string" ? config.geminiEndpoint.trim() : "",
+    geminiKey: typeof config.geminiKey === "string" ? config.geminiKey.trim() : "",
+    gptEndpoint: typeof config.gptEndpoint === "string" ? config.gptEndpoint.trim() : "",
+    gptKey: typeof config.gptKey === "string" ? config.gptKey.trim() : "",
+    claudeEndpoint:
+      typeof config.claudeEndpoint === "string" ? config.claudeEndpoint.trim() : "",
+    claudeKey: typeof config.claudeKey === "string" ? config.claudeKey.trim() : "",
+    grokEndpoint: typeof config.grokEndpoint === "string" ? config.grokEndpoint.trim() : "",
+    grokKey: typeof config.grokKey === "string" ? config.grokKey.trim() : "",
+    seedreamEndpoint:
+      typeof config.seedreamEndpoint === "string" ? config.seedreamEndpoint.trim() : "",
+    seedreamKey:
+      typeof config.seedreamKey === "string" ? config.seedreamKey.trim() : "",
+    jimengEndpoint:
+      typeof config.jimengEndpoint === "string" ? config.jimengEndpoint.trim() : "",
+    jimengKey: typeof config.jimengKey === "string" ? config.jimengKey.trim() : "",
+    tuziEndpoint: typeof config.tuziEndpoint === "string" ? config.tuziEndpoint.trim() : "",
+    tuziKey: typeof config.tuziKey === "string" ? config.tuziKey.trim() : "",
+    modelMappings: normalizeModelMappings(config.modelMappings),
   };
 }
 
@@ -336,8 +383,10 @@ export function getStoredApiConfig(): ApiConfig {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     const parsed = saved ? (JSON.parse(saved) as Record<string, unknown>) : {};
+    const envDefaults = getEnvDefaultApiConfig();
     let merged = {
       ...DEFAULT_API_CONFIG,
+      ...envDefaults,
       ...parsed,
       modelMappings: normalizeModelMappings(parsed.modelMappings),
     } as ApiConfig;
@@ -345,7 +394,10 @@ export function getStoredApiConfig(): ApiConfig {
     merged = decodeSensitiveFields(merged);
     return normalizeStoredConfig(merged);
   } catch {
-    return DEFAULT_API_CONFIG;
+    return normalizeStoredConfig({
+      ...DEFAULT_API_CONFIG,
+      ...getEnvDefaultApiConfig(),
+    });
   }
 }
 
