@@ -1,37 +1,71 @@
 import type { PersistedVideoProject } from "@/hooks/use-local-persistence";
 import type { ConversationProjectSnapshot } from "@/lib/home-agent/types";
 
-export type SidebarAssetItem = {
+type SidebarAssetBase = {
   id: string;
-  kind: "image" | "video";
   label: string;
-  url: string;
   meta: string;
 };
+
+export type SidebarAssetItem =
+  | (SidebarAssetBase & {
+      kind: "image" | "video";
+      url: string;
+    })
+  | (SidebarAssetBase & {
+      kind: "bundle";
+      path: string;
+    });
+
+function formatBundleMeta(videoProject: PersistedVideoProject): string {
+  const bundle = videoProject.productionStateBundle;
+  if (!bundle) return "可续接状态";
+
+  const segments = [`${bundle.exportedCount} 个文件`];
+  if (bundle.overviewPath) {
+    segments.push("含索引摘要");
+  }
+  segments.push("可续接状态");
+  return segments.join(" · ");
+}
 
 export function collectConversationAssets(
   videoProject: PersistedVideoProject | null | undefined,
   projectSnapshot?: ConversationProjectSnapshot | null,
 ): SidebarAssetItem[] {
-  const manifest = projectSnapshot?.memory?.assetManifest;
-  if (manifest?.items.length) {
-    return manifest.items.slice(0, 18).map((item) => ({
-      id: item.id,
-      kind: item.kind === "video-segment" ? "video" : "image",
-      label: item.label,
-      url: item.url,
-      meta: [item.meta, item.reusable ? "可复用" : "当前镜头", item.status === "failed" ? "待修复" : ""]
-        .filter(Boolean)
-        .join(" · "),
-    }));
-  }
-
-  if (!videoProject) return [];
-
   const items: SidebarAssetItem[] = [];
   const seen = new Set<string>();
+  const manifest = projectSnapshot?.memory?.assetManifest;
+  if (videoProject?.productionStateBundle?.directoryPath) {
+    items.push({
+      id: `bundle-${videoProject.id}`,
+      kind: "bundle",
+      label: "生产状态包",
+      path: videoProject.productionStateBundle.directoryPath,
+      meta: formatBundleMeta(videoProject),
+    });
+  }
 
-  const pushAsset = (kind: SidebarAssetItem["kind"], label: string, url?: string, meta = "") => {
+  if (manifest?.items.length) {
+    manifest.items.slice(0, 18).forEach((item) => {
+      if (seen.has(item.url)) return;
+      seen.add(item.url);
+      items.push({
+        id: item.id,
+        kind: item.kind === "video-segment" ? "video" : "image",
+        label: item.label,
+        url: item.url,
+        meta: [item.meta, item.reusable ? "可复用" : "当前镜头", item.status === "failed" ? "待修复" : ""]
+          .filter(Boolean)
+          .join(" · "),
+      });
+    });
+    return items.slice(0, 24);
+  }
+
+  if (!videoProject) return items;
+
+  const pushAsset = (kind: "image" | "video", label: string, url?: string, meta = "") => {
     if (!url || seen.has(url)) return;
     seen.add(url);
     items.push({

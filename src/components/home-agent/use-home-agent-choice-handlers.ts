@@ -11,10 +11,16 @@ import type {
 import { createScriptProjectChoiceHandler } from "./home-agent-script-choice-handlers";
 import {
   buildMaintenanceReportMessage,
+  buildApprovedSkillDraftBundlePreviewMessage,
+  buildApprovedSkillInstallCandidatePreviewMessage,
   buildSkillDraftSummaryMessage,
   findSkillDraft,
   listPendingSkillDrafts,
 } from "./home-agent-project-questions";
+import {
+  resolveApprovedSkillDraftExportDirectory,
+  resolveApprovedSkillInstallCandidateDirectory,
+} from "@/lib/home-agent/skill-draft-export";
 import {
   createVideoAssetChoiceHandler,
   createVideoProjectChoiceHandler,
@@ -125,6 +131,10 @@ export function useHomeAgentChoiceHandlers(params: {
   buildSkillDraftListQuestion: (
     drafts: SkillDraft[],
   ) => ComposerQuestion | null;
+  buildApprovedSkillDraftListQuestion: (
+    drafts: SkillDraft[],
+  ) => ComposerQuestion | null;
+  buildSkillDraftDecisionQuestion: (draft: SkillDraft) => ComposerQuestion;
 }) {
   const {
     runtimeRef,
@@ -165,6 +175,8 @@ export function useHomeAgentChoiceHandlers(params: {
     buildBeatPacketDecisionQuestion,
     buildMaintenanceReviewQuestion,
     buildSkillDraftListQuestion,
+    buildApprovedSkillDraftListQuestion,
+    buildSkillDraftDecisionQuestion,
   } = params;
 
   const showChoicePopover = useCallback(
@@ -358,6 +370,100 @@ export function useHomeAgentChoiceHandlers(params: {
         return true;
       }
 
+      if (value === "maintenance:skills:approved") {
+        const nextQuestion = buildApprovedSkillDraftListQuestion(runtime.skillDrafts);
+        if (!nextQuestion) {
+          showChoiceNotice(label, "当前还没有已批准技能草案。", buildMaintenanceReviewQuestion(runtime));
+          return true;
+        }
+
+        showChoicePopover(
+          label,
+          "我先把已批准的技能草案按候选能力列给你，你可以继续回看内容和后续整理优先级。",
+          nextQuestion,
+        );
+        return true;
+      }
+
+      if (value === "maintenance:skills:export-approved") {
+        void runWorkflowActionShortcut("export_approved_skill_drafts", {}, label);
+        return true;
+      }
+
+      if (value === "maintenance:skills:preview-approved") {
+        showChoiceNotice(
+          label,
+          buildApprovedSkillDraftBundlePreviewMessage(runtime.skillDrafts),
+          buildMaintenanceReviewQuestion(runtime),
+        );
+        return true;
+      }
+
+      if (value === "maintenance:skills:open-approved-dir") {
+        void (async () => {
+          try {
+            const directoryPath = await resolveApprovedSkillDraftExportDirectory();
+            const opener = window.electronAPI?.storage?.openFolder;
+            if (!opener) {
+              throw new Error("当前环境不支持直接打开本地目录。");
+            }
+
+            await opener(directoryPath);
+            showChoiceNotice(
+              label,
+              `已为你打开技能候选目录：${directoryPath}`,
+              buildMaintenanceReviewQuestion(runtimeRef.current),
+            );
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "打开技能候选目录失败。";
+            showChoiceNotice(label, message, buildMaintenanceReviewQuestion(runtimeRef.current));
+          }
+        })();
+        return true;
+      }
+
+      if (value === "maintenance:skills:package-install-candidates") {
+        void runWorkflowActionShortcut("export_approved_skill_install_candidates", {}, label);
+        return true;
+      }
+
+      if (value === "maintenance:skills:preview-install-candidates") {
+        showChoiceNotice(
+          label,
+          buildApprovedSkillInstallCandidatePreviewMessage(runtime.skillDrafts),
+          buildMaintenanceReviewQuestion(runtime),
+        );
+        return true;
+      }
+
+      if (value === "maintenance:skills:open-install-candidates-dir") {
+        void (async () => {
+          try {
+            const directoryPath = await resolveApprovedSkillInstallCandidateDirectory();
+            const opener = window.electronAPI?.storage?.openFolder;
+            if (!opener) {
+              throw new Error("当前环境不支持直接打开本地目录。");
+            }
+
+            await opener(directoryPath);
+            showChoiceNotice(
+              label,
+              `已为你打开正式 Skill 候选目录：${directoryPath}`,
+              buildMaintenanceReviewQuestion(runtimeRef.current),
+            );
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "打开正式 Skill 候选目录失败。";
+            showChoiceNotice(label, message, buildMaintenanceReviewQuestion(runtimeRef.current));
+          }
+        })();
+        return true;
+      }
+
+      if (value === "maintenance:skills:bundle-approved") {
+        void runWorkflowActionShortcut("export_approved_skill_draft_bundle", {}, label);
+        return true;
+      }
+
       if (value.startsWith("maintenance:skill:")) {
         const draftId = value.replace("maintenance:skill:", "");
         const draft = findSkillDraft(runtime.skillDrafts, draftId);
@@ -366,13 +472,39 @@ export function useHomeAgentChoiceHandlers(params: {
           return true;
         }
 
+        showChoicePopover(label, buildSkillDraftSummaryMessage(draft), buildSkillDraftDecisionQuestion(draft));
+        return true;
+      }
+
+      if (value.startsWith("maintenance:skill-approved:")) {
+        const draftId = value.replace("maintenance:skill-approved:", "");
+        const draft = findSkillDraft(runtime.skillDrafts, draftId);
+        if (!draft) {
+          showChoiceNotice(label, "这份已批准技能草案已经不存在或已被清理。", buildMaintenanceReviewQuestion(runtime));
+          return true;
+        }
+
         showChoiceNotice(label, buildSkillDraftSummaryMessage(draft), buildMaintenanceReviewQuestion(runtime));
+        return true;
+      }
+
+      if (value.startsWith("maintenance:skill-approve:")) {
+        const draftId = value.replace("maintenance:skill-approve:", "");
+        void runWorkflowActionShortcut("approve_skill_draft", { draftId }, label);
+        return true;
+      }
+
+      if (value.startsWith("maintenance:skill-reject:")) {
+        const draftId = value.replace("maintenance:skill-reject:", "");
+        void runWorkflowActionShortcut("reject_skill_draft", { draftId }, label);
         return true;
       }
 
       return false;
     },
     [
+      buildApprovedSkillDraftListQuestion,
+      buildSkillDraftDecisionQuestion,
       buildMaintenanceReviewQuestion,
       buildSkillDraftListQuestion,
       runWorkflowActionShortcut,

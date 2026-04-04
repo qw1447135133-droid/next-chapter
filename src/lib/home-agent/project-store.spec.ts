@@ -374,4 +374,50 @@ describe("project-store legacy compatibility", () => {
     expect(snapshot.recommendedActions.join(" ")).toContain("对需要重做的镜头发起修复");
     expect(snapshot.memory?.reviewQueue?.[0]?.reason).toContain("Seedance rate limit exceeded");
   });
+
+  it("restores exported production bundle metadata into homepage video snapshots", () => {
+    const videoProject: PersistedVideoProject = {
+      id: "video-project-bundle",
+      title: "雨夜追击预告片",
+      script: "女主在雨夜奔跑，回头看见追兵。",
+      targetPlatform: "抖音",
+      shotStyle: "电影感近景",
+      outputGoal: "预告片",
+      productionNotes: "保留主角红衣和夜雨气氛。",
+      scenes: [],
+      characters: [],
+      sceneSettings: [],
+      artStyle: "live-action",
+      currentStep: 4,
+      systemPrompt: "",
+      analysisSummary: "镜头指令包已准备好。",
+      storyboardPlan: "镜头 1：雨夜追击",
+      videoPromptBatch: "批次 1：雨夜追击",
+      sourceProjectId: "drama-bundle-1",
+      createdAt: "2026-04-03T00:00:00.000Z",
+      updatedAt: "2026-04-03T01:30:00.000Z",
+      styleLock: null,
+      worldModel: null,
+      assetManifest: null,
+      shotPackets: [],
+      reviewQueue: [],
+      productionStateBundle: {
+        directoryPath: "D:/StoryForgeFiles/home-agent/production-state/雨夜追击预告片-video-project-bundle",
+        overviewPath:
+          "D:/StoryForgeFiles/home-agent/production-state/雨夜追击预告片-video-project-bundle/README.md",
+        filePaths: [
+          "D:/StoryForgeFiles/home-agent/production-state/雨夜追击预告片-video-project-bundle/overview.json",
+        ],
+        exportedCount: 7,
+        exportedAt: "2026-04-03T01:20:00.000Z",
+      },
+    };
+
+    const snapshot = createVideoSnapshot(videoProject);
+
+    expect(snapshot.artifacts.some((artifact) => artifact.label === "生产状态包")).toBe(true);
+    expect(snapshot.recommendedActions).toEqual(
+      expect.arrayContaining(["预览生产状态摘要", "打开生产状态目录", "导出生产状态包"]),
+    );
+  });
 });

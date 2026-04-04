@@ -184,6 +184,21 @@ export function createVideoProjectChoiceHandler(deps: VideoProjectChoiceDeps): V
       return true;
     }
 
+    if (value === "导出生产状态包") {
+      void deps.runWorkflowActionShortcut("export_video_production_bundle", { projectId: snapshot.projectId }, label);
+      return true;
+    }
+
+    if (value === "预览生产状态摘要") {
+      void deps.runWorkflowActionShortcut("preview_video_production_bundle", { projectId: snapshot.projectId }, label);
+      return true;
+    }
+
+    if (value === "打开生产状态目录") {
+      void deps.runWorkflowActionShortcut("open_video_production_bundle_directory", { projectId: snapshot.projectId }, label);
+      return true;
+    }
+
     return false;
   };
 }

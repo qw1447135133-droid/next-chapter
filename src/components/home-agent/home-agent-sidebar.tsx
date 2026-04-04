@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clapperboard,
+  FolderOpen,
   History,
   Image,
   Plus,
@@ -23,6 +24,12 @@ const { memo, useCallback } = React;
 const EXECUTION_MODE_LABEL: Record<JimengExecutionMode, string> = {
   api: "API",
   cli: "CLI",
+};
+
+const ASSET_KIND_LABEL: Record<SidebarAssetItem["kind"], string> = {
+  image: "image",
+  video: "video",
+  bundle: "bundle",
 };
 
 function executionModeHint(mode: JimengExecutionMode, dreaminaCliAvailable?: boolean): string {
@@ -155,13 +162,15 @@ const SidebarAssetRow = memo(function SidebarAssetRow({
   collapsed = false,
 }: {
   asset: SidebarAssetItem;
-  onOpen: (url: string) => void;
+  onOpen: (asset: SidebarAssetItem) => void;
   collapsed?: boolean;
 }) {
+  const kindLabel = ASSET_KIND_LABEL[asset.kind];
+
   return (
     <button
       type="button"
-      onClick={() => onOpen(asset.url)}
+      onClick={() => onOpen(asset)}
       aria-label={asset.label}
       title={asset.label}
       className={cn(
@@ -174,16 +183,20 @@ const SidebarAssetRow = memo(function SidebarAssetRow({
           <img src={asset.url} alt={asset.label} className="h-full w-full object-cover" loading="lazy" />
           <span className="absolute inset-0 rounded-[10px] ring-1 ring-inset ring-white/[0.08]" />
         </span>
-      ) : (
+      ) : asset.kind === "video" ? (
         <span className="flex h-7.5 w-7.5 shrink-0 items-center justify-center rounded-[10px] bg-white/[0.04] text-slate-200">
           <Clapperboard className="h-3.5 w-3.5" />
+        </span>
+      ) : (
+        <span className="flex h-7.5 w-7.5 shrink-0 items-center justify-center rounded-[10px] bg-white/[0.05] text-slate-100 ring-1 ring-inset ring-white/[0.06]">
+          <FolderOpen className="h-3.5 w-3.5" />
         </span>
       )}
       {!collapsed ? (
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[10.5px] text-slate-100">{asset.label}</span>
           <span className="mt-0.5 flex items-center gap-1 text-[9px] text-slate-500">
-            <span className="uppercase tracking-[0.16em] text-slate-400">{asset.kind}</span>
+            <span className="uppercase tracking-[0.16em] text-slate-400">{kindLabel}</span>
             <span className="h-1 w-1 rounded-full bg-slate-600" />
             <span className="truncate">{asset.meta}</span>
           </span>
@@ -411,7 +424,7 @@ const SidebarAssetLibrary = memo(function SidebarAssetLibrary({
   collapsed = false,
 }: {
   assets: SidebarAssetItem[];
-  onOpenAsset: (url: string) => void;
+  onOpenAsset: (asset: SidebarAssetItem) => void;
   emptyClassName?: string;
   collapsed?: boolean;
 }) {
@@ -439,7 +452,7 @@ const SidebarAssetLibrary = memo(function SidebarAssetLibrary({
               collapsed && "px-0 text-center text-[10.5px] leading-5",
             )}
           >
-            {collapsed ? "暂无" : "当前对话还没有图像或视频素材。"}
+            {collapsed ? "暂无" : "当前对话还没有图像、视频或状态资产。"}
           </div>
         )}
       </div>
@@ -486,8 +499,12 @@ export const DesktopSidebar = memo(function DesktopSidebar({
   onChangeJimengExecutionMode?: (mode: JimengExecutionMode) => void;
   dreaminaCliAvailable?: boolean;
 }) {
-  const handleOpenAsset = useCallback((url: string) => {
-    window.open(url, "_blank", "noopener,noreferrer");
+  const handleOpenAsset = useCallback((asset: SidebarAssetItem) => {
+    if (asset.kind === "bundle") {
+      void window.electronAPI?.storage?.openFolder?.(asset.path);
+      return;
+    }
+    window.open(asset.url, "_blank", "noopener,noreferrer");
   }, []);
 
   const handleLaunchTemplate = useCallback(
@@ -609,8 +626,12 @@ export const MobileSidebarSheet = memo(function MobileSidebarSheet({
   }, [onNewProject, onOpenChange]);
 
   const handleOpenAsset = useCallback(
-    (url: string) => {
-      window.open(url, "_blank", "noopener,noreferrer");
+    (asset: SidebarAssetItem) => {
+      if (asset.kind === "bundle") {
+        void window.electronAPI?.storage?.openFolder?.(asset.path);
+      } else {
+        window.open(asset.url, "_blank", "noopener,noreferrer");
+      }
       onOpenChange(false);
     },
     [onOpenChange],

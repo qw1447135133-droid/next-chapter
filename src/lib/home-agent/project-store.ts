@@ -832,6 +832,9 @@ function buildVideoRecommendations(project: PersistedVideoProject): string[] {
   const runningTasks = project.scenes.filter(
     (scene) => !!scene.videoTaskId && ["queued", "processing"].includes(String(scene.videoStatus || "").toLowerCase()),
   ).length;
+  const bundleFollowups = project.productionStateBundle
+    ? ["预览生产状态摘要", "打开生产状态目录"]
+    : [];
 
   switch (stage) {
     case "脚本拆解":
@@ -856,25 +859,29 @@ function buildVideoRecommendations(project: PersistedVideoProject): string[] {
       return [
         shotPacketCount ? `复核 ${shotPacketCount} 个镜头指令包` : "编译镜头指令包",
         project.videoPromptBatch?.trim() ? "微调视频提示词批次" : "准备视频提示词批次",
-        pendingReviews ? `处理 ${pendingReviews} 条待审阅项` : "开始第一轮审阅准备",
+        ...bundleFollowups,
+        "导出生产状态包",
       ];
     case "视频提示词":
       return [
         failedVideoCount ? `补发 ${failedVideoCount} 条失败镜头` : "开始第一轮出片",
         project.videoPromptBatch?.trim() ? "继续微调视频提示词批次" : "回到对话里补充出片要求",
-        generatedVideoCount ? `检查已生成的 ${generatedVideoCount} 条视频资产` : "整理待审阅项",
+        ...bundleFollowups,
+        "导出生产状态包",
       ];
     case "生成中":
       return [
         failedVideoCount ? `补发 ${failedVideoCount} 条失败镜头` : "轮询当前出片结果",
         runningTasks ? `等待剩余 ${runningTasks} 条镜头完成` : "继续等待当前批次",
-        generatedVideoCount ? `检查已生成的 ${generatedVideoCount} 条视频资产` : "补充下一轮镜头要求",
+        ...bundleFollowups,
+        "导出生产状态包",
       ];
     case "审阅与修复":
       return [
         pendingReviews ? `处理 ${pendingReviews} 条待审阅项` : "整理审阅结论",
-        generatedVideoCount ? `检查已生成的 ${generatedVideoCount} 条视频资产` : "回到对话里补充审阅标准",
         "对需要重做的镜头发起修复",
+        ...bundleFollowups,
+        "导出生产状态包",
       ];
     default:
       return [
@@ -1082,6 +1089,23 @@ export function createVideoSnapshot(project: PersistedVideoProject): Conversatio
           .map((item) => `${item.title}\n${item.summary}\n状态：${item.status}`)
           .join("\n\n---\n\n"),
         updatedAt,
+      ),
+    );
+  }
+
+  if (syncedProject.productionStateBundle?.directoryPath) {
+    artifacts.push(
+      buildArtifact(
+        `${syncedProject.id}-production-state-bundle`,
+        "report",
+        "生产状态包",
+        [
+          `导出目录：${syncedProject.productionStateBundle.directoryPath}`,
+          `索引文件：${syncedProject.productionStateBundle.overviewPath}`,
+          `文件数：${syncedProject.productionStateBundle.exportedCount}`,
+          `导出时间：${syncedProject.productionStateBundle.exportedAt}`,
+        ].join("\n"),
+        syncedProject.productionStateBundle.exportedAt || updatedAt,
       ),
     );
   }

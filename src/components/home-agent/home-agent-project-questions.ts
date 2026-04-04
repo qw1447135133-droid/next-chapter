@@ -35,6 +35,8 @@ export function collectReviewTargetIds(snapshot: ConversationProjectSnapshot, mo
 export function buildReviewQuestion(snapshot: ConversationProjectSnapshot): ComposerQuestion | null {
   const reviewQueue = listPendingApprovalReviewItems(snapshot);
   if (!reviewQueue.length) return null;
+  const productionBundleOption = buildVideoProductionBundleOption(snapshot);
+  const productionFollowups = buildVideoProductionBundleFollowupOptions(snapshot);
   return {
     id: `review-${snapshot.projectId}`,
     title: `我已恢复《${snapshot.title}》的待审阅素材，先怎么处理？`,
@@ -44,7 +46,9 @@ export function buildReviewQuestion(snapshot: ConversationProjectSnapshot): Comp
       { id: `${snapshot.projectId}-review-pass`, label: "通过稳定项", value: "review:approve-stable", rationale: "先收口已经稳定的素材，减少后续反复。" },
       { id: `${snapshot.projectId}-review-redo`, label: "只重做风险项", value: "review:redo-risk", rationale: "先把风险镜头统一退回重做。" },
       { id: `${snapshot.projectId}-review-list`, label: "逐条审阅", value: "review:list", rationale: "展开逐条处理入口，再决定每条素材的去留。" },
-    ],
+      productionBundleOption,
+      ...productionFollowups,
+    ].filter((option): option is NonNullable<typeof option> => Boolean(option)),
     allowCustomInput: true,
     submissionMode: "immediate",
     multiSelect: false,
@@ -57,6 +61,8 @@ export function buildReviewQuestion(snapshot: ConversationProjectSnapshot): Comp
 export function buildVideoRepairQuestion(snapshot: ConversationProjectSnapshot): ComposerQuestion | null {
   const redoItems = listRedoReviewItems(snapshot);
   if (!redoItems.length) return null;
+  const productionBundleOption = buildVideoProductionBundleOption(snapshot);
+  const productionFollowups = buildVideoProductionBundleFollowupOptions(snapshot);
   return {
     id: `video-repair-${snapshot.projectId}`,
     title: `《${snapshot.title}》已有 ${redoItems.length} 条镜头被退回重做，先怎么修复？`,
@@ -65,7 +71,9 @@ export function buildVideoRepairQuestion(snapshot: ConversationProjectSnapshot):
       { id: `${snapshot.projectId}-video-repair-all`, label: redoItems.length === 1 ? "直接重做这条镜头" : "重做全部退回镜头", value: "video:repair:all", rationale: "先把已明确需要返工的镜头统一送回重做。" },
       { id: `${snapshot.projectId}-video-repair-list`, label: "指定镜头重做", value: "video:repair:list", rationale: "只挑当前最关键的镜头先返工，保持修复节奏可控。" },
       { id: `${snapshot.projectId}-video-repair-review`, label: "先复核重做原因", value: "video:repair:review", rationale: "先看清每条镜头为什么被退回，再决定是否整批重做。" },
-    ],
+      productionBundleOption,
+      ...productionFollowups,
+    ].filter((option): option is NonNullable<typeof option> => Boolean(option)),
     allowCustomInput: true,
     submissionMode: "immediate",
     multiSelect: false,
@@ -171,6 +179,8 @@ export function buildVideoBridgeQuestion(snapshot: ConversationProjectSnapshot, 
   const sceneCount = project?.scenes.length ?? 0;
   const storyboardedSceneCount = countStoryboardedScenes(project);
   const shotPacketCount = countShotPackets(project);
+  const productionBundleOption = buildVideoProductionBundleOption(snapshot);
+  const productionFollowups = buildVideoProductionBundleFollowupOptions(snapshot);
 
   switch (snapshot.derivedStage) {
     case "脚本拆解":
@@ -230,7 +240,9 @@ export function buildVideoBridgeQuestion(snapshot: ConversationProjectSnapshot, 
         options: [
           { id: `${snapshot.projectId}-video-shot-review`, label: shotPacketCount ? `复核 ${shotPacketCount} 个镜头指令包` : "编译镜头指令包", value: "video:bridge:shots", rationale: "先把镜头指令包收口，避免后续提示词批次反复返工。" },
           { id: `${snapshot.projectId}-video-prompts`, label: "准备视频提示词批次", value: "video:bridge:prompts", rationale: "直接把镜头指令包推进到提示词批次，准备进入第一轮出片。" },
-        ],
+          productionBundleOption,
+          ...productionFollowups,
+        ].filter((option): option is NonNullable<typeof option> => Boolean(option)),
         allowCustomInput: true,
         submissionMode: "immediate",
         multiSelect: false,
@@ -248,10 +260,14 @@ export function buildVideoGenerationQuestion(snapshot: ConversationProjectSnapsh
   if (!candidates.length) return null;
   const failedScenes = listFailedVideoScenes(project);
   const firstBatchSize = Math.min(3, candidates.length);
+  const productionBundleOption = buildVideoProductionBundleOption(snapshot);
+  const productionFollowups = buildVideoProductionBundleFollowupOptions(snapshot);
   const options = [
     { id: `${snapshot.projectId}-video-generate-first`, label: candidates.length === 1 ? `直接生成 ${formatSceneOptionLabel(candidates[0])}` : `先生成前 ${firstBatchSize} 条镜头`, value: "video:generate:first", rationale: candidates.length === 1 ? "直接把当前最靠前的镜头送去出片，继续留在首页等待结果。" : `优先验证最靠前的 ${firstBatchSize} 条镜头，保持第一轮出片节奏。` },
     ...(failedScenes.length ? [{ id: `${snapshot.projectId}-video-generate-failed`, label: `补发 ${Math.min(failedScenes.length, 3)} 条失败镜头`, value: "video:generate:failed", rationale: "先把失败镜头回补一轮，避免卡住后续审阅。" }] : []),
     ...(candidates.length > 1 ? [{ id: `${snapshot.projectId}-video-generate-list`, label: "指定镜头出片", value: "video:generate:list", rationale: "先点选具体镜头，再只发这一小批。" }] : []),
+    ...(productionBundleOption ? [productionBundleOption] : []),
+    ...productionFollowups,
   ];
   return { id: `video-generate-${snapshot.projectId}`, title: `《${snapshot.title}》的视频提示词已就绪，先怎么开始出片？`, description: `当前可直接出片 ${candidates.length} 条镜头。`, options, allowCustomInput: true, submissionMode: "immediate", multiSelect: false, stepIndex: 0, totalSteps: 1, answerKey: "video-generate" };
 }
@@ -266,10 +282,14 @@ export function buildVideoRefreshQuestion(snapshot: ConversationProjectSnapshot,
   const runningScenes = listRunningVideoScenes(project);
   if (!runningScenes.length) return null;
   const completedScenes = listCompletedVideoScenes(project);
+  const productionBundleOption = buildVideoProductionBundleOption(snapshot);
+  const productionFollowups = buildVideoProductionBundleFollowupOptions(snapshot);
   const options = [
     { id: `${snapshot.projectId}-video-refresh-all`, label: runningScenes.length === 1 ? `刷新 ${formatSceneOptionLabel(runningScenes[0])}` : "刷新全部进行中镜头", value: "video:refresh:all", rationale: runningScenes.length === 1 ? "回收这一条镜头的最新状态，看是否已经能进入审阅。" : `当前有 ${runningScenes.length} 条镜头在后台处理中，先统一刷新结果。` },
     ...(runningScenes.length > 1 ? [{ id: `${snapshot.projectId}-video-refresh-list`, label: "指定镜头查看结果", value: "video:refresh:list", rationale: "只查看某一条镜头的最新结果，减少打断。" }] : []),
     ...(completedScenes.length ? [{ id: `${snapshot.projectId}-video-review-generated`, label: `检查已生成的 ${completedScenes.length} 条视频资产`, value: "video:review:generated", rationale: "直接切到首页内的审阅动作，不再跳去别的工作区。" }] : []),
+    ...(productionBundleOption ? [productionBundleOption] : []),
+    ...productionFollowups,
   ];
   return { id: `video-refresh-${snapshot.projectId}`, title: `《${snapshot.title}》已有镜头在生成中，下一步怎么查结果？`, description: `后台处理中 ${runningScenes.length} 条。`, options, allowCustomInput: true, submissionMode: "immediate", multiSelect: false, stepIndex: 0, totalSteps: 1, answerKey: "video-refresh" };
 }
@@ -346,6 +366,40 @@ export function findBeatPacket(snapshot: ConversationProjectSnapshot, packetId: 
 
 export function findRecommendedAction(snapshot: ConversationProjectSnapshot, predicate: (action: string) => boolean) {
   return snapshot.recommendedActions.find((action) => predicate(action)) ?? null;
+}
+
+export function buildVideoProductionBundleOption(snapshot: ConversationProjectSnapshot) {
+  const exportAction = findRecommendedAction(snapshot, (action) => action.includes("导出生产状态包"));
+  if (!exportAction) return null;
+  return {
+    id: `${snapshot.projectId}-video-production-bundle`,
+    label: exportAction,
+    value: exportAction,
+    rationale: "把当前风格锁、世界模型、资产清单、镜头指令包和审阅状态导出成可续接的生产状态包。",
+  };
+}
+
+export function buildVideoProductionBundleFollowupOptions(snapshot: ConversationProjectSnapshot) {
+  const previewAction = findRecommendedAction(snapshot, (action) => action.includes("预览生产状态摘要"));
+  const openAction = findRecommendedAction(snapshot, (action) => action.includes("打开生产状态目录"));
+  return [
+    previewAction
+      ? {
+          id: `${snapshot.projectId}-video-production-preview`,
+          label: previewAction,
+          value: previewAction,
+          rationale: "先在首页里核对这份生产状态包会收纳哪些资产和状态，再决定是否继续搬运或审计。",
+        }
+      : null,
+    openAction
+      ? {
+          id: `${snapshot.projectId}-video-production-open`,
+          label: openAction,
+          value: openAction,
+          rationale: "直接打开本地生产状态目录，查看导出的 JSON、README 和镜头状态文件。",
+        }
+      : null,
+  ].filter((option): option is NonNullable<typeof option> => Boolean(option));
 }
 
 export function extractEpisodeNumberFromAction(action: string | null | undefined): number | null {
@@ -475,6 +529,10 @@ export function listPendingSkillDrafts(drafts: SkillDraft[]): SkillDraft[] {
   return drafts.filter((draft) => draft.status === "pending");
 }
 
+export function listApprovedSkillDrafts(drafts: SkillDraft[]): SkillDraft[] {
+  return drafts.filter((draft) => draft.status === "approved");
+}
+
 export function findSkillDraft(drafts: SkillDraft[], draftId: string): SkillDraft | null {
   return drafts.find((draft) => draft.id === draftId) ?? null;
 }
@@ -483,8 +541,9 @@ export function buildMaintenanceReviewQuestion(
   runtime: Pick<StudioRuntimeState, "skillDrafts" | "maintenanceReports">,
 ): ComposerQuestion | null {
   const pendingDrafts = listPendingSkillDrafts(runtime.skillDrafts);
+  const approvedDrafts = listApprovedSkillDrafts(runtime.skillDrafts);
   const latestReport = runtime.maintenanceReports[0] ?? null;
-  if (!pendingDrafts.length && !latestReport) return null;
+  if (!pendingDrafts.length && !approvedDrafts.length && !latestReport) return null;
 
   const options = [
     latestReport
@@ -503,6 +562,70 @@ export function buildMaintenanceReviewQuestion(
           rationale: "先浏览待审核草案，决定哪些值得继续沉淀成正式能力。",
         }
       : null,
+    approvedDrafts.length
+      ? {
+          id: "maintenance-approved-skill-drafts",
+          label: `查看 ${approvedDrafts.length} 份已批准技能草案`,
+          value: "maintenance:skills:approved",
+          rationale: "回看已经批准的候选能力，确认后续整理优先级。",
+        }
+      : null,
+    approvedDrafts.length
+      ? {
+          id: "maintenance-approved-skill-drafts-export",
+          label: "导出已批准技能候选",
+          value: "maintenance:skills:export-approved",
+          rationale: "把已批准草案导出到本地候选目录，方便后续整理正式 skills。",
+        }
+      : null,
+    approvedDrafts.length
+      ? {
+          id: "maintenance-approved-skill-drafts-preview",
+          label: "预览已批准 Bundle 摘要",
+          value: "maintenance:skills:preview-approved",
+          rationale: "先在首页里查看已批准草案的合并摘要，再决定是否导出正式 bundle 文件。",
+        }
+      : null,
+    approvedDrafts.length
+      ? {
+          id: "maintenance-approved-skill-drafts-open",
+          label: "打开技能候选目录",
+          value: "maintenance:skills:open-approved-dir",
+          rationale: "直接打开本地候选目录，查看已导出的技能草案和 bundle 文件。",
+        }
+      : null,
+    approvedDrafts.length
+      ? {
+          id: "maintenance-approved-skill-install-candidates",
+          label: "生成正式 Skill 安装候选",
+          value: "maintenance:skills:package-install-candidates",
+          rationale: "把已批准草案整理成不会自动生效的正式 Skill 候选文件，方便后续人工审核和搬运。",
+        }
+      : null,
+    approvedDrafts.length
+      ? {
+          id: "maintenance-approved-skill-install-candidates-preview",
+          label: "预览安装候选摘要",
+          value: "maintenance:skills:preview-install-candidates",
+          rationale: "先在首页查看正式 Skill 候选会怎么组织，再决定是否导出到本地审核目录。",
+        }
+      : null,
+    approvedDrafts.length
+      ? {
+          id: "maintenance-approved-skill-install-candidates-open",
+          label: "打开安装候选目录",
+          value: "maintenance:skills:open-install-candidates-dir",
+          rationale: "直接打开正式 Skill 候选目录，查看待审核的候选文件和审核清单。",
+        }
+      : null,
+    approvedDrafts.length
+      ? {
+          id: "maintenance-approved-skill-drafts-bundle",
+          label: "导出 Bundle 文件",
+          value: "maintenance:skills:bundle-approved",
+          rationale: "把已批准草案写成本地 bundle 文件，便于后续正式打包和归档。",
+        }
+      : null,
     {
       id: "maintenance-run",
       label: "执行一次维护检查",
@@ -514,8 +637,10 @@ export function buildMaintenanceReviewQuestion(
   return {
     id: "maintenance-review-home",
     title: pendingDrafts.length
-      ? `我已整理出 ${pendingDrafts.length} 份待审核技能草案${latestReport ? "，并带着最近维护结论" : ""}。`
-      : "我已整理出最近一次首页维护结论。",
+      ? `我已整理出 ${pendingDrafts.length} 份待审核技能草案${approvedDrafts.length ? `，另有 ${approvedDrafts.length} 份已批准候选` : ""}${latestReport ? "，并带着最近维护结论" : ""}。`
+      : approvedDrafts.length
+        ? `当前已有 ${approvedDrafts.length} 份已批准技能草案${latestReport ? "，并带着最近维护结论" : ""}。`
+        : "我已整理出最近一次首页维护结论。",
     description: latestReport
       ? `${latestReport.summary} 你也可以直接输入新的创作或维护指令。`
       : "你也可以直接输入新的创作或维护指令。",
@@ -552,6 +677,106 @@ export function buildSkillDraftListQuestion(drafts: SkillDraft[]): ComposerQuest
   };
 }
 
+export function buildApprovedSkillDraftListQuestion(drafts: SkillDraft[]): ComposerQuestion | null {
+  const approvedDrafts = listApprovedSkillDrafts(drafts);
+  if (!approvedDrafts.length) return null;
+
+  return {
+    id: "maintenance-approved-skill-drafts-list",
+    title: "先看哪一份已批准技能草案？",
+    description: "这些草案已经通过人工确认，可以作为后续正式技能整理候选。",
+    options: approvedDrafts.slice(0, 6).map((draft) => ({
+      id: draft.id,
+      label: draft.proposedSkillName,
+      value: `maintenance:skill-approved:${draft.id}`,
+      rationale: draft.reason || "查看这份已批准草案的摘要和候选内容。",
+    })),
+    allowCustomInput: true,
+    submissionMode: "immediate",
+    multiSelect: false,
+    stepIndex: 0,
+    totalSteps: 1,
+    answerKey: "maintenance-approved-skill-drafts",
+  };
+}
+
+export function buildApprovedSkillDraftBundlePreviewMessage(drafts: SkillDraft[]): string {
+  const approvedDrafts = listApprovedSkillDrafts(drafts);
+  if (!approvedDrafts.length) {
+    return "当前还没有已批准技能草案可预览。";
+  }
+
+  return [
+    `当前共有 ${approvedDrafts.length} 份已批准技能草案，可继续整理成正式 skills。`,
+    ...approvedDrafts.slice(0, 3).flatMap((draft, index) => [
+      `${index + 1}. ${draft.proposedSkillName}`,
+      `原因：${truncateCopy(draft.reason || "未提供原因", 80)}`,
+      draft.proposedContent.trim()
+        ? `候选内容：${truncateCopy(draft.proposedContent, 160)}`
+        : "候选内容：未提供候选内容",
+    ]),
+    approvedDrafts.length > 3 ? `其余 ${approvedDrafts.length - 3} 份草案已保留在已批准列表中。` : "",
+    "如果需要，我也可以继续把这些已批准草案导出到本地候选目录或生成 bundle 文件。",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function buildApprovedSkillInstallCandidatePreviewMessage(drafts: SkillDraft[]): string {
+  const approvedDrafts = listApprovedSkillDrafts(drafts);
+  if (!approvedDrafts.length) {
+    return "当前还没有已批准技能草案可整理为正式 Skill 候选。";
+  }
+
+  return [
+    `我会把 ${approvedDrafts.length} 份已批准草案整理成待审核的正式 Skill 候选文件。`,
+    "这些候选不会自动写入 .claude/skills，也不会被当前 loader 自动启用。",
+    ...approvedDrafts.slice(0, 3).flatMap((draft, index) => [
+      `${index + 1}. ${draft.proposedSkillName}`,
+      `候选文件：${draft.proposedSkillName.trim() ? draft.proposedSkillName.trim().replace(/\s+/g, "-").toLowerCase() : "skill-draft"}.md`,
+      `审核重点：${truncateCopy(draft.reason || "先确认它是否值得进入正式能力集合。", 90)}`,
+    ]),
+    approvedDrafts.length > 3 ? `其余 ${approvedDrafts.length - 3} 份会继续保留在同一候选目录中。` : "",
+    "导出后还会附带 INSTALL-REVIEW.md，方便人工逐条核对再搬运。",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function buildSkillDraftDecisionQuestion(draft: SkillDraft): ComposerQuestion {
+  return {
+    id: `maintenance-skill-draft-${draft.id}`,
+    title: `《${draft.proposedSkillName}》这份技能草案怎么处理？`,
+    description: "只有你确认后才会写入正式状态；也可以先返回草案列表继续查看别的草案。",
+    options: [
+      {
+        id: `${draft.id}-approve`,
+        label: "批准这份草案",
+        value: `maintenance:skill-approve:${draft.id}`,
+        rationale: "将这份草案标记为已批准，后续可进入正式 skill 整理流程。",
+      },
+      {
+        id: `${draft.id}-reject`,
+        label: "驳回这份草案",
+        value: `maintenance:skill-reject:${draft.id}`,
+        rationale: "将这份草案标记为已拒绝，避免它继续出现在待审核列表里。",
+      },
+      {
+        id: `${draft.id}-back`,
+        label: "返回草案列表",
+        value: "maintenance:skills",
+        rationale: "继续查看其他待审核技能草案。",
+      },
+    ],
+    allowCustomInput: true,
+    submissionMode: "immediate",
+    multiSelect: false,
+    stepIndex: 0,
+    totalSteps: 1,
+    answerKey: "maintenance-skill-decision",
+  };
+}
+
 export function buildMaintenanceReportMessage(report: MaintenanceReport): string {
   return [
     `最近一次维护已完成：${report.summary}`,
@@ -564,7 +789,7 @@ export function buildMaintenanceReportMessage(report: MaintenanceReport): string
 
 export function buildSkillDraftSummaryMessage(draft: SkillDraft): string {
   return [
-    `待审核技能草案《${draft.proposedSkillName}》`,
+    `${draft.status === "approved" ? "已批准技能草案" : draft.status === "rejected" ? "已驳回技能草案" : "待审核技能草案"}《${draft.proposedSkillName}》`,
     `来源：${draft.sourceConversationIds.length} 条会话`,
     `原因：${draft.reason}`,
     draft.proposedContent.trim() ? `草案内容：${truncateCopy(draft.proposedContent, 220)}` : "",

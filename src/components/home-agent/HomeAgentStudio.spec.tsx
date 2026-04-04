@@ -29,13 +29,198 @@ const dreaminaCliGetStatus = vi.fn(async () => ({
   message: "未检测到 Dreamina CLI",
 }));
 const runWorkflowAction = vi.fn(
-  async (action: string, _input: Record<string, unknown>, runtime: { currentProjectSnapshot?: unknown }) => ({
-    summary: `workflow:${action}`,
-    projectSnapshot: runtime.currentProjectSnapshot ?? null,
-    data: {
+  async (action: string, input: Record<string, unknown>, runtime: { currentProjectSnapshot?: unknown; skillDrafts?: unknown }) => {
+    if (action === "approve_skill_draft" || action === "reject_skill_draft") {
+      const draftId = typeof input.draftId === "string" ? input.draftId : "";
+      const status = action === "approve_skill_draft" ? "approved" : "rejected";
+      const storedDrafts = JSON.parse(localStorage.getItem(SKILL_DRAFTS_KEY) || "[]") as Array<{
+        id: string;
+        status: string;
+        proposedSkillName?: string;
+      }>;
+      const nextDrafts = storedDrafts.map((draft) =>
+        draft.id === draftId ? { ...draft, status } : draft,
+      );
+      localStorage.setItem(SKILL_DRAFTS_KEY, JSON.stringify(nextDrafts));
+      const target = nextDrafts.find((draft) => draft.id === draftId);
+      const storedReports = JSON.parse(localStorage.getItem(MAINTENANCE_REPORTS_KEY) || "[]");
+      const nextReports = [
+        {
+          id: `report-${action}-${draftId}`,
+          createdAt: "2026-04-03T00:40:00.000Z",
+          summary:
+            status === "approved"
+              ? `已将《${target?.proposedSkillName ?? "未命名草案"}》加入已批准技能候选。`
+              : `已将《${target?.proposedSkillName ?? "未命名草案"}》从待审核草案中驳回。`,
+          compressedConversationCount: 0,
+          archivedProjectCount: 0,
+          clearedCacheKeys: [],
+          mergedDraftCount: 0,
+          notes: [],
+        },
+        ...storedReports,
+      ];
+      localStorage.setItem(MAINTENANCE_REPORTS_KEY, JSON.stringify(nextReports));
+
+      return {
+        summary:
+          status === "approved"
+            ? `已批准技能草案《${target?.proposedSkillName ?? "未命名草案"}》，并加入已批准候选队列。`
+            : `已驳回技能草案《${target?.proposedSkillName ?? "未命名草案"}》。`,
+        projectSnapshot: runtime.currentProjectSnapshot ?? null,
+        data: {
+          projectSnapshot: runtime.currentProjectSnapshot ?? null,
+          skillDrafts: nextDrafts,
+          maintenanceReports: nextReports,
+        },
+      };
+    }
+
+    if (action === "export_approved_skill_drafts") {
+      const storedReports = JSON.parse(localStorage.getItem(MAINTENANCE_REPORTS_KEY) || "[]");
+      const nextReports = [
+        {
+          id: "report-export-approved",
+          createdAt: "2026-04-03T00:50:00.000Z",
+          summary: "已将 1 份已批准技能草案导出到本地候选目录。",
+          compressedConversationCount: 0,
+          archivedProjectCount: 0,
+          clearedCacheKeys: [],
+          mergedDraftCount: 0,
+          notes: [
+            "导出目录：D:/StoryForgeFiles/home-agent/skills-drafts/approved",
+            "索引文件：D:/StoryForgeFiles/home-agent/skills-drafts/approved/README.md",
+          ],
+        },
+        ...storedReports,
+      ];
+      localStorage.setItem(MAINTENANCE_REPORTS_KEY, JSON.stringify(nextReports));
+
+      return {
+        summary: "已将 1 份已批准技能草案导出到本地候选目录。\n目录：D:/StoryForgeFiles/home-agent/skills-drafts/approved",
+        projectSnapshot: runtime.currentProjectSnapshot ?? null,
+        data: {
+          projectSnapshot: runtime.currentProjectSnapshot ?? null,
+          maintenanceReports: nextReports,
+        },
+      };
+    }
+
+    if (action === "export_approved_skill_draft_bundle") {
+      const storedReports = JSON.parse(localStorage.getItem(MAINTENANCE_REPORTS_KEY) || "[]");
+      const nextReports = [
+        {
+          id: "report-export-bundle",
+          createdAt: "2026-04-03T00:55:00.000Z",
+          summary: "已生成 1 份已批准技能草案的 bundle 预览。",
+          compressedConversationCount: 0,
+          archivedProjectCount: 0,
+          clearedCacheKeys: [],
+          mergedDraftCount: 0,
+          notes: [
+            "Markdown: D:/StoryForgeFiles/home-agent/skills-drafts/approved/bundle-preview.md",
+            "JSON: D:/StoryForgeFiles/home-agent/skills-drafts/approved/bundle-preview.json",
+          ],
+        },
+        ...storedReports,
+      ];
+      localStorage.setItem(MAINTENANCE_REPORTS_KEY, JSON.stringify(nextReports));
+
+      return {
+        summary:
+          "已生成 1 份已批准技能草案的 bundle 预览。\nMarkdown：D:/StoryForgeFiles/home-agent/skills-drafts/approved/bundle-preview.md",
+        projectSnapshot: runtime.currentProjectSnapshot ?? null,
+        data: {
+          projectSnapshot: runtime.currentProjectSnapshot ?? null,
+          maintenanceReports: nextReports,
+        },
+      };
+    }
+
+    if (action === "export_approved_skill_install_candidates") {
+      const storedReports = JSON.parse(localStorage.getItem(MAINTENANCE_REPORTS_KEY) || "[]");
+      const nextReports = [
+        {
+          id: "report-export-install-candidates",
+          createdAt: "2026-04-03T01:00:00.000Z",
+          summary: "已整理 1 份正式 Skill 安装候选文件，等待人工审核。",
+          compressedConversationCount: 0,
+          archivedProjectCount: 0,
+          clearedCacheKeys: [],
+          mergedDraftCount: 0,
+          notes: [
+            "候选目录：D:/StoryForgeFiles/home-agent/skills-candidates/pending-install",
+            "审核清单：D:/StoryForgeFiles/home-agent/skills-candidates/pending-install/INSTALL-REVIEW.md",
+            "这些候选文件不会自动进入 .claude/skills，也不会自动生效。",
+          ],
+        },
+        ...storedReports,
+      ];
+      localStorage.setItem(MAINTENANCE_REPORTS_KEY, JSON.stringify(nextReports));
+
+      return {
+        summary:
+          "已整理 1 份正式 Skill 安装候选文件，等待人工审核。\n目录：D:/StoryForgeFiles/home-agent/skills-candidates/pending-install",
+        projectSnapshot: runtime.currentProjectSnapshot ?? null,
+        data: {
+          projectSnapshot: runtime.currentProjectSnapshot ?? null,
+          maintenanceReports: nextReports,
+        },
+      };
+    }
+
+    if (action === "export_video_production_bundle") {
+      const nextSnapshot =
+        runtime.currentProjectSnapshot && runtime.currentProjectSnapshot.projectKind === "video"
+          ? {
+              ...runtime.currentProjectSnapshot,
+              recommendedActions: [
+                "预览生产状态摘要",
+                "打开生产状态目录",
+                ...runtime.currentProjectSnapshot.recommendedActions,
+              ].filter((item, index, list) => list.indexOf(item) === index),
+            }
+          : runtime.currentProjectSnapshot ?? null;
+      return {
+        summary:
+          "已导出《雨夜追击预告片》的生产状态包。\n目录：D:/StoryForgeFiles/home-agent/production-state/雨夜追击预告片-video-project-export",
+        projectSnapshot: nextSnapshot,
+        data: {
+          projectSnapshot: nextSnapshot,
+        },
+      };
+    }
+
+    if (action === "preview_video_production_bundle") {
+      return {
+        summary:
+          "当前《雨夜追击预告片》的生产状态包摘要如下：\n\n- 场景数：1\n- 资产清单：0 项\n- 镜头指令包：0 个\n- 待审阅项：0 条",
+        projectSnapshot: runtime.currentProjectSnapshot ?? null,
+        data: {
+          projectSnapshot: runtime.currentProjectSnapshot ?? null,
+        },
+      };
+    }
+
+    if (action === "open_video_production_bundle_directory") {
+      return {
+        summary:
+          "已为你打开生产状态目录：D:/StoryForgeFiles/home-agent/production-state/雨夜追击预告片-video-project-export",
+        projectSnapshot: runtime.currentProjectSnapshot ?? null,
+        data: {
+          projectSnapshot: runtime.currentProjectSnapshot ?? null,
+        },
+      };
+    }
+
+    return {
+      summary: `workflow:${action}`,
       projectSnapshot: runtime.currentProjectSnapshot ?? null,
-    },
-  }),
+      data: {
+        projectSnapshot: runtime.currentProjectSnapshot ?? null,
+      },
+    };
+  },
 );
 
 vi.mock("framer-motion", () => {
@@ -917,7 +1102,400 @@ describe("HomeAgentStudio", () => {
     });
 
     await waitForVisibleText(/待审核技能草案《镜头修复策略》/);
+    expect(screen.getByRole("button", { name: "批准这份草案" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "驳回这份草案" })).toBeInTheDocument();
+  });
+
+  it("can approve a pending skill draft from the homepage maintenance suggestion", async () => {
+    localStorage.setItem(
+      SKILL_DRAFTS_KEY,
+      JSON.stringify([
+        {
+          id: "skill-draft-1",
+          sourceConversationIds: ["session-a", "session-b"],
+          proposedSkillName: "镜头修复策略",
+          proposedContent: "当镜头进入 redo 队列时，优先按角色一致性、镜头运动、情绪强度三轴复核。",
+          reason: "多次视频修复会话都重复了同一套判断标准。",
+          status: "pending",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ]),
+    );
+
+    await renderStudio();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "查看 1 份待审核技能草案" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "查看 1 份待审核技能草案" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/先看哪一份待审核技能草案/);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "镜头修复策略" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "批准这份草案" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "批准这份草案" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/已批准技能草案《镜头修复策略》/);
+    const drafts = JSON.parse(localStorage.getItem(SKILL_DRAFTS_KEY) || "[]");
+    expect(drafts[0]?.status).toBe("approved");
+    const reports = JSON.parse(localStorage.getItem(MAINTENANCE_REPORTS_KEY) || "[]");
+    expect(reports[0]?.summary).toContain("已批准技能候选");
+  });
+
+  it("can reject a pending skill draft from the homepage maintenance suggestion", async () => {
+    localStorage.setItem(
+      SKILL_DRAFTS_KEY,
+      JSON.stringify([
+        {
+          id: "skill-draft-1",
+          sourceConversationIds: ["session-a", "session-b"],
+          proposedSkillName: "镜头修复策略",
+          proposedContent: "当镜头进入 redo 队列时，优先按角色一致性、镜头运动、情绪强度三轴复核。",
+          reason: "多次视频修复会话都重复了同一套判断标准。",
+          status: "pending",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ]),
+    );
+
+    await renderStudio();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "查看 1 份待审核技能草案" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "查看 1 份待审核技能草案" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/先看哪一份待审核技能草案/);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "镜头修复策略" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "驳回这份草案" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "驳回这份草案" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/已驳回技能草案《镜头修复策略》/);
+    const drafts = JSON.parse(localStorage.getItem(SKILL_DRAFTS_KEY) || "[]");
+    expect(drafts[0]?.status).toBe("rejected");
+    const reports = JSON.parse(localStorage.getItem(MAINTENANCE_REPORTS_KEY) || "[]");
+    expect(reports[0]?.summary).toContain("驳回");
+  });
+
+  it("can inspect approved skill drafts from the homepage maintenance suggestion", async () => {
+    localStorage.setItem(
+      SKILL_DRAFTS_KEY,
+      JSON.stringify([
+        {
+          id: "skill-draft-1",
+          sourceConversationIds: ["session-a", "session-b"],
+          proposedSkillName: "镜头修复策略",
+          proposedContent: "当镜头进入 redo 队列时，优先按角色一致性、镜头运动、情绪强度三轴复核。",
+          reason: "多次视频修复会话都重复了同一套判断标准。",
+          status: "approved",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ]),
+    );
+    localStorage.setItem(
+      MAINTENANCE_REPORTS_KEY,
+      JSON.stringify([
+        {
+          id: "report-1",
+          createdAt: "2026-04-03T00:30:00.000Z",
+          summary: "已完成一次首页维护整理。",
+          compressedConversationCount: 1,
+          archivedProjectCount: 2,
+          clearedCacheKeys: [],
+          mergedDraftCount: 0,
+          notes: ["最近视频链路已有可复用经验。"],
+        },
+      ]),
+    );
+
+    await renderStudio();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "查看 1 份已批准技能草案" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "查看 1 份已批准技能草案" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/先看哪一份已批准技能草案/);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "镜头修复策略" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/已批准技能草案《镜头修复策略》/);
     expect(screen.getByRole("button", { name: "查看最近维护结论" })).toBeInTheDocument();
+  });
+
+  it("can export approved skill drafts from the homepage maintenance suggestion", async () => {
+    localStorage.setItem(
+      SKILL_DRAFTS_KEY,
+      JSON.stringify([
+        {
+          id: "skill-draft-1",
+          sourceConversationIds: ["session-a", "session-b"],
+          proposedSkillName: "镜头修复策略",
+          proposedContent: "当镜头进入 redo 队列时，优先按角色一致性、镜头运动、情绪强度三轴复核。",
+          reason: "多次视频修复会话都重复了同一套判断标准。",
+          status: "approved",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ]),
+    );
+
+    await renderStudio();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "导出已批准技能候选" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "导出已批准技能候选" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/已将 1 份已批准技能草案导出到本地候选目录/);
+    const reports = JSON.parse(localStorage.getItem(MAINTENANCE_REPORTS_KEY) || "[]");
+    expect(reports[0]?.notes?.[0]).toContain("导出目录");
+  });
+
+  it("can preview the approved skill bundle summary from the homepage maintenance suggestion", async () => {
+    localStorage.setItem(
+      SKILL_DRAFTS_KEY,
+      JSON.stringify([
+        {
+          id: "skill-draft-1",
+          sourceConversationIds: ["session-a", "session-b"],
+          proposedSkillName: "镜头修复策略",
+          proposedContent: "当镜头进入 redo 队列时，优先按角色一致性、镜头运动、情绪强度三轴复核。",
+          reason: "多次视频修复会话都重复了同一套判断标准。",
+          status: "approved",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ]),
+    );
+
+    await renderStudio();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "预览已批准 Bundle 摘要" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "预览已批准 Bundle 摘要" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/当前共有 1 份已批准技能草案/);
+    expect(screen.getByText(/镜头修复策略/)).toBeInTheDocument();
+    expect(screen.getByText(/如果需要，我也可以继续把这些已批准草案导出到本地候选目录或生成 bundle 文件/)).toBeInTheDocument();
+  });
+
+  it("can open the approved skill export directory from the homepage maintenance suggestion", async () => {
+    const openFolder = vi.fn(async () => undefined);
+    window.electronAPI = {
+      storage: {
+        getDefaultPath: vi.fn(async () => ({ files: "D:/StoryForgeFiles", db: "D:/StoryForgeDb" })),
+        openFolder,
+      },
+    } as unknown as Window["electronAPI"];
+
+    localStorage.setItem(
+      SKILL_DRAFTS_KEY,
+      JSON.stringify([
+        {
+          id: "skill-draft-1",
+          sourceConversationIds: ["session-a", "session-b"],
+          proposedSkillName: "镜头修复策略",
+          proposedContent: "当镜头进入 redo 队列时，优先按角色一致性、镜头运动、情绪强度三轴复核。",
+          reason: "多次视频修复会话都重复了同一套判断标准。",
+          status: "approved",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ]),
+    );
+
+    await renderStudio();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "打开技能候选目录" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "打开技能候选目录" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/已为你打开技能候选目录/);
+    expect(openFolder).toHaveBeenCalledWith("D:/StoryForgeFiles/home-agent/skills-drafts/approved");
+  });
+
+  it("can generate an approved skill bundle file from the homepage maintenance suggestion", async () => {
+    localStorage.setItem(
+      SKILL_DRAFTS_KEY,
+      JSON.stringify([
+        {
+          id: "skill-draft-1",
+          sourceConversationIds: ["session-a", "session-b"],
+          proposedSkillName: "镜头修复策略",
+          proposedContent: "当镜头进入 redo 队列时，优先按角色一致性、镜头运动、情绪强度三轴复核。",
+          reason: "多次视频修复会话都重复了同一套判断标准。",
+          status: "approved",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ]),
+    );
+
+    await renderStudio();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "导出 Bundle 文件" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "导出 Bundle 文件" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/已生成 1 份已批准技能草案的 bundle 预览/);
+    const reports = JSON.parse(localStorage.getItem(MAINTENANCE_REPORTS_KEY) || "[]");
+    expect(reports[0]?.notes?.[0]).toContain("bundle-preview.md");
+  });
+
+  it("can package approved skill drafts into controlled install candidates from the homepage maintenance suggestion", async () => {
+    localStorage.setItem(
+      SKILL_DRAFTS_KEY,
+      JSON.stringify([
+        {
+          id: "skill-draft-1",
+          sourceConversationIds: ["session-a", "session-b"],
+          proposedSkillName: "镜头修复策略",
+          proposedContent: "当镜头进入 redo 队列时，优先按角色一致性、镜头运动、情绪强度三轴复核。",
+          reason: "多次视频修复会话都重复了同一套判断标准。",
+          status: "approved",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ]),
+    );
+
+    await renderStudio();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "生成正式 Skill 安装候选" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "生成正式 Skill 安装候选" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/已整理 1 份正式 Skill 安装候选文件，等待人工审核/);
+    const reports = JSON.parse(localStorage.getItem(MAINTENANCE_REPORTS_KEY) || "[]");
+    expect(reports[0]?.notes?.[0]).toContain("skills-candidates/pending-install");
+    expect(reports[0]?.notes?.[2]).toContain("不会自动进入 .claude/skills");
+  });
+
+  it("can preview the controlled install candidate summary from the homepage maintenance suggestion", async () => {
+    localStorage.setItem(
+      SKILL_DRAFTS_KEY,
+      JSON.stringify([
+        {
+          id: "skill-draft-1",
+          sourceConversationIds: ["session-a", "session-b"],
+          proposedSkillName: "镜头修复策略",
+          proposedContent: "当镜头进入 redo 队列时，优先按角色一致性、镜头运动、情绪强度三轴复核。",
+          reason: "多次视频修复会话都重复了同一套判断标准。",
+          status: "approved",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ]),
+    );
+
+    await renderStudio();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "预览安装候选摘要" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "预览安装候选摘要" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/整理成待审核的正式 Skill 候选文件/);
+    expect(screen.getByText(/不会自动写入 \.claude\/skills/)).toBeInTheDocument();
+    expect(screen.getByText(/INSTALL-REVIEW\.md/)).toBeInTheDocument();
+  });
+
+  it("can open the controlled install candidate directory from the homepage maintenance suggestion", async () => {
+    const openFolder = vi.fn(async () => undefined);
+    window.electronAPI = {
+      storage: {
+        getDefaultPath: vi.fn(async () => ({ files: "D:/StoryForgeFiles", db: "D:/StoryForgeDb" })),
+        openFolder,
+      },
+    } as unknown as Window["electronAPI"];
+
+    localStorage.setItem(
+      SKILL_DRAFTS_KEY,
+      JSON.stringify([
+        {
+          id: "skill-draft-1",
+          sourceConversationIds: ["session-a", "session-b"],
+          proposedSkillName: "镜头修复策略",
+          proposedContent: "当镜头进入 redo 队列时，优先按角色一致性、镜头运动、情绪强度三轴复核。",
+          reason: "多次视频修复会话都重复了同一套判断标准。",
+          status: "approved",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ]),
+    );
+
+    await renderStudio();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "打开安装候选目录" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "打开安装候选目录" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/已为你打开正式 Skill 候选目录/);
+    expect(openFolder).toHaveBeenCalledWith("D:/StoryForgeFiles/home-agent/skills-candidates/pending-install");
   });
 
   it("automatically launches parallel research tracks for analysis-style requests", async () => {
@@ -1123,6 +1701,193 @@ describe("HomeAgentStudio", () => {
       );
     });
     expect(screen.getByText("workflow:generate_video_assets")).toBeInTheDocument();
+  });
+
+  it("maps the production bundle recommendation to a homepage workflow shortcut", async () => {
+    localStorage.setItem(
+      STUDIO_SESSION_KEY,
+      JSON.stringify({
+        sessionId: "video-session-export",
+        compactedMessageCount: 0,
+        mode: "active",
+        messages: [
+          {
+            id: "assistant-video-export-1",
+            role: "assistant",
+            content: "当前已经具备资产清单、镜头指令包和待审阅状态，可以先导出生产状态包。",
+            createdAt: "2026-04-03T00:00:00.000Z",
+          },
+        ],
+        currentProjectSnapshot: {
+          projectId: "video-project-export",
+          projectKind: "video",
+          title: "雨夜追击预告片",
+          currentObjective: "继续复核镜头指令包，并衔接提示词与生成。",
+          derivedStage: "镜头指令包",
+          agentSummary: "当前已经具备资产清单、镜头指令包和待审阅状态。",
+          recommendedActions: ["复核 2 个镜头指令包", "准备视频提示词批次", "导出生产状态包"],
+          artifacts: [],
+        },
+        recentMessageSummary: "assistant: 当前已经具备资产清单、镜头指令包和待审阅状态，可以先导出生产状态包。",
+        projectId: "video-project-export",
+        draft: "",
+        qState: null,
+        selectedValues: [],
+      }),
+    );
+
+    await renderStudio();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "导出生产状态包" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "导出生产状态包" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(runWorkflowAction).toHaveBeenCalledWith(
+        "export_video_production_bundle",
+        expect.objectContaining({
+          projectId: "video-project-export",
+        }),
+        expect.anything(),
+      );
+    });
+    expect(screen.getByText(/已导出《雨夜追击预告片》的生产状态包/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "预览生产状态摘要" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "打开生产状态目录" })).toBeInTheDocument();
+  });
+
+  it("supports previewing and opening the exported production bundle from the homepage follow-up actions", async () => {
+    localStorage.setItem(
+      STUDIO_SESSION_KEY,
+      JSON.stringify({
+        sessionId: "video-session-export-followup",
+        compactedMessageCount: 0,
+        mode: "active",
+        messages: [
+          {
+            id: "assistant-video-export-followup-1",
+            role: "assistant",
+            content: "生产状态包已经导出完成。",
+            createdAt: "2026-04-03T00:00:00.000Z",
+          },
+        ],
+        currentProjectSnapshot: {
+          projectId: "video-project-export",
+          projectKind: "video",
+          title: "雨夜追击预告片",
+          currentObjective: "继续复核镜头指令包，并衔接提示词与生成。",
+          derivedStage: "镜头指令包",
+          agentSummary: "当前已经具备资产清单、镜头指令包和待审阅状态。",
+          recommendedActions: ["预览生产状态摘要", "打开生产状态目录", "导出生产状态包"],
+          artifacts: [],
+        },
+        recentMessageSummary: "assistant: 生产状态包已经导出完成。",
+        projectId: "video-project-export",
+        draft: "",
+        qState: null,
+        selectedValues: [],
+      }),
+    );
+
+    await renderStudio();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "预览生产状态摘要" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "预览生产状态摘要" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/当前《雨夜追击预告片》的生产状态包摘要如下/);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "打开生产状态目录" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/已为你打开生产状态目录/);
+    expect(runWorkflowAction).toHaveBeenCalledWith(
+      "preview_video_production_bundle",
+      expect.objectContaining({
+        projectId: "video-project-export",
+      }),
+      expect.anything(),
+    );
+    expect(runWorkflowAction).toHaveBeenCalledWith(
+      "open_video_production_bundle_directory",
+      expect.objectContaining({
+        projectId: "video-project-export",
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("surfaces the persisted production bundle inside the sidebar asset library and opens its local directory", async () => {
+    const openFolder = vi.fn(async () => undefined);
+    window.electronAPI = {
+      storage: {
+        getDefaultPath: vi.fn(async () => ({ files: "D:/StoryForgeFiles", db: "D:/StoryForgeDb" })),
+        openFolder,
+      },
+    } as unknown as Window["electronAPI"];
+
+    seedGeneratingVideoProject("video-project-bundle-sidebar");
+    localStorage.setItem(
+      VIDEO_PROJECTS_KEY,
+      JSON.stringify([
+        {
+          ...JSON.parse(localStorage.getItem(VIDEO_PROJECTS_KEY) || "[]")[0],
+          productionStateBundle: {
+            directoryPath: "D:/StoryForgeFiles/home-agent/production-state/雨夜追击生成中-video-project-export",
+            overviewPath: "D:/StoryForgeFiles/home-agent/production-state/雨夜追击生成中-video-project-export/README.md",
+            filePaths: [
+              "D:/StoryForgeFiles/home-agent/production-state/雨夜追击生成中-video-project-export/README.md",
+              "D:/StoryForgeFiles/home-agent/production-state/雨夜追击生成中-video-project-export/project.json",
+            ],
+            exportedCount: 2,
+            exportedAt: "2026-04-03T01:00:00.000Z",
+          },
+        },
+      ]),
+    );
+
+    await renderStudio();
+
+    const historySection = (await screen.findAllByText("对话历史"))[0]?.closest("section") ?? document.body;
+    let historyButton: HTMLElement | null = null;
+    await waitFor(() => {
+      historyButton = within(historySection).getByRole("button", {
+        name: /雨夜追击生成中/,
+      });
+    });
+
+    await act(async () => {
+      fireEvent.click(historyButton!);
+      await Promise.resolve();
+    });
+
+    const assetSection = (await screen.findAllByText("素材库"))[0]?.closest("section") ?? document.body;
+
+    await waitFor(() => {
+      expect(within(assetSection).getByRole("button", { name: "生产状态包" })).toBeInTheDocument();
+    });
+    expect(within(assetSection).getByText(/2 个文件/)).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(within(assetSection).getByRole("button", { name: "生产状态包" }));
+      await Promise.resolve();
+    });
+
+    expect(openFolder).toHaveBeenCalledWith(
+      "D:/StoryForgeFiles/home-agent/production-state/雨夜追击生成中-video-project-export",
+    );
   });
 
   it("surfaces stage-aware video generation choices before submitting the first batch", async () => {

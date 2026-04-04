@@ -7,6 +7,7 @@ import type {
   ProductionAssetManifest,
   VideoReviewItem,
   VideoShotPacket,
+  VideoProductionBundleMeta,
   VideoStyleLock,
   VideoWorldModel,
 } from "@/types/project";
@@ -34,6 +35,7 @@ interface ProjectData {
   assetManifest?: ProductionAssetManifest | null;
   shotPackets?: VideoShotPacket[];
   reviewQueue?: VideoReviewItem[];
+  productionStateBundle?: VideoProductionBundleMeta | null;
 }
 
 const STORAGE_KEY = "storyforge_projects";
@@ -125,6 +127,7 @@ export async function createStoredVideoProject(data: Partial<ProjectData>): Prom
     assetManifest: data.assetManifest || null,
     shotPackets: data.shotPackets || [],
     reviewQueue: data.reviewQueue || [],
+    productionStateBundle: data.productionStateBundle || null,
     createdAt: now,
     updatedAt: now,
   };
@@ -150,6 +153,7 @@ export async function upsertStoredVideoProject(project: PersistedVideoProject): 
     assetManifest: project.assetManifest || null,
     shotPackets: project.shotPackets || [],
     reviewQueue: project.reviewQueue || [],
+    productionStateBundle: project.productionStateBundle || null,
     updatedAt: new Date().toISOString(),
   };
   const index = projects.findIndex((item) => item.id === project.id);
@@ -229,6 +233,7 @@ export function useProjectPersistence() {
       assetManifest: project.assetManifest,
       shotPackets: project.shotPackets,
       reviewQueue: project.reviewQueue,
+      productionStateBundle: project.productionStateBundle,
     };
   }, []);
 

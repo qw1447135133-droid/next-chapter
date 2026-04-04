@@ -46,6 +46,8 @@ import {
   buildMaintenanceReviewQuestion,
   buildReviewDecisionQuestion,
   buildReviewListQuestion,
+  buildApprovedSkillDraftListQuestion,
+  buildSkillDraftDecisionQuestion,
   buildReviewQuestion,
   buildSkillDraftListQuestion,
   buildVideoGenerationQuestion,
@@ -651,6 +653,8 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     buildBeatPacketDecisionQuestion,
     buildMaintenanceReviewQuestion,
     buildSkillDraftListQuestion,
+    buildApprovedSkillDraftListQuestion,
+    buildSkillDraftDecisionQuestion,
   });
 
   const { idleComposer, activeComposer } = useHomeAgentComposerBindings({

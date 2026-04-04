@@ -40,6 +40,12 @@ function buildWorkflowProgressLabel(actionName: string): string {
     create_video_bridge_artifact: "整理视频桥接摘要",
     export_project: "整理导出文档",
     create_skill_draft: "写入技能草案",
+    export_approved_skill_drafts: "导出已批准技能候选",
+    export_approved_skill_draft_bundle: "生成技能 Bundle 草案",
+    export_approved_skill_install_candidates: "生成正式 Skill 安装候选",
+    export_video_production_bundle: "导出视频生产状态包",
+    preview_video_production_bundle: "预览视频生产状态摘要",
+    open_video_production_bundle_directory: "打开视频生产状态目录",
     run_maintenance: "执行维护整理",
   };
 
@@ -105,7 +111,7 @@ export class StudioWorkflowTool extends ToolBase {
         action: {
           type: "string",
           description:
-            "Workflow action: get_context, save_setup, continue_project, continue_drama_step, analyze_reference_script, generate_creative_plan, generate_structure_transform, generate_characters, generate_character_transform, generate_directory, generate_outlines, generate_episode, run_compliance_review, lock_character_cards, lock_story_beats, resolve_compliance_revisions, reopen_compliance_revisions, prepare_video_generation, advance_video_workflow, analyze_script_for_video, extract_video_entities, prepare_storyboard_batch, compile_video_shot_packets, prepare_video_prompt_batch, generate_video_assets, refresh_video_assets, review_video_assets, approve_video_assets, redo_video_assets, continue_video_step, create_video_bridge_artifact, export_project, create_skill_draft, run_maintenance",
+            "Workflow action: get_context, save_setup, continue_project, continue_drama_step, analyze_reference_script, generate_creative_plan, generate_structure_transform, generate_characters, generate_character_transform, generate_directory, generate_outlines, generate_episode, run_compliance_review, lock_character_cards, lock_story_beats, resolve_compliance_revisions, reopen_compliance_revisions, prepare_video_generation, advance_video_workflow, analyze_script_for_video, extract_video_entities, prepare_storyboard_batch, compile_video_shot_packets, prepare_video_prompt_batch, generate_video_assets, refresh_video_assets, review_video_assets, approve_video_assets, redo_video_assets, continue_video_step, create_video_bridge_artifact, export_project, create_skill_draft, export_approved_skill_drafts, export_approved_skill_draft_bundle, export_approved_skill_install_candidates, export_video_production_bundle, preview_video_production_bundle, open_video_production_bundle_directory, run_maintenance",
         },
         projectKind: {
           type: "string",

@@ -204,6 +204,14 @@ export interface VideoReviewItem {
   updatedAt: string;
 }
 
+export interface VideoProductionBundleMeta {
+  directoryPath: string;
+  overviewPath: string;
+  filePaths: string[];
+  exportedCount: number;
+  exportedAt: string;
+}
+
 export interface Project {
   id: string;
   title: string;
@@ -268,13 +276,3 @@ export const VIDEO_PACE_OPTIONS: { value: VideoPace; label: string; desc: string
   { value: 'medium', label: '中等', desc: '1句≤27字 2句≤22字 3句≤17字' },
   { value: 'fast', label: '快速', desc: '1句≤32字 2句≤26字 3句≤20字' },
 ];
-
-export type WorkspaceStep = 1 | 2 | 3 | 4 | 5;
-
-export const STEP_LABELS: Record<WorkspaceStep, string> = {
-  1: '剧本拆解',
-  2: '角色与场景',
-  3: '分镜图生成',
-  4: '视频生成',
-  5: '预览与导出',
-};

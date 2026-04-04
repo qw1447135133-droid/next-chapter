@@ -4,6 +4,17 @@ import {
   writeMaintenanceReports,
   writeSkillDrafts,
 } from "./project-store";
+import { upsertStoredVideoProject } from "@/hooks/use-local-persistence";
+import {
+  buildVideoProductionBundlePreviewMessage,
+  exportVideoProductionBundle,
+  resolveVideoProductionBundleDirectory,
+} from "./production-state-export";
+import {
+  exportApprovedSkillDraftBundle,
+  exportApprovedSkillDrafts,
+  exportApprovedSkillInstallCandidates,
+} from "./skill-draft-export";
 import type {
   MaintenanceReport,
   SkillDraft,
@@ -49,6 +60,7 @@ import {
 function buildContextSummary(runtime: StudioRuntimeState): string {
   const snapshot = runtime.currentProjectSnapshot;
   const pendingSkillDrafts = runtime.skillDrafts.filter((draft) => draft.status === "pending").length;
+  const approvedSkillDrafts = runtime.skillDrafts.filter((draft) => draft.status === "approved").length;
   const latestReport = runtime.maintenanceReports[0];
   const memory = snapshot?.memory;
   const artifactSummary = snapshot?.artifacts.length
@@ -86,6 +98,7 @@ function buildContextSummary(runtime: StudioRuntimeState): string {
       : "",
     runtime.recentMessageSummary ? `最近会话摘要：${runtime.recentMessageSummary}` : "",
     pendingSkillDrafts ? `待审核技能草案：${pendingSkillDrafts}` : "待审核技能草案：0",
+    approvedSkillDrafts ? `已批准技能草案：${approvedSkillDrafts}` : "已批准技能草案：0",
     latestReport
       ? [
           `最近维护：${latestReport.summary}`,
@@ -184,6 +197,56 @@ async function createSkillDraftAction(
   };
 }
 
+async function updateSkillDraftStatusAction(
+  input: Record<string, unknown>,
+  nextStatus: SkillDraft["status"],
+): Promise<WorkflowActionResult> {
+  const draftId = typeof input.draftId === "string" ? input.draftId : "";
+  if (!draftId.trim()) {
+    throw new Error("缺少技能草案 ID，无法更新审核状态。");
+  }
+
+  const drafts = readSkillDrafts();
+  const target = drafts.find((draft) => draft.id === draftId);
+  if (!target) {
+    throw new Error("这份技能草案不存在，可能已被清理。");
+  }
+
+  const nextDrafts = drafts.map((draft) => (draft.id === draftId ? { ...draft, status: nextStatus } : draft));
+  writeSkillDrafts(nextDrafts);
+  const nextReport: MaintenanceReport = {
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    summary:
+      nextStatus === "approved"
+        ? `已将《${target.proposedSkillName}》加入已批准技能候选。`
+        : `已将《${target.proposedSkillName}》从待审核草案中驳回。`,
+    compressedConversationCount: 0,
+    archivedProjectCount: 0,
+    clearedCacheKeys: [],
+    mergedDraftCount: 0,
+    notes: [
+      `草案来源会话：${target.sourceConversationIds.length} 条`,
+      nextStatus === "approved"
+        ? "这份草案已进入后续正式技能整理候选队列。"
+        : "这份草案不会再出现在待审核列表中。",
+    ],
+  };
+  const nextReports = [nextReport, ...readMaintenanceReports()].slice(0, 20);
+  writeMaintenanceReports(nextReports);
+
+  return {
+    summary:
+      nextStatus === "approved"
+        ? `已批准技能草案《${target.proposedSkillName}》，并加入已批准候选队列。`
+        : `已驳回技能草案《${target.proposedSkillName}》。`,
+    data: {
+      skillDrafts: nextDrafts,
+      maintenanceReports: nextReports,
+    },
+  };
+}
+
 async function runMaintenanceAction(
   runtime: StudioRuntimeState,
 ): Promise<WorkflowActionResult> {
@@ -217,6 +280,198 @@ async function runMaintenanceAction(
     summary: report.summary,
     data: {
       maintenanceReports: nextReports,
+    },
+  };
+}
+
+async function exportApprovedSkillDraftsAction(): Promise<WorkflowActionResult> {
+  const drafts = readSkillDrafts();
+  const exported = await exportApprovedSkillDrafts(drafts);
+  const nextReport: MaintenanceReport = {
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    summary: `已将 ${exported.exportedCount} 份已批准技能草案导出到本地候选目录。`,
+    compressedConversationCount: 0,
+    archivedProjectCount: 0,
+    clearedCacheKeys: [],
+    mergedDraftCount: 0,
+    notes: [`导出目录：${exported.directoryPath}`, `索引文件：${exported.indexPath}`],
+  };
+  const nextReports = [nextReport, ...readMaintenanceReports()].slice(0, 20);
+  writeMaintenanceReports(nextReports);
+
+  return {
+    summary: `${nextReport.summary}\n目录：${exported.directoryPath}`,
+    data: {
+      skillDrafts: drafts,
+      maintenanceReports: nextReports,
+    },
+  };
+}
+
+async function exportApprovedSkillDraftBundleAction(): Promise<WorkflowActionResult> {
+  const drafts = readSkillDrafts();
+  const exported = await exportApprovedSkillDraftBundle(drafts);
+  const nextReport: MaintenanceReport = {
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    summary: `已生成 ${exported.exportedCount} 份已批准技能草案的 bundle 预览。`,
+    compressedConversationCount: 0,
+    archivedProjectCount: 0,
+    clearedCacheKeys: [],
+    mergedDraftCount: 0,
+    notes: [`Markdown: ${exported.markdownPath}`, `JSON: ${exported.jsonPath}`],
+  };
+  const nextReports = [nextReport, ...readMaintenanceReports()].slice(0, 20);
+  writeMaintenanceReports(nextReports);
+
+  return {
+    summary: `${nextReport.summary}\nMarkdown：${exported.markdownPath}`,
+    data: {
+      skillDrafts: drafts,
+      maintenanceReports: nextReports,
+    },
+  };
+}
+
+async function exportApprovedSkillInstallCandidatesAction(): Promise<WorkflowActionResult> {
+  const drafts = readSkillDrafts();
+  const exported = await exportApprovedSkillInstallCandidates(drafts);
+  const nextReport: MaintenanceReport = {
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    summary: `已整理 ${exported.exportedCount} 份正式 Skill 安装候选文件，等待人工审核。`,
+    compressedConversationCount: 0,
+    archivedProjectCount: 0,
+    clearedCacheKeys: [],
+    mergedDraftCount: 0,
+    notes: [
+      `候选目录：${exported.directoryPath}`,
+      `审核清单：${exported.manifestPath}`,
+      "这些候选文件不会自动进入 .claude/skills，也不会自动生效。",
+    ],
+  };
+  const nextReports = [nextReport, ...readMaintenanceReports()].slice(0, 20);
+  writeMaintenanceReports(nextReports);
+
+  return {
+    summary: `${nextReport.summary}\n目录：${exported.directoryPath}`,
+    data: {
+      skillDrafts: drafts,
+      maintenanceReports: nextReports,
+    },
+  };
+}
+
+function withVideoProductionBundleFollowups(
+  snapshot: StudioRuntimeState["currentProjectSnapshot"],
+): StudioRuntimeState["currentProjectSnapshot"] {
+  if (!snapshot || snapshot.projectKind !== "video") return snapshot;
+
+  const followups = ["预览生产状态摘要", "打开生产状态目录", "导出生产状态包"];
+  const nextRecommendedActions = [...followups, ...snapshot.recommendedActions].filter(
+    (action, index, actions) => actions.indexOf(action) === index,
+  );
+
+  return {
+    ...snapshot,
+    recommendedActions: nextRecommendedActions,
+  };
+}
+
+function withVideoProductionBundleArtifact(
+  snapshot: StudioRuntimeState["currentProjectSnapshot"],
+  directoryPath: string,
+): StudioRuntimeState["currentProjectSnapshot"] {
+  if (!snapshot || snapshot.projectKind !== "video") return snapshot;
+
+  const artifact = {
+    id: `video-production-bundle:${snapshot.projectId}`,
+    kind: "report" as const,
+    label: "生产状态包",
+    summary: `已导出到 ${directoryPath}`,
+    content: [
+      `目录：${directoryPath}`,
+      "包含文件：overview / style-lock / world-model / asset-manifest / shot-packets / review-queue / README",
+    ].join("\n"),
+    updatedAt: new Date().toISOString(),
+  };
+
+  return {
+    ...snapshot,
+    artifacts: [artifact, ...snapshot.artifacts.filter((item) => item.id !== artifact.id)].slice(0, 12),
+  };
+}
+
+async function exportVideoProductionBundleAction(
+  runtime: StudioRuntimeState,
+): Promise<WorkflowActionResult> {
+  const project = runtime.currentVideoProject;
+  if (!project) {
+    throw new Error("当前没有可导出的首页视频项目。");
+  }
+
+  const exported = await exportVideoProductionBundle(project);
+  const nextProject = await upsertStoredVideoProject({
+    ...project,
+    productionStateBundle: {
+      directoryPath: exported.directoryPath,
+      overviewPath: exported.overviewPath,
+      filePaths: exported.filePaths,
+      exportedCount: exported.exportedCount,
+      exportedAt: new Date().toISOString(),
+    },
+  });
+  const nextSnapshot = withVideoProductionBundleFollowups(
+    withVideoProductionBundleArtifact(runtime.currentProjectSnapshot, exported.directoryPath),
+  );
+  return {
+    summary: `已导出《${project.title || project.id}》的生产状态包。\n目录：${exported.directoryPath}`,
+    data: {
+      videoProject: nextProject,
+      projectSnapshot: nextSnapshot,
+    },
+  };
+}
+
+async function previewVideoProductionBundleAction(
+  runtime: StudioRuntimeState,
+): Promise<WorkflowActionResult> {
+  const project = runtime.currentVideoProject;
+  if (!project) {
+    throw new Error("当前没有可预览的首页视频项目。");
+  }
+
+  const nextSnapshot = withVideoProductionBundleFollowups(runtime.currentProjectSnapshot);
+  return {
+    summary: buildVideoProductionBundlePreviewMessage(project),
+    data: {
+      projectSnapshot: nextSnapshot,
+    },
+  };
+}
+
+async function openVideoProductionBundleDirectoryAction(
+  runtime: StudioRuntimeState,
+): Promise<WorkflowActionResult> {
+  const project = runtime.currentVideoProject;
+  if (!project) {
+    throw new Error("当前没有可打开目录的首页视频项目。");
+  }
+
+  const opener = window.electronAPI?.storage?.openFolder;
+  if (!opener) {
+    throw new Error("当前环境不支持直接打开本地目录。");
+  }
+
+  const directoryPath = await resolveVideoProductionBundleDirectory(project);
+  await opener(directoryPath);
+  const nextSnapshot = withVideoProductionBundleFollowups(runtime.currentProjectSnapshot);
+
+  return {
+    summary: `已为你打开生产状态目录：${directoryPath}`,
+    data: {
+      projectSnapshot: nextSnapshot,
     },
   };
 }
@@ -396,6 +651,62 @@ const workflowActions: WorkflowAction[] = [
     kind: "run_maintenance",
     async run(_input, runtime) {
       return runMaintenanceAction(runtime);
+    },
+  },
+  {
+    id: "export-approved-skill-drafts",
+    kind: "export_approved_skill_drafts",
+    async run() {
+      return exportApprovedSkillDraftsAction();
+    },
+  },
+  {
+    id: "export-approved-skill-draft-bundle",
+    kind: "export_approved_skill_draft_bundle",
+    async run() {
+      return exportApprovedSkillDraftBundleAction();
+    },
+  },
+  {
+    id: "export-approved-skill-install-candidates",
+    kind: "export_approved_skill_install_candidates",
+    async run() {
+      return exportApprovedSkillInstallCandidatesAction();
+    },
+  },
+  {
+    id: "export-video-production-bundle",
+    kind: "export_video_production_bundle",
+    async run(_input, runtime) {
+      return exportVideoProductionBundleAction(runtime);
+    },
+  },
+  {
+    id: "preview-video-production-bundle",
+    kind: "preview_video_production_bundle",
+    async run(_input, runtime) {
+      return previewVideoProductionBundleAction(runtime);
+    },
+  },
+  {
+    id: "open-video-production-bundle-directory",
+    kind: "open_video_production_bundle_directory",
+    async run(_input, runtime) {
+      return openVideoProductionBundleDirectoryAction(runtime);
+    },
+  },
+  {
+    id: "approve-skill-draft",
+    kind: "approve_skill_draft",
+    async run(input) {
+      return updateSkillDraftStatusAction(input, "approved");
+    },
+  },
+  {
+    id: "reject-skill-draft",
+    kind: "reject_skill_draft",
+    async run(input) {
+      return updateSkillDraftStatusAction(input, "rejected");
     },
   },
 ];

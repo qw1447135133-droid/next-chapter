@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { runWorkflowAction } from "./workflow-actions";
 import type { StudioRuntimeState } from "./types";
 import type { PersistedVideoProject } from "@/hooks/use-local-persistence";
 import type { DramaProject } from "@/types/drama";
+
+const SKILL_DRAFTS_KEY = "storyforge-skill-drafts-v1";
 
 function createRuntime(): StudioRuntimeState {
   return {
@@ -282,5 +284,481 @@ describe("workflow-actions get_context", () => {
       },
     );
     expect(resolved.projectSnapshot?.memory?.complianceRevisionPackets?.[0]?.status).toBe("resolved");
+  });
+
+  it("approves and rejects pending skill drafts through workflow actions", async () => {
+    localStorage.setItem(
+      SKILL_DRAFTS_KEY,
+      JSON.stringify([
+        {
+          id: "skill-draft-1",
+          sourceConversationIds: ["session-a"],
+          proposedSkillName: "镜头修复策略",
+          proposedContent: "先检查角色一致性，再检查镜头运动和情绪强度。",
+          reason: "多次视频修复都重复了相同判断。",
+          status: "pending",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+        {
+          id: "skill-draft-2",
+          sourceConversationIds: ["session-b"],
+          proposedSkillName: "长对话静默压缩",
+          proposedContent: "在消息超阈值时做静默摘要整理。",
+          reason: "长会话需要减轻上下文噪音。",
+          status: "pending",
+          createdAt: "2026-04-03T00:10:00.000Z",
+        },
+      ]),
+    );
+
+    const approved = await runWorkflowAction("approve_skill_draft", { draftId: "skill-draft-1" }, createRuntime());
+    expect(approved.summary).toContain("已批准技能草案");
+    expect(approved.summary).toContain("已批准候选队列");
+    expect(approved.data?.skillDrafts?.find((draft) => draft.id === "skill-draft-1")?.status).toBe("approved");
+    expect(approved.data?.maintenanceReports?.[0]?.summary).toContain("已批准技能候选");
+
+    const rejected = await runWorkflowAction("reject_skill_draft", { draftId: "skill-draft-2" }, createRuntime());
+    expect(rejected.summary).toContain("已驳回技能草案");
+    expect(rejected.data?.skillDrafts?.find((draft) => draft.id === "skill-draft-2")?.status).toBe("rejected");
+    expect(rejected.data?.maintenanceReports?.[0]?.summary).toContain("驳回");
+
+    const stored = JSON.parse(localStorage.getItem(SKILL_DRAFTS_KEY) || "[]");
+    expect(stored.find((draft: { id: string }) => draft.id === "skill-draft-1")?.status).toBe("approved");
+    expect(stored.find((draft: { id: string }) => draft.id === "skill-draft-2")?.status).toBe("rejected");
+    const reports = JSON.parse(localStorage.getItem("storyforge-maintenance-reports-v1") || "[]");
+    expect(reports[0]?.summary).toContain("驳回");
+  });
+
+  it("exports approved skill drafts into the local candidate directory", async () => {
+    const writeText = vi.fn(async () => ({ ok: true }));
+    window.electronAPI = {
+      dreaminaCli: {
+        exec: vi.fn(),
+      },
+      jimeng: {
+        writeFile: vi.fn(async () => ({ ok: true })),
+      },
+      storage: {
+        getDefaultPath: vi.fn(async () => ({ files: "D:/StoryForgeFiles", db: "D:/StoryForgeDb" })),
+        selectFolder: vi.fn(async () => null),
+        openFolder: vi.fn(async () => undefined),
+        writeText,
+        readText: vi.fn(async () => ({ ok: true, exists: false, content: "" })),
+        readBase64: vi.fn(async () => ({ ok: true, exists: false, base64: "" })),
+      },
+      runtime: {
+        builtinApiBundle: null,
+        builtinApiBundlePath: "",
+        verifyBuiltinApiAdminPassword: vi.fn(async () => true),
+      },
+    } as unknown as Window["electronAPI"];
+
+    localStorage.setItem(
+      SKILL_DRAFTS_KEY,
+      JSON.stringify([
+        {
+          id: "skill-draft-1",
+          sourceConversationIds: ["session-a"],
+          proposedSkillName: "镜头修复策略",
+          proposedContent: "先检查角色一致性，再检查镜头运动和情绪强度。",
+          reason: "多次视频修复都重复了相同判断。",
+          status: "approved",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ]),
+    );
+
+    const result = await runWorkflowAction("export_approved_skill_drafts", {}, createRuntime());
+
+    expect(result.summary).toContain("已将 1 份已批准技能草案导出到本地候选目录");
+    expect(writeText).toHaveBeenCalledTimes(2);
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining("home-agent/skills-drafts/approved/2026-04-03-镜头修复策略.md"),
+      expect.stringContaining("# 镜头修复策略"),
+    );
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining("home-agent/skills-drafts/approved/README.md"),
+      expect.stringContaining("Approved Skill Drafts"),
+    );
+    expect(result.data?.maintenanceReports?.[0]?.notes[0]).toContain("导出目录");
+  });
+
+  it("exports an approved skill bundle preview into the local candidate directory", async () => {
+    const writeText = vi.fn(async () => ({ ok: true }));
+    window.electronAPI = {
+      dreaminaCli: {
+        exec: vi.fn(),
+      },
+      jimeng: {
+        writeFile: vi.fn(async () => ({ ok: true })),
+      },
+      storage: {
+        getDefaultPath: vi.fn(async () => ({ files: "D:/StoryForgeFiles", db: "D:/StoryForgeDb" })),
+        selectFolder: vi.fn(async () => null),
+        openFolder: vi.fn(async () => undefined),
+        writeText,
+        readText: vi.fn(async () => ({ ok: true, exists: false, content: "" })),
+        readBase64: vi.fn(async () => ({ ok: true, exists: false, base64: "" })),
+      },
+      runtime: {
+        builtinApiBundle: null,
+        builtinApiBundlePath: "",
+        verifyBuiltinApiAdminPassword: vi.fn(async () => true),
+      },
+    } as unknown as Window["electronAPI"];
+
+    localStorage.setItem(
+      SKILL_DRAFTS_KEY,
+      JSON.stringify([
+        {
+          id: "skill-draft-1",
+          sourceConversationIds: ["session-a"],
+          proposedSkillName: "镜头修复策略",
+          proposedContent: "先检查角色一致性，再检查镜头运动和情绪强度。",
+          reason: "多次视频修复都重复了相同判断。",
+          status: "approved",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ]),
+    );
+
+    const result = await runWorkflowAction("export_approved_skill_draft_bundle", {}, createRuntime());
+
+    expect(result.summary).toContain("bundle 预览");
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining("home-agent/skills-drafts/approved/bundle-preview.md"),
+      expect.stringContaining("# InFinio Approved Skill Bundle Preview"),
+    );
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining("home-agent/skills-drafts/approved/bundle-preview.json"),
+      expect.stringContaining("\"drafts\""),
+    );
+    expect(result.data?.maintenanceReports?.[0]?.notes[0]).toContain("Markdown");
+  });
+
+  it("packages approved skill drafts into controlled install candidates without auto-enabling them", async () => {
+    const writeText = vi.fn(async () => ({ ok: true }));
+    window.electronAPI = {
+      dreaminaCli: {
+        exec: vi.fn(),
+      },
+      jimeng: {
+        writeFile: vi.fn(async () => ({ ok: true })),
+      },
+      storage: {
+        getDefaultPath: vi.fn(async () => ({ files: "D:/StoryForgeFiles", db: "D:/StoryForgeDb" })),
+        selectFolder: vi.fn(async () => null),
+        openFolder: vi.fn(async () => undefined),
+        writeText,
+        readText: vi.fn(async () => ({ ok: true, exists: false, content: "" })),
+        readBase64: vi.fn(async () => ({ ok: true, exists: false, base64: "" })),
+      },
+      runtime: {
+        builtinApiBundle: null,
+        builtinApiBundlePath: "",
+        verifyBuiltinApiAdminPassword: vi.fn(async () => true),
+      },
+    } as unknown as Window["electronAPI"];
+
+    localStorage.setItem(
+      SKILL_DRAFTS_KEY,
+      JSON.stringify([
+        {
+          id: "skill-draft-1",
+          sourceConversationIds: ["session-a"],
+          proposedSkillName: "镜头修复策略",
+          proposedContent: "先检查角色一致性，再检查镜头运动和情绪强度。",
+          reason: "多次视频修复都重复了相同判断。",
+          status: "approved",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ]),
+    );
+
+    const result = await runWorkflowAction("export_approved_skill_install_candidates", {}, createRuntime());
+
+    expect(result.summary).toContain("正式 Skill 安装候选文件");
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining("home-agent/skills-candidates/pending-install/镜头修复策略.md"),
+      expect.any(String),
+    );
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining("home-agent/skills-candidates/pending-install/INSTALL-REVIEW.md"),
+      expect.any(String),
+    );
+    const candidateWrite = writeText.mock.calls.find((call) =>
+      String(call[0]).includes("home-agent/skills-candidates/pending-install/镜头修复策略.md"),
+    );
+    expect(candidateWrite?.[1]).toContain("Candidate only. Review manually before moving into .claude/skills.");
+    expect(candidateWrite?.[1]).toContain("Review Checklist");
+    expect(result.data?.maintenanceReports?.[0]?.notes[2]).toContain("不会自动生效");
+  });
+
+  it("exports the current video production state bundle into a local audit directory", async () => {
+    const writeText = vi.fn(async () => ({ ok: true }));
+    window.electronAPI = {
+      dreaminaCli: {
+        exec: vi.fn(),
+      },
+      jimeng: {
+        writeFile: vi.fn(async () => ({ ok: true })),
+      },
+      storage: {
+        getDefaultPath: vi.fn(async () => ({ files: "D:/StoryForgeFiles", db: "D:/StoryForgeDb" })),
+        selectFolder: vi.fn(async () => null),
+        openFolder: vi.fn(async () => undefined),
+        writeText,
+        readText: vi.fn(async () => ({ ok: true, exists: false, content: "" })),
+        readBase64: vi.fn(async () => ({ ok: true, exists: false, base64: "" })),
+      },
+      runtime: {
+        builtinApiBundle: null,
+        builtinApiBundlePath: "",
+        verifyBuiltinApiAdminPassword: vi.fn(async () => true),
+      },
+    } as unknown as Window["electronAPI"];
+
+    const videoProject: PersistedVideoProject = {
+      id: "video-project-export",
+      title: "雨夜追击预告片",
+      script: "女主在雨夜奔跑，回头看见追兵。",
+      targetPlatform: "抖音",
+      shotStyle: "电影感近景",
+      outputGoal: "预告片",
+      productionNotes: "保留主角红衣和夜雨气氛。",
+      scenes: [
+        {
+          id: "scene-1",
+          sceneNumber: 1,
+          sceneName: "雨夜追击",
+          description: "女主在雨夜奔跑，回头看见追兵。",
+          characters: ["沈昭"],
+          dialogue: "",
+          cameraDirection: "中景，跟拍",
+          duration: 5,
+          storyboardUrl: "https://example.com/storyboard-1.jpg",
+          videoUrl: "https://example.com/video-1.mp4",
+          videoStatus: "completed",
+        },
+      ],
+      characters: [
+        {
+          id: "char-1",
+          name: "沈昭",
+          description: "红衣、清冷、警觉",
+          imageUrl: "https://example.com/char-1.jpg",
+          isAIGenerated: false,
+          source: "auto",
+        },
+      ],
+      sceneSettings: [
+        {
+          id: "setting-1",
+          name: "雨夜长街",
+          description: "冷色夜雨中的长街",
+          imageUrl: "https://example.com/scene-1.jpg",
+          isAIGenerated: false,
+          source: "auto",
+        },
+      ],
+      artStyle: "live-action",
+      currentStep: 4,
+      systemPrompt: "",
+      analysisSummary: "已拆镜并整理角色场景。",
+      storyboardPlan: "镜头 1：雨夜追击",
+      videoPromptBatch: "镜头 1 prompt",
+      sourceProjectId: "drama-1",
+      createdAt: "2026-04-03T00:00:00.000Z",
+      updatedAt: "2026-04-03T00:30:00.000Z",
+      styleLock: null,
+      worldModel: null,
+      assetManifest: null,
+      shotPackets: [],
+      reviewQueue: [],
+    };
+
+    const result = await runWorkflowAction("export_video_production_bundle", {}, {
+      ...createRuntime(),
+      currentProjectSnapshot: {
+        projectId: "video-project-export",
+        projectKind: "video",
+        title: "雨夜追击预告片",
+        currentObjective: "继续复核镜头指令包，并衔接提示词与生成。",
+        derivedStage: "镜头指令包",
+        agentSummary: "当前已经具备资产清单、镜头指令包和待审阅状态。",
+        recommendedActions: ["导出生产状态包", "准备视频提示词批次"],
+        artifacts: [],
+      },
+      currentVideoProject: videoProject,
+    });
+
+    expect(result.summary).toContain("生产状态包");
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining("home-agent/production-state/雨夜追击预告片-video-project-export/overview.json"),
+      expect.stringContaining("\"projectId\": \"video-project-export\""),
+    );
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining("home-agent/production-state/雨夜追击预告片-video-project-export/world-model.json"),
+      expect.any(String),
+    );
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining("home-agent/production-state/雨夜追击预告片-video-project-export/README.md"),
+      expect.stringContaining("Video Production State Bundle"),
+    );
+    expect(result.data?.projectSnapshot?.recommendedActions).toEqual(
+      expect.arrayContaining(["预览生产状态摘要", "打开生产状态目录", "导出生产状态包"]),
+    );
+    expect(result.data?.projectSnapshot?.artifacts[0]).toMatchObject({
+      kind: "report",
+      label: "生产状态包",
+    });
+    expect(result.data?.videoProject?.productionStateBundle).toMatchObject({
+      directoryPath: "D:/StoryForgeFiles/home-agent/production-state/雨夜追击预告片-video-project-export",
+      overviewPath:
+        "D:/StoryForgeFiles/home-agent/production-state/雨夜追击预告片-video-project-export/README.md",
+    });
+  });
+
+  it("previews the current video production state bundle without writing files", async () => {
+    const writeText = vi.fn(async () => ({ ok: true }));
+    window.electronAPI = {
+      dreaminaCli: {
+        exec: vi.fn(),
+      },
+      jimeng: {
+        writeFile: vi.fn(async () => ({ ok: true })),
+      },
+      storage: {
+        getDefaultPath: vi.fn(async () => ({ files: "D:/StoryForgeFiles", db: "D:/StoryForgeDb" })),
+        selectFolder: vi.fn(async () => null),
+        openFolder: vi.fn(async () => undefined),
+        writeText,
+        readText: vi.fn(async () => ({ ok: true, exists: false, content: "" })),
+        readBase64: vi.fn(async () => ({ ok: true, exists: false, base64: "" })),
+      },
+      runtime: {
+        builtinApiBundle: null,
+        builtinApiBundlePath: "",
+        verifyBuiltinApiAdminPassword: vi.fn(async () => true),
+      },
+    } as unknown as Window["electronAPI"];
+
+    const videoProject: PersistedVideoProject = {
+      id: "video-project-export",
+      title: "雨夜追击预告片",
+      script: "女主在雨夜奔跑，回头看见追兵。",
+      targetPlatform: "抖音",
+      shotStyle: "电影感近景",
+      outputGoal: "预告片",
+      productionNotes: "保留主角红衣和夜雨气氛。",
+      scenes: [],
+      characters: [],
+      sceneSettings: [],
+      artStyle: "live-action",
+      currentStep: 4,
+      systemPrompt: "",
+      analysisSummary: "已拆镜并整理角色场景。",
+      storyboardPlan: "镜头 1：雨夜追击",
+      videoPromptBatch: "镜头 1 prompt",
+      sourceProjectId: "drama-1",
+      createdAt: "2026-04-03T00:00:00.000Z",
+      updatedAt: "2026-04-03T00:30:00.000Z",
+      styleLock: null,
+      worldModel: null,
+      assetManifest: null,
+      shotPackets: [],
+      reviewQueue: [],
+    };
+
+    const result = await runWorkflowAction("preview_video_production_bundle", {}, {
+      ...createRuntime(),
+      currentProjectSnapshot: {
+        projectId: "video-project-export",
+        projectKind: "video",
+        title: "雨夜追击预告片",
+        currentObjective: "继续复核镜头指令包，并衔接提示词与生成。",
+        derivedStage: "镜头指令包",
+        agentSummary: "当前已经具备资产清单、镜头指令包和待审阅状态。",
+        recommendedActions: ["导出生产状态包"],
+        artifacts: [],
+      },
+      currentVideoProject: videoProject,
+    });
+
+    expect(result.summary).toContain("生产状态包摘要如下");
+    expect(result.summary).toContain("场景数：0");
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("opens the current video production state directory from workflow actions", async () => {
+    const openFolder = vi.fn(async () => undefined);
+    window.electronAPI = {
+      dreaminaCli: {
+        exec: vi.fn(),
+      },
+      jimeng: {
+        writeFile: vi.fn(async () => ({ ok: true })),
+      },
+      storage: {
+        getDefaultPath: vi.fn(async () => ({ files: "D:/StoryForgeFiles", db: "D:/StoryForgeDb" })),
+        selectFolder: vi.fn(async () => null),
+        openFolder,
+        writeText: vi.fn(async () => ({ ok: true })),
+        readText: vi.fn(async () => ({ ok: true, exists: false, content: "" })),
+        readBase64: vi.fn(async () => ({ ok: true, exists: false, base64: "" })),
+      },
+      runtime: {
+        builtinApiBundle: null,
+        builtinApiBundlePath: "",
+        verifyBuiltinApiAdminPassword: vi.fn(async () => true),
+      },
+    } as unknown as Window["electronAPI"];
+
+    const videoProject: PersistedVideoProject = {
+      id: "video-project-export",
+      title: "雨夜追击预告片",
+      script: "女主在雨夜奔跑，回头看见追兵。",
+      targetPlatform: "抖音",
+      shotStyle: "电影感近景",
+      outputGoal: "预告片",
+      productionNotes: "保留主角红衣和夜雨气氛。",
+      scenes: [],
+      characters: [],
+      sceneSettings: [],
+      artStyle: "live-action",
+      currentStep: 4,
+      systemPrompt: "",
+      analysisSummary: "已拆镜并整理角色场景。",
+      storyboardPlan: "镜头 1：雨夜追击",
+      videoPromptBatch: "镜头 1 prompt",
+      sourceProjectId: "drama-1",
+      createdAt: "2026-04-03T00:00:00.000Z",
+      updatedAt: "2026-04-03T00:30:00.000Z",
+      styleLock: null,
+      worldModel: null,
+      assetManifest: null,
+      shotPackets: [],
+      reviewQueue: [],
+    };
+
+    const result = await runWorkflowAction("open_video_production_bundle_directory", {}, {
+      ...createRuntime(),
+      currentProjectSnapshot: {
+        projectId: "video-project-export",
+        projectKind: "video",
+        title: "雨夜追击预告片",
+        currentObjective: "继续复核镜头指令包，并衔接提示词与生成。",
+        derivedStage: "镜头指令包",
+        agentSummary: "当前已经具备资产清单、镜头指令包和待审阅状态。",
+        recommendedActions: ["导出生产状态包"],
+        artifacts: [],
+      },
+      currentVideoProject: videoProject,
+    });
+
+    expect(openFolder).toHaveBeenCalledWith(
+      "D:/StoryForgeFiles/home-agent/production-state/雨夜追击预告片-video-project-export",
+    );
+    expect(result.summary).toContain("已为你打开生产状态目录");
   });
 });
