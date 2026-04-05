@@ -41,6 +41,7 @@ interface ElectronAPI {
     getDefaultPath: () => Promise<{ files: string; db: string }>;
     selectFolder: () => Promise<string | null>;
     openFolder: (folderPath: string) => Promise<void>;
+    openPath: (targetPath: string) => Promise<string>;
     writeText: (
       filePath: string,
       content: string,
@@ -64,6 +65,7 @@ interface ElectronAPI {
     builtinApiBundlePath: string;
     verifyBuiltinApiAdminPassword: (password: string) => Promise<boolean>;
   };
+  invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
 }
 
 declare global {

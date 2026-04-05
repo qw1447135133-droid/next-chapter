@@ -119,16 +119,6 @@ function buildToolsParam(tools) {
     input_schema: t.inputSchema()
   }));
 }
-function canUseElectronModelBridge() {
-  return typeof window !== "undefined" && typeof window.electronAPI?.invoke === "function";
-}
-async function invokeElectronModelBridge(payload) {
-  const response = await window.electronAPI.invoke("agent:callModelApi", payload);
-  if (!response?.ok) {
-    throw new Error(response?.error || "Electron model bridge failed");
-  }
-  return response.data;
-}
 function buildMessagesApiUrl(baseUrl) {
   const root = String(baseUrl || "https://api.anthropic.com").replace(/\/v1beta(\/.*)?$/i, "").replace(/\/v1(\/.*)?$/i, "").replace(/\/+$/i, "");
   return `${root}/v1/messages`;
@@ -155,28 +145,21 @@ async function callModelAPI(opts) {
     ...toolsParam ? { tools: toolsParam } : {},
     ...thinkingConfig ? { thinking: thinkingConfig } : {}
   };
-  const requestUrl = buildMessagesApiUrl(baseUrl);
-  const parsed = canUseElectronModelBridge() ? await invokeElectronModelBridge({
-    url: requestUrl,
-    apiKey,
-    requestParams
-  }) : await (async () => {
-    const response = await fetch(requestUrl, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        Authorization: `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(requestParams)
-    });
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      throw new Error(
-        `Model ${model} failed (${response.status}): ${text.slice(0, 300) || response.statusText}`
-      );
-    }
-    return await response.json();
-  })();
+  const response = await fetch(buildMessagesApiUrl(baseUrl), {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(requestParams)
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(
+      `Model ${model} failed (${response.status}): ${text.slice(0, 300) || response.statusText}`
+    );
+  }
+  const parsed = await response.json();
   const contentBlocks = parsed.content.map((block) => {
     if (block.type === "text") return { type: "text", text: block.text };
     if (block.type === "tool_use") {
@@ -6130,7 +6113,6 @@ var STARTUP_LOG_PATH = path.join(
 );
 var mainWindow = null;
 var tray = null;
-app.commandLine.appendSwitch("disable-http-cache");
 function getUserDataPath() {
   return app.getPath("userData");
 }
@@ -6294,9 +6276,6 @@ function setupIPC() {
   ipcMain.handle("storage:openFolder", (_event, folderPath) => {
     shell.openPath(folderPath);
   });
-  ipcMain.handle("storage:openPath", (_event, targetPath) => {
-    return shell.openPath(targetPath);
-  });
   ipcMain.handle(
     "storage:writeText",
     async (_event, { filePath, content }) => {
@@ -6358,41 +6337,6 @@ function setupIPC() {
   );
   const { QueryEngine: QueryEngine2 } = (init_query_engine(), __toCommonJS(query_engine_exports));
   const agentSessions = /* @__PURE__ */ new Map();
-  ipcMain.handle(
-    "agent:callModelApi",
-    async (_event, {
-      url,
-      apiKey,
-      requestParams
-    }) => {
-      try {
-        const response = await fetch(url, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            Authorization: `Bearer ${apiKey}`
-          },
-          body: JSON.stringify(requestParams)
-        });
-        if (!response.ok) {
-          const text = await response.text().catch(() => "");
-          return {
-            ok: false,
-            error: `Model request failed (${response.status}): ${text.slice(0, 300) || response.statusText}`
-          };
-        }
-        return {
-          ok: true,
-          data: await response.json()
-        };
-      } catch (error) {
-        return {
-          ok: false,
-          error: error instanceof Error ? error.message : String(error)
-        };
-      }
-    }
-  );
   ipcMain.handle(
     "agent:submitMessage",
     async (event, {
@@ -6697,23 +6641,7 @@ function setupIPC() {
     }
   });
 }
-async function prepareWindowSession(win) {
-  try {
-    await win.webContents.session.clearCache();
-    log("info", "window session cache cleared");
-  } catch (error) {
-    log("warn", `failed to clear window cache: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  try {
-    await win.webContents.session.clearStorageData({
-      storages: ["cachestorage", "shadercache", "serviceworkers"]
-    });
-    log("info", "window cache storage cleared");
-  } catch (error) {
-    log("warn", `failed to clear cache storage: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-async function createWindow() {
+function createWindow() {
   log("info", "createWindow start");
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -6776,17 +6704,16 @@ async function createWindow() {
   mainWindow.webContents.on("responsive", () => {
     log("info", "\u6E32\u67D3\u8FDB\u7A0B\u5DF2\u6062\u590D\u54CD\u5E94");
   });
-  await prepareWindowSession(mainWindow);
   if (process.env.VITE_DEV_SERVER_URL) {
     log("info", `loading dev url: ${process.env.VITE_DEV_SERVER_URL}`);
-    await mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     if (process.env.ELECTRON_OPEN_DEVTOOLS === "1") {
       mainWindow.webContents.openDevTools();
     }
   } else {
     const indexPath = path.join(__dirname, "../dist/index.html");
     log("info", `loading file: ${indexPath}`);
-    await mainWindow.loadFile(indexPath);
+    mainWindow.loadFile(indexPath);
   }
 }
 function createTray() {
@@ -6802,13 +6729,13 @@ function createTray() {
   tray.setContextMenu(contextMenu);
   tray.on("click", () => mainWindow?.show());
 }
-app.whenReady().then(async () => {
+app.whenReady().then(() => {
   log("info", "========== Electron \u4E3B\u8FDB\u7A0B\u542F\u52A8 ==========");
   setupIPC();
-  await createWindow();
+  createWindow();
   createTray();
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) void createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 app.on("window-all-closed", () => {

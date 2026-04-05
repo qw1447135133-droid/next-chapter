@@ -4,6 +4,7 @@ import { buildOpenProjectSessionState } from "./home-agent-conversation-state";
 import type { ComposerQuestion, ConversationProjectSnapshot, HomeAgentMessage, StudioQuestionState, StudioRuntimeState } from "@/lib/home-agent/types";
 import type { AskUserQuestionRequest } from "@/lib/agent/tools/ask-user-question";
 import { brief, recQuestion } from "./home-agent-project-questions";
+import { normalizeHomeAgentTextModelKey } from "@/lib/home-agent/text-models";
 
 const { useCallback, useEffect, useRef, startTransition } = React;
 
@@ -20,6 +21,7 @@ export function useHomeAgentRecoveryFlow(params: {
   loadAskUserQuestionModule: () => Promise<typeof import("@/lib/agent/tools/ask-user-question")>;
   qState: StudioQuestionState | null;
   setActiveProjectId: React.Dispatch<React.SetStateAction<string | undefined>>;
+  setSelectedTextModelKey: React.Dispatch<React.SetStateAction<string>>;
   setQState: React.Dispatch<React.SetStateAction<StudioQuestionState | null>>;
   setPopoverOverride: React.Dispatch<React.SetStateAction<ComposerQuestion | null>>;
   setSuggested: React.Dispatch<React.SetStateAction<ComposerQuestion | null>>;
@@ -56,6 +58,7 @@ export function useHomeAgentRecoveryFlow(params: {
     loadAskUserQuestionModule,
     qState,
     setActiveProjectId,
+    setSelectedTextModelKey,
     setQState,
     setPopoverOverride,
     setSuggested,
@@ -125,6 +128,9 @@ export function useHomeAgentRecoveryFlow(params: {
         restoredProjectSuggestionKeysRef.current = new Set(nextState.surfacedProjectSuggestionKeys);
 
         setActiveProjectId(projectId);
+        if (nextState.selectedTextModelKey) {
+          setSelectedTextModelKey(normalizeHomeAgentTextModelKey(nextState.selectedTextModelKey));
+        }
         setQState(nextState.qState);
         setPopoverOverride(nextState.popoverOverride);
         setSuggested(nextState.suggested);
@@ -166,6 +172,7 @@ export function useHomeAgentRecoveryFlow(params: {
       qState,
       resetComposerDraft,
       setActiveProjectId,
+      setSelectedTextModelKey,
       setCompactedMessageCount,
       setMessages,
       setMetaReady,

@@ -59,6 +59,7 @@ export function useHomeAgentRuntimeActions(params: {
   textOf: (value: unknown) => string;
   qStepKey: (index: number, question: { header?: string }) => string;
   push: (role: HomeAgentMessage["role"], content: string) => void;
+  selectedTextModelKey: string;
   setPopoverOverride: React.Dispatch<React.SetStateAction<null>>;
   setSuggested: React.Dispatch<React.SetStateAction<null>>;
   setMode: React.Dispatch<React.SetStateAction<"idle" | "active" | "recovering" | "maintenance-review">>;
@@ -98,6 +99,7 @@ export function useHomeAgentRuntimeActions(params: {
     textOf,
     qStepKey,
     push,
+    selectedTextModelKey,
     setPopoverOverride,
     setSuggested,
     setMode,
@@ -155,6 +157,7 @@ export function useHomeAgentRuntimeActions(params: {
         compactedMessageCountRef.current = count;
         setCompactedMessageCount(count);
       },
+      selectedTextModelKey,
     });
     return engineRef.current;
   }, [
@@ -165,6 +168,7 @@ export function useHomeAgentRuntimeActions(params: {
     messagesRef,
     systemPrompt,
     runtimeRef,
+    selectedTextModelKey,
     setCompactedMessageCount,
     setRuntime,
     toQuery,
@@ -176,8 +180,9 @@ export function useHomeAgentRuntimeActions(params: {
         prompt: nextPrompt,
         runtime: runtimeRef.current,
         loadApiConfigModule,
+        selectedTextModelKey,
       }),
-    [loadApiConfigModule, runtimeRef],
+    [loadApiConfigModule, runtimeRef, selectedTextModelKey],
   );
 
   const send = useCallback(

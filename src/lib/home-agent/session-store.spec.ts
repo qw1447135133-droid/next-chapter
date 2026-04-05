@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { StudioSessionState } from "./types";
 import {
   clearStudioSession,
@@ -40,6 +40,7 @@ function createSession(overrides?: Partial<StudioSessionState>): StudioSessionSt
       source: "restored",
       request: {
         id: "ask-1",
+        description: "",
         allowCustomInput: true,
         submissionMode: "confirm",
         questions: [
@@ -47,7 +48,7 @@ function createSession(overrides?: Partial<StudioSessionState>): StudioSessionSt
             header: "题材",
             question: "继续选择题材",
             multiSelect: false,
-            options: [{ label: "都市" }],
+            options: [{ label: "都市", value: "都市", description: "", rationale: "" }],
           },
         ],
       },
@@ -126,5 +127,86 @@ describe("session-store", () => {
 
     expect(readStudioProjectSession("valid")?.projectId).toBe("valid");
     expect(readStudioProjectSession("invalid")).toBeNull();
+  });
+
+  it("compacts oversized sessions before persisting them", () => {
+    const largeText = "超长内容".repeat(1600);
+    const session = createSession({
+      messages: Array.from({ length: 40 }, (_, index) => ({
+        id: `assistant-${index}`,
+        role: "assistant" as const,
+        content: `${index}-${largeText}`,
+        createdAt: "2026-04-03T00:00:00.000Z",
+      })),
+      currentProjectSnapshot: {
+        ...createSession().currentProjectSnapshot,
+        artifacts: Array.from({ length: 14 }, (_, index) => ({
+          id: `artifact-${index}`,
+          kind: "plan" as const,
+          label: `产物 ${index}`,
+          summary: largeText,
+          content: largeText,
+          updatedAt: "2026-04-03T00:00:00.000Z",
+        })),
+        memory: {
+          assetManifest: {
+            version: "1",
+            items: Array.from({ length: 40 }, (_, index) => ({
+              id: `asset-${index}`,
+              kind: "character-sheet" as const,
+              label: `角色 ${index}`,
+              url: `file:///C:/tmp/asset-${index}.jpg`,
+              meta: largeText,
+              reusable: true,
+              status: "ready" as const,
+            })),
+          },
+        },
+      },
+      recentMessageSummary: largeText,
+      draft: largeText,
+    });
+
+    writeStudioSession(session);
+
+    const restored = readStudioSession();
+    expect(restored).not.toBeNull();
+    expect(restored?.messages.length).toBeLessThanOrEqual(28);
+    expect(restored?.messages.at(-1)?.content.length ?? 0).toBeLessThanOrEqual(1600);
+    expect(restored?.currentProjectSnapshot?.artifacts.length).toBeLessThanOrEqual(10);
+    expect(restored?.currentProjectSnapshot?.memory).toBeUndefined();
+    expect(restored?.draft?.length ?? 0).toBeLessThanOrEqual(2400);
+  });
+
+  it("retries with a smaller payload when storage quota is exceeded", () => {
+    const originalSetItem = Storage.prototype.setItem;
+    const quotaError = new DOMException("quota", "QuotaExceededError");
+    const spy = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(function (this: Storage, key: string, value: string) {
+        if (key === STUDIO_SESSION_KEY && value.length > 7000) {
+          throw quotaError;
+        }
+        return originalSetItem.call(this, key, value);
+      });
+
+    const hugeSession = createSession({
+      messages: Array.from({ length: 18 }, (_, index) => ({
+        id: `message-${index}`,
+        role: "assistant" as const,
+        content: "扩容内容".repeat(900),
+        createdAt: "2026-04-03T00:00:00.000Z",
+      })),
+      recentMessageSummary: "摘要".repeat(4000),
+      draft: "草稿".repeat(2400),
+    });
+
+    expect(() => writeStudioSession(hugeSession)).not.toThrow();
+
+    const restored = readStudioSession();
+    expect(restored).not.toBeNull();
+    expect(restored?.messages.length).toBeGreaterThan(0);
+    expect(restored?.draft).not.toBe("");
+    expect(spy).toHaveBeenCalled();
   });
 });

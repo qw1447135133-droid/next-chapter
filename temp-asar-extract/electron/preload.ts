@@ -53,7 +53,6 @@ export interface StorageAPI {
   getDefaultPath: () => Promise<{ files: string; db: string }>;
   selectFolder: () => Promise<string | null>;
   openFolder: (folderPath: string) => Promise<void>;
-  openPath: (targetPath: string) => Promise<string>;
   writeText: (
     filePath: string,
     content: string,
@@ -143,8 +142,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     selectFolder: () => ipcRenderer.invoke("storage:selectFolder"),
     openFolder: (folderPath: string) =>
       ipcRenderer.invoke("storage:openFolder", folderPath),
-    openPath: (targetPath: string) =>
-      ipcRenderer.invoke("storage:openPath", targetPath),
     writeText: (filePath: string, content: string) =>
       ipcRenderer.invoke("storage:writeText", { filePath, content }),
     readText: (filePath: string) =>

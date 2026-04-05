@@ -1,5 +1,6 @@
 import type { PersistedVideoProject } from "@/hooks/use-local-persistence";
 import type { ConversationProjectSnapshot } from "@/lib/home-agent/types";
+import { readCachedThumbnailDataUrl } from "@/lib/upload-base64-to-storage";
 
 type SidebarAssetBase = {
   id: string;
@@ -16,6 +17,40 @@ export type SidebarAssetItem =
       kind: "bundle";
       path: string;
     });
+
+export function isLocalSidebarAssetUrl(url: string | undefined): boolean {
+  if (typeof url !== "string" || !url.trim()) return false;
+  return url.startsWith("file://") || /^[A-Za-z]:[\\/]/.test(url) || /^\\\\/.test(url);
+}
+
+export function normalizeSidebarAssetPath(url: string): string {
+  if (!isLocalSidebarAssetUrl(url)) return url;
+  if (!url.startsWith("file://")) return url;
+
+  let normalized = decodeURIComponent(url.replace(/^file:\/\/+/, ""));
+  if (/^\/[A-Za-z]:\//.test(normalized)) {
+    normalized = normalized.slice(1);
+  }
+  return normalized.replace(/\//g, "\\");
+}
+
+export async function resolveSidebarAssetPreviewUrl(
+  asset: SidebarAssetItem,
+  projectId?: string,
+): Promise<string | null> {
+  if (asset.kind !== "image") return null;
+  if (!asset.url) return null;
+  if (!isLocalSidebarAssetUrl(asset.url)) return asset.url;
+  if (!window.electronAPI?.storage?.readBase64) return null;
+
+  const normalizedPath = normalizeSidebarAssetPath(asset.url);
+  const cachedThumbnail = await readCachedThumbnailDataUrl(normalizedPath, projectId);
+  if (cachedThumbnail) return cachedThumbnail;
+
+  const result = await window.electronAPI.storage.readBase64(normalizedPath);
+  if (!result?.ok || !result?.base64) return null;
+  return `data:${result.mimeType || "image/jpeg"};base64,${result.base64}`;
+}
 
 function formatBundleMeta(videoProject: PersistedVideoProject): string {
   const bundle = videoProject.productionStateBundle;

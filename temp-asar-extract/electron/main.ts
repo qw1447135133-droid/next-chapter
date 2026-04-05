@@ -40,8 +40,6 @@ const STARTUP_LOG_PATH = path.join(
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 
-app.commandLine.appendSwitch("disable-http-cache");
-
 function getUserDataPath(): string {
   return app.getPath("userData");
 }
@@ -252,10 +250,6 @@ function setupIPC() {
     shell.openPath(folderPath);
   });
 
-  ipcMain.handle("storage:openPath", (_event, targetPath: string) => {
-    return shell.openPath(targetPath);
-  });
-
   ipcMain.handle(
     "storage:writeText",
     async (
@@ -341,51 +335,6 @@ function setupIPC() {
   const { QueryEngine } = require("../src/lib/agent/query-engine");
 
   const agentSessions = new Map<string, InstanceType<typeof QueryEngine>>();
-
-  ipcMain.handle(
-    "agent:callModelApi",
-    async (
-      _event,
-      {
-        url,
-        apiKey,
-        requestParams,
-      }: {
-        url: string;
-        apiKey: string;
-        requestParams: Record<string, unknown>;
-      },
-    ) => {
-      try {
-        const response = await fetch(url, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify(requestParams),
-        });
-
-        if (!response.ok) {
-          const text = await response.text().catch(() => "");
-          return {
-            ok: false,
-            error: `Model request failed (${response.status}): ${text.slice(0, 300) || response.statusText}`,
-          };
-        }
-
-        return {
-          ok: true,
-          data: await response.json(),
-        };
-      } catch (error) {
-        return {
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
-      }
-    },
-  );
 
   ipcMain.handle(
     "agent:submitMessage",
@@ -773,25 +722,7 @@ function setupIPC() {
 
 // =========================== 窗口 & 托盘 ===========================
 
-async function prepareWindowSession(win: Electron.BrowserWindow): Promise<void> {
-  try {
-    await win.webContents.session.clearCache();
-    log("info", "window session cache cleared");
-  } catch (error) {
-    log("warn", `failed to clear window cache: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  try {
-    await win.webContents.session.clearStorageData({
-      storages: ["cachestorage", "shadercache", "serviceworkers"],
-    });
-    log("info", "window cache storage cleared");
-  } catch (error) {
-    log("warn", `failed to clear cache storage: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-async function createWindow() {
+function createWindow() {
   log("info", "createWindow start");
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -867,19 +798,17 @@ async function createWindow() {
     log("info", "渲染进程已恢复响应");
   });
 
-  await prepareWindowSession(mainWindow);
-
   // 加载 Vite dev server 或打包后的 index.html
   if (process.env.VITE_DEV_SERVER_URL) {
     log("info", `loading dev url: ${process.env.VITE_DEV_SERVER_URL}`);
-    await mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     if (process.env.ELECTRON_OPEN_DEVTOOLS === "1") {
       mainWindow.webContents.openDevTools();
     }
   } else {
     const indexPath = path.join(__dirname, "../dist/index.html");
     log("info", `loading file: ${indexPath}`);
-    await mainWindow.loadFile(indexPath);
+    mainWindow.loadFile(indexPath);
   }
 }
 
@@ -902,14 +831,14 @@ function createTray() {
 
 // =========================== App 入口 ===========================
 
-app.whenReady().then(async () => {
+app.whenReady().then(() => {
   log("info", "========== Electron 主进程启动 ==========");
   setupIPC();
-  await createWindow();
+  createWindow();
   createTray();
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) void createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 

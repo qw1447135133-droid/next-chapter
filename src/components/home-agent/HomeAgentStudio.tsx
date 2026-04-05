@@ -13,6 +13,7 @@ import type {
   StudioQuestionState,
   StudioRuntimeState,
   StudioSessionState,
+  WorkflowRuntimeDelta,
 } from "@/lib/home-agent/types";
 import { cn } from "@/lib/utils";
 import type { JimengExecutionMode } from "@/lib/api-config";
@@ -23,6 +24,8 @@ import {
 } from "./home-agent-sidebar";
 import {
   ActiveConversationShell,
+  DetachedMaintenanceNoticeCard,
+  type DetachedMaintenanceNotice,
   HomeSurfaceBackdrop,
   IdleLanding,
   MobileTopbar,
@@ -97,8 +100,15 @@ import { useHomeAgentWorkflowShortcuts } from "./use-home-agent-workflow-shortcu
 import { useHomeAgentComposerBindings } from "./use-home-agent-composer-bindings";
 import { getAllTasks, type Task } from "@/lib/agent/tools/task-tools";
 import { readHomeAgentLaunchReadiness, type HomeAgentLaunchReadiness } from "@/lib/home-agent/launch-readiness";
+import {
+  getHomeAgentTextModelOption,
+  groupHomeAgentTextModelOptions,
+  normalizeHomeAgentTextModelKey,
+  readStoredHomeAgentTextModelKey,
+  writeStoredHomeAgentTextModelKey,
+} from "@/lib/home-agent/text-models";
 
-const { useCallback, useEffect, useMemo, useRef, useState } = React;
+const { useCallback, useEffect, useMemo, useRef, useState, startTransition } = React;
 
 type UtilityPanelId = "settings" | undefined;
 
@@ -232,9 +242,13 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   );
   const [compactedMessageCount, setCompactedMessageCount] = useState(session?.compactedMessageCount ?? 0);
   const [maintenanceHint, setMaintenanceHint] = useState<string | null>(null);
+  const [maintenanceNotice, setMaintenanceNotice] = useState<DetachedMaintenanceNotice | null>(null);
   const [jimengExecutionMode, setJimengExecutionMode] = useState<JimengExecutionMode>("api");
   const [launchReadiness, setLaunchReadiness] = useState<HomeAgentLaunchReadiness | null>(null);
   const [suppressedLaunchNoticeKey, setSuppressedLaunchNoticeKey] = useState<string | null>(null);
+  const [selectedTextModelKey, setSelectedTextModelKey] = useState(() =>
+    normalizeHomeAgentTextModelKey(session?.selectedTextModelKey ?? readStoredHomeAgentTextModelKey()),
+  );
   const [dreaminaCapability, setDreaminaCapability] = useState<DreaminaCapabilityState>({
     ready: false,
     available: false,
@@ -254,7 +268,10 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   const restoredProjectSuggestionKeysRef = useRef<Set<string>>(new Set());
   const surfacedDreaminaHintRef = useRef(false);
   const maintenanceHintTimerRef = useRef<number | null>(null);
+  const dismissedMaintenanceNoticeKeyRef = useRef<string | null>(null);
+  const surfacedMaintenanceNoticeKeyRef = useRef<string | null>(null);
   const compactionJobVersionRef = useRef(0);
+  const selectedTextModelKeyRef = useRef(selectedTextModelKey);
   const previousQuestionStepRef = useRef<string | null>(
     session?.qState ? `${session.qState.request.id}:${session.qState.currentIndex}` : null,
   );
@@ -334,6 +351,11 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     desktopSidebarOffsetExpanded: DESKTOP_SIDEBAR_OFFSET,
     desktopSidebarOffsetCollapsed: DESKTOP_SIDEBAR_COLLAPSED_OFFSET,
   });
+  const textModelGroups = useMemo(() => groupHomeAgentTextModelOptions(), []);
+  const selectedTextModelOption = useMemo(
+    () => getHomeAgentTextModelOption(selectedTextModelKey),
+    [selectedTextModelKey],
+  );
 
   const refreshLaunchReadiness = useCallback(async () => {
     try {
@@ -371,6 +393,17 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   }, [runtime]);
 
   useEffect(() => {
+    writeStoredHomeAgentTextModelKey(selectedTextModelKey);
+  }, [selectedTextModelKey]);
+
+  useEffect(() => {
+    if (selectedTextModelKeyRef.current === selectedTextModelKey) return;
+    selectedTextModelKeyRef.current = selectedTextModelKey;
+    engineRef.current?.interrupt();
+    engineRef.current = null;
+  }, [selectedTextModelKey]);
+
+  useEffect(() => {
     void refreshLaunchReadiness();
   }, [refreshLaunchReadiness]);
 
@@ -391,6 +424,75 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     if (!content.trim()) return;
     setMessages((prev) => [...prev, mk(role, content.trim())]);
   }, []);
+
+  const dismissMaintenanceNotice = useCallback(() => {
+    if (maintenanceNotice) {
+      dismissedMaintenanceNoticeKeyRef.current = maintenanceNotice.id;
+    }
+    setMaintenanceNotice(null);
+  }, [maintenanceNotice]);
+
+  const showDetachedMaintenanceNotice = useCallback(
+    (message: string, nextQuestion: ComposerQuestion | null = null, title?: string) => {
+      const noticeTitle = title?.trim() || nextQuestion?.title || "首页维护提醒";
+      const noticeKey = [
+        noticeTitle,
+        nextQuestion?.id ?? "message",
+        runtimeRef.current.maintenanceReports[0]?.id ?? "no-report",
+        runtimeRef.current.skillDrafts
+          .map((draft) => `${draft.id}:${draft.status}`)
+          .slice(0, 6)
+          .join("|"),
+      ].join("::");
+      surfacedMaintenanceNoticeKeyRef.current = noticeKey;
+      dismissedMaintenanceNoticeKeyRef.current = null;
+      setMaintenanceNotice({
+        id: noticeKey,
+        title: noticeTitle,
+        message,
+        question: nextQuestion,
+      });
+    },
+    [runtimeRef],
+  );
+
+  const runDetachedMaintenanceAction = useCallback(
+    async (action: string, input: Record<string, unknown>, _label: string) => {
+      try {
+        const workflow = await loadWorkflowActionsModule();
+        const result = await workflow.runWorkflowAction(action, input, runtimeRef.current);
+        const nextRuntime = result.data
+          ? mergeRuntimeWithWorkflowDelta(runtimeRef.current, result.data as WorkflowRuntimeDelta)
+          : runtimeRef.current;
+
+        if (result.data) {
+          startTransition(() => {
+            setRuntime(nextRuntime);
+          });
+        }
+
+        const normalizedSummary = result.summary.trim() || "维护动作已完成。";
+        const summaryTitle = normalizedSummary.split(/\n+/)[0]?.trim() || "维护动作已完成。";
+        const summaryBody =
+          normalizedSummary === summaryTitle
+            ? "你可以继续处理维护事项，或直接回到主任务会话。"
+            : normalizedSummary.slice(summaryTitle.length).trim();
+
+        showDetachedMaintenanceNotice(
+          summaryBody,
+          buildMaintenanceReviewQuestion(nextRuntime),
+          summaryTitle,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "维护动作执行失败。";
+        const errorTitle = message.split(/\n+/)[0]?.trim() || "维护动作执行失败。";
+        const errorBody =
+          message === errorTitle ? "可以稍后重试，或继续当前首页主会话。" : message.slice(errorTitle.length).trim();
+        showDetachedMaintenanceNotice(errorBody, buildMaintenanceReviewQuestion(runtimeRef.current), errorTitle);
+      }
+    },
+    [loadWorkflowActionsModule, setRuntime, showDetachedMaintenanceNotice],
+  );
 
   const { resolveDreaminaCapability, send, reset, answer, handleTemplateLaunch } = useHomeAgentRuntimeActions({
     systemPrompt: PROMPT,
@@ -420,6 +522,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     textOf,
     qStepKey,
     push,
+    selectedTextModelKey,
     setPopoverOverride,
     setSuggested,
     setMode,
@@ -545,6 +648,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     persistedDraft,
     recentSessionSummary,
     selectedValues,
+    selectedTextModelKey,
     deferredMessages,
     deferredProjectSnapshot,
     visibleTasks,
@@ -584,6 +688,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     loadAskUserQuestionModule,
     qState,
     setActiveProjectId,
+    setSelectedTextModelKey,
     setQState,
     setPopoverOverride,
     setSuggested,
@@ -720,7 +825,61 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     buildSkillDraftListQuestion,
     buildApprovedSkillDraftListQuestion,
     buildSkillDraftDecisionQuestion,
+    showDetachedMaintenanceNotice,
+    runDetachedMaintenanceAction,
   });
+
+  const handleMaintenanceNoticeChoice = useCallback(
+    (value: string, label: string) => {
+      maintenanceChoiceHandler(value, label);
+    },
+    [maintenanceChoiceHandler],
+  );
+
+  useEffect(() => {
+    if (runtime.currentProjectSnapshot || qState || streaming || popoverOverride || draftPresence) {
+      return;
+    }
+
+    const nextQuestion = buildMaintenanceReviewQuestion(runtime);
+    if (!nextQuestion) {
+      if (maintenanceNotice?.question?.id?.startsWith("maintenance-")) {
+        setMaintenanceNotice(null);
+      }
+      surfacedMaintenanceNoticeKeyRef.current = null;
+      dismissedMaintenanceNoticeKeyRef.current = null;
+      return;
+    }
+
+    // Keep the detached maintenance card on its own mini-session path.
+    // Once a notice is open, only explicit maintenance actions should advance it.
+    if (maintenanceNotice) {
+      return;
+    }
+
+    const nextNoticeKey = [
+      nextQuestion.id,
+      runtime.maintenanceReports[0]?.id ?? "no-report",
+      runtime.skillDrafts.map((draft) => `${draft.id}:${draft.status}`).slice(0, 6).join("|"),
+    ].join("::");
+    if (dismissedMaintenanceNoticeKeyRef.current === nextNoticeKey) return;
+    if (surfacedMaintenanceNoticeKeyRef.current === nextNoticeKey && maintenanceNotice) return;
+
+    surfacedMaintenanceNoticeKeyRef.current = nextNoticeKey;
+    setMaintenanceNotice({
+      id: nextNoticeKey,
+      title: nextQuestion.title,
+      message: nextQuestion.description || "最近一次维护整理已经完成，可以单独查看，不会打断当前主会话。",
+      question: nextQuestion,
+    });
+  }, [
+    draftPresence,
+    maintenanceNotice,
+    popoverOverride,
+    qState,
+    runtime,
+    streaming,
+  ]);
 
   const { idleComposer, activeComposer } = useHomeAgentComposerBindings({
     idle,
@@ -740,6 +899,10 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     reduceMotion,
     composerShellClass,
     activeTheme,
+    selectedTextModelKey,
+    selectedTextModelLabel: selectedTextModelOption.shortLabel,
+    textModelGroups,
+    onSelectTextModel: setSelectedTextModelKey,
     runtimeRef,
     draftRef,
     engineRef,
@@ -817,6 +980,11 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
       />
 
       <div className="relative z-10 flex min-h-screen flex-col">
+        <DetachedMaintenanceNoticeCard
+          notice={maintenanceNotice}
+          onDismiss={dismissMaintenanceNotice}
+          onSelect={handleMaintenanceNoticeChoice}
+        />
         <MobileTopbar idle={idle} brandLabel={SIDEBAR_BRAND} onOpenNavigation={handleOpenMobileNavigation} />
         <main
           className={cn(

@@ -3,12 +3,12 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
-const { Suspense, lazy, memo } = React;
+const { Suspense, lazy, memo, useEffect, useRef } = React;
 
 const SETTINGS_PANEL_CLASS =
-  "rounded-[28px] border border-white/10 bg-[#f4f1ea] text-slate-900 shadow-[0_28px_70px_rgba(0,0,0,0.28)]";
+  "rounded-[28px] border border-[#e2dbcf] bg-[#f4efe6] text-slate-900 shadow-[0_28px_70px_rgba(0,0,0,0.28)]";
 const MOBILE_SETTINGS_SHEET =
-  "w-full border-r border-[#e7e1d7] bg-[#f4f1ea] p-0 text-slate-900 shadow-[18px_0_48px_rgba(0,0,0,0.24)] overscroll-contain sm:max-w-[440px]";
+  "w-full border-r border-[#e2dbcf] bg-[#f4efe6] p-0 text-slate-900 shadow-[18px_0_48px_rgba(0,0,0,0.24)] overscroll-contain sm:max-w-[440px]";
 const SettingsPage = lazy(() => import("@/pages/Settings"));
 
 export const DesktopSettingsPanel = memo(function DesktopSettingsPanel({
@@ -24,10 +24,33 @@ export const DesktopSettingsPanel = memo(function DesktopSettingsPanel({
   leftOffset: number;
   width: number;
 }) {
+  const panelRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (panelRef.current?.contains(target)) return;
+
+      const targetElement = target instanceof Element ? target : target.parentElement;
+      if (targetElement?.closest("[data-settings-floating-root='true']")) return;
+
+      onClose();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, [onClose, open]);
+
   if (!open) return null;
 
   return (
     <aside
+      ref={panelRef}
       className="fixed bottom-4 top-4 z-50 hidden lg:block"
       style={{
         left: leftOffset - 16,

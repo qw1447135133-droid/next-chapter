@@ -17,9 +17,14 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import type { JimengExecutionMode } from "@/lib/api-config";
 import type { ConversationProjectSnapshot } from "@/lib/home-agent/types";
 import { cn } from "@/lib/utils";
-import type { SidebarAssetItem } from "./home-agent-sidebar-utils";
+import {
+  isLocalSidebarAssetUrl,
+  normalizeSidebarAssetPath,
+  resolveSidebarAssetPreviewUrl,
+  type SidebarAssetItem,
+} from "./home-agent-sidebar-utils";
 
-const { memo, useCallback } = React;
+const { memo, useCallback, useEffect, useState } = React;
 
 const EXECUTION_MODE_LABEL: Record<JimengExecutionMode, string> = {
   api: "API",
@@ -70,6 +75,60 @@ function truncateCopy(value: string, max = 120): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (!normalized) return "";
   return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
+}
+
+function useSidebarAssetPreview(asset: SidebarAssetItem, projectId?: string): string | null {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(
+    asset.kind === "image" && !isLocalSidebarAssetUrl(asset.url) ? asset.url : null,
+  );
+
+  useEffect(() => {
+    if (asset.kind !== "image") {
+      setPreviewUrl(null);
+      return;
+    }
+
+    if (!isLocalSidebarAssetUrl(asset.url)) {
+      setPreviewUrl(asset.url);
+      return;
+    }
+
+    let cancelled = false;
+    setPreviewUrl(null);
+
+    void resolveSidebarAssetPreviewUrl(asset, projectId).then((resolvedUrl) => {
+      if (!cancelled) {
+        setPreviewUrl(resolvedUrl);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [asset, asset.kind, asset.url, projectId]);
+
+  return previewUrl;
+}
+
+async function openSidebarAsset(asset: SidebarAssetItem): Promise<void> {
+  if (asset.kind === "bundle") {
+    await window.electronAPI?.storage?.openFolder?.(asset.path);
+    return;
+  }
+
+  if (isLocalSidebarAssetUrl(asset.url)) {
+    const localPath = normalizeSidebarAssetPath(asset.url);
+    if (window.electronAPI?.storage?.openPath) {
+      await window.electronAPI.storage.openPath(localPath);
+      return;
+    }
+    if (window.electronAPI?.storage?.openFolder) {
+      await window.electronAPI.storage.openFolder(localPath);
+    }
+    return;
+  }
+
+  window.open(asset.url, "_blank", "noopener,noreferrer");
 }
 
 const SidebarFooter = memo(function SidebarFooter({
@@ -159,13 +218,16 @@ const SidebarFooter = memo(function SidebarFooter({
 const SidebarAssetRow = memo(function SidebarAssetRow({
   asset,
   onOpen,
+  currentProjectId,
   collapsed = false,
 }: {
   asset: SidebarAssetItem;
   onOpen: (asset: SidebarAssetItem) => void;
+  currentProjectId?: string;
   collapsed?: boolean;
 }) {
   const kindLabel = ASSET_KIND_LABEL[asset.kind];
+  const previewUrl = useSidebarAssetPreview(asset, currentProjectId);
 
   return (
     <button
@@ -178,10 +240,14 @@ const SidebarAssetRow = memo(function SidebarAssetRow({
         collapsed ? "justify-center px-0" : "gap-2 px-2",
       )}
     >
-      {asset.kind === "image" ? (
+      {asset.kind === "image" && previewUrl ? (
         <span className="relative h-7.5 w-7.5 shrink-0 overflow-hidden rounded-[10px] bg-white/[0.05]">
-          <img src={asset.url} alt={asset.label} className="h-full w-full object-cover" loading="lazy" />
+          <img src={previewUrl} alt={asset.label} className="h-full w-full object-cover" loading="lazy" />
           <span className="absolute inset-0 rounded-[10px] ring-1 ring-inset ring-white/[0.08]" />
+        </span>
+      ) : asset.kind === "image" ? (
+        <span className="flex h-7.5 w-7.5 shrink-0 items-center justify-center rounded-[10px] bg-white/[0.05] text-slate-200">
+          <Image className="h-3.5 w-3.5" />
         </span>
       ) : asset.kind === "video" ? (
         <span className="flex h-7.5 w-7.5 shrink-0 items-center justify-center rounded-[10px] bg-white/[0.04] text-slate-200">
@@ -420,11 +486,13 @@ const SidebarProjectHistory = memo(function SidebarProjectHistory({
 const SidebarAssetLibrary = memo(function SidebarAssetLibrary({
   assets,
   onOpenAsset,
+  currentProjectId,
   emptyClassName,
   collapsed = false,
 }: {
   assets: SidebarAssetItem[];
   onOpenAsset: (asset: SidebarAssetItem) => void;
+  currentProjectId?: string;
   emptyClassName?: string;
   collapsed?: boolean;
 }) {
@@ -442,7 +510,13 @@ const SidebarAssetLibrary = memo(function SidebarAssetLibrary({
       <div className="space-y-px">
         {assets.length ? (
           assets.map((asset) => (
-            <SidebarAssetRow key={asset.id} asset={asset} onOpen={onOpenAsset} collapsed={collapsed} />
+            <SidebarAssetRow
+              key={asset.id}
+              asset={asset}
+              onOpen={onOpenAsset}
+              currentProjectId={currentProjectId}
+              collapsed={collapsed}
+            />
           ))
         ) : (
           <div
@@ -500,11 +574,7 @@ export const DesktopSidebar = memo(function DesktopSidebar({
   dreaminaCliAvailable?: boolean;
 }) {
   const handleOpenAsset = useCallback((asset: SidebarAssetItem) => {
-    if (asset.kind === "bundle") {
-      void window.electronAPI?.storage?.openFolder?.(asset.path);
-      return;
-    }
-    window.open(asset.url, "_blank", "noopener,noreferrer");
+    void openSidebarAsset(asset);
   }, []);
 
   const handleLaunchTemplate = useCallback(
@@ -549,7 +619,12 @@ export const DesktopSidebar = memo(function DesktopSidebar({
             />
 
             {!idle ? (
-              <SidebarAssetLibrary assets={assets} onOpenAsset={handleOpenAsset} collapsed={collapsed} />
+              <SidebarAssetLibrary
+                assets={assets}
+                onOpenAsset={handleOpenAsset}
+                currentProjectId={currentProjectId}
+                collapsed={collapsed}
+              />
             ) : null}
           </div>
           <SidebarFooter
@@ -627,11 +702,7 @@ export const MobileSidebarSheet = memo(function MobileSidebarSheet({
 
   const handleOpenAsset = useCallback(
     (asset: SidebarAssetItem) => {
-      if (asset.kind === "bundle") {
-        void window.electronAPI?.storage?.openFolder?.(asset.path);
-      } else {
-        window.open(asset.url, "_blank", "noopener,noreferrer");
-      }
+      void openSidebarAsset(asset);
       onOpenChange(false);
     },
     [onOpenChange],
@@ -666,6 +737,7 @@ export const MobileSidebarSheet = memo(function MobileSidebarSheet({
               <SidebarAssetLibrary
                 assets={assets}
                 onOpenAsset={handleOpenAsset}
+                currentProjectId={currentProjectId}
                 emptyClassName="py-2.5 text-[13px]"
               />
             ) : null}

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { PersistedVideoProject } from "@/hooks/use-local-persistence";
 import type { ConversationProjectSnapshot } from "@/lib/home-agent/types";
-import { collectConversationAssets } from "./home-agent-sidebar-utils";
+import {
+  collectConversationAssets,
+  isLocalSidebarAssetUrl,
+  normalizeSidebarAssetPath,
+} from "./home-agent-sidebar-utils";
 
 function createVideoProject(): PersistedVideoProject {
   return {
@@ -106,5 +110,21 @@ describe("collectConversationAssets", () => {
       label: "沈昭角色图",
       url: "https://example.com/char-1.jpg",
     });
+  });
+});
+
+describe("sidebar asset path helpers", () => {
+  it("detects local filesystem asset urls", () => {
+    expect(isLocalSidebarAssetUrl("file:///C:/Users/demo/image.jpg")).toBe(true);
+    expect(isLocalSidebarAssetUrl("C:\\Users\\demo\\image.jpg")).toBe(true);
+    expect(isLocalSidebarAssetUrl("https://example.com/image.jpg")).toBe(false);
+    expect(isLocalSidebarAssetUrl("data:image/png;base64,abc")).toBe(false);
+  });
+
+  it("normalizes file urls into local filesystem paths", () => {
+    expect(normalizeSidebarAssetPath("file:///C:/Users/demo/image%201.jpg")).toBe(
+      "C:\\Users\\demo\\image 1.jpg",
+    );
+    expect(normalizeSidebarAssetPath("D:\\assets\\clip.mp4")).toBe("D:\\assets\\clip.mp4");
   });
 });

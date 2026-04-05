@@ -35,6 +35,28 @@ function buildToolsParam(tools: Tool[]): Anthropic.Tool[] {
   }))
 }
 
+type ModelApiBridgePayload = {
+  url: string
+  apiKey: string
+  requestParams: Record<string, unknown>
+}
+
+function canUseElectronModelBridge(): boolean {
+  return typeof window !== 'undefined' && typeof window.electronAPI?.invoke === 'function'
+}
+
+async function invokeElectronModelBridge(payload: ModelApiBridgePayload): Promise<Anthropic.Message> {
+  const response = await window.electronAPI!.invoke('agent:callModelApi', payload) as
+    | { ok: true; data: Anthropic.Message }
+    | { ok: false; error: string }
+
+  if (!response?.ok) {
+    throw new Error(response?.error || 'Electron model bridge failed')
+  }
+
+  return response.data
+}
+
 function buildMessagesApiUrl(baseUrl?: string): string {
   const root = String(baseUrl || 'https://api.anthropic.com')
     .replace(/\/v1beta(\/.*)?$/i, '')
@@ -79,23 +101,32 @@ export async function callModelAPI(opts: CallModelOptions): Promise<AssistantMes
     ...(thinkingConfig ? { thinking: thinkingConfig as Anthropic.ThinkingConfigParam } : {}),
   }
 
-  const response = await fetch(buildMessagesApiUrl(baseUrl), {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(requestParams),
-  })
+  const requestUrl = buildMessagesApiUrl(baseUrl)
+  const parsed = canUseElectronModelBridge()
+    ? await invokeElectronModelBridge({
+        url: requestUrl,
+        apiKey,
+        requestParams,
+      })
+    : await (async () => {
+        const response = await fetch(requestUrl, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(requestParams),
+        })
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => '')
-    throw new Error(
-      `Model ${model} failed (${response.status}): ${text.slice(0, 300) || response.statusText}`,
-    )
-  }
+        if (!response.ok) {
+          const text = await response.text().catch(() => '')
+          throw new Error(
+            `Model ${model} failed (${response.status}): ${text.slice(0, 300) || response.statusText}`,
+          )
+        }
 
-  const parsed = await response.json() as Anthropic.Message
+        return await response.json() as Anthropic.Message
+      })()
 
   const contentBlocks: ContentBlock[] = parsed.content.map(block => {
     if (block.type === 'text') return { type: 'text', text: block.text }

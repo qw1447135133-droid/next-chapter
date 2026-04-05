@@ -79,7 +79,6 @@ import_electron.contextBridge.exposeInMainWorld("electronAPI", {
     getDefaultPath: () => import_electron.ipcRenderer.invoke("storage:getDefaultPath"),
     selectFolder: () => import_electron.ipcRenderer.invoke("storage:selectFolder"),
     openFolder: (folderPath) => import_electron.ipcRenderer.invoke("storage:openFolder", folderPath),
-    openPath: (targetPath) => import_electron.ipcRenderer.invoke("storage:openPath", targetPath),
     writeText: (filePath, content) => import_electron.ipcRenderer.invoke("storage:writeText", { filePath, content }),
     readText: (filePath) => import_electron.ipcRenderer.invoke("storage:readText", { filePath }),
     readBase64: (filePath) => import_electron.ipcRenderer.invoke("storage:readBase64", { filePath })

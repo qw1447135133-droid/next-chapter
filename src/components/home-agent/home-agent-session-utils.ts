@@ -103,6 +103,7 @@ export function areRecentSessionsEquivalent(
     return (
       session.sessionId === prev.sessionId &&
       session.projectId === prev.projectId &&
+      session.selectedTextModelKey === prev.selectedTextModelKey &&
       session.mode === prev.mode &&
       session.compactedMessageCount === prev.compactedMessageCount &&
       session.messages.length === prev.messages.length &&

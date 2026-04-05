@@ -427,27 +427,55 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
   };
 
   const sectionTitleClass = embedded
-    ? "flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500"
+    ? "flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-900"
     : "text-sm font-medium flex items-center gap-2";
   const cardClass = embedded
-    ? "rounded-[24px] border border-black/[0.045] bg-[rgba(255,255,255,0.56)] shadow-[0_8px_24px_rgba(15,23,42,0.035)]"
+    ? "rounded-[24px] border border-[#d2c7b5] bg-[#fffefb] shadow-[0_10px_28px_rgba(15,23,42,0.05)]"
     : "";
   const cardContentClass = embedded ? "pt-4 space-y-3" : "pt-6 space-y-4";
   const compactInputClass = embedded
-    ? "h-9 border-[#d9d1c6] bg-white/74 font-mono text-[12px] shadow-none"
+    ? "h-9 border-[#cec2af] bg-[#fffdfa] font-mono text-[12px] text-slate-950 shadow-none placeholder:text-slate-500"
     : "font-mono text-sm";
   const gridClass = embedded ? "grid grid-cols-1 gap-3" : "grid grid-cols-1 md:grid-cols-2 gap-6";
-  const dreaminaStatusTone = dreaminaStatus?.loggedIn
-    ? "secondary"
-    : dreaminaStatus?.installed
-      ? "outline"
-      : "destructive";
+  const embeddedOutlineButtonClass = embedded
+    ? "h-8.5 rounded-full border-[#d2c7b5] bg-[#fffdfa] px-3 text-[12px] font-medium text-slate-900 hover:bg-white disabled:opacity-100 disabled:border-[#ddd3c3] disabled:bg-[#f5efe4] disabled:text-slate-600"
+    : "";
+  const embeddedGhostTextButtonClass = embedded
+    ? "px-0 text-xs font-medium text-slate-900 hover:bg-transparent hover:text-slate-950 disabled:opacity-100 disabled:text-slate-600"
+    : "text-xs";
+  const embeddedTitleTextClass = embedded ? "text-sm font-medium text-slate-950" : "text-sm font-medium text-foreground";
+  const embeddedLabelTextClass = embedded ? "text-sm font-medium text-slate-950" : "text-sm font-medium";
+  const embeddedMutedTextClass = embedded ? "text-xs leading-5 text-slate-700" : "text-xs leading-5 text-muted-foreground";
+  const embeddedMonoMutedTextClass = embedded
+    ? "mt-1.5 break-all font-mono text-[11.5px] text-slate-700"
+    : "mt-1.5 break-all font-mono text-[11.5px] text-muted-foreground";
   const resolvedJimengMode = resolveJimengExecutionMode(config, {
     dreaminaCliAccessible: !!window.electronAPI?.dreaminaCli?.exec,
   });
+  const launchTextBadgeClass = launchReadiness?.textReady
+    ? "border border-emerald-300 bg-emerald-50 text-emerald-900"
+    : "border border-rose-300 bg-rose-50 text-rose-900";
+  const launchVideoBadgeClass = launchReadiness?.video.ready
+    ? "border border-sky-300 bg-sky-50 text-sky-900"
+    : "border border-amber-300 bg-amber-50 text-amber-900";
+  const uniqueModeBadgeClass = "border border-slate-300 bg-slate-100 text-slate-900";
+  const dreaminaBadgeClass = dreaminaStatus?.loggedIn
+    ? "border border-emerald-300 bg-emerald-50 text-emerald-900"
+    : dreaminaStatus?.installed
+      ? "border border-amber-300 bg-amber-50 text-amber-900"
+      : "border border-rose-300 bg-rose-50 text-rose-900";
+  const executionModeBadgeClass = resolvedJimengMode === "cli"
+    ? "border border-emerald-300 bg-emerald-50 text-emerald-900"
+    : "border border-sky-300 bg-sky-50 text-sky-900";
 
   return (
-    <div className={embedded ? "flex h-full min-h-0 flex-col bg-transparent" : "min-h-screen bg-background"}>
+    <div
+        className={cn(
+          embedded
+          ? "flex h-full min-h-0 flex-col bg-transparent text-slate-950 [&_.text-muted-foreground]:!text-slate-700 [&_.text-foreground]:!text-slate-950 [&_label]:!text-slate-950"
+          : "min-h-screen bg-background",
+        )}
+      >
       {!embedded && (
         <header className="flex items-center gap-3 px-6 py-4 border-b border-border/50">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
@@ -461,7 +489,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
         <div className="flex items-center justify-between border-b border-black/[0.055] px-4 py-3.5">
           <div>
             <h1 className="text-[1.18rem] font-semibold tracking-[-0.035em] text-slate-900">设置</h1>
-            <p className="mt-0.5 text-[12px] text-slate-500">在首页内调整模型、路径与界面行为。</p>
+            <p className="mt-0.5 text-[12px] text-slate-700">在首页内调整模型、路径与界面行为。</p>
           </div>
           {onClose && (
             <Button
@@ -476,7 +504,9 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
         </div>
       )}
 
-      <main className={embedded ? "flex-1 overflow-y-auto px-4 py-4 space-y-4" : "max-w-3xl mx-auto px-6 py-6 space-y-6"}>
+      <main
+        className={embedded ? "settings-scrollbar flex-1 overflow-y-auto px-4 py-4 space-y-4" : "max-w-3xl mx-auto px-6 py-6 space-y-6"}
+      >
         <div className="space-y-2.5">
           <h2 className={sectionTitleClass}>
             <Sparkles className="h-4 w-4" />
@@ -485,18 +515,18 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
           <Card className={cardClass}>
             <CardContent className={cardContentClass}>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={launchReadiness?.textReady ? "secondary" : "destructive"}>
+                <Badge className={launchTextBadgeClass}>
                   {launchReadiness?.textReady ? "主会话已就绪" : "主会话待配置"}
                 </Badge>
-                <Badge variant={launchReadiness?.video.ready ? "outline" : "destructive"}>
+                <Badge className={launchVideoBadgeClass}>
                   视频通道：{launchReadiness?.video.mode === "cli" ? "CLI" : "API"}
                 </Badge>
               </div>
               <div className="space-y-1">
-                <p className="text-sm text-foreground">
+                <p className={embeddedTitleTextClass}>
                   {launchReadiness?.notice?.title || "当前首页已具备最小可用配置。"}
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className={embeddedMutedTextClass}>
                   {launchReadiness?.notice?.description ||
                     `${launchReadiness?.textMessage || "主对话模型已就绪"}；${launchReadiness?.video.label || "当前默认走 API"}：${launchReadiness?.video.detail || "可直接继续工作流"}`}
                 </p>
@@ -515,10 +545,10 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
             <CardContent className={cardContentClass}>
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="text-sm font-medium">内置 API</h3>
-                  <Badge variant="secondary">唯一模式</Badge>
+                  <h3 className={embeddedTitleTextClass}>内置 API</h3>
+                  <Badge className={uniqueModeBadgeClass}>唯一模式</Badge>
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <p className={cn("mt-0.5", embeddedMutedTextClass)}>
                   当前版本已移除自定义 API 选项，程序运行时始终使用内置 API 配置。旧的本地自定义配置会自动忽略。
                 </p>
               </div>
@@ -527,7 +557,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                   type="button"
                   variant="outline"
                   size="sm"
-                  className={embedded ? "h-8.5 gap-1.5 rounded-full border-[#d9d1c6] bg-white/74 px-3 text-[12px] hover:bg-white" : "gap-1.5"}
+                  className={cn("gap-1.5", embeddedOutlineButtonClass)}
                   onClick={() => void handleOpenBuiltinAdminDialog()}
                   disabled={!window.electronAPI?.storage?.writeText}
                 >
@@ -542,12 +572,12 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
             <CardContent className={cardContentClass}>
               <div className="space-y-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="text-sm font-medium">Dreamina CLI</h3>
-                  <Badge variant={dreaminaStatusTone}>
+                  <h3 className={embeddedTitleTextClass}>Dreamina CLI</h3>
+                  <Badge className={dreaminaBadgeClass}>
                     {dreaminaStatus?.loggedIn ? "已登录" : dreaminaStatus?.installed ? "待登录" : "未安装"}
                   </Badge>
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className={embeddedMutedTextClass}>
                   桌面端可直接复用 Dreamina 本机登录态使用 Seedance 2.0 / Fast。下面的运行通道开关会决定默认走 API 还是 CLI。
                 </p>
               </div>
@@ -555,12 +585,12 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-medium text-foreground">Seedance 运行通道</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className={embeddedTitleTextClass}>Seedance 运行通道</p>
+                    <p className={embeddedMutedTextClass}>
                       默认用于首页会话和视频工作流的出片通道。
                     </p>
                   </div>
-                  <Badge variant="outline">
+                  <Badge className={executionModeBadgeClass}>
                     当前：{resolvedJimengMode === "cli" ? "CLI" : "API"}
                   </Badge>
                 </div>
@@ -568,7 +598,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                 <div
                   className={cn(
                     "inline-flex rounded-full border p-1",
-                    embedded ? "border-[#d9d1c6] bg-white/74" : "border-border/60 bg-muted/30",
+                    embedded ? "border-[#d6cdbc] bg-[#fffdfa]" : "border-border/60 bg-muted/30",
                   )}
                 >
                   {JIMENG_EXECUTION_OPTIONS.map((option) => {
@@ -578,10 +608,10 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                         key={option.id}
                         type="button"
                         className={cn(
-                          "rounded-full px-3 py-1.5 text-xs font-medium transition",
+                          "rounded-full px-3 py-1.5 text-xs font-semibold transition",
                           active
                             ? "bg-slate-950 text-white shadow-sm"
-                            : "text-slate-500 hover:bg-black/[0.035] hover:text-slate-900",
+                            : "text-slate-700 hover:bg-black/[0.04] hover:text-slate-950",
                         )}
                         onClick={() => setConfig((prev) => ({ ...prev, jimengExecutionMode: option.id }))}
                         aria-pressed={active}
@@ -592,13 +622,13 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                   })}
                 </div>
 
-                <p className="text-xs text-muted-foreground">
+                <p className={embeddedMutedTextClass}>
                   {config.jimengExecutionMode
                     ? JIMENG_EXECUTION_OPTIONS.find((option) => option.id === config.jimengExecutionMode)?.description
                     : `当前未手动锁定，程序会自动判定为 ${resolvedJimengMode === "cli" ? "CLI" : "API"}。`}
                 </p>
 
-                <p className="text-xs text-muted-foreground">
+                <p className={embeddedMutedTextClass}>
                   {resolvedJimengMode === "cli"
                     ? "当前默认会走 Dreamina CLI；如果本机未安装或未登录，提交出片时会直接提示修复。"
                     : "当前默认会走 Seedance API；即使本机已登录 Dreamina，也不会自动改走 CLI。"}
@@ -608,7 +638,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className={cn("h-auto px-0 text-xs text-muted-foreground", embedded && "hover:bg-transparent")}
+                    className={cn("h-auto", embeddedGhostTextButtonClass)}
                     onClick={() =>
                       setConfig((prev) => ({
                         ...prev,
@@ -623,13 +653,13 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
 
               <div className={cn(
                 "rounded-[20px] border px-3.5 py-3 text-sm",
-                embedded ? "border-[#ddd5c9] bg-[rgba(251,250,247,0.92)]" : "border-border/60 bg-muted/35",
+                embedded ? "border-[#d8cfbf] bg-[#f7f1e6]" : "border-border/60 bg-muted/35",
               )}>
-                <p className="text-sm text-foreground">
+                <p className={embeddedTitleTextClass}>
                   {dreaminaLoading ? "正在检查 Dreamina CLI 状态..." : dreaminaStatus?.message || "尚未检查 Dreamina CLI 状态。"}
                 </p>
                 {dreaminaStatus?.path ? (
-                  <p className="mt-1.5 break-all font-mono text-[11.5px] text-muted-foreground">
+                  <p className={embeddedMonoMutedTextClass}>
                     {dreaminaStatus.path}
                   </p>
                 ) : null}
@@ -640,7 +670,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                   type="button"
                   variant="outline"
                   size="sm"
-                  className={embedded ? "h-8.5 rounded-full border-[#d9d1c6] bg-white/74 px-3 text-[12px] hover:bg-white" : ""}
+                  className={embeddedOutlineButtonClass}
                   onClick={() => void refreshDreaminaStatus()}
                   disabled={dreaminaLoading || !!dreaminaAction}
                 >
@@ -651,7 +681,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                   type="button"
                   variant="outline"
                   size="sm"
-                  className={embedded ? "h-8.5 rounded-full border-[#d9d1c6] bg-white/74 px-3 text-[12px] hover:bg-white" : ""}
+                  className={embeddedOutlineButtonClass}
                   onClick={() => void handleDreaminaAction("login")}
                   disabled={!window.electronAPI?.dreaminaCli?.exec || !!dreaminaAction}
                 >
@@ -662,7 +692,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                   type="button"
                   variant="outline"
                   size="sm"
-                  className={embedded ? "h-8.5 rounded-full border-[#d9d1c6] bg-white/74 px-3 text-[12px] hover:bg-white" : ""}
+                  className={embeddedOutlineButtonClass}
                   onClick={() => void handleDreaminaAction("relogin")}
                   disabled={!window.electronAPI?.dreaminaCli?.exec || !!dreaminaAction}
                 >
@@ -675,7 +705,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
         </div>
 
         <Dialog open={adminPasswordDialogOpen} onOpenChange={setAdminPasswordDialogOpen}>
-          <DialogContent>
+          <DialogContent data-settings-floating-root="true">
             <DialogHeader>
               <DialogTitle>输入管理员密码</DialogTitle>
               <DialogDescription>验证通过后，才可以直接在程序内修改内置 API Key。</DialogDescription>
@@ -707,14 +737,14 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
         </Dialog>
 
         <Dialog open={builtinEditorOpen} onOpenChange={setBuiltinEditorOpen}>
-          <DialogContent className="sm:max-w-2xl">
+          <DialogContent data-settings-floating-root="true" className="sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle>修改内置 API</DialogTitle>
               <DialogDescription>
                 保存后会直接写入内置配置文件。API 地址留空将使用默认值。
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+            <div className="settings-scrollbar space-y-4 max-h-[70vh] overflow-y-auto pr-1">
               {API_ROWS.map((row) => {
                 const endpointField = ENDPOINT_FIELD_MAP[row.id];
                 const keyField = KEY_FIELD_MAP[row.id];
@@ -775,8 +805,8 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
             <CardContent className={embedded ? "pt-5" : "pt-6"}>
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
-                  <Label className="text-sm font-medium">深色模式</Label>
-                  <p className="text-xs text-muted-foreground">切换亮色 / 深色界面主题。</p>
+                  <Label className={embeddedLabelTextClass}>深色模式</Label>
+                  <p className={embeddedMutedTextClass}>切换亮色 / 深色界面主题。</p>
                 </div>
                 <Switch checked={theme === "dark"} onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")} />
               </div>
@@ -792,7 +822,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
           <Card className={cardClass}>
             <CardContent className={cardContentClass}>
               <div>
-                <Label className="text-sm">缓存存储路径</Label>
+                <Label className={embeddedLabelTextClass}>缓存存储路径</Label>
                 <div className={embedded ? "mt-1.5 space-y-2" : "mt-1.5 flex gap-2"}>
                   <Input
                     value={
@@ -807,7 +837,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                     variant="outline"
                     className={cn(
                       embedded
-                        ? "h-8.5 w-full justify-center gap-1.5 rounded-full border-[#d9d1c6] bg-white/74 px-3 text-[12px] hover:bg-white"
+                        ? `${embeddedOutlineButtonClass} w-full justify-center gap-1.5`
                         : "shrink-0 gap-1.5",
                     )}
                     onClick={handleSelectStoragePath}
@@ -821,7 +851,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                   <Button
                     variant="ghost"
                     size="sm"
-                    className={cn("mt-2 text-xs text-muted-foreground", embedded && "px-0 hover:bg-transparent")}
+                    className={cn("mt-2", embeddedGhostTextButtonClass)}
                     onClick={handleResetStoragePath}
                   >
                     恢复默认
@@ -838,7 +868,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
             <CardContent className={embedded ? "pt-5" : "pt-6"}>
               <div className={gridClass}>
                 <div>
-                  <Label className="text-sm">最大尺寸</Label>
+                  <Label className={embeddedLabelTextClass}>最大尺寸</Label>
                   <Input
                     type="number"
                     min={256}
@@ -850,7 +880,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                   />
                 </div>
                 <div>
-                  <Label className="text-sm">最大文件大小（KB）</Label>
+                  <Label className={embeddedLabelTextClass}>最大文件大小（KB）</Label>
                   <Input
                     type="number"
                     min={100}
@@ -872,7 +902,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
             <CardContent className={embedded ? "pt-5" : "pt-6"}>
               <div className={gridClass}>
                 <div>
-                  <Label className="text-sm">最大重试次数</Label>
+                  <Label className={embeddedLabelTextClass}>最大重试次数</Label>
                   <Input
                     type="number"
                     min={0}
@@ -884,7 +914,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                   />
                 </div>
                 <div>
-                  <Label className="text-sm">重试间隔（毫秒）</Label>
+                  <Label className={embeddedLabelTextClass}>重试间隔（毫秒）</Label>
                   <Input
                     type="number"
                     min={500}
@@ -900,10 +930,10 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
           </Card>
         </div>
 
-        <Card className={cn("bg-muted/50", embedded && "rounded-[22px] border border-black/[0.04] bg-[rgba(255,255,255,0.42)] shadow-none")}>
+        <Card className={cn("bg-muted/50", embedded && "rounded-[22px] border border-[#d8cfbf] bg-[#f8f2e8] shadow-none")}>
           <CardContent className={embedded ? "pt-5" : "pt-6"}>
-            <h3 className="font-medium mb-2">说明</h3>
-            <ul className="space-y-1 text-[12.5px] text-muted-foreground">
+            <h3 className={cn("mb-2", embeddedTitleTextClass)}>说明</h3>
+            <ul className={cn("space-y-1.5 text-[12.5px] leading-5", embedded ? "text-slate-700" : "text-muted-foreground")}>
               <li>设置页已移除自定义 API 选项，程序始终使用内置 API。</li>
               <li>历史版本遗留的自定义 API 本地配置会在读取和保存时自动清理。</li>
               <li>即梦 / Seedance 默认可复用 Gemini 网关与 Key，实际走 API 还是 CLI 由上方运行通道决定。</li>
@@ -914,7 +944,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
         <div
           className={cn(
             embedded
-              ? "sticky bottom-0 -mx-4 border-t border-black/[0.055] bg-[#f4f1ea] px-4 pb-4 pt-3"
+              ? "sticky bottom-0 -mx-4 border-t border-[#ddd3c3] bg-[#f4efe6]/96 px-4 pb-4 pt-3 backdrop-blur-md"
               : "",
           )}
         >

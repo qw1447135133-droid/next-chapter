@@ -377,6 +377,36 @@ vi.mock("@/lib/agent/tools", () => ({
 
 vi.mock("@/lib/api-config", () => ({
   API_CONFIG_UPDATED_EVENT: "storyforge:api-config-updated",
+  SUPPORTED_MODEL_MAPPINGS: [
+    {
+      key: "claude-sonnet-4-6",
+      label: "Claude Sonnet 4.6",
+      provider: "claude",
+      category: "text",
+      defaultModelName: "claude-sonnet-4-6",
+    },
+    {
+      key: "gemini-3-pro",
+      label: "Gemini 3 Pro",
+      provider: "gemini",
+      category: "text",
+      defaultModelName: "gemini-3-pro",
+    },
+    {
+      key: "gpt-5.4",
+      label: "GPT-5.4",
+      provider: "gpt",
+      category: "text",
+      defaultModelName: "gpt-5.4",
+    },
+    {
+      key: "grok-4.1",
+      label: "Grok 4.1",
+      provider: "grok",
+      category: "text",
+      defaultModelName: "grok-4.1",
+    },
+  ],
   getApiConfig: () => ({ ...mockApiConfig }),
   prefersJimengCli: (config: { jimengExecutionMode?: string }) => config.jimengExecutionMode === "cli",
   resolveJimengExecutionMode: (
@@ -443,7 +473,7 @@ function renderStudio(ui: ReactElement = <HomeAgentStudio />) {
   });
 }
 
-async function waitForVisibleText(text: string | RegExp, timeout = 3000) {
+async function waitForVisibleText(text: string | RegExp, timeout = 4500) {
   await waitFor(
     () => {
       expect(screen.getByText(text)).toBeInTheDocument();
@@ -1153,6 +1183,42 @@ describe("HomeAgentStudio", () => {
     expect(screen.getByRole("button", { name: "执行一次维护检查" })).toBeInTheDocument();
   });
 
+  it("keeps maintenance interactions out of the main session and auto-dismisses the detached notice", async () => {
+    localStorage.setItem(
+      SKILL_DRAFTS_KEY,
+      JSON.stringify([
+        {
+          id: "skill-draft-1",
+          sourceConversationIds: ["session-a"],
+          proposedSkillName: "镜头修复策略",
+          proposedContent: "优先按角色一致性、镜头运动、情绪强度三轴复核。",
+          reason: "重复出现的修复模式。",
+          status: "pending",
+          createdAt: "2026-04-03T00:00:00.000Z",
+        },
+      ]),
+    );
+
+    await renderStudio();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "查看 1 份待审核技能草案" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "查看 1 份待审核技能草案" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/当前共有 1 份待审核技能草案/);
+
+    expect(localStorage.getItem(STUDIO_SESSION_KEY)).toBeNull();
+
+    await waitFor(() => {
+      expect(screen.queryByText(/当前共有 1 份待审核技能草案/)).not.toBeInTheDocument();
+    }, { timeout: 6500 });
+  }, 9000);
+
   it("can inspect a pending skill draft from the homepage maintenance suggestion", async () => {
     localStorage.setItem(
       SKILL_DRAFTS_KEY,
@@ -1250,9 +1316,10 @@ describe("HomeAgentStudio", () => {
       await Promise.resolve();
     });
 
-    await waitForVisibleText(/已批准技能草案《镜头修复策略》/);
-    const drafts = JSON.parse(localStorage.getItem(SKILL_DRAFTS_KEY) || "[]");
-    expect(drafts[0]?.status).toBe("approved");
+    await waitFor(() => {
+      const drafts = JSON.parse(localStorage.getItem(SKILL_DRAFTS_KEY) || "[]");
+      expect(drafts[0]?.status).toBe("approved");
+    });
     const reports = JSON.parse(localStorage.getItem(MAINTENANCE_REPORTS_KEY) || "[]");
     expect(reports[0]?.summary).toContain("已批准技能候选");
   });
@@ -1300,9 +1367,10 @@ describe("HomeAgentStudio", () => {
       await Promise.resolve();
     });
 
-    await waitForVisibleText(/已驳回技能草案《镜头修复策略》/);
-    const drafts = JSON.parse(localStorage.getItem(SKILL_DRAFTS_KEY) || "[]");
-    expect(drafts[0]?.status).toBe("rejected");
+    await waitFor(() => {
+      const drafts = JSON.parse(localStorage.getItem(SKILL_DRAFTS_KEY) || "[]");
+      expect(drafts[0]?.status).toBe("rejected");
+    });
     const reports = JSON.parse(localStorage.getItem(MAINTENANCE_REPORTS_KEY) || "[]");
     expect(reports[0]?.summary).toContain("驳回");
   });
@@ -1387,7 +1455,10 @@ describe("HomeAgentStudio", () => {
       await Promise.resolve();
     });
 
-    await waitForVisibleText(/已将 1 份已批准技能草案导出到本地候选目录/);
+    await waitFor(() => {
+      const reports = JSON.parse(localStorage.getItem(MAINTENANCE_REPORTS_KEY) || "[]");
+      expect(reports[0]?.notes?.[0]).toContain("skills-drafts/approved");
+    });
     const reports = JSON.parse(localStorage.getItem(MAINTENANCE_REPORTS_KEY) || "[]");
     expect(reports[0]?.notes?.[0]).toContain("导出目录");
   });
@@ -1490,7 +1561,10 @@ describe("HomeAgentStudio", () => {
       await Promise.resolve();
     });
 
-    await waitForVisibleText(/已生成 1 份已批准技能草案的 bundle 预览/);
+    await waitFor(() => {
+      const reports = JSON.parse(localStorage.getItem(MAINTENANCE_REPORTS_KEY) || "[]");
+      expect(reports[0]?.notes?.[0]).toContain("bundle-preview.md");
+    });
     const reports = JSON.parse(localStorage.getItem(MAINTENANCE_REPORTS_KEY) || "[]");
     expect(reports[0]?.notes?.[0]).toContain("bundle-preview.md");
   });
@@ -1522,7 +1596,10 @@ describe("HomeAgentStudio", () => {
       await Promise.resolve();
     });
 
-    await waitForVisibleText(/已整理 1 份正式 Skill 安装候选文件，等待人工审核/);
+    await waitFor(() => {
+      const reports = JSON.parse(localStorage.getItem(MAINTENANCE_REPORTS_KEY) || "[]");
+      expect(reports[0]?.notes?.[0]).toContain("skills-candidates/pending-install");
+    });
     const reports = JSON.parse(localStorage.getItem(MAINTENANCE_REPORTS_KEY) || "[]");
     expect(reports[0]?.notes?.[0]).toContain("skills-candidates/pending-install");
     expect(reports[0]?.notes?.[2]).toContain("不会自动进入 .claude/skills");

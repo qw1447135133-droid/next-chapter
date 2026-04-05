@@ -1,6 +1,6 @@
 import * as React from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Bot, Loader2, Menu, Send, Sparkles, Square } from "lucide-react";
+import { Bot, Loader2, Menu, Send, Sparkles, Square, X } from "lucide-react";
 import BrandMark from "@/components/BrandMark";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,6 +9,8 @@ import type { HomeAgentMessage, ComposerQuestion } from "@/lib/home-agent/types"
 import type { Task as RuntimeTask } from "@/lib/agent/tools/task-tools";
 import { cn } from "@/lib/utils";
 import ComposerChoicePopover from "./ComposerChoicePopover";
+import { HomeTextModelPicker } from "./HomeTextModelPicker";
+import type { HomeAgentTextModelGroup } from "@/lib/home-agent/text-models";
 import {
   formatTaskDockTimestamp,
   isTerminalTask,
@@ -38,6 +40,13 @@ export interface HomeComposerLaunchNotice {
     id: string;
     label: string;
   }>;
+}
+
+export interface DetachedMaintenanceNotice {
+  id: string;
+  title: string;
+  message: string;
+  question: ComposerQuestion | null;
 }
 
 const ConversationMessageRow = memo(function ConversationMessageRow({
@@ -378,6 +387,81 @@ export const MobileTopbar = memo(function MobileTopbar({
   );
 });
 
+export const DetachedMaintenanceNoticeCard = memo(function DetachedMaintenanceNoticeCard({
+  notice,
+  onDismiss,
+  onSelect,
+}: {
+  notice: DetachedMaintenanceNotice | null;
+  onDismiss: () => void;
+  onSelect: (value: string, label: string) => void;
+}) {
+  const [paused, setPaused] = useState(false);
+
+  useEffect(() => {
+    if (!notice || paused) return;
+    const handle = window.setTimeout(() => {
+      onDismiss();
+    }, 5000);
+    return () => window.clearTimeout(handle);
+  }, [notice, onDismiss, paused]);
+
+  return (
+    <AnimatePresence>
+      {notice ? (
+        <motion.aside
+          key={notice.id}
+          initial={{ opacity: 0, x: 28, y: 4 }}
+          animate={{ opacity: 1, x: 0, y: 0 }}
+          exit={{ opacity: 0, x: 18, y: -4 }}
+          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          onMouseEnter={() => setPaused(true)}
+          onMouseLeave={() => setPaused(false)}
+          className="fixed right-4 top-5 z-40 w-[min(380px,calc(100vw-2rem))] rounded-[24px] border border-white/[0.06] bg-[#17181bcc] p-4 shadow-[0_28px_80px_rgba(0,0,0,0.42)] backdrop-blur-2xl md:right-6 md:top-6"
+        >
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#1d2740] text-[#dbe5ff]">
+              <Sparkles className="h-3.5 w-3.5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[15px] font-medium tracking-[0.01em] text-white/92">{notice.title}</div>
+              <div className="mt-1 whitespace-pre-wrap text-[12.5px] leading-[1.7] text-white/62">
+                {notice.message}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onDismiss}
+              aria-label="关闭维护提醒"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white/32 transition hover:bg-white/[0.05] hover:text-white/72"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {notice.question?.options?.length ? (
+            <div className="mt-3 max-h-[min(52vh,420px)] space-y-2 overflow-y-auto pr-1">
+              {notice.question.options.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => onSelect(option.value, option.label)}
+                  aria-label={option.label}
+                  className="block w-full rounded-[18px] border border-white/[0.055] bg-white/[0.025] px-3.5 py-3 text-left transition hover:border-white/[0.09] hover:bg-white/[0.05]"
+                >
+                  <div className="text-[13px] font-medium text-white/88">{option.label}</div>
+                  {option.rationale ? (
+                    <div className="mt-0.5 text-[11px] leading-[1.55] text-white/42">{option.rationale}</div>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </motion.aside>
+      ) : null}
+    </AnimatePresence>
+  );
+});
+
 export interface HomeComposerProps {
   idle: boolean;
   currentProjectTitle?: string;
@@ -397,6 +481,10 @@ export interface HomeComposerProps {
   reduceMotion: boolean;
   composerShellClass: string;
   activeTheme: boolean;
+  selectedTextModelKey: string;
+  selectedTextModelLabel: string;
+  textModelGroups: HomeAgentTextModelGroup[];
+  onSelectTextModel: (key: string) => void;
   onSelectChoice: (value: string, label: string) => void;
   onConfirmQuestion?: () => void;
   onLaunchAction?: (actionId: string) => void;
@@ -423,6 +511,10 @@ export const HomeComposer = memo(function HomeComposer({
   reduceMotion,
   composerShellClass,
   activeTheme,
+  selectedTextModelKey,
+  selectedTextModelLabel,
+  textModelGroups,
+  onSelectTextModel,
   onSelectChoice,
   onConfirmQuestion,
   onLaunchAction,
@@ -579,7 +671,14 @@ export const HomeComposer = memo(function HomeComposer({
               }
             }}
           />
-          <div className="flex items-end justify-end gap-2">
+          <div className="flex items-end justify-between gap-3">
+            <HomeTextModelPicker
+              activeTheme={activeTheme}
+              selectedKey={selectedTextModelKey}
+              selectedLabel={selectedTextModelLabel}
+              groups={textModelGroups}
+              onSelect={onSelectTextModel}
+            />
             <div className="flex items-center gap-1.5">
               {streaming && !qState ? (
                 <Button

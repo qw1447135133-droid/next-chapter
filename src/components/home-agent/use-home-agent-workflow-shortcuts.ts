@@ -2,7 +2,7 @@ import { startTransition, useCallback } from "react";
 import type { ComposerQuestion, ConversationProjectSnapshot, HomeAgentMessage, StudioRuntimeState } from "@/lib/home-agent/types";
 import { runWorkflowShortcut, runWorkflowShortcutChain } from "@/lib/home-agent/workflow-shortcut-runner";
 import { createWorkflowShortcutUiBridge } from "./home-agent-workflow-ui";
-import { buildMaintenanceReviewQuestion, recQuestion } from "./home-agent-project-questions";
+import { recQuestion } from "./home-agent-project-questions";
 
 type PushMessage = (role: HomeAgentMessage["role"], content: string) => void;
 
@@ -60,9 +60,7 @@ export function useHomeAgentWorkflowShortcuts(params: {
 
   const getSuggestedQuestion = useCallback(
     (snapshot: ConversationProjectSnapshot | null, runtime: StudioRuntimeState) =>
-      snapshot
-        ? recQuestion(snapshot, runtime.currentVideoProject)
-        : buildMaintenanceReviewQuestion(runtime),
+      snapshot ? recQuestion(snapshot, runtime.currentVideoProject) : null,
     [],
   );
 
@@ -100,6 +98,7 @@ export function useHomeAgentWorkflowShortcuts(params: {
       push,
       resetComposerDraft,
       runtimeRef,
+      setPopoverOverride,
       setStreaming,
       setSuggested,
     ],
@@ -138,6 +137,7 @@ export function useHomeAgentWorkflowShortcuts(params: {
       push,
       resetComposerDraft,
       runtimeRef,
+      setPopoverOverride,
       setStreaming,
       setSuggested,
     ],

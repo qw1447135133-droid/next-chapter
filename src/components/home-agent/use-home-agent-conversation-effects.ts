@@ -3,6 +3,7 @@ import { clearStudioSession, writeStudioSession } from "@/lib/home-agent/session
 import { planConversationCompaction } from "@/lib/home-agent/conversation-compact";
 import { buildResearchFollowupQuestion } from "@/lib/home-agent/auto-research";
 import { mergeRuntimeWithWorkflowDelta } from "@/lib/home-agent/workflow-shortcut-runner";
+import { resolveHomeAgentTextModelRuntime } from "@/lib/home-agent/text-models";
 import type {
   HomeAgentMessage,
   ComposerQuestion,
@@ -12,7 +13,7 @@ import type {
   StudioRuntimeState,
 } from "@/lib/home-agent/types";
 import type { Task } from "@/lib/agent/tools/task-tools";
-import { buildMaintenanceReviewQuestion, recQuestion } from "./home-agent-project-questions";
+import { recQuestion } from "./home-agent-project-questions";
 
 const { useEffect, useRef, startTransition } = React;
 
@@ -31,6 +32,7 @@ export function useHomeAgentConversationEffects(params: {
   persistedDraft: string;
   recentSessionSummary: string;
   selectedValues: string[];
+  selectedTextModelKey: string;
   deferredMessages: HomeAgentMessage[];
   deferredProjectSnapshot: ConversationProjectSnapshot | null;
   visibleTasks: Task[];
@@ -84,6 +86,7 @@ export function useHomeAgentConversationEffects(params: {
     persistedDraft,
     recentSessionSummary,
     selectedValues,
+    selectedTextModelKey,
     deferredMessages,
     deferredProjectSnapshot,
     visibleTasks,
@@ -121,12 +124,7 @@ export function useHomeAgentConversationEffects(params: {
     if (qState || streaming || popoverOverride) return;
     if (draftPresence) return;
     if (!runtime.currentProjectSnapshot) {
-      const nextMaintenanceSuggestion = buildMaintenanceReviewQuestion(runtime);
-      setSuggested((previous) => {
-        const previousId = previous?.id ?? null;
-        const nextId = nextMaintenanceSuggestion?.id ?? null;
-        return previousId === nextId ? previous : nextMaintenanceSuggestion;
-      });
+      setSuggested((previous) => (previous?.id ? null : previous));
       return;
     }
 
@@ -222,14 +220,15 @@ export function useHomeAgentConversationEffects(params: {
           loadSemanticSummaryModule(),
           loadApiConfigModule(),
         ]);
-        const cfg = apiConfig.getApiConfig();
+        const resolvedRuntime = resolveHomeAgentTextModelRuntime(apiConfig, selectedTextModelKey);
+        if (!resolvedRuntime.apiKey) return;
         const refinedSummary = await semanticSummary.refineCompactedConversationSummary({
           existingSummary: baseSummary,
           compactedMessages: plan.compactedMessages,
           projectSnapshot: runtimeRef.current.currentProjectSnapshot,
-          apiKey: cfg.claudeKey || cfg.geminiKey || cfg.gptKey,
-          baseUrl: cfg.claudeEndpoint || cfg.geminiEndpoint || cfg.gptEndpoint,
-          model: apiConfig.resolveConfiguredModelName("claude-sonnet-4-6"),
+          apiKey: resolvedRuntime.apiKey,
+          baseUrl: resolvedRuntime.baseUrl,
+          model: resolvedRuntime.model,
         });
 
         if (!refinedSummary.trim()) return;
@@ -255,10 +254,13 @@ export function useHomeAgentConversationEffects(params: {
     flashMaintenanceHint,
     idle,
     loadApiConfigModule,
+    loadProjectStore,
     loadSemanticSummaryModule,
     messages,
+    runtime.currentProjectSnapshot,
     runtime.recentMessageSummary,
     runtimeRef,
+    selectedTextModelKey,
     setCompactedMessageCount,
     setRuntime,
     streaming,
@@ -278,6 +280,7 @@ export function useHomeAgentConversationEffects(params: {
         currentProjectSnapshot: deferredProjectSnapshot,
         recentMessageSummary: compactedMessageCount > 0 ? runtime.recentMessageSummary : recentSessionSummary,
         projectId: activeProjectId,
+        selectedTextModelKey,
         compactedMessageCount,
         draft: draftRef.current || persistedDraft,
         qState,
@@ -304,6 +307,7 @@ export function useHomeAgentConversationEffects(params: {
     runtimeRef,
     scheduleBackgroundTask,
     selectedValues,
+    selectedTextModelKey,
     surfacedProjectSuggestionKeysRef,
     surfacedTaskFollowupIdsRef,
     surfacedTaskIdsRef,

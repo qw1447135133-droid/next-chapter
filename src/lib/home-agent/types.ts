@@ -209,6 +209,7 @@ export interface StudioSessionState {
   currentProjectSnapshot: ConversationProjectSnapshot | null;
   recentMessageSummary: string;
   projectId?: string;
+  selectedTextModelKey?: string;
   draft?: string;
   qState?: StudioQuestionState | null;
   selectedValues?: string[];

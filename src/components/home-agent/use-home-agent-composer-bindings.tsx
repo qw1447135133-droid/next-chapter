@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import type { ComposerQuestion, ConversationProjectSnapshot, StudioQuestionState, StudioRuntimeState } from "@/lib/home-agent/types";
+import type { HomeAgentTextModelGroup } from "@/lib/home-agent/text-models";
 import { cn } from "@/lib/utils";
 import {
   HomeComposer,
@@ -31,6 +32,10 @@ export function useHomeAgentComposerBindings(params: {
   reduceMotion: boolean;
   composerShellClass: string;
   activeTheme: boolean;
+  selectedTextModelKey: string;
+  selectedTextModelLabel: string;
+  textModelGroups: HomeAgentTextModelGroup[];
+  onSelectTextModel: (key: string) => void;
   draftRef: React.MutableRefObject<string>;
   engineRef: React.MutableRefObject<{ interrupt: () => void } | null>;
   setStreaming: React.Dispatch<React.SetStateAction<boolean>>;
@@ -65,6 +70,10 @@ export function useHomeAgentComposerBindings(params: {
     reduceMotion,
     composerShellClass,
     activeTheme,
+    selectedTextModelKey,
+    selectedTextModelLabel,
+    textModelGroups,
+    onSelectTextModel,
     draftRef,
     engineRef,
     setStreaming,
@@ -159,6 +168,10 @@ export function useHomeAgentComposerBindings(params: {
       reduceMotion,
       composerShellClass,
       activeTheme,
+      selectedTextModelKey,
+      selectedTextModelLabel,
+      textModelGroups,
+      onSelectTextModel,
       onSelectChoice: handleChoiceSelect,
       onConfirmQuestion: qState ? confirmStructuredAnswer : undefined,
       onLaunchAction,
@@ -182,11 +195,15 @@ export function useHomeAgentComposerBindings(params: {
       qState,
       question,
       reduceMotion,
+      selectedTextModelKey,
+      selectedTextModelLabel,
       selectedValues,
       streaming,
       submitComposer,
       syncComposerDraft,
+      textModelGroups,
       videoTransportHint,
+      onSelectTextModel,
       onLaunchAction,
     ],
   );

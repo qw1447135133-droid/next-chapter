@@ -9,6 +9,7 @@ import {
 } from "@/lib/home-agent/conversation-compact";
 import { buildAutoResearchPlan } from "@/lib/home-agent/auto-research";
 import type { HomeAgentMessage, StudioRuntimeState } from "@/lib/home-agent/types";
+import { resolveHomeAgentTextModelRuntime } from "@/lib/home-agent/text-models";
 
 export type HomeAgentEngineDeps = {
   createDefaultTools: typeof import("@/lib/agent/tools").createDefaultTools;
@@ -28,6 +29,7 @@ export async function getOrCreateHomeAgentEngine(params: {
   getAppState: () => StudioRuntimeState;
   setRuntime: (updater: (prev: StudioRuntimeState) => StudioRuntimeState) => void;
   setCompactedMessageCount: (count: number) => void;
+  selectedTextModelKey: string;
 }): Promise<QueryEngine> {
   const {
     existingEngine,
@@ -41,9 +43,8 @@ export async function getOrCreateHomeAgentEngine(params: {
     getAppState,
     setRuntime,
     setCompactedMessageCount,
+    selectedTextModelKey,
   } = params;
-
-  if (existingEngine) return existingEngine;
 
   const deps = await loadEngineDeps();
   const apiConfig = await loadApiConfigModule();
@@ -52,12 +53,15 @@ export async function getOrCreateHomeAgentEngine(params: {
     .filter((tool) =>
       ["AskUserQuestion", "HomeStudioWorkflow", "Agent", "TaskOutput", "TaskStop"].includes(tool.name),
     );
-  const cfg = apiConfig.getApiConfig();
-  const apiKey = cfg.claudeKey || cfg.geminiKey || cfg.gptKey;
-  const baseUrl = cfg.claudeEndpoint || cfg.geminiEndpoint || cfg.gptEndpoint;
+  const resolvedRuntime = resolveHomeAgentTextModelRuntime(apiConfig, selectedTextModelKey);
 
-  if (!apiKey) {
-    throw new Error("当前没有可用的文本模型 API Key，请先在设置中完成配置。");
+  if (!resolvedRuntime.apiKey) {
+    throw new Error(`当前未配置 ${resolvedRuntime.option.supplierLabel} / ${resolvedRuntime.option.familyLabel} 的文本模型密钥，请先在设置中完成配置。`);
+  }
+
+  if (existingEngine) {
+    existingEngine.setModel(resolvedRuntime.model);
+    return existingEngine;
   }
 
   const preflightPlan = planConversationCompaction(messages, compactedMessageCount, recentMessageSummary);
@@ -83,9 +87,9 @@ export async function getOrCreateHomeAgentEngine(params: {
     engineCompactedCount > 0 ? buildCompactedHistoryPrompt(engineSummary) : undefined;
 
   return new QueryEngine({
-    apiKey,
-    baseUrl,
-    model: apiConfig.resolveConfiguredModelName("claude-sonnet-4-6"),
+    apiKey: resolvedRuntime.apiKey,
+    baseUrl: resolvedRuntime.baseUrl,
+    model: resolvedRuntime.model,
     tools,
     systemPrompt,
     appendSystemPrompt: engineCompactedHistoryPrompt,
@@ -100,24 +104,23 @@ export async function launchHomeAgentAutoResearchTasks(params: {
   prompt: string;
   runtime: Pick<StudioRuntimeState, "sessionId" | "currentProjectSnapshot">;
   loadApiConfigModule: () => Promise<HomeAgentApiConfigModule>;
+  selectedTextModelKey: string;
 }): Promise<{ plan: ReturnType<typeof buildAutoResearchPlan>; taskIds: string[] } | null> {
-  const { prompt, runtime, loadApiConfigModule } = params;
+  const { prompt, runtime, loadApiConfigModule, selectedTextModelKey } = params;
   const plan = buildAutoResearchPlan(prompt, runtime.currentProjectSnapshot);
   if (!plan) return null;
 
   const apiConfig = await loadApiConfigModule();
-  const cfg = apiConfig.getApiConfig();
-  const apiKey = cfg.claudeKey || cfg.geminiKey || cfg.gptKey;
-  const baseUrl = cfg.claudeEndpoint || cfg.geminiEndpoint || cfg.gptEndpoint;
-  if (!apiKey) return null;
+  const resolvedRuntime = resolveHomeAgentTextModelRuntime(apiConfig, selectedTextModelKey);
+  if (!resolvedRuntime.apiKey) return null;
 
   const tool = new AgentTool();
   const context = new ToolUseContext({
     options: {
-      model: apiConfig.resolveConfiguredModelName("claude-sonnet-4-6"),
+      model: resolvedRuntime.model,
       tools: [],
-      apiKey,
-      baseUrl,
+      apiKey: resolvedRuntime.apiKey,
+      baseUrl: resolvedRuntime.baseUrl,
     },
   });
 

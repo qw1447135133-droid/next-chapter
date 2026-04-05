@@ -41,6 +41,7 @@ export function buildOpenProjectSessionState(params: {
       popoverOverride: null,
       suggested: null,
       selectedValues: savedSession.selectedValues ?? [],
+      selectedTextModelKey: savedSession.selectedTextModelKey,
       mode:
         savedSession.mode === "recovering" || savedSession.mode === "maintenance-review"
           ? savedSession.mode
@@ -63,6 +64,7 @@ export function buildOpenProjectSessionState(params: {
     popoverOverride: null,
     suggested: getSuggestedQuestion(snapshot, videoProject),
     selectedValues: [],
+    selectedTextModelKey: undefined,
     mode: "active" as const,
     messages: [createAssistantMessage(buildBrief(snapshot))],
     draft: "",
