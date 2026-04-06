@@ -124,6 +124,15 @@
     display: none;
   }
 
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
   .shimmer-progress > [data-state] > [data-state] {
     position: relative;
     overflow: hidden;
@@ -160,5 +169,23 @@
   @keyframes celebrate-flash {
     0%, 100% { opacity: 1; box-shadow: 0 0 0 0 hsl(var(--accent) / 0); }
     50% { opacity: 0.85; box-shadow: 0 0 12px 4px hsl(var(--accent) / 0.5); }
+  }
+
+  /* Home agent: icon breathing only (opacity + scale, no shadow filter). */
+  .home-agent-ai-avatar-breath {
+    transform-origin: center;
+    will-change: transform, opacity;
+    animation: home-agent-ai-avatar-breath 2s ease-in-out infinite;
+  }
+  @keyframes home-agent-ai-avatar-breath {
+    0%,
+    100% {
+      opacity: 0.66;
+      transform: scale(0.94);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.06);
+    }
   }
 }

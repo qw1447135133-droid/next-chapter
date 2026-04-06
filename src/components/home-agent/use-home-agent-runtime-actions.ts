@@ -1,8 +1,18 @@
 import { startTransition, useCallback, useRef } from "react";
 import type { AskUserQuestionRequest } from "@/lib/agent/tools/ask-user-question";
 import { readStudioProjectSession } from "@/lib/home-agent/session-store";
-import type { HomeAgentMessage, StudioQuestionState, StudioRuntimeState } from "@/lib/home-agent/types";
+import {
+  buildOriginalScriptKickoffIntro,
+  buildOriginalScriptKickoffRequest,
+  ORIGINAL_SCRIPT_TEMPLATE_ID,
+} from "@/lib/home-agent/original-script-kickoff";
+import type { ComposerQuestion, HomeAgentMessage, StudioQuestionState, StudioRuntimeState } from "@/lib/home-agent/types";
 import type { AutoResearchPlan } from "@/lib/home-agent/auto-research";
+import {
+  buildAutoResearchChoiceQuestion,
+  buildAutoResearchPlan,
+  buildAutoResearchStepQuestion,
+} from "@/lib/home-agent/auto-research";
 import {
   applyAutoResearchOverlay,
   applyConversationMemoryOverlay,
@@ -60,8 +70,8 @@ export function useHomeAgentRuntimeActions(params: {
   qStepKey: (index: number, question: { header?: string }) => string;
   push: (role: HomeAgentMessage["role"], content: string) => void;
   selectedTextModelKey: string;
-  setPopoverOverride: React.Dispatch<React.SetStateAction<null>>;
-  setSuggested: React.Dispatch<React.SetStateAction<null>>;
+  setPopoverOverride: React.Dispatch<React.SetStateAction<ComposerQuestion | null>>;
+  setSuggested: React.Dispatch<React.SetStateAction<ComposerQuestion | null>>;
   setMode: React.Dispatch<React.SetStateAction<"idle" | "active" | "recovering" | "maintenance-review">>;
   setQState: React.Dispatch<React.SetStateAction<StudioQuestionState | null>>;
   setSelectedValues: React.Dispatch<React.SetStateAction<string[]>>;
@@ -113,6 +123,8 @@ export function useHomeAgentRuntimeActions(params: {
     setActiveProjectId,
   } = params;
   const sendRunIdRef = useRef(0);
+  const pendingAutoResearchPlanRef = useRef<AutoResearchPlan | null>(null);
+  const pendingAutoResearchSelectionsRef = useRef<Record<string, string>>({});
 
   const resolveDreaminaCapability = useCallback(async (): Promise<DreaminaCapabilityState> => {
     if (dreaminaCapability.ready) return dreaminaCapability;
@@ -186,7 +198,7 @@ export function useHomeAgentRuntimeActions(params: {
   );
 
   const send = useCallback(
-    async (rawPrompt: string, shown?: string) => {
+    async (rawPrompt: string, shown?: string, sendOpts?: { skipUserBubble?: boolean }) => {
       const runId = sendRunIdRef.current + 1;
       sendRunIdRef.current = runId;
       const cleaned = beginSendFlow({
@@ -197,8 +209,26 @@ export function useHomeAgentRuntimeActions(params: {
         setSuggested,
         setMode,
         resetComposerDraft,
+        skipUserBubble: sendOpts?.skipUserBubble,
       });
       if (!cleaned) return;
+
+      const autoResearchPlan = buildAutoResearchPlan(cleaned, runtimeRef.current.currentProjectSnapshot);
+      const canOfferQuickResearchChoice =
+        !runtimeRef.current.currentProjectSnapshot && messagesRef.current.length <= 1;
+      const hasTrackKeyword = /市场|风格|卖点|路线|平台|受众|改编|角色|出片/.test(cleaned);
+      if (autoResearchPlan && canOfferQuickResearchChoice && hasTrackKeyword) {
+        pendingAutoResearchPlanRef.current = autoResearchPlan;
+        pendingAutoResearchSelectionsRef.current = {};
+        push(
+          "assistant",
+          `我已整理出 3 个快捷研究任务：${autoResearchPlan.tasks.map((t) => t.title).join("、")}。现在按顺序确认：${autoResearchPlan.tasks.map((t) => t.title).join(" → ")}。`,
+        );
+        setPopoverOverride(null);
+        setSuggested(buildAutoResearchChoiceQuestion(autoResearchPlan));
+        setMode("active");
+        return;
+      }
 
       let promptForEngine = await applyAutoResearchOverlay({
         cleaned,
@@ -356,7 +386,24 @@ export function useHomeAgentRuntimeActions(params: {
   );
 
   const handleTemplateLaunch = useCallback(
-    (templatePrompt: string, title: string) => {
+    (templateId: string, templatePrompt: string, title: string) => {
+      if (templateId === ORIGINAL_SCRIPT_TEMPLATE_ID) {
+        if (qState?.source === "live") {
+          void loadAskUserQuestionModule().then((mod) => {
+            mod.rejectAskUserQuestion(qState.request.id, "User launched original script quick task");
+          });
+        }
+        push("user", title);
+        push("assistant", buildOriginalScriptKickoffIntro());
+        setPopoverOverride(null);
+        setSuggested(null);
+        setSelectedValues([]);
+        setMode("active");
+        resetComposerDraft("");
+        setQState(createQuestionState(buildOriginalScriptKickoffRequest(), "restored"));
+        return;
+      }
+
       launchTemplateConversation({
         prompt: templatePrompt,
         title,
@@ -368,7 +415,93 @@ export function useHomeAgentRuntimeActions(params: {
         send,
       });
     },
-    [dreaminaCapability.available, flashMaintenanceHint, send, surfacedDreaminaHintRef],
+    [
+      createQuestionState,
+      dreaminaCapability.available,
+      flashMaintenanceHint,
+      loadAskUserQuestionModule,
+      push,
+      qState,
+      resetComposerDraft,
+      send,
+      setMode,
+      setPopoverOverride,
+      setQState,
+      setSelectedValues,
+      setSuggested,
+      surfacedDreaminaHintRef,
+    ],
+  );
+
+  const autoResearchChoiceHandler = useCallback(
+    async (value: string, _label: string): Promise<boolean> => {
+      if (!value.startsWith("auto-research:")) return false;
+      const plan = pendingAutoResearchPlanRef.current;
+      if (!plan) return true;
+      const stepMatch = value.match(/^auto-research:step:(\d+):pick:(.+)$/);
+      if (!stepMatch) return true;
+      const [, stepIndexRaw] = stepMatch;
+      const stepIndex = Number.parseInt(stepIndexRaw, 10);
+      if (!Number.isFinite(stepIndex)) return true;
+      const currentTask = plan.tasks[stepIndex];
+      if (!currentTask) return true;
+
+      pendingAutoResearchSelectionsRef.current[currentTask.id] = _label;
+
+      const nextStepIndex = stepIndex + 1;
+      const nextQuestion = buildAutoResearchStepQuestion(plan, nextStepIndex);
+      if (nextQuestion) {
+        setSuggested(nextQuestion);
+        return true;
+      }
+
+      const selectedSummary = plan.tasks.map((task) => {
+        const chosen = pendingAutoResearchSelectionsRef.current[task.id] ?? "暂不确定（默认建议）";
+        return `${task.title}：${chosen}`;
+      });
+      const planOverride: AutoResearchPlan = {
+        ...plan,
+        tasks: plan.tasks.map((task) => {
+          const chosen = pendingAutoResearchSelectionsRef.current[task.id] ?? "暂不确定（请先给默认建议）";
+          return {
+            ...task,
+            prompt: `${task.prompt}\n\n用户已完成前置选择：${selectedSummary.join("；")}。\n当前任务重点选择：${task.title}=${chosen}。请严格围绕该选择给结论。`,
+          };
+        }),
+      };
+      const taskIdFilter = plan.tasks.map((task) => task.id);
+      const selectedTitles = plan.tasks.map((task) => task.title);
+
+      try {
+        const launched = await launchHomeAgentAutoResearchTasks({
+          prompt: "",
+          runtime: runtimeRef.current,
+          loadApiConfigModule,
+          selectedTextModelKey,
+          planOverride,
+          taskIdFilter,
+          sequential: true,
+        });
+        if (!launched) {
+          push("assistant", "未能启动研究任务，请稍后重试。");
+          return true;
+        }
+        push(
+          "assistant",
+          `已按顺序启动：${selectedTitles.join("、")}。你可以继续补充要求，结果会自动回流到当前会话。`,
+        );
+      } catch (error) {
+        push("assistant", error instanceof Error ? error.message : "启动研究任务失败。");
+      } finally {
+        pendingAutoResearchPlanRef.current = null;
+        pendingAutoResearchSelectionsRef.current = {};
+        setSuggested(null);
+        setPopoverOverride(null);
+      }
+
+      return true;
+    },
+    [loadApiConfigModule, push, runtimeRef, selectedTextModelKey, setPopoverOverride, setSuggested],
   );
 
   return {
@@ -377,5 +510,6 @@ export function useHomeAgentRuntimeActions(params: {
     reset,
     answer,
     handleTemplateLaunch,
+    autoResearchChoiceHandler,
   };
 }

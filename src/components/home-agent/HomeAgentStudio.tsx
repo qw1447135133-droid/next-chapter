@@ -1,4 +1,5 @@
 import * as React from "react";
+import { flushSync } from "react-dom";
 import {
   Wand2,
   Compass,
@@ -9,6 +10,7 @@ import { buildResearchPromptOverlay } from "@/lib/home-agent/auto-research";
 import type {
   AgentConversationMode,
   ComposerQuestion,
+  ConversationProjectSnapshot,
   HomeAgentMessage,
   StudioQuestionState,
   StudioRuntimeState,
@@ -99,6 +101,8 @@ import {
 import { useHomeAgentWorkflowShortcuts } from "./use-home-agent-workflow-shortcuts";
 import { useHomeAgentComposerBindings } from "./use-home-agent-composer-bindings";
 import { getAllTasks, type Task } from "@/lib/agent/tools/task-tools";
+import type { CreationGuideDimensionId } from "@/lib/home-agent/creation-guide-presets";
+import { recordAssistantFeedbackLog } from "@/lib/home-agent/assistant-feedback-log";
 import { readHomeAgentLaunchReadiness, type HomeAgentLaunchReadiness } from "@/lib/home-agent/launch-readiness";
 import {
   getHomeAgentTextModelOption,
@@ -120,7 +124,7 @@ interface Props {
 type QState = StudioQuestionState;
 
 const PROMPT =
-  "你是 InFinio 首页里的主控创作 Agent。整个产品只有一个首页工作表面，不允许把用户推回模块页、步骤页、工作台或手动表单。你必须先分析，再追问，再执行。需要结构化选择时调用 AskUserQuestion，并允许用户自定义输入。需要推进项目时调用 HomeStudioWorkflow。遇到明显适合并行研究、分工拆解或长任务处理的情况，要优先考虑调用 Agent 启动 2 到 4 个后台子任务，并用 TaskOutput / TaskStop 管理后台任务，但最终仍然要把结果收口回当前首页会话。适合并行研究的典型场景包括：市场分析、风格对比、角色方案比较、改编路线比较、视频包装方案比较。默认使用简体中文，保持简洁、克制、专业，一次只推进一个关键决策。";
+  "你是 InFinio 首页里的主控创作 Agent。整个产品只有一个首页工作表面，不允许把用户推回模块页、步骤页、工作台或手动表单。你必须先分析，再追问，再执行。需要结构化选择时优先调用 AskUserQuestion：为每一步决策提供充足选项（可十余项以上），支持多步问卷与自定义输入；不要只用 Markdown 表格让用户“默读选项”，应用工具阻塞等待用户选择后再继续下一步（例如先定题材再追问作品形态）；仅输出表格不会出现与 AskUserQuestion 相同的全屏选项弹窗。会话里若出现带 **从题材出发** / **从媒介出发** / **从核心冲突出发**（或 **【创作起点·题材】** / **【创作起点·媒介】** / **【创作起点·冲突】**）的引导文案，须用 ** 完整包裹这些短语，用户才能点选并打开预设弹窗；你会收到形如「【创作起点·题材】…」的用户消息，请据此进入对应下一问。需要推进项目时调用 HomeStudioWorkflow。遇到明显适合并行研究、分工拆解或长任务处理的情况，要优先考虑调用 Agent 启动 2 到 4 个后台子任务，并用 TaskOutput / TaskStop 管理后台任务，但最终仍然要把结果收口回当前首页会话。适合并行研究的典型场景包括：市场分析、风格对比、角色方案比较、改编路线比较、视频包装方案比较。输出格式必须规范：优先使用 Markdown 标题、分段、项目符号/编号列表；当有对比维度时使用 Markdown 表格；参数、端口、文件名和错误码使用反引号包裹；避免一整段大白话长文。除非用户明确要求自由发挥，默认按以下结构输出：## 结论、## 原因分析、## 可执行方案、## 风险与边界、## 下一步（每节 3-6 条短要点，先结论后细节）。默认使用简体中文，保持简洁、克制、专业，一次只推进一个关键决策。";
 const MOBILE_NAV_SHEET =
   "w-full border-r border-white/8 bg-[#17181b] p-0 text-slate-100 shadow-[18px_0_48px_rgba(0,0,0,0.3)] overscroll-contain sm:max-w-[360px]";
 const IDLE =
@@ -136,8 +140,8 @@ const DESKTOP_SIDEBAR_OFFSET = 296;
 const DESKTOP_SIDEBAR_COLLAPSED_OFFSET = 108;
 const DESKTOP_SETTINGS_WIDTH = 456;
 const DESKTOP_SIDEBAR_COLLAPSE_KEY = "storyforge-home-agent-desktop-sidebar-collapsed-v1";
-const ACTIVE_TRACK_CLASS = "max-w-[896px]";
-const IDLE_TRACK_CLASS = "max-w-[860px]";
+const ACTIVE_TRACK_CLASS = "max-w-[820px]";
+const IDLE_TRACK_CLASS = "max-w-[800px]";
 type RuntimeTask = Task;
 type DreaminaCapabilityState = {
   ready: boolean;
@@ -236,7 +240,8 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   const [metaReady, setMetaReady] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(readDesktopSidebarCollapsed);
-  const [utilityPanel, setUtilityPanel] = useState<UtilityPanelId>(initialUtility);
+  /** Settings open state comes from the route (`?utility=settings`) via `initialUtility`; avoid duplicate React state so toggles are not overwritten by URL sync. */
+  const utilityPanel: UtilityPanelId = initialUtility;
   const [activeProjectId, setActiveProjectId] = useState(
     session?.projectId ?? session?.currentProjectSnapshot?.projectId,
   );
@@ -494,7 +499,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     [loadWorkflowActionsModule, setRuntime, showDetachedMaintenanceNotice],
   );
 
-  const { resolveDreaminaCapability, send, reset, answer, handleTemplateLaunch } = useHomeAgentRuntimeActions({
+  const { resolveDreaminaCapability, send, reset, answer, handleTemplateLaunch, autoResearchChoiceHandler } = useHomeAgentRuntimeActions({
     systemPrompt: PROMPT,
     qState,
     engineRef,
@@ -535,6 +540,146 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     setMetaReady,
     setActiveProjectId,
   });
+
+  const handleEditUserMessage = useCallback(
+    async (messageId: string, newContent: string) => {
+      const trimmed = newContent.trim();
+      if (!trimmed) return;
+
+      engineRef.current?.interrupt();
+      engineRef.current = null;
+
+      const pendingRequestId = qState?.request.id;
+      if (pendingRequestId) {
+        try {
+          const mod = await loadAskUserQuestionModule();
+          mod.rejectAskUserQuestion(pendingRequestId, "User edited conversation history");
+        } catch {
+          /* ignore */
+        }
+      }
+
+      flushSync(() => {
+        setStreaming(false);
+        setMessages((prev) => {
+          const i = prev.findIndex((m) => m.id === messageId);
+          if (i === -1 || prev[i].role !== "user") return prev;
+          const next = prev.slice(0, i);
+          messagesRef.current = next;
+          return next;
+        });
+        compactedMessageCountRef.current = 0;
+        setCompactedMessageCount(0);
+        setQState(null);
+        setPopoverOverride(null);
+        setSuggested(null);
+        setSelectedValues([]);
+      });
+
+      await send(trimmed);
+    },
+    [
+      loadAskUserQuestionModule,
+      qState?.request.id,
+      send,
+      setCompactedMessageCount,
+      setMessages,
+      setPopoverOverride,
+      setQState,
+      setSelectedValues,
+      setStreaming,
+      setSuggested,
+    ],
+  );
+
+  const handleAssistantFeedback = useCallback((messageId: string, vote: "up" | "down" | null) => {
+    const prev = messagesRef.current.find((m) => m.id === messageId);
+    const preview = (prev?.content ?? "").slice(0, 240);
+    recordAssistantFeedbackLog({
+      messageId,
+      action: vote === null ? "clear" : vote,
+      contentPreview: preview,
+    });
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId && m.role === "assistant"
+          ? { ...m, ...(vote ? { feedback: vote } : { feedback: undefined }) }
+          : m,
+      ),
+    );
+  }, [setMessages]);
+
+  const handleRegenerateAssistant = useCallback(
+    async (assistantMessageId: string) => {
+      const list = messagesRef.current;
+      const idx = list.findIndex((m) => m.id === assistantMessageId);
+      if (idx === -1 || list[idx]?.role !== "assistant") return;
+
+      let u = idx - 1;
+      while (u >= 0 && list[u].role !== "user") u -= 1;
+      if (u < 0) return;
+      const userContent = list[u].content.trim();
+      if (!userContent) return;
+
+      engineRef.current?.interrupt();
+      engineRef.current = null;
+
+      const pendingRequestId = qState?.request.id;
+      if (pendingRequestId) {
+        try {
+          const mod = await loadAskUserQuestionModule();
+          mod.rejectAskUserQuestion(pendingRequestId, "User regenerated assistant response");
+        } catch {
+          /* ignore */
+        }
+      }
+
+      flushSync(() => {
+        setStreaming(false);
+        setMessages((prev) => {
+          const i = prev.findIndex((m) => m.id === assistantMessageId);
+          if (i === -1 || prev[i].role !== "assistant") return prev;
+          const next = prev.slice(0, i);
+          messagesRef.current = next;
+          return next;
+        });
+        compactedMessageCountRef.current = 0;
+        setCompactedMessageCount(0);
+        setQState(null);
+        setPopoverOverride(null);
+        setSuggested(null);
+        setSelectedValues([]);
+      });
+
+      await send(userContent, userContent, { skipUserBubble: true });
+    },
+    [
+      loadAskUserQuestionModule,
+      qState?.request.id,
+      send,
+      setCompactedMessageCount,
+      setMessages,
+      setPopoverOverride,
+      setQState,
+      setSelectedValues,
+      setStreaming,
+      setSuggested,
+    ],
+  );
+
+  const handleCreationGuidePick = useCallback(
+    (dimension: CreationGuideDimensionId, value: string, label: string) => {
+      const tag =
+        dimension === "theme"
+          ? "【创作起点·题材】"
+          : dimension === "medium"
+            ? "【创作起点·媒介】"
+            : "【创作起点·核心冲突】";
+      const body = `${tag}我选了「${label}」（${value}）。请基于这一选择继续下一步追问（例如作品形态、受众或叙事结构），不要跳过关键决策。`;
+      void send(body, label);
+    },
+    [send],
+  );
 
   const handleJimengExecutionModeChange = useCallback(
     async (nextMode: JimengExecutionMode) => {
@@ -605,7 +750,6 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     metaReady,
     messages,
     compactedMessageCount,
-    initialUtility,
     desktopSidebarCollapsed,
     dreaminaCapability,
     maintenanceHintTimerRef,
@@ -620,7 +764,6 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     setMetaReady,
     setActiveProjectId,
     setTasks,
-    setUtilityPanel,
     loadProjectStore,
     resolveDreaminaCapability,
     flashMaintenanceHint,
@@ -724,6 +867,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     handleOpenProject,
     handleReset,
     handleOpenSettings,
+    handleToggleSettings,
     handleOpenMobileNavigation,
     handleStopTask,
     handleToggleDesktopSidebar,
@@ -732,13 +876,188 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   } = useHomeAgentShellHandlers({
     openProject,
     reset,
-    setUtilityPanel,
+    utilityPanel,
     setMobileNavOpen,
     setTasks,
     setDesktopSidebarCollapsed,
     onUtilityChange,
     areTaskListsEquivalent,
   });
+
+  const sortConversationSnapshots = useCallback((items: ConversationProjectSnapshot[]) => {
+    return [...items].sort((a, b) => {
+      const pinnedDelta = Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
+      if (pinnedDelta !== 0) return pinnedDelta;
+      const aDate = new Date(a.updatedAt ?? 0).getTime();
+      const bDate = new Date(b.updatedAt ?? 0).getTime();
+      return bDate - aDate;
+    });
+  }, []);
+
+  const handleToggleProjectPin = useCallback(
+    async (snapshot: ConversationProjectSnapshot) => {
+      const nextPinned = !snapshot.pinned;
+      try {
+        const store = await loadProjectStore();
+        await store.setConversationProjectPinned(snapshot.projectId, nextPinned);
+      } catch (error) {
+        flashMaintenanceHint(
+          error instanceof Error ? error.message : "更新置顶状态失败，请稍后重试。",
+          3200,
+        );
+        return;
+      }
+
+      startTransition(() => {
+        setRuntime((prev) => {
+          const nextProjects = sortConversationSnapshots(
+            prev.recentProjects.map((item) =>
+              item.projectId === snapshot.projectId ? { ...item, pinned: nextPinned } : item,
+            ),
+          );
+          const nextCurrent =
+            prev.currentProjectSnapshot?.projectId === snapshot.projectId
+              ? { ...prev.currentProjectSnapshot, pinned: nextPinned }
+              : prev.currentProjectSnapshot;
+          return {
+            ...prev,
+            recentProjects: nextProjects,
+            currentProjectSnapshot: nextCurrent,
+          };
+        });
+      });
+      flashMaintenanceHint(nextPinned ? "已置顶该会话。" : "已取消置顶。", 2000);
+    },
+    [flashMaintenanceHint, loadProjectStore, sortConversationSnapshots],
+  );
+
+  const handleRenameProject = useCallback(
+    async (snapshot: ConversationProjectSnapshot) => {
+      const next = window.prompt("输入新的会话名称", snapshot.title)?.trim();
+      if (!next || next === snapshot.title) return;
+      try {
+        const store = await loadProjectStore();
+        await store.renameConversationProject(snapshot.projectId, next);
+      } catch (error) {
+        flashMaintenanceHint(
+          error instanceof Error ? error.message : "重命名失败，请稍后重试。",
+          3200,
+        );
+        return;
+      }
+
+      startTransition(() => {
+        setRuntime((prev) => ({
+          ...prev,
+          recentProjects: prev.recentProjects.map((item) =>
+            item.projectId === snapshot.projectId ? { ...item, title: next } : item,
+          ),
+          currentProjectSnapshot:
+            prev.currentProjectSnapshot?.projectId === snapshot.projectId
+              ? { ...prev.currentProjectSnapshot, title: next }
+              : prev.currentProjectSnapshot,
+        }));
+      });
+      flashMaintenanceHint("已重命名该会话。", 2000);
+    },
+    [flashMaintenanceHint, loadProjectStore],
+  );
+
+  const handleDeleteProject = useCallback(
+    async (snapshot: ConversationProjectSnapshot) => {
+      if (
+        !window.confirm(`确定删除「${snapshot.title}」？本地会话与项目数据将一并移除，且无法恢复。`)
+      ) {
+        return;
+      }
+      const others = runtimeRef.current.recentProjects.filter((p) => p.projectId !== snapshot.projectId);
+      const wasActive = activeProjectId === snapshot.projectId;
+
+      if (wasActive) {
+        const requestId = qState?.request.id;
+        if (requestId) {
+          void loadAskUserQuestionModule().then((mod) => {
+            mod.rejectAskUserQuestion(requestId, "User deleted conversation");
+          });
+        }
+        engineRef.current?.interrupt?.();
+        engineRef.current = null;
+        surfacedTaskIdsRef.current.clear();
+        surfacedTaskFollowupIdsRef.current.clear();
+        surfacedProjectSuggestionKeysRef.current.clear();
+        restoredProjectSuggestionKeysRef.current.clear();
+        startTransition(() => {
+          setStreaming(false);
+          setQState(null);
+          setPopoverOverride(null);
+          setSuggested(null);
+          setSelectedValues([]);
+        });
+      }
+
+      try {
+        const store = await loadProjectStore();
+        await store.deleteConversationProject(snapshot);
+      } catch (error) {
+        flashMaintenanceHint(
+          error instanceof Error ? error.message : "删除会话失败，请稍后重试。",
+          3200,
+        );
+        return;
+      }
+
+      startTransition(() => {
+        setRuntime((prev) => ({
+          ...prev,
+          recentProjects: sortConversationSnapshots(
+            prev.recentProjects.filter((p) => p.projectId !== snapshot.projectId),
+          ),
+          recentProjectSessions: (prev.recentProjectSessions ?? []).filter(
+            (s) => s.projectId !== snapshot.projectId,
+          ),
+          ...(prev.currentProjectSnapshot?.projectId === snapshot.projectId
+            ? {
+                currentProjectSnapshot: null,
+                currentDramaProject: null,
+                currentVideoProject: null,
+              }
+            : {}),
+        }));
+      });
+
+      if (wasActive) {
+        const next = others[0];
+        if (next) {
+          void openProject(next.projectId);
+        } else {
+          reset();
+        }
+      } else {
+        flashMaintenanceHint("已删除该会话。", 2200);
+      }
+    },
+    [
+      activeProjectId,
+      flashMaintenanceHint,
+      loadAskUserQuestionModule,
+      loadProjectStore,
+      openProject,
+      qState?.request.id,
+      reset,
+      restoredProjectSuggestionKeysRef,
+      runtimeRef,
+      setPopoverOverride,
+      setQState,
+      setRuntime,
+      setSelectedValues,
+      setStreaming,
+      setSuggested,
+      surfacedProjectSuggestionKeysRef,
+      surfacedTaskFollowupIdsRef,
+      surfacedTaskIdsRef,
+      sortConversationSnapshots,
+    ],
+  );
 
   const handleLaunchNoticeAction = useCallback(
     (actionId: string) => {
@@ -915,13 +1234,14 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     videoReviewChoiceHandler,
     videoAssetChoiceHandler,
     scriptProjectChoiceHandler,
+    autoResearchChoiceHandler,
     onLaunchAction: handleLaunchNoticeAction,
     activeTrackClassName: ACTIVE_TRACK_CLASS,
     idleTrackClassName: IDLE_TRACK_CLASS,
   });
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#131314] text-white">
+    <div className="relative h-screen overflow-x-hidden overflow-y-auto scrollbar-none bg-[#131314] text-white">
       <HomeSurfaceBackdrop idle={idle} />
       <DesktopSidebar
         idle={idle}
@@ -936,8 +1256,11 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         collapsedWidth={DESKTOP_SIDEBAR_COLLAPSED_WIDTH}
         onTemplateLaunch={handleTemplateLaunch}
         onOpenProject={handleOpenProject}
+        onTogglePinProject={handleToggleProjectPin}
+        onRenameProject={handleRenameProject}
+        onDeleteProject={handleDeleteProject}
         onNewProject={handleReset}
-        onOpenSettings={handleOpenSettings}
+        onOpenSettings={handleToggleSettings}
         onToggleCollapse={handleToggleDesktopSidebar}
         jimengExecutionMode={jimengExecutionMode}
         onChangeJimengExecutionMode={handleJimengExecutionModeChange}
@@ -956,8 +1279,11 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         sheetClassName={MOBILE_NAV_SHEET}
         onTemplateLaunch={handleTemplateLaunch}
         onOpenProject={handleOpenProject}
+        onTogglePinProject={handleToggleProjectPin}
+        onRenameProject={handleRenameProject}
+        onDeleteProject={handleDeleteProject}
         onNewProject={handleReset}
-        onOpenSettings={handleOpenSettings}
+        onOpenSettings={handleToggleSettings}
         jimengExecutionMode={jimengExecutionMode}
         onChangeJimengExecutionMode={handleJimengExecutionModeChange}
         dreaminaCliAvailable={dreaminaCapability.available}
@@ -988,7 +1314,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
         <MobileTopbar idle={idle} brandLabel={SIDEBAR_BRAND} onOpenNavigation={handleOpenMobileNavigation} />
         <main
           className={cn(
-            "relative flex-1 overflow-x-clip px-3.5 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none sm:px-4 md:px-8",
+            "relative flex-1 overflow-x-visible overflow-y-visible px-3.5 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none sm:px-4 md:px-8",
             idle ? "pb-0 pt-4 lg:pl-[var(--home-sidebar-offset)]" : "pb-0 pt-2 lg:pl-[var(--home-sidebar-offset)]",
           )}
           style={
@@ -1010,6 +1336,10 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
               composer={activeComposer}
               streaming={streaming}
               trackClassName={ACTIVE_TRACK_CLASS}
+              onEditUserMessage={handleEditUserMessage}
+              onAssistantFeedback={handleAssistantFeedback}
+              onRegenerateAssistant={handleRegenerateAssistant}
+              onCreationGuidePick={handleCreationGuidePick}
             />
           )}
         </main>

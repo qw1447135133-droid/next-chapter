@@ -275,3 +275,85 @@ export function buildResearchFollowupQuestion(
 
   return buildScriptFollowupQuestion(headings, taskIds);
 }
+
+export function buildAutoResearchChoiceQuestion(plan: AutoResearchPlan): ComposerQuestion {
+  return buildAutoResearchStepQuestion(plan, 0) as ComposerQuestion;
+}
+
+function buildAutoResearchStepOptions(task: AutoResearchTaskSpec): Array<{
+  id: string;
+  label: string;
+  rationale?: string;
+}> {
+  if (task.id === "market-fit" || task.title.includes("目标市场")) {
+    return [
+      { id: "cn-zh", label: "中国（中文）", rationale: "面向中文用户与中文平台生态。"},
+      { id: "us-eu-en", label: "欧美（英文）", rationale: "面向英语用户与海外平台分发。"},
+      { id: "jp-kr", label: "日韩（本地语）", rationale: "面向日语/韩语语境与审美偏好。"},
+      { id: "sea", label: "东南亚（英语/本地语）", rationale: "兼顾英语与本地化语境，重短视频扩散。"},
+      { id: "global", label: "全球多语", rationale: "从一开始按多语言版本规划。"},
+      { id: "uncertain", label: "暂不确定，先给推荐", rationale: "由系统先给默认市场建议。"},
+    ];
+  }
+
+  if (task.id === "style-route" || task.title.includes("风格路线")) {
+    return [
+      { id: "short-hook", label: "短平快强钩子", rationale: "前 3-5 秒抓人，适合短视频平台分发。" },
+      { id: "emotion-share", label: "情绪共鸣可分享", rationale: "强调情绪击中与转发讨论，适合社媒扩散。" },
+      { id: "realist-trust", label: "现实纪实可信感", rationale: "强调真实语境与可信表达，利于信任沉淀。" },
+      { id: "premium-brand", label: "高级质感品牌向", rationale: "强调画面质感与调性统一，利于品牌化内容。" },
+      { id: "uncertain", label: "暂不确定，先给推荐", rationale: "由系统先给默认风格路线。"},
+    ];
+  }
+
+  if (task.id === "hook-structure" || task.title.includes("卖点结构")) {
+    return [
+      { id: "opening-hook", label: "开场钩子优先", rationale: "优先保证首屏停留与前段完播。" },
+      { id: "character-hook", label: "人物关系卖点优先", rationale: "通过角色关系拉扯提升持续追更。" },
+      { id: "twist-hook", label: "连续反转卖点优先", rationale: "通过节奏反转提升留存与讨论。" },
+      { id: "emotion-hook", label: "情绪金句传播优先", rationale: "优先打造可截取、可传播的情绪点。" },
+      { id: "uncertain", label: "暂不确定，先给推荐", rationale: "由系统先给默认卖点结构。"},
+    ];
+  }
+
+  return [
+    { id: "default-a", label: `偏保守推进（${task.title}）` },
+    { id: "default-b", label: `偏激进突破（${task.title}）` },
+    { id: "default-c", label: "暂不确定，先给推荐" },
+  ];
+}
+
+export function buildAutoResearchStepQuestion(
+  plan: AutoResearchPlan,
+  stepIndex: number,
+): ComposerQuestion | null {
+  const task = plan.tasks[stepIndex];
+  if (!task) return null;
+  const current = stepIndex + 1;
+  const total = plan.tasks.length;
+
+  return {
+    id: `auto-research:step:${stepIndex}`,
+    title: `快捷研究（${current}/${total}）`,
+    description:
+      task.title === "目标市场"
+        ? "目标市场你更想优先哪类方向？"
+        : task.title === "风格路线"
+          ? "风格路线你更倾向哪种市场表达？"
+          : task.title === "卖点结构"
+            ? "卖点结构你想先押哪种增长抓手？"
+            : `请先选择「${task.title}」的方向。`,
+    options: buildAutoResearchStepOptions(task).map((option) => ({
+      id: `auto-research-step-${stepIndex}-${option.id}`,
+      label: option.label,
+      value: `auto-research:step:${stepIndex}:pick:${option.id}`,
+      rationale: option.rationale,
+    })),
+    allowCustomInput: false,
+    submissionMode: "immediate",
+    multiSelect: false,
+    stepIndex,
+    totalSteps: total,
+    answerKey: "auto-research-step-choice",
+  };
+}

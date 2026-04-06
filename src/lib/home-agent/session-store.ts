@@ -1,4 +1,4 @@
-import type { StudioSessionState } from "./types";
+import type { HomeAgentMessage, StudioSessionState } from "./types";
 
 const STUDIO_SESSION_KEY = "storyforge-home-agent-session-v1";
 const STUDIO_PROJECT_SESSIONS_KEY = "storyforge-home-agent-project-sessions-v1";
@@ -252,7 +252,13 @@ function normalizeStudioSession(session: StudioSessionState | null): StudioSessi
       session.mode === "maintenance-review"
         ? session.mode
         : "idle",
-    messages: Array.isArray(session.messages) ? session.messages : [],
+    messages: Array.isArray(session.messages)
+      ? session.messages.map((message): HomeAgentMessage => {
+          const row = message as HomeAgentMessage;
+          const feedback = row.feedback === "up" || row.feedback === "down" ? row.feedback : undefined;
+          return { ...row, feedback };
+        })
+      : [],
     currentProjectSnapshot: session.currentProjectSnapshot ?? null,
     recentMessageSummary:
       typeof session.recentMessageSummary === "string" ? session.recentMessageSummary : "",
@@ -329,6 +335,22 @@ export function writeStudioSession(session: StudioSessionState): void {
 export function clearStudioSession(): void {
   if (typeof window === "undefined") return;
   localStorage.removeItem(STUDIO_SESSION_KEY);
+}
+
+/** Drop persisted home-agent session for one project (e.g. after user deletes history). */
+export function removeProjectStudioSession(projectId: string): void {
+  if (typeof window === "undefined") return;
+  const sessions = readProjectSessionMap();
+  if (!sessions[projectId]) return;
+  delete sessions[projectId];
+  const ordered = orderProjectSessions(sessions, "");
+  tryWriteJson(STUDIO_PROJECT_SESSIONS_KEY, (level) =>
+    Object.fromEntries(
+      ordered
+        .slice(0, PROJECT_SESSION_ENTRY_LIMITS[level])
+        .map(([id, session]) => [id, compactSessionForStorage(session, level)]),
+    ),
+  );
 }
 
 export function readProjectStudioSession(projectId: string): StudioSessionState | null {

@@ -150,6 +150,31 @@ AskUserQuestion {
     ]);
   });
 
+  it("creates a chooser from declarative lead + numbered options", () => {
+    const result = extractStructuredQuestion(`
+好，我们就按“先明确目标 → 分步追问”的流程推进。
+
+### 常见目标有 6 类
+1. 商业变现型
+2. 作品打磨型
+3. 账号增长型
+4. 平台投稿型
+`);
+
+    expect(result.request?.questions).toHaveLength(1);
+    expect(result.request?.questions[0]).toMatchObject({
+      header: "请选择一个方向",
+      question: "请选择一个方向",
+      multiSelect: false,
+    });
+    expect(result.request?.questions[0]?.options.map((option) => option.label)).toEqual([
+      "商业变现型",
+      "作品打磨型",
+      "账号增长型",
+      "平台投稿型",
+    ]);
+  });
+
   it("extracts embedded HomeStudioWorkflow payloads from assistant text", () => {
     const result = extractStructuredQuestion(`
 我已经判断上下文足够，准备直接继续项目。

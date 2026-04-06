@@ -13,17 +13,33 @@ import type { PersistedVideoProject } from "@/hooks/use-local-persistence";
 import type { VideoStyleLock, VideoWorldModel } from "@/types/project";
 import { synchronizeVideoProductionState } from "./video-production-memory";
 import { synchronizeDramaProductionState } from "./drama-production-memory";
+import {
+  clearStudioSession,
+  readProjectStudioSession,
+  readStudioProjectSession,
+  readStudioSession,
+  removeProjectStudioSession,
+  writeStudioSession,
+} from "./session-store";
+
 export {
   clearStudioSession,
   readProjectStudioSession,
   readStudioProjectSession,
   readStudioSession,
+  removeProjectStudioSession,
   writeStudioSession,
-} from "./session-store";
+};
 
 const DRAMA_PROJECTS_KEY = "storyforge_drama_projects";
 const SKILL_DRAFTS_KEY = "storyforge-skill-drafts-v1";
 const MAINTENANCE_REPORTS_KEY = "storyforge-maintenance-reports-v1";
+const CONVERSATION_PROJECT_META_KEY = "storyforge-home-agent-project-meta-v1";
+
+type ConversationProjectMeta = {
+  pinned?: boolean;
+  customTitle?: string;
+};
 
 type VideoPersistenceModule = typeof import("@/hooks/use-local-persistence");
 let videoPersistencePromise: Promise<VideoPersistenceModule> | null = null;
@@ -49,6 +65,45 @@ function safeReadJson<T>(key: string, fallback: T): T {
 function safeWriteJson(key: string, value: unknown): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(key, JSON.stringify(value));
+}
+
+function readConversationProjectMetaMap(): Record<string, ConversationProjectMeta> {
+  const raw = safeReadJson<Record<string, ConversationProjectMeta | null>>(CONVERSATION_PROJECT_META_KEY, {});
+  return Object.entries(raw).reduce<Record<string, ConversationProjectMeta>>((acc, [projectId, meta]) => {
+    if (!meta || typeof meta !== "object") return acc;
+    const normalized: ConversationProjectMeta = {};
+    if (typeof meta.customTitle === "string" && meta.customTitle.trim()) {
+      normalized.customTitle = meta.customTitle.trim().slice(0, 120);
+    }
+    if (typeof meta.pinned === "boolean") {
+      normalized.pinned = meta.pinned;
+    }
+    if (normalized.customTitle || typeof normalized.pinned === "boolean") {
+      acc[projectId] = normalized;
+    }
+    return acc;
+  }, {});
+}
+
+function writeConversationProjectMetaMap(map: Record<string, ConversationProjectMeta>): void {
+  safeWriteJson(CONVERSATION_PROJECT_META_KEY, map);
+}
+
+function applyConversationProjectMeta(snapshot: ConversationProjectSnapshot): ConversationProjectSnapshot {
+  const meta = readConversationProjectMetaMap()[snapshot.projectId];
+  if (!meta) return { ...snapshot, pinned: false };
+  return {
+    ...snapshot,
+    title: meta.customTitle || snapshot.title,
+    pinned: Boolean(meta.pinned),
+  };
+}
+
+function removeConversationProjectMeta(projectId: string): void {
+  const map = readConversationProjectMetaMap();
+  if (!map[projectId]) return;
+  delete map[projectId];
+  writeConversationProjectMetaMap(map);
 }
 
 function normalizeDramaSetup(setup: DramaSetup | null | undefined): DramaSetup | null {
@@ -487,6 +542,14 @@ export function upsertStoredDramaProject(project: DramaProject): DramaProject {
 
   safeWriteJson(DRAMA_PROJECTS_KEY, projects);
   return nextProject;
+}
+
+export function deleteStoredDramaProject(projectId: string): boolean {
+  const projects = listStoredDramaProjects();
+  const next = projects.filter((item) => item.id !== projectId);
+  if (next.length === projects.length) return false;
+  safeWriteJson(DRAMA_PROJECTS_KEY, next);
+  return true;
 }
 
 export function readSkillDrafts(): SkillDraft[] {
@@ -1185,11 +1248,11 @@ export async function loadConversationSnapshotById(
   projectId: string,
 ): Promise<ConversationProjectSnapshot | null> {
   const dramaProject = loadStoredDramaProjectById(projectId);
-  if (dramaProject) return createDramaSnapshot(dramaProject);
+  if (dramaProject) return applyConversationProjectMeta(createDramaSnapshot(dramaProject));
 
   const { loadStoredVideoProjectById } = await loadVideoPersistenceModule();
   const videoProject = await loadStoredVideoProjectById(projectId);
-  if (videoProject) return createVideoSnapshot(videoProject);
+  if (videoProject) return applyConversationProjectMeta(createVideoSnapshot(videoProject));
 
   return null;
 }
@@ -1202,7 +1265,7 @@ export async function loadConversationSourceById(projectId: string): Promise<{
   const dramaProject = loadStoredDramaProjectById(projectId);
   if (dramaProject) {
     return {
-      snapshot: createDramaSnapshot(dramaProject),
+      snapshot: applyConversationProjectMeta(createDramaSnapshot(dramaProject)),
       dramaProject,
       videoProject: null,
     };
@@ -1212,7 +1275,7 @@ export async function loadConversationSourceById(projectId: string): Promise<{
   const videoProject = await loadStoredVideoProjectById(projectId);
   if (videoProject) {
     return {
-      snapshot: createVideoSnapshot(videoProject),
+      snapshot: applyConversationProjectMeta(createVideoSnapshot(videoProject)),
       dramaProject: null,
       videoProject,
     };
@@ -1228,15 +1291,49 @@ export async function loadConversationSourceById(projectId: string): Promise<{
 export async function listRecentConversationSnapshots(
   limit = 8,
 ): Promise<ConversationProjectSnapshot[]> {
-  const dramaSnapshots = listStoredDramaProjects().map(createDramaSnapshot);
+  const dramaSnapshots = listStoredDramaProjects().map((project) => applyConversationProjectMeta(createDramaSnapshot(project)));
   const { listStoredVideoProjects } = await loadVideoPersistenceModule();
-  const videoSnapshots = (await listStoredVideoProjects()).map(createVideoSnapshot);
+  const videoSnapshots = (await listStoredVideoProjects()).map((project) =>
+    applyConversationProjectMeta(createVideoSnapshot(project)),
+  );
 
   return [...dramaSnapshots, ...videoSnapshots]
     .sort((a, b) => {
+      const pinnedDelta = Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
+      if (pinnedDelta !== 0) return pinnedDelta;
       const aDate = getSnapshotUpdatedAt(a);
       const bDate = getSnapshotUpdatedAt(b);
       return new Date(bDate).getTime() - new Date(aDate).getTime();
     })
     .slice(0, limit);
+}
+
+export async function setConversationProjectPinned(projectId: string, pinned: boolean): Promise<void> {
+  const map = readConversationProjectMetaMap();
+  const current = map[projectId] ?? {};
+  map[projectId] = { ...current, pinned };
+  writeConversationProjectMetaMap(map);
+}
+
+export async function renameConversationProject(projectId: string, title: string): Promise<void> {
+  const nextTitle = title.trim().slice(0, 120);
+  if (!nextTitle) return;
+  const map = readConversationProjectMetaMap();
+  const current = map[projectId] ?? {};
+  map[projectId] = { ...current, customTitle: nextTitle };
+  writeConversationProjectMetaMap(map);
+}
+
+/** Remove drama/video project storage and per-project studio session for one conversation. */
+export async function deleteConversationProject(
+  snapshot: Pick<ConversationProjectSnapshot, "projectId" | "projectKind">,
+): Promise<void> {
+  removeProjectStudioSession(snapshot.projectId);
+  removeConversationProjectMeta(snapshot.projectId);
+  if (snapshot.projectKind === "video") {
+    const { deleteStoredVideoProjectById } = await loadVideoPersistenceModule();
+    await deleteStoredVideoProjectById(snapshot.projectId);
+  } else {
+    deleteStoredDramaProject(snapshot.projectId);
+  }
 }

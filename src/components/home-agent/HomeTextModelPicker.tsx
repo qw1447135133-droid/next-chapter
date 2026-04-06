@@ -12,8 +12,8 @@ type PopupPosition = {
 };
 
 const POPUP_GAP = 12;
-const PROVIDER_PANEL_WIDTH = 236;
-const MODEL_PANEL_WIDTH = 336;
+const PROVIDER_PANEL_WIDTH = 224;
+const MODEL_PANEL_WIDTH = 282;
 const VIEWPORT_MARGIN = 16;
 
 export interface HomeTextModelPickerProps {
@@ -31,8 +31,8 @@ function clamp(value: number, min: number, max: number): number {
 function buildPopupPosition(anchorRect: DOMRect | null): PopupPosition {
   if (!anchorRect || typeof window === "undefined") {
     return {
-      provider: { left: VIEWPORT_MARGIN, bottom: VIEWPORT_MARGIN },
-      models: { left: VIEWPORT_MARGIN + PROVIDER_PANEL_WIDTH + 8, bottom: VIEWPORT_MARGIN },
+    provider: { left: VIEWPORT_MARGIN, bottom: VIEWPORT_MARGIN },
+    models: { left: VIEWPORT_MARGIN + PROVIDER_PANEL_WIDTH + 6, bottom: VIEWPORT_MARGIN },
     };
   }
 
@@ -49,9 +49,9 @@ function buildPopupPosition(anchorRect: DOMRect | null): PopupPosition {
     Math.max(VIEWPORT_MARGIN, viewportHeight - 260 - VIEWPORT_MARGIN),
   );
 
-  let modelsLeft = providerLeft + PROVIDER_PANEL_WIDTH + 8;
+  let modelsLeft = providerLeft + PROVIDER_PANEL_WIDTH + 6;
   if (modelsLeft + MODEL_PANEL_WIDTH + VIEWPORT_MARGIN > viewportWidth) {
-    modelsLeft = providerLeft - MODEL_PANEL_WIDTH - 8;
+    modelsLeft = providerLeft - MODEL_PANEL_WIDTH - 6;
   }
   modelsLeft = clamp(
     modelsLeft,
@@ -62,7 +62,7 @@ function buildPopupPosition(anchorRect: DOMRect | null): PopupPosition {
   const modelsTop = clamp(
     providerTop,
     VIEWPORT_MARGIN,
-    Math.max(VIEWPORT_MARGIN, viewportHeight - 320 - VIEWPORT_MARGIN),
+    Math.max(VIEWPORT_MARGIN, viewportHeight - 252 - VIEWPORT_MARGIN),
   );
 
   return {
@@ -171,16 +171,16 @@ export const HomeTextModelPicker = memo(function HomeTextModelPicker({
               <div
                 ref={providerPanelRef}
                 className={cn(
-                  "fixed z-[70] w-[236px] overflow-hidden rounded-[26px] border p-2 shadow-[0_22px_80px_rgba(0,0,0,0.32)] backdrop-blur-xl",
+                  "fixed z-[70] w-[224px] overflow-hidden rounded-[24px] border p-1.5 shadow-[0_16px_48px_rgba(0,0,0,0.28)] backdrop-blur-md",
                   activeTheme
-                    ? "border-white/[0.06] bg-[#1b1c20]/96 text-white"
-                    : "border-[#d7cfbf] bg-[#fbf7ef]/97 text-slate-950",
+                    ? "border-white/[0.05] bg-[#17181bf7] text-white"
+                    : "border-[#d7cfbf] bg-[#f6f1e9f7] text-slate-950",
                 )}
                 style={positions.provider}
               >
-                <div className={cn("px-2 pb-2 pt-1", activeTheme ? "text-white/44" : "text-slate-500")}>
+                <div className={cn("px-2.5 pb-1.5 pt-1", activeTheme ? "text-white/42" : "text-slate-500")}>
                   <div className="text-[10px] uppercase tracking-[0.2em]">供应商</div>
-                  <div className={cn("mt-1 text-[18px] font-medium tracking-[-0.04em]", activeTheme ? "text-white/90" : "text-slate-950")}>
+                  <div className={cn("mt-1 text-[17px] font-medium tracking-[-0.04em]", activeTheme ? "text-white/88" : "text-slate-950")}>
                     选择模型系列
                   </div>
                 </div>
@@ -197,26 +197,26 @@ export const HomeTextModelPicker = memo(function HomeTextModelPicker({
                         onFocus={() => setActiveProvider(group.provider)}
                         onClick={() => setActiveProvider(group.provider)}
                         className={cn(
-                          "flex w-full items-center justify-between gap-3 rounded-[18px] px-3 py-2.5 text-left transition",
+                          "flex w-full items-center justify-between gap-3 rounded-[16px] px-3 py-2.5 text-left transition",
                           activeTheme
                             ? selected
-                              ? "bg-white/[0.08]"
-                              : "hover:bg-white/[0.05]"
+                              ? "bg-white/[0.07]"
+                              : "hover:bg-white/[0.045]"
                             : selected
                               ? "bg-black/[0.05]"
                               : "hover:bg-black/[0.035]",
                         )}
                       >
                         <div className="min-w-0">
-                          <div className={cn("text-[14px] font-medium", activeTheme ? "text-white/92" : "text-slate-950")}>
+                          <div className={cn("text-[13.5px] font-medium", activeTheme ? "text-white/92" : "text-slate-950")}>
                             {group.familyLabel}
                           </div>
-                          <div className={cn("mt-0.5 text-[11px]", activeTheme ? "text-white/46" : "text-slate-600")}>
+                          <div className={cn("mt-0.5 text-[10.5px]", activeTheme ? "text-white/44" : "text-slate-600")}>
                             {group.supplierLabel}
                             {currentOption ? ` / ${currentOption.shortLabel}` : ""}
                           </div>
                         </div>
-                        <ChevronRight className={cn("h-4 w-4 shrink-0", activeTheme ? "text-white/34" : "text-slate-400")} />
+                        <ChevronRight className={cn("h-3.5 w-3.5 shrink-0", activeTheme ? "text-white/30" : "text-slate-400")} />
                       </button>
                     );
                   })}
@@ -227,20 +227,20 @@ export const HomeTextModelPicker = memo(function HomeTextModelPicker({
                 <div
                   ref={modelsPanelRef}
                   className={cn(
-                    "fixed z-[71] w-[336px] overflow-hidden rounded-[26px] border p-2 shadow-[0_22px_80px_rgba(0,0,0,0.32)] backdrop-blur-xl",
+                    "fixed z-[71] w-[282px] overflow-hidden rounded-[24px] border p-1.5 shadow-[0_16px_48px_rgba(0,0,0,0.28)] backdrop-blur-md",
                     activeTheme
-                      ? "border-white/[0.06] bg-[#1b1c20]/98 text-white"
-                      : "border-[#d7cfbf] bg-[#fbf7ef]/98 text-slate-950",
+                      ? "border-white/[0.05] bg-[#17181bf8] text-white"
+                      : "border-[#d7cfbf] bg-[#f6f1e9f8] text-slate-950",
                   )}
                   style={positions.models}
                 >
-                  <div className={cn("px-2 pb-2 pt-1", activeTheme ? "text-white/44" : "text-slate-500")}>
+                  <div className={cn("px-2.5 pb-1.5 pt-1", activeTheme ? "text-white/42" : "text-slate-500")}>
                     <div className="text-[10px] uppercase tracking-[0.2em]">{activeGroup.supplierLabel}</div>
-                    <div className={cn("mt-1 text-[20px] font-medium tracking-[-0.04em]", activeTheme ? "text-white/90" : "text-slate-950")}>
+                    <div className={cn("mt-1 text-[17px] font-medium tracking-[-0.04em]", activeTheme ? "text-white/88" : "text-slate-950")}>
                       {activeGroup.familyLabel}
                     </div>
                   </div>
-                  <div className="max-h-[320px] space-y-1 overflow-y-auto pr-0.5">
+                  <div className="scrollbar-none max-h-[248px] space-y-1 overflow-y-auto">
                     {activeGroup.options.map((option) => {
                       const selected = option.key === selectedKey;
                       return (
@@ -253,21 +253,21 @@ export const HomeTextModelPicker = memo(function HomeTextModelPicker({
                             setOpen(false);
                           }}
                           className={cn(
-                            "flex w-full items-start justify-between gap-3 rounded-[18px] px-3 py-2.5 text-left transition",
+                            "flex w-full items-start justify-between gap-3 rounded-[16px] px-3 py-2 text-left transition",
                             activeTheme
                               ? selected
-                                ? "bg-white/[0.08]"
-                                : "hover:bg-white/[0.05]"
+                                ? "bg-white/[0.07]"
+                                : "hover:bg-white/[0.045]"
                               : selected
                                 ? "bg-black/[0.05]"
                                 : "hover:bg-black/[0.035]",
                           )}
                         >
                           <div className="min-w-0">
-                            <div className={cn("text-[15px] font-medium leading-5", activeTheme ? "text-white/92" : "text-slate-950")}>
+                            <div className={cn("text-[14px] font-medium leading-5", activeTheme ? "text-white/90" : "text-slate-950")}>
                               {option.shortLabel}
                             </div>
-                            <div className={cn("mt-1 text-[11.5px] leading-[1.55]", activeTheme ? "text-white/52" : "text-slate-600")}>
+                            <div className={cn("mt-0.5 line-clamp-2 text-[11px] leading-[1.45]", activeTheme ? "text-white/46" : "text-slate-600")}>
                               {option.description}
                             </div>
                           </div>

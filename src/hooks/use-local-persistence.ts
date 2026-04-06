@@ -101,6 +101,24 @@ export async function listStoredVideoProjects(): Promise<PersistedVideoProject[]
   );
 }
 
+export async function deleteStoredVideoProjectById(id: string): Promise<boolean> {
+  const projects = await getProjects();
+  const filtered = projects.filter((p) => p.id !== id);
+  if (filtered.length === projects.length) return false;
+  const ok = await saveProjects(filtered);
+  if (ok && typeof window !== "undefined") {
+    try {
+      const current = localStorage.getItem(CURRENT_PROJECT_KEY);
+      if (current === id) {
+        localStorage.removeItem(CURRENT_PROJECT_KEY);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return ok;
+}
+
 export async function createStoredVideoProject(data: Partial<ProjectData>): Promise<PersistedVideoProject> {
   const projects = await getProjects();
   const now = new Date().toISOString();

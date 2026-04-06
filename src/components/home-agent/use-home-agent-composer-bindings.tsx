@@ -12,6 +12,7 @@ import { buildConfirmedStructuredAnswer, handleHomeAgentChoiceSelection, submitH
 
 type ChoiceHandler = (snapshot: ConversationProjectSnapshot, value: string, label: string) => boolean;
 type MaintenanceChoiceHandler = (value: string, label: string) => boolean;
+type AutoResearchChoiceHandler = (value: string, label: string) => boolean | Promise<boolean>;
 
 export function useHomeAgentComposerBindings(params: {
   idle: boolean;
@@ -47,6 +48,7 @@ export function useHomeAgentComposerBindings(params: {
   videoReviewChoiceHandler: ChoiceHandler;
   videoAssetChoiceHandler: ChoiceHandler;
   scriptProjectChoiceHandler: ChoiceHandler;
+  autoResearchChoiceHandler: AutoResearchChoiceHandler;
   onLaunchAction?: (actionId: string) => void;
   activeTrackClassName: string;
   idleTrackClassName: string;
@@ -85,6 +87,7 @@ export function useHomeAgentComposerBindings(params: {
     videoReviewChoiceHandler,
     videoAssetChoiceHandler,
     scriptProjectChoiceHandler,
+    autoResearchChoiceHandler,
     onLaunchAction,
     activeTrackClassName,
     idleTrackClassName,
@@ -105,6 +108,7 @@ export function useHomeAgentComposerBindings(params: {
         videoReviewChoiceHandler,
         videoAssetChoiceHandler,
         scriptProjectChoiceHandler,
+        autoResearchChoiceHandler,
       });
     },
     [
@@ -118,6 +122,7 @@ export function useHomeAgentComposerBindings(params: {
       videoAssetChoiceHandler,
       videoProjectChoiceHandler,
       videoReviewChoiceHandler,
+      autoResearchChoiceHandler,
     ],
   );
 

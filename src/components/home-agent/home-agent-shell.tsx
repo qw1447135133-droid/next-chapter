@@ -1,14 +1,30 @@
 import * as React from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Bot, Loader2, Menu, Send, Sparkles, Square, X } from "lucide-react";
+import {
+  Bot,
+  Copy,
+  Loader2,
+  Menu,
+  Paperclip,
+  PencilLine,
+  RefreshCw,
+  Send,
+  Sparkles,
+  Square,
+  ThumbsDown,
+  ThumbsUp,
+  X,
+} from "lucide-react";
 import BrandMark from "@/components/BrandMark";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useIsMobile } from "@/hooks/use-mobile";
+import type { CreationGuideDimensionId } from "@/lib/home-agent/creation-guide-presets";
 import type { HomeAgentMessage, ComposerQuestion } from "@/lib/home-agent/types";
 import type { Task as RuntimeTask } from "@/lib/agent/tools/task-tools";
 import { cn } from "@/lib/utils";
-import ComposerChoicePopover from "./ComposerChoicePopover";
+import { AssistantCreationGuideBody } from "./AssistantCreationGuideBody";
+import ComposerChoiceModal from "./ComposerChoiceModal";
 import { HomeTextModelPicker } from "./HomeTextModelPicker";
 import type { HomeAgentTextModelGroup } from "@/lib/home-agent/text-models";
 import {
@@ -21,7 +37,39 @@ import {
   truncateCopy,
 } from "./home-agent-task-utils";
 
-const { memo, useEffect, useMemo, useState } = React;
+const { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } = React;
+
+/** Assistant avatar in the conversation stream (static asset in /public). */
+function HomeAgentAiAvatar({
+  className,
+  glowing,
+  reduceMotion,
+}: {
+  className?: string;
+  glowing?: boolean;
+  reduceMotion?: boolean;
+}) {
+  const wantsGlow = Boolean(glowing);
+  return (
+    <div
+      className={cn(
+        "flex shrink-0 items-center justify-center overflow-visible",
+        className,
+      )}
+    >
+      <img
+        src="/home-agent-ai-avatar.png"
+        alt=""
+        className={cn(
+          "h-full w-full object-contain select-none",
+          wantsGlow && "home-agent-ai-avatar-breath",
+        )}
+        draggable={false}
+        aria-hidden
+      />
+    </div>
+  );
+}
 
 type ReactNode = React.ReactNode;
 type RefObject<T> = React.RefObject<T>;
@@ -53,11 +101,78 @@ const ConversationMessageRow = memo(function ConversationMessageRow({
   message,
   shouldAnimate,
   reduceMotion,
+  editsDisabled,
+  onEditUserMessage,
+  onAssistantFeedback,
+  onRegenerateAssistant,
+  assistantAvatarGlowing,
+  autoOpenCreationGuidePicker,
+  onCreationGuidePick,
 }: {
   message: HomeAgentMessage;
   shouldAnimate: boolean;
   reduceMotion: boolean;
+  editsDisabled?: boolean;
+  onEditUserMessage?: (messageId: string, newContent: string) => void | Promise<void>;
+  onAssistantFeedback?: (messageId: string, vote: "up" | "down" | null) => void;
+  onRegenerateAssistant?: (messageId: string) => void | Promise<void>;
+  /** True when this assistant row is the latest and a reply is still streaming in. */
+  assistantAvatarGlowing?: boolean;
+  /** Latest assistant message when idle — allows auto-opening the creation-guide preset modal once. */
+  autoOpenCreationGuidePicker?: boolean;
+  onCreationGuidePick?: (dimension: CreationGuideDimensionId, value: string, label: string) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [editDraft, setEditDraft] = useState(message.content);
+  const [editLayout, setEditLayout] = useState<{
+    width: number;
+    bubbleMinHeight: number;
+  } | null>(null);
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!editing) setEditDraft(message.content);
+  }, [message.content, editing]);
+
+  useLayoutEffect(() => {
+    if (!editing || !editLayout) return;
+    const ta = editTextareaRef.current;
+    if (!ta) return;
+    ta.style.height = "0px";
+    const next = Math.max(editLayout.bubbleMinHeight, ta.scrollHeight);
+    ta.style.height = `${next}px`;
+  }, [editing, editDraft, editLayout]);
+
+  const beginUserEdit = () => {
+    const el = bubbleRef.current;
+    if (el) {
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      const stretched = Math.min(Math.round(w * 1.32 + 56), 620);
+      setEditLayout({ width: stretched, bubbleMinHeight: h });
+    } else {
+      setEditLayout(null);
+    }
+    setEditDraft(message.content);
+    setEditing(true);
+  };
+
+  const endUserEdit = () => {
+    setEditing(false);
+    setEditLayout(null);
+  };
+
+  const showUserEdit = message.role === "user" && onEditUserMessage && !editsDisabled;
+  const showUserActions = message.role === "user" && !editing;
+
+  const canSubmitUserEdit =
+    editDraft.trim().length > 0 && editDraft.trim() !== message.content.trim();
+
+  const handleCopyUserMessage = () => {
+    void navigator.clipboard.writeText(message.content).catch(() => {});
+  };
+
   return (
     <motion.div
       initial={reduceMotion || !shouldAnimate ? false : { opacity: 0, y: 10 }}
@@ -70,22 +185,186 @@ const ConversationMessageRow = memo(function ConversationMessageRow({
               ease: [0.22, 1, 0.36, 1],
             }
       }
-      className={cn("flex", message.role === "user" ? "justify-end" : "justify-start")}
+      className={cn("flex overflow-visible", message.role === "user" ? "justify-end" : "justify-start")}
     >
       {message.role === "assistant" ? (
-        <div className="max-w-[660px] pr-3 sm:pr-4">
-          <div className="flex gap-2">
-            <div className="mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-white/40">
-              <Sparkles className="h-2.5 w-2.5" />
+        <div className="group max-w-[820px] overflow-visible">
+          {/* gap-3.5: breathing room; -mt aligns 32px icon center with first line box (12.5/1.74 & 13/1.8) */}
+          <div className="flex items-start gap-3.5 overflow-visible">
+            <div className="-mt-[5px] shrink-0 overflow-visible pl-3 pr-1 sm:-mt-1">
+              <HomeAgentAiAvatar
+                className="h-8 w-8"
+                glowing={assistantAvatarGlowing}
+                reduceMotion={reduceMotion}
+              />
             </div>
-            <div className="whitespace-pre-wrap break-words pt-0.5 text-[12.5px] leading-[1.74] text-white/74 sm:text-[13px] sm:leading-[1.8]">
-              {message.content}
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5 pr-3 sm:pr-4">
+              <AssistantCreationGuideBody
+                messageId={message.id}
+                autoOpenPresetPicker={Boolean(autoOpenCreationGuidePicker)}
+                content={message.content}
+                onCreationGuidePick={onCreationGuidePick}
+                picksDisabled={Boolean(editsDisabled)}
+                className="text-white/82"
+              />
+              {onAssistantFeedback && onRegenerateAssistant ? (
+                <div className="flex items-center gap-px pl-0.5 opacity-[0.85] transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+                  <button
+                    type="button"
+                    title="好"
+                    aria-label="评价为好"
+                    aria-pressed={message.feedback === "up"}
+                    className={cn(
+                      "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+                      message.feedback === "up"
+                        ? "bg-white/[0.1] text-white/88"
+                        : "text-white/45 hover:bg-white/[0.06] hover:text-white/78",
+                    )}
+                    onClick={() =>
+                      onAssistantFeedback(message.id, message.feedback === "up" ? null : "up")
+                    }
+                  >
+                    <ThumbsUp className="h-4 w-4" strokeWidth={1.75} />
+                  </button>
+                  <button
+                    type="button"
+                    title="不好"
+                    aria-label="评价为不好"
+                    aria-pressed={message.feedback === "down"}
+                    className={cn(
+                      "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+                      message.feedback === "down"
+                        ? "bg-white/[0.1] text-white/88"
+                        : "text-white/45 hover:bg-white/[0.06] hover:text-white/78",
+                    )}
+                    onClick={() =>
+                      onAssistantFeedback(message.id, message.feedback === "down" ? null : "down")
+                    }
+                  >
+                    <ThumbsDown className="h-4 w-4" strokeWidth={1.75} />
+                  </button>
+                  <button
+                    type="button"
+                    title="重新生成"
+                    aria-label="重新生成此条回复"
+                    disabled={Boolean(editsDisabled)}
+                    className={cn(
+                      "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+                      editsDisabled
+                        ? "cursor-not-allowed text-white/22"
+                        : "text-white/45 hover:bg-white/[0.06] hover:text-white/78",
+                    )}
+                    onClick={() => {
+                      if (editsDisabled) return;
+                      void onRegenerateAssistant(message.id);
+                    }}
+                  >
+                    <RefreshCw className="h-4 w-4" strokeWidth={1.75} />
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
       ) : (
-        <div className="max-w-[68%] rounded-[18px] border border-white/[0.045] bg-white/[0.04] px-3.5 py-2 text-[12.5px] leading-[1.62] text-white/82 sm:max-w-[60%] sm:text-[13px] sm:leading-[1.68]">
-          {message.content}
+        <div className="group flex max-w-[min(100%,720px)] items-center justify-end gap-1 sm:max-w-[min(92%,680px)]">
+          {editing ? (
+            <div
+              className="pointer-events-none flex shrink-0 select-none items-center gap-px pr-0.5 opacity-0"
+              aria-hidden
+            >
+              <span className="h-8 w-8" />
+              <span className="h-8 w-8" />
+            </div>
+          ) : showUserActions ? (
+            <div className="flex shrink-0 items-center gap-px pr-0.5 text-white/55 opacity-[0.85] transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+              <button
+                type="button"
+                title="复制"
+                aria-label="复制消息"
+                className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-white/[0.06] hover:text-white/95"
+                onClick={handleCopyUserMessage}
+              >
+                <Copy className="h-4 w-4" strokeWidth={1.75} />
+              </button>
+              {showUserEdit ? (
+                <button
+                  type="button"
+                  title="编辑并从此条重新生成"
+                  aria-label="编辑并从此条重新生成"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-white/[0.06] hover:text-white/95"
+                  onClick={beginUserEdit}
+                >
+                  <PencilLine className="h-4 w-4" strokeWidth={1.75} />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          <div
+            ref={editing ? undefined : bubbleRef}
+            className={cn(
+              "min-w-0",
+              editing
+                ? "border-0 bg-transparent p-0 shadow-none"
+                : "max-w-[68%] rounded-[18px] border border-white/[0.045] bg-white/[0.04] px-3.5 py-2 text-[12.5px] leading-[1.62] text-white/74 sm:max-w-[60%] sm:text-[13px] sm:leading-[1.68]",
+            )}
+            style={
+              editing && editLayout
+                ? { width: editLayout.width, minWidth: editLayout.width, maxWidth: editLayout.width }
+                : undefined
+            }
+          >
+            {editing ? (
+              <div className="flex w-full min-w-0 flex-col gap-2">
+                <Textarea
+                  ref={editTextareaRef}
+                  value={editDraft}
+                  onChange={(e) => setEditDraft(e.target.value)}
+                  rows={1}
+                  spellCheck={false}
+                  className={cn(
+                    "box-border min-h-0 w-full resize-none overflow-hidden rounded-[22px] border px-3.5 py-2 text-[12.5px] leading-[1.62] text-white/74 shadow-none outline-none transition-[border-color,box-shadow] sm:text-[13px] sm:leading-[1.68]",
+                    "border-[#A5C5FF]/85 bg-white/[0.04] placeholder:text-white/35",
+                    "whitespace-pre-wrap break-words scrollbar-none",
+                    "focus-visible:border-[#A5C5FF] focus-visible:ring-0 focus-visible:ring-offset-0",
+                  )}
+                />
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    className="text-[13px] font-medium text-[#A5C5FF] transition-opacity hover:opacity-90"
+                    onClick={() => {
+                      endUserEdit();
+                      setEditDraft(message.content);
+                    }}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    title={canSubmitUserEdit ? "更新并从此条重新生成" : undefined}
+                    disabled={!canSubmitUserEdit}
+                    className={cn(
+                      "rounded-full px-5 py-2 text-[13px] font-medium transition-colors",
+                      "bg-[#2A2A2A]",
+                      canSubmitUserEdit
+                        ? "text-[#A5C5FF] hover:bg-[#333333]"
+                        : "cursor-not-allowed text-[#666666]",
+                    )}
+                    onClick={() => {
+                      if (!canSubmitUserEdit) return;
+                      void onEditUserMessage?.(message.id, editDraft.trim());
+                      endUserEdit();
+                    }}
+                  >
+                    更新
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="whitespace-pre-wrap break-words">{message.content}</div>
+            )}
+          </div>
         </div>
       )}
     </motion.div>
@@ -97,25 +376,49 @@ const ConversationTimeline = memo(function ConversationTimeline({
   endRef,
   streaming,
   hasFloatingDock,
+  onEditUserMessage,
+  onAssistantFeedback,
+  onRegenerateAssistant,
+  onCreationGuidePick,
 }: {
   messages: HomeAgentMessage[];
   endRef: RefObject<HTMLDivElement | null>;
   streaming?: boolean;
   hasFloatingDock?: boolean;
+  onEditUserMessage?: (messageId: string, newContent: string) => void | Promise<void>;
+  onAssistantFeedback?: (messageId: string, vote: "up" | "down" | null) => void;
+  onRegenerateAssistant?: (messageId: string) => void | Promise<void>;
+  onCreationGuidePick?: (dimension: CreationGuideDimensionId, value: string, label: string) => void;
 }) {
   const reduceMotion = useReducedMotion();
   const animateFromIndex = Math.max(messages.length - 4, 0);
   const showStreamingGhost = streaming && (!messages.length || messages[messages.length - 1]?.role !== "assistant");
+  const lastIndex = messages.length - 1;
 
   return (
-    <div className={cn("flex min-h-[calc(100vh-254px)] flex-col justify-end", hasFloatingDock && "md:pr-[336px]")}>
-      <div className="space-y-3.5 pb-5 pt-2 sm:space-y-4 sm:pb-6 sm:pt-3 [content-visibility:auto]">
+    <div
+      className={cn(
+        "flex min-h-[calc(100vh-254px)] flex-col justify-end overflow-visible",
+      )}
+    >
+      <div className="space-y-3.5 overflow-x-visible overflow-y-visible pb-5 pt-2 sm:space-y-4 sm:pb-6 sm:pt-3">
         {messages.map((message, index) => (
           <ConversationMessageRow
             key={message.id}
             message={message}
             shouldAnimate={index >= animateFromIndex}
             reduceMotion={Boolean(reduceMotion)}
+            editsDisabled={Boolean(streaming)}
+            onEditUserMessage={onEditUserMessage}
+            onAssistantFeedback={onAssistantFeedback}
+            onRegenerateAssistant={onRegenerateAssistant}
+            assistantAvatarGlowing={
+              Boolean(streaming) && message.role === "assistant" && index === lastIndex && !showStreamingGhost
+            }
+            autoOpenCreationGuidePicker={
+              message.role === "assistant" && index === lastIndex && !streaming
+            }
+            onCreationGuidePick={onCreationGuidePick}
           />
         ))}
         {showStreamingGhost ? (
@@ -123,14 +426,18 @@ const ConversationTimeline = memo(function ConversationTimeline({
             initial={reduceMotion ? false : { opacity: 0, y: 8 }}
             animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
             transition={reduceMotion ? undefined : { duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
-            className="flex justify-start"
+            className="flex justify-start overflow-visible"
           >
-            <div className="max-w-[660px] pr-3 sm:pr-4">
-              <div className="flex gap-2">
-                <div className="mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-white/34">
-                  <Sparkles className="h-2.5 w-2.5" />
+            <div className="max-w-[820px] overflow-visible">
+              <div className="flex items-center gap-3.5 overflow-visible">
+                <div className="-mt-[5px] shrink-0 overflow-visible pl-3 pr-1 sm:-mt-1">
+                  <HomeAgentAiAvatar
+                    className="h-8 w-8"
+                    glowing
+                    reduceMotion={Boolean(reduceMotion)}
+                  />
                 </div>
-                <div className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.03] px-2.5 py-1 text-[11.5px] text-white/42">
+                <div className="inline-flex items-center gap-2 rounded-full bg-white/[0.04] px-3 py-1.5 text-[12.5px] leading-[1.5] text-white/55 sm:text-[13px]">
                   <span>正在分析</span>
                   <span className="inline-flex gap-1">
                     <span className="h-1 w-1 rounded-full bg-white/36" />
@@ -249,6 +556,10 @@ const ActiveConversationViewport = memo(function ActiveConversationViewport({
   endRef,
   streaming,
   trackClassName,
+  onEditUserMessage,
+  onAssistantFeedback,
+  onRegenerateAssistant,
+  onCreationGuidePick,
 }: {
   messages: HomeAgentMessage[];
   tasks: RuntimeTask[];
@@ -256,11 +567,15 @@ const ActiveConversationViewport = memo(function ActiveConversationViewport({
   endRef: RefObject<HTMLDivElement | null>;
   streaming: boolean;
   trackClassName: string;
+  onEditUserMessage?: (messageId: string, newContent: string) => void | Promise<void>;
+  onAssistantFeedback?: (messageId: string, vote: "up" | "down" | null) => void;
+  onRegenerateAssistant?: (messageId: string) => void | Promise<void>;
+  onCreationGuidePick?: (dimension: CreationGuideDimensionId, value: string, label: string) => void;
 }) {
   const isMobile = useIsMobile();
 
   return (
-    <div className={cn("relative mx-auto w-full flex-1", trackClassName)}>
+    <div className={cn("relative mx-auto w-full flex-1 overflow-visible", trackClassName)}>
       {tasks.length ? (
         <>
           {isMobile ? (
@@ -268,7 +583,7 @@ const ActiveConversationViewport = memo(function ActiveConversationViewport({
               <BackgroundTaskDock tasks={tasks} onStopTask={onStopTask} />
             </div>
           ) : (
-            <div className="pointer-events-none absolute right-0 top-1 z-10">
+            <div className="pointer-events-none fixed right-3 top-3 z-30 md:right-5 md:top-4">
               <div className="pointer-events-auto">
                 <BackgroundTaskDock tasks={tasks} onStopTask={onStopTask} floating />
               </div>
@@ -281,6 +596,10 @@ const ActiveConversationViewport = memo(function ActiveConversationViewport({
         endRef={endRef}
         streaming={streaming}
         hasFloatingDock={tasks.length > 0 && !isMobile}
+        onEditUserMessage={onEditUserMessage}
+        onAssistantFeedback={onAssistantFeedback}
+        onRegenerateAssistant={onRegenerateAssistant}
+        onCreationGuidePick={onCreationGuidePick}
       />
     </div>
   );
@@ -294,10 +613,21 @@ const ActiveComposerDock = memo(function ActiveComposerDock({
   trackClassName: string;
 }) {
   return (
-    <div className={cn("sticky bottom-0 z-20 mx-auto w-full pb-[calc(10px+env(safe-area-inset-bottom))] pt-3", trackClassName)}>
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-[linear-gradient(180deg,rgba(19,19,20,0),rgba(19,19,20,0.92)_38%,rgba(19,19,20,0.98))]" />
-      <div className="relative">{composer}</div>
-    </div>
+    <>
+      {/* Keep composer always docked to viewport bottom. */}
+      <div
+        className="pointer-events-none fixed bottom-0 left-0 right-0 z-20 px-3.5 pb-[calc(10px+env(safe-area-inset-bottom))] pt-3 transition-[left,padding-left] duration-300 motion-reduce:transition-none sm:px-4 md:px-8 lg:left-[var(--home-sidebar-offset)]"
+        style={{
+          transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+          willChange: "left,padding-left",
+        }}
+      >
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-[linear-gradient(180deg,rgba(19,19,20,0),rgba(19,19,20,0.92)_38%,rgba(19,19,20,0.98))]" />
+        <div className={cn("pointer-events-auto relative mx-auto w-full", trackClassName)}>{composer}</div>
+      </div>
+      {/* Reserve room so latest message isn't hidden behind fixed composer. */}
+      <div aria-hidden className="h-[198px] sm:h-[212px] md:h-[224px]" />
+    </>
   );
 });
 
@@ -309,6 +639,10 @@ export const ActiveConversationShell = memo(function ActiveConversationShell({
   composer,
   streaming,
   trackClassName,
+  onEditUserMessage,
+  onAssistantFeedback,
+  onRegenerateAssistant,
+  onCreationGuidePick,
 }: {
   messages: HomeAgentMessage[];
   tasks: RuntimeTask[];
@@ -317,9 +651,13 @@ export const ActiveConversationShell = memo(function ActiveConversationShell({
   composer: ReactNode;
   streaming: boolean;
   trackClassName: string;
+  onEditUserMessage?: (messageId: string, newContent: string) => void | Promise<void>;
+  onAssistantFeedback?: (messageId: string, vote: "up" | "down" | null) => void;
+  onRegenerateAssistant?: (messageId: string) => void | Promise<void>;
+  onCreationGuidePick?: (dimension: CreationGuideDimensionId, value: string, label: string) => void;
 }) {
   return (
-    <div className="mx-auto flex min-h-[calc(100vh-112px)] w-full flex-col">
+    <div className="mx-auto flex min-h-[calc(100vh-112px)] w-full flex-col overflow-visible">
       <ActiveConversationViewport
         messages={messages}
         tasks={tasks}
@@ -327,6 +665,10 @@ export const ActiveConversationShell = memo(function ActiveConversationShell({
         endRef={endRef}
         streaming={streaming}
         trackClassName={trackClassName}
+        onEditUserMessage={onEditUserMessage}
+        onAssistantFeedback={onAssistantFeedback}
+        onRegenerateAssistant={onRegenerateAssistant}
+        onCreationGuidePick={onCreationGuidePick}
       />
       <ActiveComposerDock composer={composer} trackClassName={trackClassName} />
     </div>
@@ -494,10 +836,7 @@ export interface HomeComposerProps {
 
 export const HomeComposer = memo(function HomeComposer({
   idle,
-  currentProjectTitle,
-  currentProjectStage,
   maintenanceHint,
-  videoTransportHint,
   launchNotice,
   initialDraft,
   draftResetVersion,
@@ -522,9 +861,15 @@ export const HomeComposer = memo(function HomeComposer({
   onInterrupt,
 }: HomeComposerProps) {
   const [draft, setLocalDraft] = useState(initialDraft);
+  const [attachedFileCount, setAttachedFileCount] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setLocalDraft(initialDraft);
+    setAttachedFileCount(0);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   }, [initialDraft, draftResetVersion]);
 
   return (
@@ -542,7 +887,7 @@ export const HomeComposer = memo(function HomeComposer({
       }
       className="pointer-events-auto relative w-full"
     >
-      <ComposerChoicePopover
+      <ComposerChoiceModal
         question={question}
         onSelect={onSelectChoice}
         onConfirm={qState ? onConfirmQuestion : undefined}
@@ -562,55 +907,11 @@ export const HomeComposer = memo(function HomeComposer({
         }
         className={composerShellClass}
       >
-        {idle ? (
-          <div className="flex items-center gap-2 px-4 pb-0 pt-3 text-[10px] text-white/38 md:px-6">
-            <div className="flex h-5.5 w-5.5 shrink-0 items-center justify-center rounded-full bg-white/[0.05] text-white/78">
-              <Sparkles className="h-2.5 w-2.5" />
-            </div>
-            <div className="truncate text-[10.5px] text-white/50">首页主控会话</div>
-          </div>
-        ) : currentProjectTitle || maintenanceHint || videoTransportHint ? (
+        {idle ? null : maintenanceHint ? (
           <div className="flex flex-wrap items-center gap-1.5 px-3.5 pb-0 pt-1 md:px-6">
-            {currentProjectTitle ? (
-              <div className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-white/[0.04] bg-white/[0.025] px-2.5 py-1 text-[9.5px] text-white/38">
-                <span className="truncate text-white/68">{currentProjectTitle}</span>
-                {currentProjectStage ? (
-                  <>
-                    <span className="h-1 w-1 shrink-0 rounded-full bg-white/[0.16]" />
-                    <span className="shrink-0 uppercase tracking-[0.12em] text-white/26">{currentProjectStage}</span>
-                  </>
-                ) : null}
-              </div>
-            ) : null}
             {maintenanceHint ? (
               <div className="hidden max-w-[200px] truncate rounded-full border border-white/[0.035] bg-white/[0.018] px-2 py-1 text-[9px] text-white/18 xl:block">
                 {maintenanceHint}
-              </div>
-            ) : null}
-            {videoTransportHint ? (
-              <div
-                className={cn(
-                  "inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[9.5px]",
-                  videoTransportHint.tone === "ready"
-                    ? "border-emerald-300/14 bg-emerald-300/[0.06] text-emerald-100/82"
-                    : videoTransportHint.tone === "warning"
-                      ? "border-amber-300/14 bg-amber-300/[0.06] text-amber-100/82"
-                      : "border-white/[0.04] bg-white/[0.022] text-white/42",
-                )}
-              >
-                <span
-                  className={cn(
-                    "h-1 w-1 shrink-0 rounded-full",
-                    videoTransportHint.tone === "ready"
-                      ? "bg-emerald-300/80"
-                      : videoTransportHint.tone === "warning"
-                        ? "bg-amber-300/80"
-                        : "bg-white/28",
-                  )}
-                />
-                <span className="shrink-0 uppercase tracking-[0.14em] text-white/26">视频通道</span>
-                <span className="shrink-0 text-white/68">{videoTransportHint.label}</span>
-                <span className="truncate text-white/34">{videoTransportHint.detail}</span>
               </div>
             ) : null}
           </div>
@@ -648,6 +949,16 @@ export const HomeComposer = memo(function HomeComposer({
           </div>
         ) : null}
         <div className={cn("px-3.5 pb-3 pt-1 sm:px-4 sm:pb-3.5 md:px-6 md:pb-3.5", !idle && "pt-1")}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              setAttachedFileCount(files.length);
+            }}
+          />
           <Textarea
             value={draft}
             onChange={(e) => {
@@ -656,13 +967,13 @@ export const HomeComposer = memo(function HomeComposer({
               onDraftChange(nextValue);
             }}
             placeholder={placeholder}
-            rows={idle ? 5 : 3}
+            rows={idle ? 3 : 3}
             className={cn(
-              "resize-none border-none bg-transparent px-0 pb-2 pt-1.5 text-[13.5px] leading-6.5 shadow-none ring-0 focus-visible:ring-0 sm:text-[14px]",
+              "resize-none border-none bg-transparent px-0 pb-2 pt-1.5 text-[13.5px] leading-6.5 shadow-none outline-none ring-0 ring-offset-0 focus:outline-none focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 sm:text-[14px]",
               activeTheme
                 ? "min-h-[78px] text-white placeholder:text-white/28 sm:min-h-[88px]"
                 : "min-h-[104px] text-slate-900 placeholder:text-slate-400",
-              idle && "min-h-[136px] sm:min-h-[154px] md:min-h-[188px]",
+              idle && "min-h-[92px] sm:min-h-[102px] md:min-h-[112px]",
             )}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -672,13 +983,31 @@ export const HomeComposer = memo(function HomeComposer({
             }}
           />
           <div className="flex items-end justify-between gap-3">
-            <HomeTextModelPicker
-              activeTheme={activeTheme}
-              selectedKey={selectedTextModelKey}
-              selectedLabel={selectedTextModelLabel}
-              groups={textModelGroups}
-              onSelect={onSelectTextModel}
-            />
+            <div className="flex items-center gap-1.5">
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className={cn(
+                  "h-9 w-9 rounded-full sm:h-10 sm:w-10",
+                  activeTheme
+                    ? "bg-white/[0.04] text-white/78 hover:bg-white/[0.1] hover:text-white"
+                    : "bg-black/5 text-slate-700 hover:bg-black/10",
+                )}
+                title={attachedFileCount > 0 ? `已选择 ${attachedFileCount} 个文件` : "上传文件"}
+                aria-label={attachedFileCount > 0 ? `已选择 ${attachedFileCount} 个文件` : "上传文件"}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Paperclip className="h-4 w-4" />
+              </Button>
+              <HomeTextModelPicker
+                activeTheme={activeTheme}
+                selectedKey={selectedTextModelKey}
+                selectedLabel={selectedTextModelLabel}
+                groups={textModelGroups}
+                onSelect={onSelectTextModel}
+              />
+            </div>
             <div className="flex items-center gap-1.5">
               {streaming && !qState ? (
                 <Button
@@ -736,10 +1065,6 @@ export const IdleLanding = memo(function IdleLanding({
         className="mx-auto w-full max-w-[760px]"
       >
         <div className="mb-4 space-y-1.5 text-center">
-          <div className="inline-flex items-center gap-2 rounded-full bg-white/[0.035] px-3 py-1.5 text-[10.5px] text-white/52">
-            <Bot className="h-3.5 w-3.5" />
-            单首页会话
-          </div>
           <h1 className="text-[21px] font-medium tracking-[-0.045em] text-white md:text-[28px]">{title}</h1>
           <p className="mx-auto max-w-[520px] text-[12.5px] leading-5.5 text-white/40 sm:text-[13px]">
             直接开始说目标。会话启动后，同一个输入框会在这一页自然沉到底部，继续推进完整工作流。

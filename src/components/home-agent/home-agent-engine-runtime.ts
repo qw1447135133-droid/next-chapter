@@ -105,9 +105,12 @@ export async function launchHomeAgentAutoResearchTasks(params: {
   runtime: Pick<StudioRuntimeState, "sessionId" | "currentProjectSnapshot">;
   loadApiConfigModule: () => Promise<HomeAgentApiConfigModule>;
   selectedTextModelKey: string;
+  planOverride?: ReturnType<typeof buildAutoResearchPlan>;
+  taskIdFilter?: string[];
+  sequential?: boolean;
 }): Promise<{ plan: ReturnType<typeof buildAutoResearchPlan>; taskIds: string[] } | null> {
-  const { prompt, runtime, loadApiConfigModule, selectedTextModelKey } = params;
-  const plan = buildAutoResearchPlan(prompt, runtime.currentProjectSnapshot);
+  const { prompt, runtime, loadApiConfigModule, selectedTextModelKey, planOverride, taskIdFilter, sequential } = params;
+  const plan = planOverride ?? buildAutoResearchPlan(prompt, runtime.currentProjectSnapshot);
   if (!plan) return null;
 
   const apiConfig = await loadApiConfigModule();
@@ -133,28 +136,39 @@ export async function launchHomeAgentAutoResearchTasks(params: {
     },
   };
 
-  const taskIds: string[] = [];
-  const results = await Promise.all(
-    plan.tasks.map((task) =>
-      tool.call(
-        {
-          prompt: task.prompt,
-          description: `并行研究 ${task.title}`,
-          session_id: runtime.sessionId,
-          project_id: runtime.currentProjectSnapshot?.projectId,
-          subagent_type: "research",
-          run_in_background: true,
-        },
-        context,
-        async () => ({ behavior: "allow" }),
-        parentMessage,
-      ),
-    ),
-  );
+  const targetTasks = taskIdFilter?.length
+    ? plan.tasks.filter((task) => taskIdFilter.includes(task.id))
+    : plan.tasks;
+  if (!targetTasks.length) return null;
 
-  for (const result of results) {
-    const taskId = String(result.data).match(/Task ID:\s*([a-f0-9-]+)/i)?.[1];
-    if (taskId) taskIds.push(taskId);
+  const taskIds: string[] = [];
+  const runTask = async (task: (typeof targetTasks)[number]) =>
+    tool.call(
+      {
+        prompt: task.prompt,
+        description: `并行研究 ${task.title}`,
+        session_id: runtime.sessionId,
+        project_id: runtime.currentProjectSnapshot?.projectId,
+        subagent_type: "research",
+        run_in_background: true,
+      },
+      context,
+      async () => ({ behavior: "allow" }),
+      parentMessage,
+    );
+
+  if (sequential) {
+    for (const task of targetTasks) {
+      const result = await runTask(task);
+      const taskId = String(result.data).match(/Task ID:\s*([a-f0-9-]+)/i)?.[1];
+      if (taskId) taskIds.push(taskId);
+    }
+  } else {
+    const results = await Promise.all(targetTasks.map((task) => runTask(task)));
+    for (const result of results) {
+      const taskId = String(result.data).match(/Task ID:\s*([a-f0-9-]+)/i)?.[1];
+      if (taskId) taskIds.push(taskId);
+    }
   }
 
   if (!taskIds.length) return null;

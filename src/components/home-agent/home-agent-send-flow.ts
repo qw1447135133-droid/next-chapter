@@ -22,12 +22,25 @@ export function beginSendFlow(params: {
   setSuggested: (question: null) => void;
   setMode: (mode: "active") => void;
   resetComposerDraft: (value?: string) => void;
+  /** When true, history already ends with the user turn (e.g. regenerate assistant). */
+  skipUserBubble?: boolean;
 }): string | null {
-  const { prompt, shown, push, setPopoverOverride, setSuggested, setMode, resetComposerDraft } = params;
+  const {
+    prompt,
+    shown,
+    push,
+    setPopoverOverride,
+    setSuggested,
+    setMode,
+    resetComposerDraft,
+    skipUserBubble,
+  } = params;
   const cleaned = prompt.trim();
   if (!cleaned) return null;
 
-  push("user", shown || cleaned);
+  if (!skipUserBubble) {
+    push("user", shown || cleaned);
+  }
   setPopoverOverride(null);
   setSuggested(null);
   setMode("active");

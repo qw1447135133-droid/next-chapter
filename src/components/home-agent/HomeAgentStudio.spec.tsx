@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { createElement, type ReactElement } from "react";
+import { createElement, useState, type ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AskUserQuestionRequest } from "@/lib/agent/tools/ask-user-question";
 import type { StudioSessionState } from "@/lib/home-agent/types";
@@ -312,7 +312,7 @@ vi.mock("@/components/ui/sheet", () => ({
   SheetTitle: ({ children }: { children?: unknown }) => <div>{children}</div>,
 }));
 
-vi.mock("./ComposerChoicePopover", () => ({
+vi.mock("./ComposerChoiceModal", () => ({
   default: ({
     question,
     onSelect,
@@ -466,7 +466,13 @@ vi.mock("@/lib/agent-intake", () => ({
 const { default: HomeAgentStudio } = await import("./HomeAgentStudio");
 const { clearTaskRegistry, writeTask, getTask, updateTask } = await import("@/lib/agent/tools/task-tools");
 
-function renderStudio(ui: ReactElement = <HomeAgentStudio />) {
+/** Mirrors `Home.tsx` URL sync so settings open/close works in tests without a router. */
+function HomeAgentStudioTestHarness() {
+  const [utility, setUtility] = useState<"settings" | undefined>(undefined);
+  return <HomeAgentStudio initialUtility={utility} onUtilityChange={setUtility} />;
+}
+
+function renderStudio(ui: ReactElement = <HomeAgentStudioTestHarness />) {
   return act(async () => {
     render(ui);
     await Promise.resolve();
@@ -1042,7 +1048,7 @@ describe("HomeAgentStudio", () => {
     await renderStudio();
 
     const textarea = (await screen.findByPlaceholderText(/和 Agent 说出你的目标/)) as HTMLTextAreaElement;
-    expect(textarea).toHaveAttribute("rows", "5");
+    expect(textarea).toHaveAttribute("rows", "3");
 
     await fillComposer("我想做一个新项目");
     await waitFor(() => {
@@ -1676,7 +1682,7 @@ describe("HomeAgentStudio", () => {
     expect(openFolder).toHaveBeenCalledWith("D:/StoryForgeFiles/home-agent/skills-candidates/pending-install");
   });
 
-  it("automatically launches parallel research tracks for analysis-style requests", async () => {
+  it("shows sequential quick research choice modals before launch", async () => {
     await renderStudio();
 
     await screen.findByPlaceholderText(/和 Agent 说出你的目标/);
@@ -1691,11 +1697,26 @@ describe("HomeAgentStudio", () => {
       await Promise.resolve();
     });
 
-    await waitForVisibleText(/我先并行研究 3 个方向/);
-    expect(screen.getByText("Agent 任务")).toBeInTheDocument();
-    expect(screen.getByText("目标市场")).toBeInTheDocument();
-    expect(screen.getByText("风格路线")).toBeInTheDocument();
-    expect(screen.getByText("卖点结构")).toBeInTheDocument();
+    await waitForVisibleText(/我已整理出 3 个快捷研究任务/);
+    await screen.findByRole("button", { name: "中国（中文）" });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "中国（中文）" }));
+      await Promise.resolve();
+    });
+    await screen.findByRole("button", { name: "短平快强钩子" });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "短平快强钩子" }));
+      await Promise.resolve();
+    });
+    await screen.findByRole("button", { name: "连续反转卖点优先" });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "连续反转卖点优先" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText(/已按顺序启动：目标市场、风格路线、卖点结构/);
   });
 
   it("injects relevant historical memory into the current turn prompt", async () => {
@@ -1866,7 +1887,7 @@ describe("HomeAgentStudio", () => {
     expect(screen.getByText("已接入 Dreamina CLI，可直接使用 Seedance 2.0")).toBeInTheDocument();
   });
 
-  it("shows the actual transport hint inside active video conversations", async () => {
+  it("does not render the transport hint chip in active video conversations", async () => {
     localStorage.setItem(
       STUDIO_SESSION_KEY,
       JSON.stringify(
@@ -1891,8 +1912,8 @@ describe("HomeAgentStudio", () => {
 
     await renderStudio();
 
-    expect(screen.getByText("当前实际走 API")).toBeInTheDocument();
-    expect(screen.getByText("Seedance API")).toBeInTheDocument();
+    expect(screen.queryByText("当前实际走 API")).not.toBeInTheDocument();
+    expect(screen.queryByText("Seedance API")).not.toBeInTheDocument();
   });
 
   it("maps video recovery recommendations to homepage workflow shortcuts", async () => {
@@ -3173,6 +3194,77 @@ describe("HomeAgentStudio", () => {
       expect(lastSubmittedPrompt).toContain("请接着推进这个原创剧本项目");
     });
     expect(screen.getAllByText(/继续创作/).length).toBeGreaterThan(0);
+  });
+
+  it("launches original script quick task with the traditional kickoff questionnaire on the homepage", async () => {
+    await renderStudio();
+
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: /原创剧本/ })[0]!);
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText("先确定你这次原创剧本主要想打哪个目标市场？");
+    expect(screen.getByRole("button", { name: "国内（中文）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "日本（日文）" })).toBeInTheDocument();
+  });
+
+  it("submits traditional original script kickoff answers back into the homepage agent flow", async () => {
+    await renderStudio();
+
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: /原创剧本/ })[0]!);
+      await Promise.resolve();
+    });
+
+    await screen.findByText("先确定你这次原创剧本主要想打哪个目标市场？");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "国内（中文）" }));
+      await Promise.resolve();
+    });
+
+    await screen.findByText("参考传统创作面板，先选 1 到 2 个更接近你这次方向的人设赛道。");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "宝妈" }));
+      fireEvent.click(screen.getByRole("button", { name: "情感博主" }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "继续" }));
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "女频" }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "甜虐" }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "HE（好结局）" }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "500~800字（中短篇）" }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "暂不补充" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(lastSubmittedPrompt).toContain("我要启动一个原创剧本项目。");
+    });
+    expect(lastSubmittedPrompt).toContain("目标市场: 国内（中文）");
+    expect(lastSubmittedPrompt).toContain("人设赛道: 宝妈 / 情感博主");
+    expect(lastSubmittedPrompt).toContain("目标受众: 女频");
+    expect(lastSubmittedPrompt).toContain("故事基调: 甜虐");
+    expect(lastSubmittedPrompt).toContain("结局类型: HE（好结局）");
+    expect(lastSubmittedPrompt).toContain("篇幅字数: 500~800字（中短篇）");
   });
 
   it("uses project artifacts and stage analysis when opening history without a saved homepage session", async () => {

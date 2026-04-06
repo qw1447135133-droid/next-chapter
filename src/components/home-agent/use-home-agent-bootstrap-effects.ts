@@ -5,7 +5,6 @@ import type { ConversationProjectSnapshot, StudioRuntimeState, StudioSessionStat
 
 const { useEffect, useRef } = React;
 
-type UtilityPanelId = "settings" | undefined;
 type DreaminaCapabilityState = {
   ready: boolean;
   available: boolean;
@@ -18,7 +17,6 @@ export function useHomeAgentBootstrapEffects(params: {
   metaReady: boolean;
   messages: Array<{ id: string; role: string; content: string; createdAt: string; status?: string }>;
   compactedMessageCount: number;
-  initialUtility?: UtilityPanelId;
   desktopSidebarCollapsed: boolean;
   dreaminaCapability: DreaminaCapabilityState;
   maintenanceHintTimerRef: React.MutableRefObject<number | null>;
@@ -35,7 +33,6 @@ export function useHomeAgentBootstrapEffects(params: {
   setMetaReady: React.Dispatch<React.SetStateAction<boolean>>;
   setActiveProjectId: React.Dispatch<React.SetStateAction<string | undefined>>;
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
-  setUtilityPanel: React.Dispatch<React.SetStateAction<UtilityPanelId>>;
   loadProjectStore: () => Promise<{
     listRecentConversationSnapshots(limit?: number): Promise<ConversationProjectSnapshot[]>;
     readSkillDrafts(): StudioRuntimeState["skillDrafts"];
@@ -61,7 +58,6 @@ export function useHomeAgentBootstrapEffects(params: {
     metaReady,
     messages,
     compactedMessageCount,
-    initialUtility,
     desktopSidebarCollapsed,
     dreaminaCapability,
     maintenanceHintTimerRef,
@@ -78,7 +74,6 @@ export function useHomeAgentBootstrapEffects(params: {
     setMetaReady,
     setActiveProjectId,
     setTasks,
-    setUtilityPanel,
     loadProjectStore,
     resolveDreaminaCapability,
     flashMaintenanceHint,
@@ -124,10 +119,6 @@ export function useHomeAgentBootstrapEffects(params: {
   useEffect(() => {
     compactedMessageCountRef.current = compactedMessageCount;
   }, [compactedMessageCount, compactedMessageCountRef]);
-
-  useEffect(() => {
-    setUtilityPanel(initialUtility);
-  }, [initialUtility, setUtilityPanel]);
 
   useEffect(() => {
     writeDesktopSidebarCollapsed(desktopSidebarCollapsed);

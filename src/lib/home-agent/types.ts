@@ -104,6 +104,7 @@ export interface ConversationMemoryDocument {
 export interface ConversationProjectSnapshot {
   projectId: string;
   projectKind: ConversationProjectKind;
+  pinned?: boolean;
   title: string;
   currentObjective: string;
   derivedStage: string;
@@ -151,6 +152,8 @@ export interface HomeAgentMessage {
   content: string;
   createdAt: string;
   status?: "pending" | "complete";
+  /** Local thumbs rating for assistant replies; persisted with session. */
+  feedback?: "up" | "down";
 }
 
 export interface StudioQuestionState {

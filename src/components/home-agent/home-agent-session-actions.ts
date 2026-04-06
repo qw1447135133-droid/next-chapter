@@ -1,4 +1,8 @@
 import { clearStudioSession } from "@/lib/home-agent/session-store";
+import {
+  buildOriginalScriptKickoffPrompt,
+  isOriginalScriptKickoffRequest,
+} from "@/lib/home-agent/original-script-kickoff";
 import { advanceStructuredAnswer, buildResetRuntimeState } from "./home-agent-conversation-state";
 import { serializeQuestionAnswers } from "./home-agent-session-utils";
 import type {
@@ -117,12 +121,15 @@ export function answerHomeAgentQuestion(params: {
 
   if (transition.isLastStep) {
     const output = serializeQuestionAnswers(qState.request, transition.nextAnswers);
+    const promptForSend = isOriginalScriptKickoffRequest(qState.request)
+      ? buildOriginalScriptKickoffPrompt(output)
+      : output;
     setQState(null);
     setSelectedValues([]);
     resetComposerDraft("");
 
     if (qState.source === "restored") {
-      void send(output, transition.userBubble);
+      void send(promptForSend, transition.userBubble);
       return;
     }
 
@@ -134,7 +141,7 @@ export function answerHomeAgentQuestion(params: {
           return;
         }
 
-        void send(output, transition.userBubble);
+        void send(promptForSend, transition.userBubble);
       });
     return;
   } else {
@@ -210,6 +217,7 @@ export function handleHomeAgentChoiceSelection(params: {
   videoReviewChoiceHandler: (snapshot: ConversationProjectSnapshot, value: string, label: string) => boolean;
   videoAssetChoiceHandler: (snapshot: ConversationProjectSnapshot, value: string, label: string) => boolean;
   scriptProjectChoiceHandler: (snapshot: ConversationProjectSnapshot, value: string, label: string) => boolean;
+  autoResearchChoiceHandler: (value: string, label: string) => boolean | Promise<boolean>;
 }) {
   const {
     snapshot,
@@ -224,7 +232,13 @@ export function handleHomeAgentChoiceSelection(params: {
     videoReviewChoiceHandler,
     videoAssetChoiceHandler,
     scriptProjectChoiceHandler,
+    autoResearchChoiceHandler,
   } = params;
+
+  if (question?.id.startsWith("auto-research:")) {
+    void Promise.resolve(autoResearchChoiceHandler(value, label));
+    return;
+  }
 
   if (question?.id.startsWith("maintenance-") && maintenanceChoiceHandler(value, label)) {
     return;

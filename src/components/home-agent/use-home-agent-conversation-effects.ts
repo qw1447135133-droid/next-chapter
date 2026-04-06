@@ -124,7 +124,11 @@ export function useHomeAgentConversationEffects(params: {
     if (qState || streaming || popoverOverride) return;
     if (draftPresence) return;
     if (!runtime.currentProjectSnapshot) {
-      setSuggested((previous) => (previous?.id ? null : previous));
+      setSuggested((previous) =>
+        previous?.id && !previous.id.startsWith("auto-research:")
+          ? null
+          : previous,
+      );
       return;
     }
 

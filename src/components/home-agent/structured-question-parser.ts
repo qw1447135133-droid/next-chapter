@@ -399,6 +399,25 @@ function extractQuestionPromptFromLine(line: string): {
   return null;
 }
 
+function extractDeclarativeSelectionPromptFromLine(line: string): {
+  question: string;
+  remainder: string;
+} | null {
+  const normalized = stripMarkdownDecorators(line).trim();
+  if (!normalized) return null;
+
+  const looksLikeSelectionLead =
+    /(常见|通常|一般).*(目标|方向|类型|路径).*(有|分为|包括|共|类)/u.test(normalized) ||
+    /(?:先|请先|接下来)?(?:选择|确认|锁定).*(目标|方向|类型|路径)/u.test(normalized);
+
+  if (!looksLikeSelectionLead) return null;
+
+  return {
+    question: "请选择一个方向",
+    remainder: "",
+  };
+}
+
 function buildInlinePromptRequest(text: string): StructuredQuestionExtraction | null {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   let promptIndex = -1;
@@ -451,10 +470,11 @@ function buildInlinePromptRequest(text: string): StructuredQuestionExtraction | 
       }
 
       const prompt = extractQuestionPromptFromLine(lines[candidatePromptIndex]);
-      if (prompt) {
+      const inferredPrompt = prompt ?? extractDeclarativeSelectionPromptFromLine(lines[candidatePromptIndex]);
+      if (inferredPrompt) {
         promptIndex = candidatePromptIndex;
-        promptQuestion = prompt.question;
-        promptRemainder = prompt.remainder;
+        promptQuestion = inferredPrompt.question;
+        promptRemainder = inferredPrompt.remainder;
         optionStart = clusterStart + 1;
         optionEnd = clusterEnd;
         options = clusterOptions;

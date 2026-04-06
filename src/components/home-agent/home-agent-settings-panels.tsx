@@ -37,6 +37,10 @@ export const DesktopSettingsPanel = memo(function DesktopSettingsPanel({
       const targetElement = target instanceof Element ? target : target.parentElement;
       if (targetElement?.closest("[data-settings-floating-root='true']")) return;
 
+      // Clicks on the home desktop sidebar (including the settings toggle) must not count as
+      // "outside" the panel — otherwise pointerdown closes and the button click re-opens.
+      if (targetElement?.closest("[data-home-desktop-sidebar='true']")) return;
+
       onClose();
     };
 

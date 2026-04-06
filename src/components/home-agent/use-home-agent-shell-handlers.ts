@@ -4,7 +4,8 @@ import { getAllTasks, stopTask, type Task } from "@/lib/agent/tools/task-tools";
 export function useHomeAgentShellHandlers(params: {
   openProject: (projectId: string) => Promise<void>;
   reset: () => void;
-  setUtilityPanel: React.Dispatch<React.SetStateAction<"settings" | undefined>>;
+  /** Current utility panel from route / parent (single source of truth). */
+  utilityPanel: "settings" | undefined;
   setMobileNavOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
   setDesktopSidebarCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
@@ -14,7 +15,7 @@ export function useHomeAgentShellHandlers(params: {
   const {
     openProject,
     reset,
-    setUtilityPanel,
+    utilityPanel,
     setMobileNavOpen,
     setTasks,
     setDesktopSidebarCollapsed,
@@ -33,11 +34,20 @@ export function useHomeAgentShellHandlers(params: {
     reset();
   }, [reset]);
 
+  /** Always opens the settings panel (e.g. from launch notices). */
   const handleOpenSettings = useCallback(() => {
-    setUtilityPanel("settings");
-    setMobileNavOpen(false);
     onUtilityChange?.("settings");
-  }, [onUtilityChange, setMobileNavOpen, setUtilityPanel]);
+    setMobileNavOpen(false);
+  }, [onUtilityChange, setMobileNavOpen]);
+
+  /** Toggles the settings panel (sidebar / mobile nav settings control). */
+  const handleToggleSettings = useCallback(() => {
+    const next = utilityPanel === "settings" ? undefined : "settings";
+    onUtilityChange?.(next);
+    if (next === "settings") {
+      setMobileNavOpen(false);
+    }
+  }, [utilityPanel, onUtilityChange, setMobileNavOpen]);
 
   const handleOpenMobileNavigation = useCallback(() => {
     setMobileNavOpen(true);
@@ -58,11 +68,9 @@ export function useHomeAgentShellHandlers(params: {
 
   const handleSettingsOpenChange = useCallback(
     (open: boolean) => {
-      const next = open ? "settings" : undefined;
-      setUtilityPanel(next);
-      onUtilityChange?.(next);
+      onUtilityChange?.(open ? "settings" : undefined);
     },
-    [onUtilityChange, setUtilityPanel],
+    [onUtilityChange],
   );
 
   const handleCloseSettings = useCallback(() => {
@@ -73,6 +81,7 @@ export function useHomeAgentShellHandlers(params: {
     handleOpenProject,
     handleReset,
     handleOpenSettings,
+    handleToggleSettings,
     handleOpenMobileNavigation,
     handleStopTask,
     handleToggleDesktopSidebar,
