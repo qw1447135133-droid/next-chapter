@@ -47,6 +47,9 @@ export function buildRecoveryActionRationale(
   action: string,
   index: number,
 ): string {
+  if (action === "修改创作冲突") return "告诉我你想调整的冲突方向，我会重新生成创作方案。";
+  if (action === "进入角色开发") return "创作方案已就绪，直接开始生成主要角色设定。";
+
   void action;
 
   const artifact = snapshot.artifacts[index] ?? snapshot.artifacts[0];
@@ -55,7 +58,7 @@ export function buildRecoveryActionRationale(
   }
 
   if (snapshot.currentObjective.trim()) {
-    return `会先围绕当前目标“${snapshot.currentObjective}”推进，不需要跳出首页。`;
+    return `会先围绕当前目标”${snapshot.currentObjective}”推进，不需要跳出首页。`;
   }
 
   return `继续留在${snapshot.derivedStage}阶段里推进这一步，不需要跳出首页。`;

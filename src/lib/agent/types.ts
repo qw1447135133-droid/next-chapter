@@ -112,6 +112,11 @@ export interface RequestStartEvent {
   type: 'stream_request_start'
 }
 
+export interface TextDeltaEvent {
+  type: 'text_delta'
+  delta: string
+}
+
 export type Message =
   | UserMessage
   | AssistantMessage
@@ -183,6 +188,13 @@ export interface SDKProgressMessage {
   message: ProgressMessage
 }
 
+export interface SDKTextDeltaMessage {
+  type: 'text_delta'
+  uuid: string
+  sessionId: string
+  delta: string
+}
+
 export type SDKMessage =
   | SDKInitMessage
   | SDKCompactBoundaryMessage
@@ -190,6 +202,7 @@ export type SDKMessage =
   | SDKAssistantMessage
   | SDKUserMessage
   | SDKProgressMessage
+  | SDKTextDeltaMessage
 
 // ---------------------------------------------------------------------------
 // Usage stats

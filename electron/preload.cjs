@@ -84,5 +84,11 @@ import_electron.contextBridge.exposeInMainWorld("electronAPI", {
     readText: (filePath) => import_electron.ipcRenderer.invoke("storage:readText", { filePath }),
     readBase64: (filePath) => import_electron.ipcRenderer.invoke("storage:readBase64", { filePath })
   },
-  invoke: (channel, ...args) => import_electron.ipcRenderer.invoke(channel, ...args)
+  invoke: (channel, ...args) => import_electron.ipcRenderer.invoke(channel, ...args),
+  on: (channel, listener) => {
+    import_electron.ipcRenderer.on(channel, (_event, ...args) => listener(...args));
+  },
+  off: (channel, listener) => {
+    import_electron.ipcRenderer.removeListener(channel, listener);
+  }
 });

@@ -139,6 +139,10 @@ export function useHomeAgentConversationEffects(params: {
         restoredProjectSuggestionKeysRef.current.delete(suggestionKey);
         return previous?.id ? null : previous;
       }
+      // If this suggestion was already surfaced and dismissed (previous is null), don't re-show it
+      if (suggestionKey && surfacedProjectSuggestionKeysRef.current.has(suggestionKey) && !previous) {
+        return null;
+      }
       const previousId = previous?.id ?? null;
       const nextId = nextSuggestion?.id ?? null;
       if (previousId === nextId) return previous;

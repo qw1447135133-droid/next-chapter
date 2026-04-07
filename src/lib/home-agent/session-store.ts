@@ -30,9 +30,9 @@ function safeWriteJson(key: string, value: unknown): boolean {
 
 function truncateText(value: string | undefined, max: number): string {
   if (typeof value !== "string") return "";
-  const normalized = value.replace(/\s+/g, " ").trim();
-  if (!normalized) return "";
-  return normalized.length > max ? `${normalized.slice(0, Math.max(0, max - 1))}…` : normalized;
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return trimmed.length > max ? `${trimmed.slice(0, Math.max(0, max - 1))}…` : trimmed;
 }
 
 function trimStringArray(values: string[] | undefined, maxItems: number, maxChars: number): string[] {

@@ -26,8 +26,6 @@ import {
 } from "./home-agent-sidebar";
 import {
   ActiveConversationShell,
-  DetachedMaintenanceNoticeCard,
-  type DetachedMaintenanceNotice,
   HomeSurfaceBackdrop,
   IdleLanding,
   MobileTopbar,
@@ -49,13 +47,9 @@ import {
   buildCharacterCardListQuestion,
   buildComplianceDecisionQuestion,
   buildComplianceListQuestion,
-  buildMaintenanceReviewQuestion,
   buildReviewDecisionQuestion,
   buildReviewListQuestion,
-  buildApprovedSkillDraftListQuestion,
-  buildSkillDraftDecisionQuestion,
   buildReviewQuestion,
-  buildSkillDraftListQuestion,
   buildVideoGenerationQuestion,
   buildVideoGenerationSceneListQuestion,
   buildVideoRefreshQuestion,
@@ -124,7 +118,7 @@ interface Props {
 type QState = StudioQuestionState;
 
 const PROMPT =
-  "你是 InFinio 首页里的主控创作 Agent。整个产品只有一个首页工作表面，不允许把用户推回模块页、步骤页、工作台或手动表单。你必须先分析，再追问，再执行。需要结构化选择时优先调用 AskUserQuestion：为每一步决策提供充足选项（可十余项以上），支持多步问卷与自定义输入；不要只用 Markdown 表格让用户“默读选项”，应用工具阻塞等待用户选择后再继续下一步（例如先定题材再追问作品形态）；仅输出表格不会出现与 AskUserQuestion 相同的全屏选项弹窗。会话里若出现带 **从题材出发** / **从媒介出发** / **从核心冲突出发**（或 **【创作起点·题材】** / **【创作起点·媒介】** / **【创作起点·冲突】**）的引导文案，须用 ** 完整包裹这些短语，用户才能点选并打开预设弹窗；你会收到形如「【创作起点·题材】…」的用户消息，请据此进入对应下一问。需要推进项目时调用 HomeStudioWorkflow。遇到明显适合并行研究、分工拆解或长任务处理的情况，要优先考虑调用 Agent 启动 2 到 4 个后台子任务，并用 TaskOutput / TaskStop 管理后台任务，但最终仍然要把结果收口回当前首页会话。适合并行研究的典型场景包括：市场分析、风格对比、角色方案比较、改编路线比较、视频包装方案比较。输出格式必须规范：优先使用 Markdown 标题、分段、项目符号/编号列表；当有对比维度时使用 Markdown 表格；参数、端口、文件名和错误码使用反引号包裹；避免一整段大白话长文。除非用户明确要求自由发挥，默认按以下结构输出：## 结论、## 原因分析、## 可执行方案、## 风险与边界、## 下一步（每节 3-6 条短要点，先结论后细节）。默认使用简体中文，保持简洁、克制、专业，一次只推进一个关键决策。";
+  '你是 InFinio 首页里的主控创作 Agent。整个产品只有一个首页工作表面，不允许把用户推回模块页、步骤页、工作台或手动表单。你必须先分析，再追问，再执行。需要结构化选择时优先调用 AskUserQuestion：为每一步决策提供充足选项（可十余项以上），支持多步问卷与自定义输入；不要只用 Markdown 表格让用户"默读选项"，应用工具阻塞等待用户选择后再继续下一步（例如先定题材再追问作品形态）；仅输出表格不会出现与 AskUserQuestion 相同的全屏选项弹窗。会话里若出现带 **从题材出发** / **从媒介出发** / **从核心冲突出发**（或 **【创作起点·题材】** / **【创作起点·媒介】** / **【创作起点·冲突】**）的引导文案，须用 ** 完整包裹这些短语，用户才能点选并打开预设弹窗；你会收到形如「【创作起点·题材】…」的用户消息，请据此进入对应下一问。需要推进项目时调用 HomeStudioWorkflow。遇到明显适合并行研究、分工拆解或长任务处理的情况，要优先考虑调用 Agent 启动 2 到 4 个后台子任务，并用 TaskOutput / TaskStop 管理后台任务，但最终仍然要把结果收口回当前首页会话。适合并行研究的典型场景包括：市场分析、风格对比、角色方案比较、改编路线比较、视频包装方案比较。输出格式必须规范：优先使用 Markdown 标题、分段、项目符号/编号列表；当有对比维度时使用 Markdown 表格；参数、端口、文件名和错误码使用反引号包裹；避免一整段大白话长文。默认使用简体中文，保持简洁、克制、专业，一次只推进一个关键决策。\n\n【核心规则：下一步必须用工具呈现】每当你完成一段分析或任务后，如果有后续行动选项需要用户决策，必须立即调用 AskUserQuestion 工具把这些选项呈现为弹窗，绝对禁止把下一步选项写成 Markdown 列表（如 ## 下一步 + 列表项）让用户自己阅读。用户看到的选项必须是可点击的弹窗，不是静态文字。\n\n【问候与闲聊规则】当用户发送"你好""hi""hello"等简单问候或与项目无关的闲聊时，只需简短友好地回应，不要主动汇报项目状态、历史进度或推荐下一步操作。等用户主动提出需求后再推进。\n\n【剧本生产流程强制规则】当项目类型为 script（原创剧本）时，必须严格按以下顺序推进，不允许跳步、不允许让用户自己选择先做哪一步：1.选题立项 → 2.创作方案 → 3.角色开发 → 4.分集目录 → 5.单集细纲 → 6.分集撰写 → 7.合规审核 → 8.导出。每完成一步后，立即调用 HomeStudioWorkflow 推进到下一步，不要询问用户"下一步做什么"，直接执行。项目 snapshot 的 recommendedActions 已经给出了当前正确的下一步选项，当只有一个选项时直接执行，当有多个选项时用 AskUserQuestion 让用户选择后再执行。在剧本生产流程中，禁止输出【创作起点·题材】【创作起点·媒介】【创作起点·冲突】等引导文案，这些只用于空白创作场景。';
 const MOBILE_NAV_SHEET =
   "w-full border-r border-white/8 bg-[#17181b] p-0 text-slate-100 shadow-[18px_0_48px_rgba(0,0,0,0.3)] overscroll-contain sm:max-w-[360px]";
 const IDLE =
@@ -247,7 +241,8 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   );
   const [compactedMessageCount, setCompactedMessageCount] = useState(session?.compactedMessageCount ?? 0);
   const [maintenanceHint, setMaintenanceHint] = useState<string | null>(null);
-  const [maintenanceNotice, setMaintenanceNotice] = useState<DetachedMaintenanceNotice | null>(null);
+  const [renameTarget, setRenameTarget] = useState<{ projectId: string; title: string } | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
   const [jimengExecutionMode, setJimengExecutionMode] = useState<JimengExecutionMode>("api");
   const [launchReadiness, setLaunchReadiness] = useState<HomeAgentLaunchReadiness | null>(null);
   const [suppressedLaunchNoticeKey, setSuppressedLaunchNoticeKey] = useState<string | null>(null);
@@ -273,8 +268,6 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   const restoredProjectSuggestionKeysRef = useRef<Set<string>>(new Set());
   const surfacedDreaminaHintRef = useRef(false);
   const maintenanceHintTimerRef = useRef<number | null>(null);
-  const dismissedMaintenanceNoticeKeyRef = useRef<string | null>(null);
-  const surfacedMaintenanceNoticeKeyRef = useRef<string | null>(null);
   const compactionJobVersionRef = useRef(0);
   const selectedTextModelKeyRef = useRef(selectedTextModelKey);
   const previousQuestionStepRef = useRef<string | null>(
@@ -430,75 +423,6 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     setMessages((prev) => [...prev, mk(role, content.trim())]);
   }, []);
 
-  const dismissMaintenanceNotice = useCallback(() => {
-    if (maintenanceNotice) {
-      dismissedMaintenanceNoticeKeyRef.current = maintenanceNotice.id;
-    }
-    setMaintenanceNotice(null);
-  }, [maintenanceNotice]);
-
-  const showDetachedMaintenanceNotice = useCallback(
-    (message: string, nextQuestion: ComposerQuestion | null = null, title?: string) => {
-      const noticeTitle = title?.trim() || nextQuestion?.title || "首页维护提醒";
-      const noticeKey = [
-        noticeTitle,
-        nextQuestion?.id ?? "message",
-        runtimeRef.current.maintenanceReports[0]?.id ?? "no-report",
-        runtimeRef.current.skillDrafts
-          .map((draft) => `${draft.id}:${draft.status}`)
-          .slice(0, 6)
-          .join("|"),
-      ].join("::");
-      surfacedMaintenanceNoticeKeyRef.current = noticeKey;
-      dismissedMaintenanceNoticeKeyRef.current = null;
-      setMaintenanceNotice({
-        id: noticeKey,
-        title: noticeTitle,
-        message,
-        question: nextQuestion,
-      });
-    },
-    [runtimeRef],
-  );
-
-  const runDetachedMaintenanceAction = useCallback(
-    async (action: string, input: Record<string, unknown>, _label: string) => {
-      try {
-        const workflow = await loadWorkflowActionsModule();
-        const result = await workflow.runWorkflowAction(action, input, runtimeRef.current);
-        const nextRuntime = result.data
-          ? mergeRuntimeWithWorkflowDelta(runtimeRef.current, result.data as WorkflowRuntimeDelta)
-          : runtimeRef.current;
-
-        if (result.data) {
-          startTransition(() => {
-            setRuntime(nextRuntime);
-          });
-        }
-
-        const normalizedSummary = result.summary.trim() || "维护动作已完成。";
-        const summaryTitle = normalizedSummary.split(/\n+/)[0]?.trim() || "维护动作已完成。";
-        const summaryBody =
-          normalizedSummary === summaryTitle
-            ? "你可以继续处理维护事项，或直接回到主任务会话。"
-            : normalizedSummary.slice(summaryTitle.length).trim();
-
-        showDetachedMaintenanceNotice(
-          summaryBody,
-          buildMaintenanceReviewQuestion(nextRuntime),
-          summaryTitle,
-        );
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "维护动作执行失败。";
-        const errorTitle = message.split(/\n+/)[0]?.trim() || "维护动作执行失败。";
-        const errorBody =
-          message === errorTitle ? "可以稍后重试，或继续当前首页主会话。" : message.slice(errorTitle.length).trim();
-        showDetachedMaintenanceNotice(errorBody, buildMaintenanceReviewQuestion(runtimeRef.current), errorTitle);
-      }
-    },
-    [loadWorkflowActionsModule, setRuntime, showDetachedMaintenanceNotice],
-  );
-
   const { resolveDreaminaCapability, send, reset, answer, handleTemplateLaunch, autoResearchChoiceHandler } = useHomeAgentRuntimeActions({
     systemPrompt: PROMPT,
     qState,
@@ -517,6 +441,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     loadProjectStore,
     loadAskUserQuestionModule,
     loadDreaminaCliModule,
+    loadWorkflowActionsModule,
     flashMaintenanceHint,
     resetComposerDraft,
     dreaminaCapability,
@@ -932,36 +857,32 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   );
 
   const handleRenameProject = useCallback(
-    async (snapshot: ConversationProjectSnapshot) => {
-      const next = window.prompt("输入新的会话名称", snapshot.title)?.trim();
-      if (!next || next === snapshot.title) return;
-      try {
-        const store = await loadProjectStore();
-        await store.renameConversationProject(snapshot.projectId, next);
-      } catch (error) {
-        flashMaintenanceHint(
-          error instanceof Error ? error.message : "重命名失败，请稍后重试。",
-          3200,
-        );
-        return;
-      }
-
-      startTransition(() => {
-        setRuntime((prev) => ({
-          ...prev,
-          recentProjects: prev.recentProjects.map((item) =>
-            item.projectId === snapshot.projectId ? { ...item, title: next } : item,
-          ),
-          currentProjectSnapshot:
-            prev.currentProjectSnapshot?.projectId === snapshot.projectId
-              ? { ...prev.currentProjectSnapshot, title: next }
-              : prev.currentProjectSnapshot,
-        }));
-      });
-      flashMaintenanceHint("已重命名该会话。", 2000);
+    (snapshot: ConversationProjectSnapshot) => {
+      setRenameTarget({ projectId: snapshot.projectId, title: snapshot.title });
+      setRenameDraft(snapshot.title);
     },
-    [flashMaintenanceHint, loadProjectStore],
+    [],
   );
+
+  const handleRenameConfirm = useCallback(async () => {
+    if (!renameTarget) return;
+    const next = renameDraft.trim();
+    if (!next || next === renameTarget.title) {
+      setRenameTarget(null);
+      return;
+    }
+    try {
+      const store = await loadProjectStore();
+      await store.renameConversationProject(renameTarget.projectId, next);
+    } catch (error) {
+      flashMaintenanceHint(
+        error instanceof Error ? error.message : "重命名失败，请稍后重试。",
+        3200,
+      );
+    } finally {
+      setRenameTarget(null);
+    }
+  }, [renameTarget, renameDraft, loadProjectStore, flashMaintenanceHint]);
 
   const handleDeleteProject = useCallback(
     async (snapshot: ConversationProjectSnapshot) => {
@@ -1098,7 +1019,6 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   });
 
   const {
-    maintenanceChoiceHandler,
     videoProjectChoiceHandler,
     videoReviewChoiceHandler,
     videoAssetChoiceHandler,
@@ -1140,65 +1060,7 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     buildBeatPacketListQuestion,
     findBeatPacket,
     buildBeatPacketDecisionQuestion,
-    buildMaintenanceReviewQuestion,
-    buildSkillDraftListQuestion,
-    buildApprovedSkillDraftListQuestion,
-    buildSkillDraftDecisionQuestion,
-    showDetachedMaintenanceNotice,
-    runDetachedMaintenanceAction,
   });
-
-  const handleMaintenanceNoticeChoice = useCallback(
-    (value: string, label: string) => {
-      maintenanceChoiceHandler(value, label);
-    },
-    [maintenanceChoiceHandler],
-  );
-
-  useEffect(() => {
-    if (runtime.currentProjectSnapshot || qState || streaming || popoverOverride || draftPresence) {
-      return;
-    }
-
-    const nextQuestion = buildMaintenanceReviewQuestion(runtime);
-    if (!nextQuestion) {
-      if (maintenanceNotice?.question?.id?.startsWith("maintenance-")) {
-        setMaintenanceNotice(null);
-      }
-      surfacedMaintenanceNoticeKeyRef.current = null;
-      dismissedMaintenanceNoticeKeyRef.current = null;
-      return;
-    }
-
-    // Keep the detached maintenance card on its own mini-session path.
-    // Once a notice is open, only explicit maintenance actions should advance it.
-    if (maintenanceNotice) {
-      return;
-    }
-
-    const nextNoticeKey = [
-      nextQuestion.id,
-      runtime.maintenanceReports[0]?.id ?? "no-report",
-      runtime.skillDrafts.map((draft) => `${draft.id}:${draft.status}`).slice(0, 6).join("|"),
-    ].join("::");
-    if (dismissedMaintenanceNoticeKeyRef.current === nextNoticeKey) return;
-    if (surfacedMaintenanceNoticeKeyRef.current === nextNoticeKey && maintenanceNotice) return;
-
-    surfacedMaintenanceNoticeKeyRef.current = nextNoticeKey;
-    setMaintenanceNotice({
-      id: nextNoticeKey,
-      title: nextQuestion.title,
-      message: nextQuestion.description || "最近一次维护整理已经完成，可以单独查看，不会打断当前主会话。",
-      question: nextQuestion,
-    });
-  }, [
-    draftPresence,
-    maintenanceNotice,
-    popoverOverride,
-    qState,
-    runtime,
-    streaming,
-  ]);
 
   const { idleComposer, activeComposer } = useHomeAgentComposerBindings({
     idle,
@@ -1229,7 +1091,8 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     answer,
     send,
     setSelectedValues,
-    maintenanceChoiceHandler,
+    setQState,
+    setSuggested,
     videoProjectChoiceHandler,
     videoReviewChoiceHandler,
     videoAssetChoiceHandler,
@@ -1243,6 +1106,25 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   return (
     <div className="relative h-screen overflow-x-hidden overflow-y-auto scrollbar-none bg-[#131314] text-white">
       <HomeSurfaceBackdrop idle={idle} />
+      {renameTarget ? (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setRenameTarget(null)}>
+          <div className="w-[min(92vw,400px)] rounded-[20px] border border-white/[0.08] bg-[#17181b] p-5 shadow-[0_24px_64px_rgba(0,0,0,0.5)]" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 text-[14px] font-medium text-white/90">重命名会话</div>
+            <input
+              autoFocus
+              type="text"
+              value={renameDraft}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void handleRenameConfirm(); if (e.key === "Escape") setRenameTarget(null); }}
+              className="w-full rounded-[12px] border border-white/[0.1] bg-white/[0.06] px-3 py-2 text-[13px] text-white outline-none focus:border-[#0f62fe]/60 focus:ring-1 focus:ring-[#0f62fe]/40"
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <button type="button" onClick={() => setRenameTarget(null)} className="h-8 rounded-full px-3.5 text-[12px] text-white/50 hover:text-white/80 transition-colors">取消</button>
+              <button type="button" onClick={() => void handleRenameConfirm()} className="h-8 rounded-full bg-[#0f62fe] px-3.5 text-[12px] text-white hover:bg-[#1b6fff] transition-colors">确认</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <DesktopSidebar
         idle={idle}
         recentProjects={deferredRecentProjects}
@@ -1306,11 +1188,6 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
       />
 
       <div className="relative z-10 flex min-h-screen flex-col">
-        <DetachedMaintenanceNoticeCard
-          notice={maintenanceNotice}
-          onDismiss={dismissMaintenanceNotice}
-          onSelect={handleMaintenanceNoticeChoice}
-        />
         <MobileTopbar idle={idle} brandLabel={SIDEBAR_BRAND} onOpenNavigation={handleOpenMobileNavigation} />
         <main
           className={cn(

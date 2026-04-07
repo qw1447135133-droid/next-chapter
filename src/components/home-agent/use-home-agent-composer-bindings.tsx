@@ -9,9 +9,9 @@ import {
   type HomeComposerVideoTransportHint,
 } from "./home-agent-shell";
 import { buildConfirmedStructuredAnswer, handleHomeAgentChoiceSelection, submitHomeAgentComposer } from "./home-agent-session-actions";
+import { isOriginalScriptKickoffRequest, rewindOriginalScriptKickoff, canRewindOriginalScriptKickoff } from "@/lib/home-agent/original-script-kickoff";
 
 type ChoiceHandler = (snapshot: ConversationProjectSnapshot, value: string, label: string) => boolean;
-type MaintenanceChoiceHandler = (value: string, label: string) => boolean;
 type AutoResearchChoiceHandler = (value: string, label: string) => boolean | Promise<boolean>;
 
 export function useHomeAgentComposerBindings(params: {
@@ -43,7 +43,8 @@ export function useHomeAgentComposerBindings(params: {
   answer: (value: string, label?: string) => void;
   send: (value: string, shown?: string) => Promise<void>;
   setSelectedValues: React.Dispatch<React.SetStateAction<string[]>>;
-  maintenanceChoiceHandler: MaintenanceChoiceHandler;
+  setQState: React.Dispatch<React.SetStateAction<StudioQuestionState | null>>;
+  setSuggested: React.Dispatch<React.SetStateAction<ComposerQuestion | null>>;
   videoProjectChoiceHandler: ChoiceHandler;
   videoReviewChoiceHandler: ChoiceHandler;
   videoAssetChoiceHandler: ChoiceHandler;
@@ -82,7 +83,8 @@ export function useHomeAgentComposerBindings(params: {
     answer,
     send,
     setSelectedValues,
-    maintenanceChoiceHandler,
+    setQState,
+    setSuggested,
     videoProjectChoiceHandler,
     videoReviewChoiceHandler,
     videoAssetChoiceHandler,
@@ -103,22 +105,25 @@ export function useHomeAgentComposerBindings(params: {
         qState,
         answer,
         setSelectedValues,
-        maintenanceChoiceHandler,
         videoProjectChoiceHandler,
         videoReviewChoiceHandler,
         videoAssetChoiceHandler,
         scriptProjectChoiceHandler,
         autoResearchChoiceHandler,
       });
+      // Clear the recovery suggestion immediately after selection so it doesn't reappear
+      if (question?.answerKey === "recovery") {
+        setSuggested(null);
+      }
     },
     [
       answer,
       qState,
       question,
       runtimeRef,
-      maintenanceChoiceHandler,
       scriptProjectChoiceHandler,
       setSelectedValues,
+      setSuggested,
       videoAssetChoiceHandler,
       videoProjectChoiceHandler,
       videoReviewChoiceHandler,
@@ -127,6 +132,16 @@ export function useHomeAgentComposerBindings(params: {
   );
 
   const confirmStructuredAnswer = useCallback(() => {
+    // When qState is null (e.g. recovery question), directly answer with the selected value
+    if (!qState) {
+      const selected = selectedValues[0];
+      if (selected) {
+        const label = question?.options.find((o) => o.value === selected)?.label || selected;
+        answer(selected, label);
+        if (question?.answerKey === "recovery") setSuggested(null);
+      }
+      return;
+    }
     const nextAnswer = buildConfirmedStructuredAnswer({
       qState,
       question,
@@ -135,7 +150,15 @@ export function useHomeAgentComposerBindings(params: {
     });
     if (!nextAnswer) return;
     answer(nextAnswer.submittedValue, nextAnswer.displayValue || nextAnswer.submittedValue);
-  }, [answer, draftRef, qState, question, selectedValues]);
+  }, [answer, draftRef, qState, question, selectedValues, setSuggested]);
+
+  const handleBack = useCallback(() => {
+    if (!qState || !isOriginalScriptKickoffRequest(qState.request)) return;
+    const prevQState = rewindOriginalScriptKickoff(qState);
+    if (!prevQState) return;
+    setQState(prevQState);
+    setSelectedValues([]);
+  }, [qState, setQState, setSelectedValues]);
 
   const submitComposer = useCallback(() => {
     submitHomeAgentComposer({
@@ -179,6 +202,7 @@ export function useHomeAgentComposerBindings(params: {
       onSelectTextModel,
       onSelectChoice: handleChoiceSelect,
       onConfirmQuestion: qState ? confirmStructuredAnswer : undefined,
+      onBackQuestion: qState && isOriginalScriptKickoffRequest(qState.request) && canRewindOriginalScriptKickoff(qState) ? handleBack : undefined,
       onLaunchAction,
       onSubmit: submitComposer,
       onInterrupt: handleInterrupt,
@@ -191,6 +215,7 @@ export function useHomeAgentComposerBindings(params: {
       draftInitialValue,
       draftPresence,
       draftResetVersion,
+      handleBack,
       handleChoiceSelect,
       handleInterrupt,
       idle,

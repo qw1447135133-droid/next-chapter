@@ -1,7 +1,10 @@
 import { clearStudioSession } from "@/lib/home-agent/session-store";
 import {
+  advanceOriginalScriptKickoff,
   buildOriginalScriptKickoffPrompt,
   isOriginalScriptKickoffRequest,
+  type OriginalScriptKickoffCompletion,
+  isOriginalScriptKickoffGenreQuestion,
 } from "@/lib/home-agent/original-script-kickoff";
 import { advanceStructuredAnswer, buildResetRuntimeState } from "./home-agent-conversation-state";
 import { serializeQuestionAnswers } from "./home-agent-session-utils";
@@ -79,6 +82,7 @@ export function answerHomeAgentQuestion(params: {
   send: (value: string, shown?: string) => Promise<void>;
   push: PushMessage;
   resolveQuestion: (requestId: string, output: string) => boolean | Promise<boolean>;
+  completeOriginalScriptKickoff?: (completion: OriginalScriptKickoffCompletion) => void | Promise<void>;
   setQState: (value: StudioQuestionState | null) => void;
   setSelectedValues: (value: string[]) => void;
   resetComposerDraft: (value?: string) => void;
@@ -92,6 +96,7 @@ export function answerHomeAgentQuestion(params: {
     send,
     push,
     resolveQuestion,
+    completeOriginalScriptKickoff,
     setQState,
     setSelectedValues,
     resetComposerDraft,
@@ -106,6 +111,37 @@ export function answerHomeAgentQuestion(params: {
   const activeQuestion = qState.request.questions[qState.currentIndex];
   if (!activeQuestion) {
     setQState(null);
+    setSelectedValues([]);
+    resetComposerDraft("");
+    return;
+  }
+
+  if (isOriginalScriptKickoffRequest(qState.request)) {
+    const transition = advanceOriginalScriptKickoff({
+      qState,
+      value,
+      label,
+    });
+    if (!transition) return;
+
+    if (transition.completion) {
+      setQState(null);
+      setSelectedValues([]);
+      resetComposerDraft("");
+      void Promise.resolve(completeOriginalScriptKickoff?.(transition.completion)).catch(() => {
+        void send(buildOriginalScriptKickoffPrompt(transition.completion.structuredSummary), transition.userBubble);
+      });
+      return;
+    }
+
+    push("user", transition.userBubble);
+    if (transition.nextQState) {
+      const nextQuestion = transition.nextQState.request.questions[0];
+      if (nextQuestion?.question) {
+        push("assistant", nextQuestion.question);
+      }
+    }
+    setQState(transition.nextQState);
     setSelectedValues([]);
     resetComposerDraft("");
     return;
@@ -212,7 +248,6 @@ export function handleHomeAgentChoiceSelection(params: {
   qState: StudioQuestionState | null;
   answer: (value: string, label?: string) => void;
   setSelectedValues: React.Dispatch<React.SetStateAction<string[]>>;
-  maintenanceChoiceHandler: (value: string, label: string) => boolean;
   videoProjectChoiceHandler: (snapshot: ConversationProjectSnapshot, value: string, label: string) => boolean;
   videoReviewChoiceHandler: (snapshot: ConversationProjectSnapshot, value: string, label: string) => boolean;
   videoAssetChoiceHandler: (snapshot: ConversationProjectSnapshot, value: string, label: string) => boolean;
@@ -227,7 +262,6 @@ export function handleHomeAgentChoiceSelection(params: {
     qState,
     answer,
     setSelectedValues,
-    maintenanceChoiceHandler,
     videoProjectChoiceHandler,
     videoReviewChoiceHandler,
     videoAssetChoiceHandler,
@@ -237,10 +271,6 @@ export function handleHomeAgentChoiceSelection(params: {
 
   if (question?.id.startsWith("auto-research:")) {
     void Promise.resolve(autoResearchChoiceHandler(value, label));
-    return;
-  }
-
-  if (question?.id.startsWith("maintenance-") && maintenanceChoiceHandler(value, label)) {
     return;
   }
 
@@ -266,13 +296,22 @@ export function handleHomeAgentChoiceSelection(params: {
     return;
   }
 
-  if (!qState || (!question?.multiSelect && question?.submissionMode !== "confirm")) {
+  if (!question?.multiSelect && question?.submissionMode !== "confirm") {
+    answer(value, label);
+    return;
+  }
+
+  // Single-option confirm: treat as immediate — no need for a separate confirm step
+  if (!question?.multiSelect && question?.submissionMode === "confirm" && question?.options.length === 1) {
     answer(value, label);
     return;
   }
 
   setSelectedValues((prev) => {
     if (question.multiSelect) {
+      if (!prev.includes(value) && isOriginalScriptKickoffGenreQuestion(question) && prev.length >= 2) {
+        return prev;
+      }
       return prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value];
     }
     return [value];

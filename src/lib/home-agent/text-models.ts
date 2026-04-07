@@ -170,6 +170,13 @@ export function getHomeAgentTextModelOption(value?: string | null): HomeAgentTex
   );
 }
 
+const PROVIDER_DEFAULT_BASE_URLS: Record<HomeAgentTextModelOption["provider"], string> = {
+  claude: "https://api.tu-zi.com/v1",
+  gemini: "https://api.tu-zi.com/v1beta",
+  gpt: "https://api.tu-zi.com/v1",
+  grok: "https://api.tu-zi.com/v1",
+};
+
 export function resolveHomeAgentTextModelRuntime(
   apiConfigModule: Pick<typeof import("@/lib/api-config"), "getApiConfig" | "resolveConfiguredModelName">,
   value?: string | null,
@@ -177,12 +184,13 @@ export function resolveHomeAgentTextModelRuntime(
   const option = getHomeAgentTextModelOption(value);
   const config = apiConfigModule.getApiConfig();
   const providerKeys = PROVIDER_CREDENTIAL_KEYS[option.provider];
+  const storedBaseUrl = String(config[providerKeys.baseUrl] || "").trim();
 
   return {
     provider: option.provider,
     model: apiConfigModule.resolveConfiguredModelName(option.key),
     apiKey: String(config[providerKeys.apiKey] || "").trim(),
-    baseUrl: String(config[providerKeys.baseUrl] || "").trim(),
+    baseUrl: storedBaseUrl || PROVIDER_DEFAULT_BASE_URLS[option.provider],
     option,
   };
 }

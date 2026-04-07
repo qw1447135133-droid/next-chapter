@@ -141,6 +141,16 @@ export class QueryEngine {
       })) {
         if (event.type === 'stream_request_start') continue
 
+        if (event.type === 'text_delta') {
+          yield {
+            type: 'text_delta',
+            uuid: uuidv4(),
+            sessionId,
+            delta: (event as import('./types').TextDeltaEvent).delta,
+          } satisfies SDKMessage
+          continue
+        }
+
         if (event.type === 'assistant') {
           this.messages.push(event as AssistantMessage)
           const msg = event as AssistantMessage
@@ -160,12 +170,16 @@ export class QueryEngine {
             }
           }
 
-          yield {
-            type: 'assistant',
-            uuid: msg.uuid,
-            sessionId,
-            message: msg,
-          } satisfies SDKMessage
+          // Only yield assistant messages that end the turn (not intermediate tool-use turns)
+          // This prevents duplicate text when the agent calls multiple tools in sequence
+          if (msg.message.stop_reason !== 'tool_use') {
+            yield {
+              type: 'assistant',
+              uuid: msg.uuid,
+              sessionId,
+              message: msg,
+            } satisfies SDKMessage
+          }
 
         } else if (event.type === 'user') {
           const msg = event as UserMessage

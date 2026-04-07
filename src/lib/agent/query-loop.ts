@@ -6,13 +6,13 @@
  */
 
 import { v4 as uuidv4 } from 'uuid'
-import { callModelAPI, toAPIMessages } from './api-client'
-import { withRetry } from './retry'
+import { callModelAPIStream, toAPIMessages } from './api-client'
 import { findToolByName, type CanUseToolFn, type Tool, type ToolUseContext } from './tool'
 import type {
   AssistantMessage,
   Message,
   RequestStartEvent,
+  TextDeltaEvent,
   ToolResultBlock,
   UserMessage,
 } from './types'
@@ -34,7 +34,7 @@ interface LoopState {
 
 export async function* queryLoop(
   params: QueryParams,
-): AsyncGenerator<Message | RequestStartEvent> {
+): AsyncGenerator<Message | RequestStartEvent | TextDeltaEvent> {
   const { systemPrompt, canUseTool, toolUseContext, maxTurns, apiKey, baseUrl } = params
   const model = toolUseContext.options.model
   const tools = toolUseContext.options.tools
@@ -53,20 +53,31 @@ export async function* queryLoop(
     // Prepare API messages (only user/assistant types)
     const apiMessages = toAPIMessages(state.messages)
 
-    // Call the model (with retry)
+    // Call the model with streaming
     let assistantMsg: AssistantMessage
+    const pendingDeltas: string[] = []
     try {
-      assistantMsg = await withRetry(() =>
-        callModelAPI({
-          messages: apiMessages,
-          systemPrompt,
-          model,
-          tools,
-          thinkingConfig: toolUseContext.options.thinkingConfig,
-          apiKey,
-          baseUrl,
-        }),
-      )
+      const stream = callModelAPIStream({
+        messages: apiMessages,
+        systemPrompt,
+        model,
+        tools,
+        thinkingConfig: toolUseContext.options.thinkingConfig,
+        apiKey,
+        baseUrl,
+      })
+      let finalMsg: AssistantMessage | null = null
+      for await (const event of stream) {
+        if (toolUseContext.abortSignal?.aborted) break
+        if (event.type === 'delta') {
+          // Buffer deltas — only yield them if this turns out to be the final turn
+          pendingDeltas.push(event.text)
+        } else {
+          finalMsg = event.message
+        }
+      }
+      if (!finalMsg) throw new Error('No message received from stream')
+      assistantMsg = finalMsg
     } catch (err) {
       const errorMsg: AssistantMessage = {
         type: 'assistant',
@@ -83,17 +94,25 @@ export async function* queryLoop(
     }
 
     state.messages.push(assistantMsg)
-    yield assistantMsg
 
-    // Abort check after response
-    if (toolUseContext.abortSignal?.aborted) return
-
-    // Find tool_use blocks
+    // Find tool_use blocks before yielding, so we know if this is the final turn
     const content = assistantMsg.message.content
     const toolUseBlocks =
       Array.isArray(content)
         ? content.filter(b => b.type === 'tool_use')
         : []
+
+    // Only yield streaming deltas for the final turn (no tool calls)
+    if (toolUseBlocks.length === 0) {
+      for (const delta of pendingDeltas) {
+        yield { type: 'text_delta', delta } satisfies TextDeltaEvent
+      }
+    }
+
+    yield assistantMsg
+
+    // Abort check after response
+    if (toolUseContext.abortSignal?.aborted) return
 
     if (toolUseBlocks.length === 0) {
       // No tools called – end of conversation turn

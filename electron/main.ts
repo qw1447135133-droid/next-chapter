@@ -387,6 +387,124 @@ function setupIPC() {
     },
   );
 
+  // Streaming version: sends text deltas back via agent:stream-delta events
+  ipcMain.handle(
+    "agent:callModelApiStream",
+    async (
+      event,
+      {
+        url,
+        apiKey,
+        requestParams,
+        streamId,
+      }: {
+        url: string;
+        apiKey: string;
+        requestParams: Record<string, unknown>;
+        streamId: string;
+      },
+    ) => {
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({ ...requestParams, stream: true }),
+        });
+
+        if (!response.ok) {
+          const text = await response.text().catch(() => "");
+          return {
+            ok: false,
+            error: `Model request failed (${response.status}): ${text.slice(0, 300) || response.statusText}`,
+          };
+        }
+
+        const reader = (response.body as any)?.getReader();
+        if (!reader) return { ok: false, error: "No response body" };
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let accText = "";
+        const contentBlocks: any[] = [];
+        let inputTokens = 0;
+        let outputTokens = 0;
+        let stopReason = "end_turn";
+        let currentToolUse: { id: string; name: string; inputJson: string } | null = null;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (event.sender.isDestroyed()) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6).trim();
+            if (data === "[DONE]") continue;
+            let evt: any;
+            try { evt = JSON.parse(data); } catch { continue; }
+
+            const type = evt.type as string;
+            if (type === "content_block_start") {
+              if (evt.content_block?.type === "tool_use") {
+                currentToolUse = { id: evt.content_block.id, name: evt.content_block.name, inputJson: "" };
+              }
+            } else if (type === "content_block_delta") {
+              if (evt.delta?.type === "text_delta") {
+                const chunk = evt.delta.text as string;
+                accText += chunk;
+                if (!event.sender.isDestroyed()) {
+                  event.sender.send("agent:stream-delta", { streamId, delta: chunk });
+                }
+              } else if (evt.delta?.type === "input_json_delta" && currentToolUse) {
+                currentToolUse.inputJson += evt.delta.partial_json ?? "";
+              }
+            } else if (type === "content_block_stop") {
+              if (currentToolUse) {
+                let input: any = {};
+                try { input = JSON.parse(currentToolUse.inputJson); } catch { /* ignore */ }
+                contentBlocks.push({ type: "tool_use", id: currentToolUse.id, name: currentToolUse.name, input });
+                currentToolUse = null;
+              }
+            } else if (type === "message_delta") {
+              if (evt.delta?.stop_reason) stopReason = evt.delta.stop_reason;
+              if (evt.usage?.output_tokens) outputTokens = evt.usage.output_tokens;
+            } else if (type === "message_start") {
+              if (evt.message?.usage?.input_tokens) inputTokens = evt.message.usage.input_tokens;
+            }
+          }
+        }
+
+        if (accText) contentBlocks.unshift({ type: "text", text: accText });
+
+        return {
+          ok: true,
+          data: {
+            id: "stream",
+            type: "message",
+            role: "assistant",
+            content: contentBlocks,
+            model: requestParams.model,
+            stop_reason: stopReason,
+            usage: { input_tokens: inputTokens, output_tokens: outputTokens },
+          },
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  );
+
   ipcMain.handle(
     "agent:submitMessage",
     async (

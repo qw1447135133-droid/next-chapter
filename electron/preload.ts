@@ -153,4 +153,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("storage:readBase64", { filePath }),
   } as StorageAPI,
   invoke: (channel: string, ...args: unknown[]) => ipcRenderer.invoke(channel, ...args),
+  on: (channel: string, listener: (...args: unknown[]) => void) => {
+    ipcRenderer.on(channel, (_event, ...args) => listener(...args));
+  },
+  off: (channel: string, listener: (...args: unknown[]) => void) => {
+    ipcRenderer.removeListener(channel, listener as Parameters<typeof ipcRenderer.removeListener>[1]);
+  },
 });

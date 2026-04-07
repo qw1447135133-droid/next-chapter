@@ -539,16 +539,29 @@ export const brief = (snapshot: ConversationProjectSnapshot) =>
     .filter(Boolean)
     .join("\n\n");
 
-export const recQuestion = (snapshot: ConversationProjectSnapshot, videoProject?: PersistedVideoProject | null): ComposerQuestion | null =>
-  buildReviewQuestion(snapshot) ??
+export const recQuestion = (snapshot: ConversationProjectSnapshot, videoProject?: PersistedVideoProject | null): ComposerQuestion | null => {
+  const setupArtifact = snapshot.artifacts.find((a) => a.label === "项目设定");
+  const setupSummary = setupArtifact?.summary?.trim();
+
+  return buildReviewQuestion(snapshot) ??
   buildVideoRepairQuestion(snapshot) ??
   buildVideoContinuationQuestion(snapshot, videoProject) ??
   buildScriptPacketQuestion(snapshot) ??
   (snapshot.recommendedActions.length
     ? {
         id: `r-${snapshot.projectId}`,
-        title: `我已分析《${snapshot.title}》的当前状态，下一步先推进哪一块？`,
-        description: `${summarizeRecoveryArtifacts(snapshot)} 你也可以直接输入自定义指令。`,
+        title: snapshot.recommendedActions.length === 1
+          ? `下一步：${snapshot.recommendedActions[0]}`
+          : snapshot.recommendedActions.includes("修改创作冲突")
+            ? "创作方案已生成，下一步怎么走？"
+            : `我已分析《${snapshot.title}》的当前状态，下一步先推进哪一块？`,
+        description: snapshot.recommendedActions.length === 1
+          ? setupSummary
+            ? `当前配置：${setupSummary.replace(/\n/g, " · ")} 确认后直接执行。`
+            : `${summarizeRecoveryArtifacts(snapshot)} 确认后直接执行。`
+          : snapshot.recommendedActions.includes("修改创作冲突")
+            ? "可以直接进入角色开发，或先调整创作方案中的核心冲突。"
+            : `${summarizeRecoveryArtifacts(snapshot)} 你也可以直接输入自定义指令。`,
         options: snapshot.recommendedActions.slice(0, 3).map((action, index) => ({
           id: `${snapshot.projectId}-${index}`,
           label: action,
@@ -556,13 +569,14 @@ export const recQuestion = (snapshot: ConversationProjectSnapshot, videoProject?
           rationale: buildRecoveryActionRationale(snapshot, action, index),
         })),
         allowCustomInput: true,
-        submissionMode: "immediate",
+        submissionMode: snapshot.recommendedActions.length === 1 ? "confirm" : "immediate",
         multiSelect: false,
         stepIndex: 0,
         totalSteps: 1,
         answerKey: "recovery",
       }
     : null);
+};
 
 export function isVideoIntentPrompt(prompt: string, snapshot?: ConversationProjectSnapshot | null): boolean {
   if (snapshot?.projectKind === "video") return true;

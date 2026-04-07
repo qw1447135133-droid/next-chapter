@@ -7,6 +7,7 @@ interface ComposerChoiceModalProps {
   question: ComposerQuestion | null;
   onSelect: (value: string, label: string) => void;
   onConfirm?: () => void;
+  onBack?: () => void;
   canConfirm?: boolean;
   tone?: "light" | "dark";
 }
@@ -19,6 +20,7 @@ export default function ComposerChoiceModal({
   question,
   onSelect,
   onConfirm,
+  onBack,
   canConfirm = false,
   tone = "dark",
 }: ComposerChoiceModalProps) {
@@ -28,7 +30,7 @@ export default function ComposerChoiceModal({
     <DialogPrimitive.Root open={open} modal={false}>
       <DialogPrimitive.Content
         className={cn(
-          "absolute bottom-[calc(100%+2px)] left-0 z-[60] max-h-[min(64vh,760px)] w-[min(96vw,540px)] overflow-y-auto border-0 bg-transparent p-0 shadow-none outline-none",
+          "absolute bottom-[calc(100%+2px)] left-0 z-[60] w-[min(96vw,540px)] overflow-visible border-0 bg-transparent p-0 shadow-none outline-none",
           "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:slide-out-to-bottom-2 data-[state=open]:slide-in-from-bottom-2 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
         )}
         onPointerDownOutside={(e) => e.preventDefault()}
@@ -46,6 +48,7 @@ export default function ComposerChoiceModal({
               question={question}
               onSelect={onSelect}
               onConfirm={onConfirm}
+              onBack={onBack}
               canConfirm={canConfirm}
               tone={tone}
             />

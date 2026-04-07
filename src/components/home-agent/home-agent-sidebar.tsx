@@ -603,6 +603,7 @@ const SidebarProjectHistory = memo(function SidebarProjectHistory({
                   <DropdownMenuContent
                     align="end"
                     sideOffset={8}
+                    avoidCollisions={false}
                     className="w-44 rounded-xl border-white/10 bg-[#14171c]/96 p-1.5 text-slate-100 shadow-[0_20px_48px_rgba(0,0,0,0.45)] backdrop-blur-xl"
                   >
                     {onTogglePinProject ? (

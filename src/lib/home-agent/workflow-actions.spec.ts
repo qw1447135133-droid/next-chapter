@@ -78,6 +78,40 @@ function createRuntime(): StudioRuntimeState {
 }
 
 describe("workflow-actions get_context", () => {
+  it("writes structured original-script setup data and lands the project in the characters stage", async () => {
+    const result = await runWorkflowAction(
+      "save_setup",
+      {
+        projectKind: "script",
+        setupMode: "creative",
+        genres: ["理财专家", "旅行博主"],
+        audience: "女频",
+        tone: "甜虐",
+        ending: "HE",
+        totalEpisodes: 500,
+        targetMarket: "west",
+        customTopic: "强调身份反转和情绪拉扯",
+        creativeInput: "替父还债的女孩签下契约婚姻后，发现继承人也在借她布局身份反转。",
+      },
+      createRuntime(),
+    );
+
+    expect(result.data?.dramaProject?.setup).toMatchObject({
+      setupMode: "creative",
+      genres: ["理财专家", "旅行博主"],
+      audience: "女频",
+      tone: "甜虐",
+      ending: "HE",
+      totalEpisodes: 500,
+      targetMarket: "west",
+      customTopic: "强调身份反转和情绪拉扯",
+      creativeInput: "替父还债的女孩签下契约婚姻后，发现继承人也在借她布局身份反转。",
+    });
+    expect(result.data?.dramaProject?.currentStep).toBe("creative-plan");
+    expect(result.projectSnapshot?.derivedStage).toBe("创意方案");
+    expect(result.projectSnapshot?.currentObjective).toContain("角色弧光");
+  });
+
   it("returns an agent-readable structured summary instead of raw JSON", async () => {
     const result = await runWorkflowAction("get_context", {}, createRuntime());
 

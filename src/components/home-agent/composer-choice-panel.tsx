@@ -1,24 +1,156 @@
-import { Check, Sparkles } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Check, ChevronDown, ChevronLeft, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ComposerQuestion } from "@/lib/home-agent/types";
+import { GENRES } from "@/types/drama";
 
 export interface ComposerChoicePanelProps {
   question: ComposerQuestion;
   onSelect: (value: string, label: string) => void;
   onConfirm?: () => void;
+  onBack?: () => void;
   canConfirm?: boolean;
   tone?: "light" | "dark";
+}
+
+/** Two-level genre picker: left column = categories, right panel = genres in selected category */
+function GenreCategoryPicker({
+  question,
+  onSelect,
+  dark,
+}: {
+  question: ComposerQuestion;
+  onSelect: (value: string, label: string) => void;
+  dark: boolean;
+}) {
+  const selectedValues = useMemo(
+    () => new Set(question.options.filter((o) => o.selected).map((o) => o.value)),
+    [question.options],
+  );
+
+  const allowedValues = useMemo(
+    () => new Set(question.options.map((o) => o.value)),
+    [question.options],
+  );
+
+  const groupedGenres = useMemo(() => {
+    const groups = new Map<string, Array<(typeof GENRES)[number]>>();
+    for (const genre of GENRES) {
+      if (!allowedValues.has(genre.value)) continue;
+      const list = groups.get(genre.category) ?? [];
+      list.push(genre);
+      groups.set(genre.category, list);
+    }
+    return Array.from(groups.entries());
+  }, [allowedValues]);
+
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+
+  const activeGenres = useMemo(
+    () => groupedGenres.find(([cat]) => cat === activeCategory)?.[1] ?? [],
+    [groupedGenres, activeCategory],
+  );
+
+  return (
+    <div className="relative">
+      {/* Level 1: category list — same width as the panel */}
+      <div className="flex flex-col gap-1">
+        {groupedGenres.map(([category]) => {
+          const isActive = activeCategory === category;
+          const selectedInCategory = groupedGenres
+            .find(([c]) => c === category)?.[1]
+            .filter((g) => selectedValues.has(g.value)).length ?? 0;
+          return (
+            <button
+              key={category}
+              type="button"
+              onClick={() => setActiveCategory(isActive ? null : category)}
+              className={`flex w-full items-center justify-between rounded-[14px] border px-3 py-1.5 text-left transition-colors ${
+                isActive
+                  ? dark
+                    ? "border-white/[0.14] bg-white/[0.1]"
+                    : "border-slate-300 bg-slate-100"
+                  : dark
+                    ? "border-white/[0.06] bg-white/[0.04] hover:bg-white/[0.08]"
+                    : "border-slate-200 bg-slate-50 hover:bg-white"
+              }`}
+            >
+              <span className={`text-[12.5px] font-medium ${dark ? "text-slate-100" : "text-slate-900"}`}>
+                {category}
+              </span>
+              {selectedInCategory > 0 && (
+                <span className="ml-2 inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-[#0f62fe] px-1 text-[9px] font-medium text-white">
+                  {selectedInCategory}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Level 2: genre panel — floats to the right of the main panel */}
+      {activeCategory !== null && (
+        <div
+          className={`absolute bottom-0 left-[calc(100%+8px)] z-10 w-[280px] rounded-[16px] border p-2 ${
+            dark
+              ? "border-white/[0.07] bg-[linear-gradient(180deg,rgba(27,28,31,0.96),rgba(20,21,24,0.98))] shadow-[0_16px_40px_rgba(0,0,0,0.3)] backdrop-blur-xl"
+              : "border-slate-200 bg-white shadow-[0_10px_30px_rgba(148,163,184,0.18)]"
+          }`}
+        >
+          <div className={`mb-1.5 px-1 text-[11px] font-medium ${dark ? "text-slate-400" : "text-slate-500"}`}>
+            {activeCategory}
+          </div>
+          <div className="flex max-h-[420px] flex-col gap-1 overflow-y-auto scrollbar-none">
+            {activeGenres.map((genre) => {
+              const isSelected = selectedValues.has(genre.value);
+              return (
+                <button
+                  key={genre.value}
+                  type="button"
+                  onClick={() => onSelect(genre.value, genre.label)}
+                  className={`w-full shrink-0 rounded-[12px] border px-3 py-2.5 text-left transition-colors ${
+                    isSelected
+                      ? "border-[#2a73ff]/40 bg-[#0f62fe]/16"
+                      : dark
+                        ? "border-white/[0.05] bg-white/[0.03] hover:bg-white/[0.07]"
+                        : "border-slate-200 bg-slate-50 hover:bg-white"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-1.5">
+                    <span className={`text-[12.5px] font-medium leading-tight ${isSelected ? "text-white" : dark ? "text-slate-100" : "text-slate-900"}`}>
+                      {genre.label}
+                    </span>
+                    {isSelected && <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-white" />}
+                  </div>
+                  <div className={`mt-0.5 text-[10.5px] leading-[1.4] ${isSelected ? "text-white/65" : dark ? "text-slate-500" : "text-slate-500"}`}>
+                    {genre.desc}
+                    <span className={`ml-1 ${isSelected ? "text-white/45" : dark ? "text-slate-600" : "text-slate-400"}`}>
+                      受众：{genre.audience}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function ComposerChoicePanel({
   question,
   onSelect,
   onConfirm,
+  onBack,
   canConfirm = false,
   tone = "dark",
 }: ComposerChoicePanelProps) {
   const dark = tone === "dark";
+  const [collapsed, setCollapsed] = useState(false);
+  const isGenreQuestion = question.answerKey === "题材选择";
   const compactChoiceMode =
+    !isGenreQuestion &&
     !question.multiSelect &&
     question.submissionMode !== "confirm" &&
     question.options.length <= 4 &&
@@ -27,47 +159,78 @@ export function ComposerChoicePanel({
   return (
     <div
       data-choice-mode={compactChoiceMode ? "chip" : "card"}
-      className={`w-full ${compactChoiceMode ? "max-w-[600px]" : "max-w-[488px]"} rounded-[18px] border p-2 sm:p-2.5 ${
+      className={`w-full max-w-[488px] rounded-[18px] border p-2 sm:p-2.5 ${
         dark
           ? "border-white/[0.05] bg-[linear-gradient(180deg,rgba(27,28,31,0.82),rgba(20,21,24,0.93))] shadow-[0_12px_30px_rgba(0,0,0,0.15)] backdrop-blur-xl"
           : "border-slate-200/80 bg-white/96 shadow-[0_10px_20px_rgba(148,163,184,0.11)]"
-      }`}
+      } ${isGenreQuestion ? "" : "max-h-[min(64vh,760px)] overflow-y-auto scrollbar-none"}`}
     >
-      <div className={`flex items-start gap-2.5 ${compactChoiceMode ? "mb-1.5" : "mb-2"}`}>
-        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[12px] bg-[#0f62fe]/92 text-white shadow-[0_6px_14px_rgba(15,98,254,0.2)]">
-          <Sparkles className="h-2.5 w-2.5" />
-        </div>
+      <div className={`flex items-start gap-2.5 ${collapsed ? "" : compactChoiceMode ? "mb-1.5" : "mb-2"}`}>
+        {onBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-[12px] transition-colors ${
+              dark ? "text-slate-400 hover:bg-white/[0.08] hover:text-slate-200" : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+            }`}
+            aria-label="返回上一步"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+        ) : (
+          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[12px] bg-[#0f62fe]/92 text-white shadow-[0_6px_14px_rgba(15,98,254,0.2)]">
+            <Sparkles className="h-2.5 w-2.5" />
+          </div>
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2.5">
             <div className={`text-[12.5px] font-medium ${dark ? "text-slate-100" : "text-slate-900"}`}>{question.title}</div>
-            {question.totalSteps > 1 ? (
-              <div
-                className={`rounded-full px-1.5 py-0.5 text-[9.5px] ${
-                  dark
-                    ? "border border-white/[0.08] bg-white/[0.05] text-slate-400"
-                    : "border border-slate-200 bg-slate-100 text-slate-500"
+            <div className="flex shrink-0 items-center gap-1.5">
+              {question.totalSteps > 1 ? (
+                <div
+                  className={`rounded-full px-1.5 py-0.5 text-[9.5px] ${
+                    dark
+                      ? "border border-white/[0.08] bg-white/[0.05] text-slate-400"
+                      : "border border-slate-200 bg-slate-100 text-slate-500"
+                  }`}
+                >
+                  第 {question.stepIndex + 1} / {question.totalSteps} 步
+                </div>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setCollapsed((c) => !c)}
+                className={`flex h-5 w-5 items-center justify-center rounded-full transition-colors ${
+                  dark ? "text-slate-500 hover:bg-white/[0.08] hover:text-slate-300" : "text-slate-400 hover:bg-slate-100 hover:text-slate-600"
                 }`}
+                aria-label={collapsed ? "展开" : "收起"}
               >
-                第 {question.stepIndex + 1} / {question.totalSteps} 步
-              </div>
-            ) : null}
+                <ChevronDown className={`h-3 w-3 transition-transform ${collapsed ? "rotate-180" : ""}`} />
+              </button>
+            </div>
           </div>
-          {question.description ? (
+          {!collapsed && question.description ? (
             <div className={`mt-0.5 text-[11px] leading-[1.55] ${dark ? "text-slate-400" : "text-slate-600"}`}>
               {question.description}
             </div>
           ) : null}
-          <div className={`mt-1 text-[10px] ${dark ? "text-slate-500" : "text-slate-500"}`}>
-            {question.multiSelect
-              ? "可多选。先点选建议，再补充输入。"
+          {!collapsed && (
+            <div className={`mt-1 text-[10px] ${dark ? "text-slate-500" : "text-slate-500"}`}>
+              {question.multiSelect
+                ? "可多选。先点选建议，再补充输入。"
               : question.submissionMode === "confirm"
-                ? "先选一个方向，再确认继续。"
+                ? question.options.length === 1
+                  ? "确认后直接执行。"
+                  : "先选一个方向，再确认继续。"
                 : "点任一建议即可直接提交。"}
-          </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {compactChoiceMode ? (
+      {!collapsed && isGenreQuestion ? (
+        <GenreCategoryPicker question={question} onSelect={onSelect} dark={dark} />
+      ) : compactChoiceMode ? (
         <div className="flex flex-wrap gap-1.5">
           {question.options.map((option) => (
             <button
@@ -125,7 +288,7 @@ export function ComposerChoicePanel({
         </div>
       )}
 
-      {(question.submissionMode === "confirm" || question.multiSelect) && onConfirm ? (
+      {(question.submissionMode === "confirm" || question.multiSelect) && onConfirm && !collapsed ? (
         <div className="mt-2.5 flex items-center justify-between gap-2.5">
           <div className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-500"}`}>
             {question.allowCustomInput ? "也可在底部输入框补充说明。" : "如果不需要补充输入，可以直接继续。"}
@@ -137,10 +300,10 @@ export function ComposerChoicePanel({
             onClick={onConfirm}
             disabled={!canConfirm}
           >
-            继续
+            {question.options.length === 1 && !question.multiSelect ? "确认执行" : "继续"}
           </Button>
         </div>
-      ) : question.allowCustomInput ? (
+      ) : question.allowCustomInput && !collapsed ? (
         <div className={`mt-2 text-[10px] ${dark ? "text-slate-500" : "text-slate-500"}`}>
           也可在底部输入框填写自定义答案，不必受预设选项限制。
         </div>

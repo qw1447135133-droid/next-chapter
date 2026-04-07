@@ -438,84 +438,63 @@ function buildDramaRecommendations(project: DramaProject): string[] {
   const missingSetup = listMissingDramaSetupFields(project.setup);
   const nextOutlineEpisode = findNextOutlineEpisode(project);
   const nextEpisodeNumber = findNextEpisodeNumber(project);
-  const pendingCharacterCards = (project.characterStateCards ?? []).filter((card) => card.status !== "locked");
-  const pendingCompliancePackets = (project.complianceRevisionPackets ?? []).filter(
-    (packet) => packet.status === "pending",
-  );
-  const pendingBeatPacket = (project.storyBeatPackets ?? []).find((packet) => packet.status !== "locked");
-  const hasCharacterCards = (project.characterStateCards?.length ?? 0) > 0;
+  const pendingCharacterCards = (project.characterStateCards ?? []).filter((card) => card.status === "pending");
+  const hasCharacterCards = (project.characterStateCards ?? []).length > 0;
+  const pendingBeatPacket = (project.storyBeatPackets ?? []).find((packet) => packet.status === "pending");
+  const pendingCompliancePackets = (project.complianceRevisionPackets ?? []).filter((p) => p.status === "pending");
 
+  // Return a single, unambiguous next action for each stage so the Agent
+  // guides the user forward without offering a menu of choices.
   switch (project.currentStep) {
     case "setup":
       return [
         missingSetup.length
-          ? `补齐${missingSetup.slice(0, 2).join("和")}`
-          : "确认立项设定并进入创意方案",
-        project.setup?.creativeInput.trim() ? "基于当前创意输入生成方案" : "直接输入你的核心想法",
-        "让 Agent 先整理立项摘要",
+          ? `补齐${missingSetup.slice(0, 2).join("和")}后继续`
+          : "确认立项设定，直接生成创作方案",
       ];
     case "reference-script":
       return [
-        project.referenceScript.trim() ? "继续分析参考内容" : "先补充参考文本",
-        project.setup?.targetMarket.trim() ? "细化改编方向" : "锁定改编目标市场",
-        "补充你的改编要求",
+        project.referenceScript.trim() ? "继续分析参考内容，生成结构转译" : "先补充参考文本",
       ];
     case "creative-plan":
-      return [
-        project.creativePlan.trim() ? "微调创意方案" : "生成创意方案",
-        pendingCharacterCards.length ? `先锁定 ${pendingCharacterCards.length} 张角色状态卡` : hasCharacterCards ? "继续推进到分集目录" : "补齐角色状态卡",
-        "补充卖点、反转或人物关系要求",
-      ];
+      return project.creativePlan.trim()
+        ? ["修改创作冲突", "进入角色开发"]
+        : ["生成创作方案"];
     case "structure-transform":
       return [
-        project.structureTransform.trim() ? "调整世界观映射" : "生成结构转译",
-        project.characterTransform.trim() ? "继续推进到分集目录" : "生成角色转译方案",
-        "补充改编边界和保留元素",
+        project.structureTransform.trim() ? "结构转译完成，继续生成角色转译" : "生成结构转译",
       ];
     case "characters":
     case "character-transform":
       return [
-        project.directory.length ? "继续完善分集目录" : "生成分集目录",
-        pendingCharacterCards.length ? `先锁定 ${pendingCharacterCards.length} 张角色状态卡` : hasCharacterCards ? "强化角色冲突" : "补齐角色状态卡",
-        "补充人物口吻要求",
+        project.directory.length ? "角色设定完成，继续完善分集目录" : "角色设定完成，生成分集目录",
       ];
     case "directory":
       return [
-        pendingCharacterCards.length ? `先锁定 ${pendingCharacterCards.length} 张角色状态卡` : "",
-        pendingBeatPacket ? `先锁定第 ${pendingBeatPacket.episodeNumber} 集剧情 beat` : nextOutlineEpisode ? `先生成第 ${nextOutlineEpisode} 集细纲` : "生成单集细纲",
-        "重新分配高潮与钩子",
-        nextEpisodeNumber ? `直接开始写第 ${nextEpisodeNumber} 集` : "直接开始写第一集",
-      ].filter(Boolean);
+        nextOutlineEpisode ? `分集目录完成，生成第 ${nextOutlineEpisode} 集细纲` : "分集目录完成，生成单集细纲",
+      ];
     case "outlines":
       return [
-        pendingCharacterCards.length ? `回收剩余 ${pendingCharacterCards.length} 张角色状态卡` : "",
-        pendingBeatPacket ? `复核第 ${pendingBeatPacket.episodeNumber} 集剧情 beat` : nextEpisodeNumber ? `生成第 ${nextEpisodeNumber} 集正文` : "生成分集正文",
-        nextOutlineEpisode ? `重写第 ${nextOutlineEpisode} 集细纲` : "重写指定集细纲",
-        "准备合规预检",
-      ].filter(Boolean);
+        nextEpisodeNumber ? `细纲完成，生成第 ${nextEpisodeNumber} 集正文` : "细纲完成，开始撰写分集正文",
+      ];
     case "episodes":
       return [
-        nextEpisodeNumber ? `继续生成第 ${nextEpisodeNumber} 集` : "继续生成下一集",
-        `做一轮已完成 ${project.episodes.length} 集的批量质检`,
-        "准备合规审查",
+        nextEpisodeNumber ? `继续生成第 ${nextEpisodeNumber} 集` : "所有集数完成，运行合规审查",
       ];
     case "compliance":
       return [
-        pendingCompliancePackets.length ? `先处理 ${pendingCompliancePackets.length} 条合规修订包` : project.complianceReport.trim() ? "根据建议修订" : "运行合规审查",
-        "准备导出并衔接视频",
-        "继续对话补充风险规避要求",
+        pendingCompliancePackets.length
+          ? `处理 ${pendingCompliancePackets.length} 条合规修订后导出`
+          : project.complianceReport.trim() ? "合规审查完成，导出整合文档" : "运行合规审查",
       ];
     case "export":
       return [
-        pendingCompliancePackets.length ? "先回收剩余合规修订包" : project.exportDocument?.trim() ? "继续对话修改导出稿" : "导出整合文档",
-        "接入视频工作流",
-        "回头补写缺失章节或集数",
+        project.exportDocument?.trim() ? "导出文档已就绪，可衔接视频工作流" : "导出整合文档",
       ];
     default:
-      return ["继续当前任务", "查看最近产物", "输入新的推进指令"];
+      return ["继续当前任务"];
   }
 }
-
 export function listStoredDramaProjects(): DramaProject[] {
   return safeReadJson<DramaProject[]>(DRAMA_PROJECTS_KEY, [])
     .map(normalizeDramaProject)

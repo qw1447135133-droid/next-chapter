@@ -175,9 +175,15 @@ export async function handleSendEngineEvent(params: {
   loadStructuredQuestionParser: () => Promise<StructuredQuestionParserModuleLike>;
   textOf: (content: unknown) => string;
   push: PushMessage;
+  appendStreamingDelta: (delta: string) => void;
   setQuestionRequest: (request: AskUserQuestionRequest) => void;
 }): Promise<void> {
-  const { event, loadStructuredQuestionParser, textOf, push, setQuestionRequest } = params;
+  const { event, loadStructuredQuestionParser, textOf, push, appendStreamingDelta, setQuestionRequest } = params;
+
+  if (event.type === 'text_delta') {
+    appendStreamingDelta((event as { type: 'text_delta'; delta: string }).delta);
+    return;
+  }
 
   if (event.type === "assistant") {
     const parser = await loadStructuredQuestionParser();

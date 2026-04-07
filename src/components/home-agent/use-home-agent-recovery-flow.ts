@@ -151,6 +151,7 @@ export function useHomeAgentRecoveryFlow(params: {
           currentDramaProject: source.dramaProject,
           currentVideoProject: source.videoProject,
           recentProjects: mergeRecentProjects(prev.recentProjects, snapshot),
+          recentMessageSummary: savedSession?.recentMessageSummary ?? "",
         }));
       });
       if (dreaminaCapability.available && snapshot.projectKind === "video") {

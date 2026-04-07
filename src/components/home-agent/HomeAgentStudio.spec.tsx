@@ -3196,7 +3196,7 @@ describe("HomeAgentStudio", () => {
     expect(screen.getAllByText(/继续创作/).length).toBeGreaterThan(0);
   });
 
-  it("launches original script quick task with the traditional kickoff questionnaire on the homepage", async () => {
+  it("launches original script quick task with a topic-or-creative split before the market question", async () => {
     await renderStudio();
 
     await act(async () => {
@@ -3204,12 +3204,74 @@ describe("HomeAgentStudio", () => {
       await Promise.resolve();
     });
 
-    await waitForVisibleText("先确定你这次原创剧本主要想打哪个目标市场？");
+    await waitForVisibleText("这次想从哪种方式开始原创剧本？");
+    expect(screen.getByRole("button", { name: "选题创作" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "创意创作" })).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "选题创作" }));
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText("这次原创剧本主要想打哪个目标市场？");
     expect(screen.getByRole("button", { name: "国内（中文）" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "日本（日文）" })).toBeInTheDocument();
   });
 
-  it("submits traditional original script kickoff answers back into the homepage agent flow", async () => {
+  it("saves topic-mode original script kickoff as structured setup with market filtering and a two-persona cap", async () => {
+    lastSubmittedPrompt = "";
+    runWorkflowAction.mockImplementationOnce(async (_action, input) => ({
+      summary: "已写入原创剧本立项，并切到角色设定阶段。",
+      projectSnapshot: {
+        projectId: "script-kickoff-topic-project",
+        projectKind: "script",
+        title: "未命名项目",
+        currentObjective: "继续完善角色弧光、关系冲突与人物口吻。",
+        derivedStage: "角色设定",
+        agentSummary: "已按首页原创立项写入结构化 setup，下一步继续人设开发。",
+        recommendedActions: ["继续角色设定", "补充人物冲突"],
+        artifacts: [],
+      },
+      data: {
+        dramaProject: {
+          id: "script-kickoff-topic-project",
+          mode: "traditional",
+          setup: input,
+          creativePlan: "",
+          characters: "",
+          directory: [],
+          directoryRaw: "",
+          episodes: [],
+          complianceReport: "",
+          currentStep: "characters",
+          dramaTitle: "",
+          createdAt: "2026-04-06T00:00:00.000Z",
+          updatedAt: "2026-04-06T00:00:00.000Z",
+          referenceScript: "",
+          referenceStructure: "",
+          frameworkStyle: "",
+          structureTransform: "",
+          characterTransform: "",
+          exportDocument: "",
+          styleLock: null,
+          worldModel: null,
+          characterStateCards: [],
+          storyBeatPackets: [],
+          complianceRevisionPackets: [],
+        },
+        projectSnapshot: {
+          projectId: "script-kickoff-topic-project",
+          projectKind: "script",
+          title: "未命名项目",
+          currentObjective: "继续完善角色弧光、关系冲突与人物口吻。",
+          derivedStage: "角色设定",
+          agentSummary: "已按首页原创立项写入结构化 setup，下一步继续人设开发。",
+          recommendedActions: ["继续角色设定", "补充人物冲突"],
+          artifacts: [],
+        },
+      },
+    }));
+
     await renderStudio();
 
     await act(async () => {
@@ -3217,17 +3279,26 @@ describe("HomeAgentStudio", () => {
       await Promise.resolve();
     });
 
-    await screen.findByText("先确定你这次原创剧本主要想打哪个目标市场？");
+    await screen.findByText("这次想从哪种方式开始原创剧本？");
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "国内（中文）" }));
+      fireEvent.click(screen.getByRole("button", { name: "选题创作" }));
       await Promise.resolve();
     });
 
-    await screen.findByText("参考传统创作面板，先选 1 到 2 个更接近你这次方向的人设赛道。");
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "宝妈" }));
-      fireEvent.click(screen.getByRole("button", { name: "情感博主" }));
+      fireEvent.click(screen.getByRole("button", { name: "欧美（英文）" }));
+      await Promise.resolve();
+    });
+
+    await screen.findByText("先选 1 到 2 个更接近你这次方向的题材。");
+    expect(screen.getByRole("button", { name: "犯罪惊悚" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "古风权谋" })).not.toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "犯罪惊悚" }));
+      fireEvent.click(screen.getByRole("button", { name: "浪漫喜剧" }));
+      fireEvent.click(screen.getByRole("button", { name: "超级英雄" }));
       await Promise.resolve();
     });
     await act(async () => {
@@ -3236,35 +3307,141 @@ describe("HomeAgentStudio", () => {
     });
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "女频" }));
+      fireEvent.click(screen.getByRole("button", { name: "按默认配置进入人设开发" }));
       await Promise.resolve();
     });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "甜虐" }));
-      await Promise.resolve();
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "HE（好结局）" }));
-      await Promise.resolve();
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "500~800字（中短篇）" }));
-      await Promise.resolve();
-    });
+
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "暂不补充" }));
       await Promise.resolve();
     });
 
     await waitFor(() => {
-      expect(lastSubmittedPrompt).toContain("我要启动一个原创剧本项目。");
+      expect(runWorkflowAction).toHaveBeenCalledWith(
+        "save_setup",
+        expect.objectContaining({
+          projectKind: "script",
+          setupMode: "topic",
+          targetMarket: "west",
+          genres: ["犯罪惊悚", "浪漫喜剧"],
+          audience: "女频",
+          tone: "甜虐",
+          ending: "HE",
+          totalEpisodes: 500,
+        }),
+        expect.anything(),
+      );
     });
-    expect(lastSubmittedPrompt).toContain("目标市场: 国内（中文）");
-    expect(lastSubmittedPrompt).toContain("人设赛道: 宝妈 / 情感博主");
-    expect(lastSubmittedPrompt).toContain("目标受众: 女频");
-    expect(lastSubmittedPrompt).toContain("故事基调: 甜虐");
-    expect(lastSubmittedPrompt).toContain("结局类型: HE（好结局）");
-    expect(lastSubmittedPrompt).toContain("篇幅字数: 500~800字（中短篇）");
+    expect(lastSubmittedPrompt).toBe("");
+    expect(screen.getAllByText(/角色设定/).length).toBeGreaterThan(0);
+  });
+
+  it("saves creative-mode original script kickoff as structured setup without falling back to a prompt send", async () => {
+    lastSubmittedPrompt = "";
+    runWorkflowAction.mockImplementationOnce(async (_action, input) => ({
+      summary: "已收下你的创意并写入原创剧本立项，下一步继续人设开发。",
+      projectSnapshot: {
+        projectId: "script-kickoff-creative-project",
+        projectKind: "script",
+        title: "未命名项目",
+        currentObjective: "继续完善角色弧光、关系冲突与人物口吻。",
+        derivedStage: "角色设定",
+        agentSummary: "创意内容已经落成结构化 setup，继续做人设开发。",
+        recommendedActions: ["继续角色设定", "补充人物冲突"],
+        artifacts: [],
+      },
+      data: {
+        dramaProject: {
+          id: "script-kickoff-creative-project",
+          mode: "traditional",
+          setup: input,
+          creativePlan: "",
+          characters: "",
+          directory: [],
+          directoryRaw: "",
+          episodes: [],
+          complianceReport: "",
+          currentStep: "characters",
+          dramaTitle: "",
+          createdAt: "2026-04-06T00:00:00.000Z",
+          updatedAt: "2026-04-06T00:00:00.000Z",
+          referenceScript: "",
+          referenceStructure: "",
+          frameworkStyle: "",
+          structureTransform: "",
+          characterTransform: "",
+          exportDocument: "",
+          styleLock: null,
+          worldModel: null,
+          characterStateCards: [],
+          storyBeatPackets: [],
+          complianceRevisionPackets: [],
+        },
+        projectSnapshot: {
+          projectId: "script-kickoff-creative-project",
+          projectKind: "script",
+          title: "未命名项目",
+          currentObjective: "继续完善角色弧光、关系冲突与人物口吻。",
+          derivedStage: "角色设定",
+          agentSummary: "创意内容已经落成结构化 setup，继续做人设开发。",
+          recommendedActions: ["继续角色设定", "补充人物冲突"],
+          artifacts: [],
+        },
+      },
+    }));
+
+    await renderStudio();
+
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: /原创剧本/ })[0]!);
+      await Promise.resolve();
+    });
+
+    await screen.findByText("这次想从哪种方式开始原创剧本？");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "创意创作" }));
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "国内（中文）" }));
+      await Promise.resolve();
+    });
+
+    await screen.findByText("把你的创意想法、故事灵感或文档摘要直接发给我。");
+    await fillComposer("替父还债的女孩被迫签下豪门契约婚姻，却在婚后发现对方也在借她布局一场身份反转。");
+
+    await act(async () => {
+      fireEvent.click(findSendButton()!);
+      await Promise.resolve();
+    });
+
+    await screen.findByText("这轮立项先沿用默认配置，还是逐项细调？");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "按默认配置进入人设开发" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(runWorkflowAction).toHaveBeenCalledWith(
+        "save_setup",
+        expect.objectContaining({
+          projectKind: "script",
+          setupMode: "creative",
+          targetMarket: "cn",
+          genres: [],
+          audience: "女频",
+          tone: "甜虐",
+          ending: "HE",
+          totalEpisodes: 500,
+          creativeInput: "替父还债的女孩被迫签下豪门契约婚姻，却在婚后发现对方也在借她布局一场身份反转。",
+        }),
+        expect.anything(),
+      );
+    });
+    expect(lastSubmittedPrompt).toBe("");
   });
 
   it("uses project artifacts and stage analysis when opening history without a saved homepage session", async () => {

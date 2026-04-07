@@ -20,6 +20,7 @@ import {
   beginSendFlow,
   handleSendEngineEvent,
 } from "./home-agent-send-flow";
+import { createWorkflowShortcutUiBridge } from "./home-agent-workflow-ui";
 import {
   getOrCreateHomeAgentEngine,
   launchHomeAgentAutoResearchTasks,
@@ -27,6 +28,8 @@ import {
   type HomeAgentEngineDeps,
 } from "./home-agent-engine-runtime";
 import { answerHomeAgentQuestion, launchTemplateConversation, resetHomeAgentConversation, resetRuntimeState } from "./home-agent-session-actions";
+import { recQuestion } from "./home-agent-project-questions";
+import { runWorkflowShortcut } from "@/lib/home-agent/workflow-shortcut-runner";
 import { buildDreaminaCapabilityOverlay, isVideoIntentPrompt } from "./home-agent-project-questions";
 import type {
   AskUserQuestionModule,
@@ -59,6 +62,13 @@ export function useHomeAgentRuntimeActions(params: {
   loadProjectStore: () => Promise<ProjectStoreModule>;
   loadAskUserQuestionModule: () => Promise<AskUserQuestionModule>;
   loadDreaminaCliModule: () => Promise<DreaminaCliModule>;
+  loadWorkflowActionsModule: () => Promise<{
+    runWorkflowAction: (
+      action: string,
+      input: Record<string, unknown>,
+      runtime: StudioRuntimeState,
+    ) => Promise<{ summary: string; projectSnapshot?: unknown; data?: unknown }>;
+  }>;
   flashMaintenanceHint: (message: string, duration?: number) => void;
   resetComposerDraft: (value?: string) => void;
   dreaminaCapability: DreaminaCapabilityState;
@@ -99,6 +109,7 @@ export function useHomeAgentRuntimeActions(params: {
     loadProjectStore,
     loadAskUserQuestionModule,
     loadDreaminaCliModule,
+    loadWorkflowActionsModule,
     flashMaintenanceHint,
     resetComposerDraft,
     dreaminaCapability,
@@ -125,6 +136,20 @@ export function useHomeAgentRuntimeActions(params: {
   const sendRunIdRef = useRef(0);
   const pendingAutoResearchPlanRef = useRef<AutoResearchPlan | null>(null);
   const pendingAutoResearchSelectionsRef = useRef<Record<string, string>>({});
+  const streamingMessageIdRef = useRef<string | null>(null);
+
+  const appendStreamingDelta = useCallback((delta: string) => {
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (last?.role === "assistant" && streamingMessageIdRef.current === last.id) {
+        return [...prev.slice(0, -1), { ...last, content: last.content + delta }];
+      }
+      // Start a new streaming message
+      const id = `streaming-${Date.now()}`;
+      streamingMessageIdRef.current = id;
+      return [...prev, { id, role: "assistant" as const, content: delta }];
+    });
+  }, [setMessages]);
 
   const resolveDreaminaCapability = useCallback(async (): Promise<DreaminaCapabilityState> => {
     if (dreaminaCapability.ready) return dreaminaCapability;
@@ -260,6 +285,7 @@ export function useHomeAgentRuntimeActions(params: {
       surfacedDreaminaHintRef.current = dreaminaPromptState.surfacedHint;
 
       setStreaming(true);
+      streamingMessageIdRef.current = null;
 
       try {
         const activeEngine = await getEngine();
@@ -268,16 +294,24 @@ export function useHomeAgentRuntimeActions(params: {
           if (sendRunIdRef.current !== runId) break;
           if (engineRef.current !== activeEngine) break;
           if (runtimeRef.current.sessionId !== sendSessionId) break;
+          // When the final assistant message arrives, remove the streaming placeholder first
+          if (event.type === "assistant" && streamingMessageIdRef.current) {
+            const sid = streamingMessageIdRef.current;
+            streamingMessageIdRef.current = null;
+            setMessages((prev) => prev.filter((m) => m.id !== sid));
+          }
           await handleSendEngineEvent({
             event,
             loadStructuredQuestionParser,
             textOf,
             push,
+            appendStreamingDelta,
             setQuestionRequest: (request) => setQState(createQuestionState(request)),
           });
         }
       } catch (error) {
         if (sendRunIdRef.current === runId) {
+          streamingMessageIdRef.current = null;
           push("assistant", error instanceof Error ? error.message : String(error));
         }
       } finally {
@@ -377,12 +411,64 @@ export function useHomeAgentRuntimeActions(params: {
             return false;
           }
         },
+        completeOriginalScriptKickoff: async (completion) => {
+          const workflow = await loadWorkflowActionsModule();
+          const ui = createWorkflowShortcutUiBridge({
+            activateConversation: () => setMode("active"),
+            clearChoiceUi: () => {
+              setPopoverOverride(null);
+              setSuggested(null);
+            },
+            commitRuntime: (nextRuntime, projectId) => {
+              startTransition(() => {
+                setRuntime(nextRuntime);
+                if (projectId) {
+                  setActiveProjectId(projectId);
+                }
+              });
+            },
+            getSuggestedQuestion: (snapshot, nextRuntime) =>
+              snapshot ? recQuestion(snapshot, nextRuntime.currentVideoProject) : null,
+            push,
+            resetComposerDraft,
+            setPopoverQuestion: setPopoverOverride,
+            setStreaming,
+            setSuggested,
+          });
+
+          await runWorkflowShortcut({
+            action: "save_setup",
+            input: completion.setupInput,
+            runtime: runtimeRef.current,
+            runAction: (nextAction, nextInput, nextRuntime) =>
+              workflow.runWorkflowAction(nextAction, nextInput, nextRuntime),
+            ui,
+            userBubble: completion.userBubble,
+          });
+        },
         setQState,
         setSelectedValues,
         resetComposerDraft,
       });
     },
-    [loadAskUserQuestionModule, push, qState, qStepKey, resetComposerDraft, send, setQState, setSelectedValues, setSuggested],
+    [
+      loadAskUserQuestionModule,
+      loadWorkflowActionsModule,
+      push,
+      qState,
+      qStepKey,
+      resetComposerDraft,
+      runtimeRef,
+      send,
+      setActiveProjectId,
+      setMode,
+      setPopoverOverride,
+      setQState,
+      setRuntime,
+      setSelectedValues,
+      setStreaming,
+      setSuggested,
+    ],
   );
 
   const handleTemplateLaunch = useCallback(

@@ -215,6 +215,195 @@ async function callModelAPI(opts) {
     }
   };
 }
+async function* callModelAPIStream(opts) {
+  const { messages, systemPrompt, model, tools, thinkingConfig, maxTokens, apiKey, baseUrl } = opts;
+  const effectiveMaxTokens = maxTokens ?? getMaxOutputTokens(model);
+  const systemBlock = buildSystemBlocks(systemPrompt);
+  const toolsParam = tools.length > 0 ? buildToolsParam(tools) : void 0;
+  const requestParams = {
+    model,
+    max_tokens: effectiveMaxTokens,
+    stream: true,
+    messages,
+    ...systemBlock ? { system: systemBlock } : {},
+    ...toolsParam ? { tools: toolsParam } : {},
+    ...thinkingConfig ? { thinking: thinkingConfig } : {}
+  };
+  const requestUrl = buildMessagesApiUrl(baseUrl);
+  if (canUseElectronModelBridge()) {
+    const streamId = Math.random().toString(36).slice(2);
+    const electronAPI = window.electronAPI;
+    const onFn = electronAPI.on;
+    const offFn = electronAPI.off;
+    if (onFn && offFn) {
+      const deltaQueue = [];
+      let resolveNext = null;
+      let done = false;
+      const listener = (...args) => {
+        const payload = args[0];
+        if (payload.streamId !== streamId) return;
+        deltaQueue.push(payload.delta);
+        resolveNext?.();
+        resolveNext = null;
+      };
+      onFn("agent:stream-delta", listener);
+      const invokePromise = window.electronAPI.invoke("agent:callModelApiStream", {
+        url: requestUrl,
+        apiKey,
+        requestParams: { ...requestParams, stream: false },
+        // main process adds stream:true
+        streamId
+      });
+      invokePromise.then(() => {
+        done = true;
+        resolveNext?.();
+        resolveNext = null;
+      }).catch(() => {
+        done = true;
+        resolveNext?.();
+        resolveNext = null;
+      });
+      while (true) {
+        if (deltaQueue.length > 0) {
+          yield { type: "delta", text: deltaQueue.shift() };
+        } else if (done) {
+          break;
+        } else {
+          await new Promise((resolve) => {
+            resolveNext = resolve;
+          });
+        }
+      }
+      offFn("agent:stream-delta", listener);
+      const result = await invokePromise;
+      if (!result.ok || !result.data) {
+        throw new Error(result.error || "Electron streaming bridge failed");
+      }
+      const parsed = result.data;
+      const contentBlocks2 = parsed.content.map((block) => {
+        if (block.type === "text") return { type: "text", text: block.text };
+        if (block.type === "tool_use") return { type: "tool_use", id: block.id, name: block.name, input: block.input };
+        if (block.type === "thinking") return { type: "thinking", thinking: block.thinking };
+        return { type: "text", text: "" };
+      });
+      yield {
+        type: "message",
+        message: {
+          type: "assistant",
+          uuid: v4_default(),
+          message: {
+            role: "assistant",
+            content: contentBlocks2,
+            model: parsed.model,
+            stop_reason: parsed.stop_reason ?? "end_turn",
+            usage: { input_tokens: parsed.usage.input_tokens, output_tokens: parsed.usage.output_tokens }
+          }
+        }
+      };
+      return;
+    }
+    const msg = await callModelAPI(opts);
+    const text = msg.message.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+    if (text) yield { type: "delta", text };
+    yield { type: "message", message: msg };
+    return;
+  }
+  const response = await fetch(requestUrl, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify(requestParams)
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Model ${model} failed (${response.status}): ${text.slice(0, 300) || response.statusText}`);
+  }
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("No response body");
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let accText = "";
+  const contentBlocks = [];
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let stopReason = "end_turn";
+  let currentToolUse = null;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") continue;
+        let event;
+        try {
+          event = JSON.parse(data);
+        } catch {
+          continue;
+        }
+        const type = event.type;
+        if (type === "content_block_start") {
+          const block = event.content_block;
+          if (block?.type === "tool_use") {
+            currentToolUse = { id: block.id, name: block.name, inputJson: "" };
+          }
+        } else if (type === "content_block_delta") {
+          const delta = event.delta;
+          if (delta?.type === "text_delta") {
+            const chunk = delta.text;
+            accText += chunk;
+            yield { type: "delta", text: chunk };
+          } else if (delta?.type === "input_json_delta" && currentToolUse) {
+            currentToolUse.inputJson += delta.partial_json;
+          }
+        } else if (type === "content_block_stop") {
+          if (currentToolUse) {
+            let input = {};
+            try {
+              input = JSON.parse(currentToolUse.inputJson);
+            } catch {
+            }
+            contentBlocks.push({ type: "tool_use", id: currentToolUse.id, name: currentToolUse.name, input });
+            currentToolUse = null;
+          }
+        } else if (type === "message_delta") {
+          const delta = event.delta;
+          if (delta?.stop_reason) stopReason = delta.stop_reason;
+          const usage = event.usage;
+          if (usage?.output_tokens) outputTokens = usage.output_tokens;
+        } else if (type === "message_start") {
+          const msg = event.message;
+          const usage = msg?.usage;
+          if (usage?.input_tokens) inputTokens = usage.input_tokens;
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  if (accText) contentBlocks.unshift({ type: "text", text: accText });
+  yield {
+    type: "message",
+    message: {
+      type: "assistant",
+      uuid: v4_default(),
+      message: {
+        role: "assistant",
+        content: contentBlocks,
+        model,
+        stop_reason: stopReason,
+        usage: { input_tokens: inputTokens, output_tokens: outputTokens }
+      }
+    }
+  };
+}
 function toAPIMessages(messages) {
   const result = [];
   for (const msg of messages) {
@@ -241,52 +430,6 @@ var init_api_client = __esm({
     init_esm();
     MAX_OUTPUT_TOKENS_DEFAULT = 16384;
     MAX_OUTPUT_TOKENS_THINKING = 32768;
-  }
-});
-
-// src/lib/agent/retry.ts
-function isRetryable(error) {
-  const msg = String(error).toLowerCase();
-  return RETRYABLE_PATTERNS.some((p) => msg.includes(p));
-}
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-async function withRetry(fn, opts = {}) {
-  const maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES;
-  const baseDelay = opts.baseDelayMs ?? DEFAULT_BASE_DELAY_MS;
-  const maxDelay = opts.maxDelayMs ?? DEFAULT_MAX_DELAY_MS;
-  let lastError;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastError = err;
-      if (!isRetryable(err) || attempt >= maxRetries) {
-        throw err;
-      }
-      const delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
-      const jitter = Math.random() * delay * 0.1;
-      await sleep(delay + jitter);
-    }
-  }
-  throw lastError;
-}
-var DEFAULT_MAX_RETRIES, DEFAULT_BASE_DELAY_MS, DEFAULT_MAX_DELAY_MS, RETRYABLE_PATTERNS;
-var init_retry = __esm({
-  "src/lib/agent/retry.ts"() {
-    DEFAULT_MAX_RETRIES = 3;
-    DEFAULT_BASE_DELAY_MS = 1e3;
-    DEFAULT_MAX_DELAY_MS = 3e4;
-    RETRYABLE_PATTERNS = [
-      "rate limit",
-      "overloaded",
-      "529",
-      "503",
-      "502",
-      "timeout",
-      "connection"
-    ];
   }
 });
 
@@ -330,18 +473,28 @@ async function* queryLoop(params) {
     yield { type: "stream_request_start" };
     const apiMessages = toAPIMessages(state.messages);
     let assistantMsg;
+    const pendingDeltas = [];
     try {
-      assistantMsg = await withRetry(
-        () => callModelAPI({
-          messages: apiMessages,
-          systemPrompt,
-          model,
-          tools,
-          thinkingConfig: toolUseContext.options.thinkingConfig,
-          apiKey,
-          baseUrl
-        })
-      );
+      const stream = callModelAPIStream({
+        messages: apiMessages,
+        systemPrompt,
+        model,
+        tools,
+        thinkingConfig: toolUseContext.options.thinkingConfig,
+        apiKey,
+        baseUrl
+      });
+      let finalMsg = null;
+      for await (const event of stream) {
+        if (toolUseContext.abortSignal?.aborted) break;
+        if (event.type === "delta") {
+          pendingDeltas.push(event.text);
+        } else {
+          finalMsg = event.message;
+        }
+      }
+      if (!finalMsg) throw new Error("No message received from stream");
+      assistantMsg = finalMsg;
     } catch (err) {
       const errorMsg = {
         type: "assistant",
@@ -357,10 +510,15 @@ async function* queryLoop(params) {
       return;
     }
     state.messages.push(assistantMsg);
-    yield assistantMsg;
-    if (toolUseContext.abortSignal?.aborted) return;
     const content = assistantMsg.message.content;
     const toolUseBlocks = Array.isArray(content) ? content.filter((b) => b.type === "tool_use") : [];
+    if (toolUseBlocks.length === 0) {
+      for (const delta of pendingDeltas) {
+        yield { type: "text_delta", delta };
+      }
+    }
+    yield assistantMsg;
+    if (toolUseContext.abortSignal?.aborted) return;
     if (toolUseBlocks.length === 0) {
       return;
     }
@@ -443,7 +601,6 @@ var init_query_loop = __esm({
   "src/lib/agent/query-loop.ts"() {
     init_esm();
     init_api_client();
-    init_retry();
     init_tool();
   }
 });
@@ -549,6 +706,15 @@ var init_query_engine = __esm({
             baseUrl: cfg.baseUrl
           })) {
             if (event.type === "stream_request_start") continue;
+            if (event.type === "text_delta") {
+              yield {
+                type: "text_delta",
+                uuid: v4_default(),
+                sessionId,
+                delta: event.delta
+              };
+              continue;
+            }
             if (event.type === "assistant") {
               this.messages.push(event);
               const msg = event;
@@ -565,12 +731,14 @@ var init_query_engine = __esm({
                   });
                 }
               }
-              yield {
-                type: "assistant",
-                uuid: msg.uuid,
-                sessionId,
-                message: msg
-              };
+              if (msg.message.stop_reason !== "tool_use") {
+                yield {
+                  type: "assistant",
+                  uuid: msg.uuid,
+                  sessionId,
+                  message: msg
+                };
+              }
             } else if (event.type === "user") {
               const msg = event;
               this.messages.push(msg);
@@ -6384,6 +6552,112 @@ function setupIPC() {
         return {
           ok: true,
           data: await response.json()
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    }
+  );
+  ipcMain.handle(
+    "agent:callModelApiStream",
+    async (event, {
+      url,
+      apiKey,
+      requestParams,
+      streamId
+    }) => {
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+            "anthropic-version": "2023-06-01"
+          },
+          body: JSON.stringify({ ...requestParams, stream: true })
+        });
+        if (!response.ok) {
+          const text = await response.text().catch(() => "");
+          return {
+            ok: false,
+            error: `Model request failed (${response.status}): ${text.slice(0, 300) || response.statusText}`
+          };
+        }
+        const reader = response.body?.getReader();
+        if (!reader) return { ok: false, error: "No response body" };
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let accText = "";
+        const contentBlocks = [];
+        let inputTokens = 0;
+        let outputTokens = 0;
+        let stopReason = "end_turn";
+        let currentToolUse = null;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (event.sender.isDestroyed()) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6).trim();
+            if (data === "[DONE]") continue;
+            let evt;
+            try {
+              evt = JSON.parse(data);
+            } catch {
+              continue;
+            }
+            const type = evt.type;
+            if (type === "content_block_start") {
+              if (evt.content_block?.type === "tool_use") {
+                currentToolUse = { id: evt.content_block.id, name: evt.content_block.name, inputJson: "" };
+              }
+            } else if (type === "content_block_delta") {
+              if (evt.delta?.type === "text_delta") {
+                const chunk = evt.delta.text;
+                accText += chunk;
+                if (!event.sender.isDestroyed()) {
+                  event.sender.send("agent:stream-delta", { streamId, delta: chunk });
+                }
+              } else if (evt.delta?.type === "input_json_delta" && currentToolUse) {
+                currentToolUse.inputJson += evt.delta.partial_json ?? "";
+              }
+            } else if (type === "content_block_stop") {
+              if (currentToolUse) {
+                let input = {};
+                try {
+                  input = JSON.parse(currentToolUse.inputJson);
+                } catch {
+                }
+                contentBlocks.push({ type: "tool_use", id: currentToolUse.id, name: currentToolUse.name, input });
+                currentToolUse = null;
+              }
+            } else if (type === "message_delta") {
+              if (evt.delta?.stop_reason) stopReason = evt.delta.stop_reason;
+              if (evt.usage?.output_tokens) outputTokens = evt.usage.output_tokens;
+            } else if (type === "message_start") {
+              if (evt.message?.usage?.input_tokens) inputTokens = evt.message.usage.input_tokens;
+            }
+          }
+        }
+        if (accText) contentBlocks.unshift({ type: "text", text: accText });
+        return {
+          ok: true,
+          data: {
+            id: "stream",
+            type: "message",
+            role: "assistant",
+            content: contentBlocks,
+            model: requestParams.model,
+            stop_reason: stopReason,
+            usage: { input_tokens: inputTokens, output_tokens: outputTokens }
+          }
         };
       } catch (error) {
         return {
