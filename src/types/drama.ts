@@ -123,24 +123,24 @@ export const GENRES = [
 ] as const;
 
 export const AUDIENCES = [
-  { value: "女频", label: "女频" },
-  { value: "男频", label: "男频" },
-  { value: "全龄", label: "全龄" },
+  { value: "女频", label: "女频", desc: "更强调情感拉扯、关系推进和人物心绪起伏。" },
+  { value: "男频", label: "男频", desc: "更强调目标升级、反击爽感和外部冲突推进。" },
+  { value: "全龄", label: "全龄", desc: "尽量兼顾更宽的人群接受度和普适情绪共鸣。" },
 ] as const;
 
 export const TONES = [
-  { value: "甜", label: "甜" },
-  { value: "虐", label: "虐" },
-  { value: "甜虐", label: "甜虐" },
-  { value: "爽", label: "爽" },
-  { value: "燃", label: "燃" },
-  { value: "搞笑", label: "搞笑" },
+  { value: "甜", label: "甜", desc: "主打高糖关系、轻盈节奏和正向情绪回报。" },
+  { value: "虐", label: "虐", desc: "主打压抑拉扯、情绪撕裂和强烈代入感。" },
+  { value: "甜虐", label: "甜虐", desc: "在高糖和高虐之间切换，利于情绪起伏和追更。" },
+  { value: "爽", label: "爽", desc: "强调打脸、逆袭和连续兑现的爽点节奏。" },
+  { value: "燃", label: "燃", desc: "强调目标、信念和高动能推进的热血感。" },
+  { value: "搞笑", label: "搞笑", desc: "强调反差笑点、轻快表达和可传播桥段。" },
 ] as const;
 
 export const ENDINGS = [
-  { value: "HE", label: "HE（好结局）" },
-  { value: "BE", label: "BE（坏结局）" },
-  { value: "OE", label: "OE（开放结局）" },
+  { value: "HE", label: "HE（好结局）", desc: "以关系修复、目标达成或命运和解来收口。" },
+  { value: "BE", label: "BE（坏结局）", desc: "以失去、错过或代价兑现强化情绪冲击。" },
+  { value: "OE", label: "OE（开放结局）", desc: "保留余味和讨论空间，让结尾继续发酵。" },
 ] as const;
 
 export const TARGET_MARKETS = [

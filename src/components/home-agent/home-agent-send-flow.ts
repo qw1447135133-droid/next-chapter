@@ -176,24 +176,47 @@ export async function handleSendEngineEvent(params: {
   textOf: (content: unknown) => string;
   push: PushMessage;
   appendStreamingDelta: (delta: string) => void;
+  updateStreamingLabel: (label?: string) => void;
+  finalizeStreamingMessage: (finalText?: string) => void;
   setQuestionRequest: (request: AskUserQuestionRequest) => void;
 }): Promise<void> {
-  const { event, loadStructuredQuestionParser, textOf, push, appendStreamingDelta, setQuestionRequest } = params;
+  const {
+    event,
+    loadStructuredQuestionParser,
+    textOf,
+    push,
+    appendStreamingDelta,
+    updateStreamingLabel,
+    finalizeStreamingMessage,
+    setQuestionRequest,
+  } = params;
 
   if (event.type === 'text_delta') {
+    updateStreamingLabel("继续分析中");
     appendStreamingDelta((event as { type: 'text_delta'; delta: string }).delta);
+    return;
+  }
+
+  if (event.type === "progress") {
+    updateStreamingLabel(textOf(event.message.content) || "继续分析中");
     return;
   }
 
   if (event.type === "assistant") {
     const parser = await loadStructuredQuestionParser();
     const parsed = parser.extractStructuredQuestion(textOf(event.message.message.content));
-    if (parsed.cleanedText.trim()) push("assistant", parsed.cleanedText.trim());
+    const cleanedText = parsed.cleanedText.trim();
+    if (cleanedText) {
+      finalizeStreamingMessage(cleanedText);
+    } else {
+      finalizeStreamingMessage();
+    }
     if (parsed.request) setQuestionRequest(parsed.request);
     return;
   }
 
   if (event.type === "result" && event.isError && event.result) {
+    finalizeStreamingMessage();
     push("assistant", event.result);
   }
 }

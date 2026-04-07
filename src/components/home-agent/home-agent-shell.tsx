@@ -198,6 +198,16 @@ const ConversationMessageRow = memo(function ConversationMessageRow({
                 picksDisabled={Boolean(editsDisabled)}
                 className="text-white/82"
               />
+              {message.status === "pending" && message.streamLabel ? (
+                <div className="inline-flex items-center gap-2 pl-0.5 text-[11.5px] leading-5 text-white/38 sm:text-[12px]">
+                  <span>{message.streamLabel}</span>
+                  <span className="inline-flex gap-1">
+                    <span className="h-1 w-1 rounded-full bg-white/28" />
+                    <span className="h-1 w-1 rounded-full bg-white/22" />
+                    <span className="h-1 w-1 rounded-full bg-white/16" />
+                  </span>
+                </div>
+              ) : null}
               {onAssistantFeedback ? (
                 <div className="flex items-center gap-px pl-0.5 opacity-[0.85] transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
                   <button
@@ -385,7 +395,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
 }) {
   const reduceMotion = useReducedMotion();
   const animateFromIndex = Math.max(messages.length - 4, 0);
-  const showStreamingGhost = streaming && (!messages.length || messages[messages.length - 1]?.role !== "assistant");
   const lastIndex = messages.length - 1;
 
   return (
@@ -410,7 +419,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 : undefined
             }
             assistantAvatarGlowing={
-              Boolean(streaming) && message.role === "assistant" && index === lastIndex && !showStreamingGhost
+              Boolean(streaming) && message.role === "assistant" && index === lastIndex
             }
             autoOpenCreationGuidePicker={
               message.role === "assistant" && index === lastIndex && !streaming
@@ -418,34 +427,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
             onCreationGuidePick={onCreationGuidePick}
           />
         ))}
-        {showStreamingGhost ? (
-          <motion.div
-            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-            animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
-            transition={reduceMotion ? undefined : { duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
-            className="flex justify-start overflow-visible"
-          >
-            <div className="max-w-[820px] overflow-visible">
-              <div className="flex items-center gap-3.5 overflow-visible">
-                <div className="-mt-[5px] shrink-0 overflow-visible pl-3 pr-1 sm:-mt-1">
-                  <HomeAgentAiAvatar
-                    className="h-8 w-8"
-                    glowing
-                    reduceMotion={Boolean(reduceMotion)}
-                  />
-                </div>
-                <div className="inline-flex items-center gap-2 rounded-full bg-white/[0.04] px-3 py-1.5 text-[12.5px] leading-[1.5] text-white/55 sm:text-[13px]">
-                  <span>正在分析</span>
-                  <span className="inline-flex gap-1">
-                    <span className="h-1 w-1 rounded-full bg-white/36" />
-                    <span className="h-1 w-1 rounded-full bg-white/28" />
-                    <span className="h-1 w-1 rounded-full bg-white/20" />
-                  </span>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        ) : null}
         <div ref={endRef} />
       </div>
     </div>
@@ -802,12 +783,17 @@ export const HomeComposer = memo(function HomeComposer({
       transition={
         reduceMotion
           ? { duration: 0 }
-          : {
-              type: "spring",
-              stiffness: 340,
-              damping: 34,
-              mass: 0.9,
-            }
+          : idle
+            ? {
+                type: "spring",
+                stiffness: 340,
+                damping: 34,
+                mass: 0.9,
+              }
+            : {
+                duration: 0.14,
+                ease: [0.22, 1, 0.36, 1],
+              }
       }
       className="pointer-events-auto relative w-full"
     >
@@ -820,13 +806,13 @@ export const HomeComposer = memo(function HomeComposer({
         tone={activeTheme ? "dark" : "light"}
       />
       <motion.div
-        initial={reduceMotion ? false : { opacity: 0.92, y: idle ? 0 : 14 }}
-        animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
+        initial={reduceMotion ? false : idle ? { opacity: 0.92 } : false}
+        animate={reduceMotion ? undefined : idle ? { opacity: 1 } : undefined}
         transition={
           reduceMotion
             ? undefined
             : {
-                duration: idle ? 0.16 : 0.22,
+                duration: idle ? 0.16 : 0.12,
                 ease: [0.22, 1, 0.36, 1],
               }
         }
@@ -894,11 +880,11 @@ export const HomeComposer = memo(function HomeComposer({
             placeholder={placeholder}
             rows={idle ? 3 : 3}
             className={cn(
-              "resize-none border-none bg-transparent px-0 pb-2 pt-1.5 text-[13.5px] leading-6.5 shadow-none outline-none ring-0 ring-offset-0 focus:outline-none focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 sm:text-[14px]",
+              "h-[88px] resize-none overflow-y-auto border-none bg-transparent px-0 pb-2 pt-1.5 text-[13.5px] leading-6.5 shadow-none outline-none ring-0 ring-offset-0 focus:outline-none focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 sm:h-[96px] sm:text-[14px]",
               activeTheme
-                ? "min-h-[78px] text-white placeholder:text-white/28 sm:min-h-[88px]"
-                : "min-h-[104px] text-slate-900 placeholder:text-slate-400",
-              idle && "min-h-[92px] sm:min-h-[102px] md:min-h-[112px]",
+                ? "text-white placeholder:text-white/28"
+                : "text-slate-900 placeholder:text-slate-400",
+              idle && "h-[112px] sm:h-[120px] md:h-[128px]",
             )}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {

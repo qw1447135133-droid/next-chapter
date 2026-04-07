@@ -350,7 +350,7 @@ function deriveDramaStage(project: DramaProject): string {
     case "structure-transform":
       return "结构转译";
     case "characters":
-      return "角色设定";
+      return "角色开发";
     case "character-transform":
       return "角色转译";
     case "directory":
@@ -465,9 +465,20 @@ function buildDramaRecommendations(project: DramaProject): string[] {
         project.structureTransform.trim() ? "结构转译完成，继续生成角色转译" : "生成结构转译",
       ];
     case "characters":
+      return [
+        project.characters.trim()
+          ? project.directory.length
+            ? "角色设定完成，继续完善分集目录"
+            : "角色设定完成，生成分集目录"
+          : "进入角色开发",
+      ];
     case "character-transform":
       return [
-        project.directory.length ? "角色设定完成，继续完善分集目录" : "角色设定完成，生成分集目录",
+        project.characterTransform.trim()
+          ? project.directory.length
+            ? "角色转译完成，继续完善分集目录"
+            : "角色转译完成，生成分集目录"
+          : "进入角色开发",
       ];
     case "directory":
       return [
@@ -1297,6 +1308,24 @@ export async function setConversationProjectPinned(projectId: string, pinned: bo
 export async function renameConversationProject(projectId: string, title: string): Promise<void> {
   const nextTitle = title.trim().slice(0, 120);
   if (!nextTitle) return;
+
+  const dramaProject = loadStoredDramaProjectById(projectId);
+  if (dramaProject) {
+    upsertStoredDramaProject({
+      ...dramaProject,
+      dramaTitle: nextTitle,
+    });
+  } else {
+    const { loadStoredVideoProjectById, upsertStoredVideoProject } = await loadVideoPersistenceModule();
+    const videoProject = await loadStoredVideoProjectById(projectId);
+    if (videoProject) {
+      await upsertStoredVideoProject({
+        ...videoProject,
+        title: nextTitle,
+      });
+    }
+  }
+
   const map = readConversationProjectMetaMap();
   const current = map[projectId] ?? {};
   map[projectId] = { ...current, customTitle: nextTitle };

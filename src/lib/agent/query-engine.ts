@@ -14,6 +14,7 @@ import {
   accumulateUsage,
   type AssistantMessage,
   type Message,
+  type ProgressMessage,
   type SDKMessage,
   type UsageStats,
   type UserMessage,
@@ -28,6 +29,8 @@ export interface QueryEngineConfig {
   apiKey: string
   /** Optional custom base URL (e.g. proxy) */
   baseUrl?: string
+  /** Optional provider hint for provider-native transports */
+  provider?: string
   /** Model ID, e.g. 'claude-sonnet-4-6' */
   model?: string
   /** Tools available to the agent */
@@ -67,6 +70,35 @@ export class QueryEngine {
     this.abortController = new AbortController()
     this.totalUsage = { ...EMPTY_USAGE }
     this.totalCostUsd = 0
+  }
+
+  private buildToolProgressMessage(message: AssistantMessage): ProgressMessage | null {
+    const content = Array.isArray(message.message.content) ? message.message.content : []
+    const toolNames = content
+      .filter((block): block is { type: 'tool_use'; name: string } => block.type === 'tool_use')
+      .map((block) => block.name)
+
+    if (toolNames.length === 0) return null
+
+    const firstTool = toolNames[0]
+    const contentLabel =
+      firstTool === 'HomeStudioWorkflow'
+        ? '正在执行工作流'
+        : firstTool === 'ask-user-question'
+          ? '正在整理下一步选项'
+          : toolNames.length > 1
+            ? '正在调用多个工具'
+            : '正在调用工具'
+
+    return {
+      type: 'progress',
+      uuid: uuidv4(),
+      content: contentLabel,
+      data: {
+        stage: 'tool_use',
+        toolNames,
+      },
+    }
   }
 
   async *submitMessage(
@@ -112,6 +144,7 @@ export class QueryEngine {
     const context = new ToolUseContext({
       options: {
         model,
+        provider: cfg.provider,
         tools,
         apiKey: cfg.apiKey,
         baseUrl: cfg.baseUrl,
@@ -170,9 +203,17 @@ export class QueryEngine {
             }
           }
 
-          // Only yield assistant messages that end the turn (not intermediate tool-use turns)
-          // This prevents duplicate text when the agent calls multiple tools in sequence
-          if (msg.message.stop_reason !== 'tool_use') {
+          if (msg.message.stop_reason === 'tool_use') {
+            const progress = this.buildToolProgressMessage(msg)
+            if (progress) {
+              yield {
+                type: 'progress',
+                uuid: progress.uuid,
+                sessionId,
+                message: progress,
+              } satisfies SDKMessage
+            }
+          } else {
             yield {
               type: 'assistant',
               uuid: msg.uuid,
@@ -275,5 +316,18 @@ export class QueryEngine {
   /** Switch the model for subsequent messages. */
   setModel(model: string): void {
     this.config.model = model
+  }
+
+  /** Update transport/runtime config for subsequent messages. */
+  updateRuntime(runtime: {
+    model?: string
+    provider?: string
+    apiKey?: string
+    baseUrl?: string
+  }): void {
+    if (runtime.model !== undefined) this.config.model = runtime.model
+    if (runtime.provider !== undefined) this.config.provider = runtime.provider
+    if (runtime.apiKey !== undefined) this.config.apiKey = runtime.apiKey
+    if (runtime.baseUrl !== undefined) this.config.baseUrl = runtime.baseUrl
   }
 }

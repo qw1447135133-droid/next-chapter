@@ -60,7 +60,12 @@ export async function getOrCreateHomeAgentEngine(params: {
   }
 
   if (existingEngine) {
-    existingEngine.setModel(resolvedRuntime.model);
+    existingEngine.updateRuntime({
+      model: resolvedRuntime.model,
+      provider: resolvedRuntime.provider,
+      apiKey: resolvedRuntime.apiKey,
+      baseUrl: resolvedRuntime.baseUrl,
+    });
     return existingEngine;
   }
 
@@ -89,6 +94,7 @@ export async function getOrCreateHomeAgentEngine(params: {
   return new QueryEngine({
     apiKey: resolvedRuntime.apiKey,
     baseUrl: resolvedRuntime.baseUrl,
+    provider: resolvedRuntime.provider,
     model: resolvedRuntime.model,
     tools,
     systemPrompt,
@@ -121,6 +127,7 @@ export async function launchHomeAgentAutoResearchTasks(params: {
   const context = new ToolUseContext({
     options: {
       model: resolvedRuntime.model,
+      provider: resolvedRuntime.provider,
       tools: [],
       apiKey: resolvedRuntime.apiKey,
       baseUrl: resolvedRuntime.baseUrl,

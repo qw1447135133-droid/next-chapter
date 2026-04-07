@@ -63,6 +63,105 @@ AskUserQuestion {
     ]);
   });
 
+  it("extracts AskUserQuestion payloads from commented code blocks with bare question/options json", () => {
+    const result = extractStructuredQuestion(`
+项目进度更新
+
+我已经将当前的创作思路同步至项目管理系统。
+
+接下来，请从以下三个细分方向中选择一个作为后续角色开发和细纲撰写的基础：
+
+\`\`\`json
+// 调用 AskUserQuestion 提供决策选项
+{
+  "question": "请选择你心仪的创作方案方向：",
+  "options": [
+    { "label": "契约闪婚类（节奏轻快，主打婚后生活细节）", "value": "contract_marriage" },
+    { "label": "久别重逢类（情感张力强，主打宿命感与治愈）", "value": "reunion" },
+    { "label": "势均力敌类（双强人设，主打智商在线的商战甜宠）", "value": "power_couple" },
+    { "label": "自定义输入其他想法", "value": "custom" }
+  ]
+}
+\`\`\`
+`);
+
+    expect(result.cleanedText).toBe(
+      "项目进度更新\n\n我已经将当前的创作思路同步至项目管理系统。\n\n接下来，请从以下三个细分方向中选择一个作为后续角色开发和细纲撰写的基础：",
+    );
+    expect(result.request?.questions).toHaveLength(1);
+    expect(result.request?.questions[0]?.question).toBe("请选择你心仪的创作方案方向：");
+    expect(result.request?.questions[0]?.options.map((option) => option.value)).toEqual([
+      "contract_marriage",
+      "reunion",
+      "power_couple",
+      "custom",
+    ]);
+  });
+
+  it("extracts legacy ask_user json payloads into a composer request", () => {
+    const result = extractStructuredQuestion(`
+下一步操作
+
+系统提示：正在进入角色开发模块。
+
+{"type":"ask_user","question":"请选择女主角的核心职业设定，这将决定后续的戏剧冲突方向：","options":[{"label":"传统派：百年老店传人","value":"traditional_chef"},{"label":"现代派：美食自媒体达人","value":"vlogger_chef"},{"label":"自定义输入","value":"custom"}]}
+`);
+
+    expect(result.cleanedText).toBe("下一步操作\n\n系统提示：正在进入角色开发模块。");
+    expect(result.request?.allowCustomInput).toBe(true);
+    expect(result.request?.questions).toHaveLength(1);
+    expect(result.request?.questions[0]?.header).toMatch(/^请选择女主角的核心职业/u);
+    expect(result.request?.questions[0]?.question).toBe(
+      "请选择女主角的核心职业设定，这将决定后续的戏剧冲突方向：",
+    );
+    expect(result.request?.questions[0]?.multiSelect).toBe(false);
+    expect(result.request?.questions[0]?.options).toEqual([
+      { label: "传统派：百年老店传人", value: "traditional_chef" },
+      { label: "现代派：美食自媒体达人", value: "vlogger_chef" },
+      { label: "自定义输入", value: "custom" },
+    ]);
+  });
+
+  it("extracts a legacy ask_user request and strips a mixed workflow block in the same message", () => {
+    const result = extractStructuredQuestion(`
+下一步操作
+
+\`\`\`json
+// 调用 HomeStudioWorkflow 进入下一步：角色开发
+{
+  "action": "next_step",
+  "payload": {
+    "current_stage": "creative_proposal",
+    "target_stage": "character_development",
+    "project_id": "current_script_001"
+  }
+}
+\`\`\`
+
+系统提示：正在进入角色开发模块。
+
+{"type":"ask_user","question":"请选择女主角的核心职业设定，这将决定后续的戏剧冲突方向：","options":[{"label":"传统派：百年老店传人","value":"traditional_chef"},{"label":"现代派：美食自媒体达人","value":"vlogger_chef"},{"label":"自定义输入","value":"custom"}]}
+`);
+
+    expect(result.cleanedText).toBe("下一步操作\n\n系统提示：正在进入角色开发模块。");
+    expect(result.workflowCall).toEqual({
+      action: "next_step",
+      payload: {
+        current_stage: "creative_proposal",
+        target_stage: "character_development",
+        project_id: "current_script_001",
+      },
+    });
+    expect(result.request?.questions[0]?.question).toBe(
+      "请选择女主角的核心职业设定，这将决定后续的戏剧冲突方向：",
+    );
+    expect(result.request?.questions[0]?.options.map((option) => option.label)).toEqual([
+      "传统派：百年老店传人",
+      "现代派：美食自媒体达人",
+      "自定义输入",
+    ]);
+  });
+
   it("extracts markdown question blocks into a composer request", () => {
     const result = extractStructuredQuestion(`
 我先帮你拆成几个关键判断，接下来会在首页会话里一步步推进。
@@ -197,6 +296,37 @@ AskUserQuestion {
       action: "continue_project",
       projectKind: "script",
       title: "契约婚姻反转录",
+    });
+  });
+
+  it("strips raw workflow json blocks that are preceded by HomeStudioWorkflow comments", () => {
+    const result = extractStructuredQuestion(`
+下一步操作
+
+\`\`\`json
+// 调用 HomeStudioWorkflow 进入下一步：角色开发
+{
+  "action": "next_step",
+  "payload": {
+    "current_stage": "creative_proposal",
+    "target_stage": "character_development",
+    "project_id": "current_script_001"
+  }
+}
+\`\`\`
+
+系统提示：正在进入角色开发模块。
+`);
+
+    expect(result.cleanedText).toBe("下一步操作\n\n系统提示：正在进入角色开发模块。");
+    expect(result.request).toBeNull();
+    expect(result.workflowCall).toEqual({
+      action: "next_step",
+      payload: {
+        current_stage: "creative_proposal",
+        target_stage: "character_development",
+        project_id: "current_script_001",
+      },
     });
   });
 });

@@ -160,6 +160,9 @@ export function qToComposer(state: StudioQuestionState | null): ComposerQuestion
       value: option.value || option.label,
       rationale: option.rationale || option.description,
     })),
+    presentation: activeQuestion.presentation === "chip" || activeQuestion.presentation === "card"
+      ? activeQuestion.presentation
+      : "auto",
     allowCustomInput: state.request.allowCustomInput !== false,
     submissionMode: state.request.submissionMode === "confirm" ? "confirm" : "immediate",
     multiSelect: activeQuestion.multiSelect,

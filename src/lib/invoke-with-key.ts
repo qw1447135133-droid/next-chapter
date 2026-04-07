@@ -19,6 +19,8 @@ import {
   rewriteToFirstFrame,
   directFetch,
   resolveDirectApiKey,
+  DEFAULT_ASYNC_IMAGE_POLL_ATTEMPTS,
+  DEFAULT_ASYNC_IMAGE_POLL_INTERVAL_MS,
   CHAR_STYLE_MAP,
   SCENE_STYLE_MAP,
   STORYBOARD_STYLE_MAP,
@@ -35,6 +37,7 @@ import {
   getDreaminaCliModelCatalog,
   isDreaminaCliAvailable,
 } from "@/lib/dreamina-cli";
+import { createAccumulatedTextDeltaForwarder } from "@/lib/streaming-delta";
 
 const TUZI_BASE_URL = "https://api.tuziapi.com";
 
@@ -515,11 +518,12 @@ async function localExtract(body: any, onStreamText?: (text: string) => void) {
 
   let textContent: string;
   if (onStreamText) {
+    const forwardStreamDelta = createAccumulatedTextDeltaForwarder(onStreamText);
     // Use streaming for real-time feedback
     const finalText = await callGeminiStream(
       model,
       [{ role: "user", parts: [{ text: promptText }] }],
-      (accumulated) => onStreamText(accumulated),
+      forwardStreamDelta,
       { temperature: 0.1, maxOutputTokens: 16384 },
       extractSignal,
     );
@@ -884,10 +888,11 @@ ${contextScenesDesc}
 
           let resultText: string;
           if (onStreamText) {
+            const forwardStreamDelta = createAccumulatedTextDeltaForwarder(onStreamText);
             resultText = await callGeminiStream(
               model,
               [{ role: "user", parts: [{ text: userText }] }],
-              (accumulated) => onStreamText(accumulated),
+              forwardStreamDelta,
               { temperature: 0.3, maxOutputTokens: 16384 },
               combinedSignal,
             );
@@ -998,10 +1003,11 @@ ${contextScenesDesc}
   const decomposeSignal = AbortSignal.timeout(SCRIPT_DECOMPOSE_TIMEOUT_MS);
   let resultText: string;
   if (onStreamText) {
+    const forwardStreamDelta = createAccumulatedTextDeltaForwarder(onStreamText);
     resultText = await callGeminiStream(
       model,
       [{ role: "user", parts: [{ text: userText }] }],
-      (accumulated) => onStreamText(accumulated),
+      forwardStreamDelta,
       { temperature: 0.3, maxOutputTokens: 16384 },
       decomposeSignal,
     );
@@ -1383,8 +1389,8 @@ CRITICAL: The character's clothing, armor, and accessories MUST match the era an
       } else {
         // 正常轮询异步结果
         const result = await pollAsyncImageResult(task_id, {
-          maxAttempts: 60,
-          intervalMs: 5000,
+          maxAttempts: DEFAULT_ASYNC_IMAGE_POLL_ATTEMPTS,
+          intervalMs: DEFAULT_ASYNC_IMAGE_POLL_INTERVAL_MS,
           fallbackModel,
           prompt,
           size: asyncSize,
@@ -1656,8 +1662,8 @@ This is a wide establishing shot showing the full environment. Focus on atmosphe
       } else {
         // 正常轮询异步结果
         const result = await pollAsyncImageResult(task_id, {
-          maxAttempts: 60,
-          intervalMs: 5000,
+          maxAttempts: DEFAULT_ASYNC_IMAGE_POLL_ATTEMPTS,
+          intervalMs: DEFAULT_ASYNC_IMAGE_POLL_INTERVAL_MS,
           fallbackModel,
           prompt,
           size: "16:9",
@@ -2081,8 +2087,8 @@ ${narrativeContext}
       } else {
         // 正常轮询异步结果
         const result = await pollAsyncImageResult(task_id, {
-          maxAttempts: 60,
-          intervalMs: 5000,
+          maxAttempts: DEFAULT_ASYNC_IMAGE_POLL_ATTEMPTS,
+          intervalMs: DEFAULT_ASYNC_IMAGE_POLL_INTERVAL_MS,
           fallbackModel,
           prompt,
           size: asyncSize,
@@ -2529,6 +2535,7 @@ Return ONLY plain text character description. NO JSON, NO code blocks.`;
 
   let rawText: string;
   if (onStreamText) {
+    const forwardStreamDelta = createAccumulatedTextDeltaForwarder(onStreamText);
     rawText = await callGeminiStream(
       useModel,
       [
@@ -2537,7 +2544,7 @@ Return ONLY plain text character description. NO JSON, NO code blocks.`;
           parts: [{ text: `${systemPrompt}\n\n${userContent}` }],
         },
       ],
-      onStreamText,
+      forwardStreamDelta,
       generationConfig,
     );
   } else {
@@ -2642,6 +2649,7 @@ Return ONLY plain text description in English. NO JSON.`;
 
   let rawText: string;
   if (onStreamText) {
+    const forwardStreamDelta = createAccumulatedTextDeltaForwarder(onStreamText);
     rawText = await callGeminiStream(
       useModel,
       [
@@ -2650,7 +2658,7 @@ Return ONLY plain text description in English. NO JSON.`;
           parts: [{ text: `${systemPrompt}\n\n${userContent}` }],
         },
       ],
-      onStreamText,
+      forwardStreamDelta,
       generationConfig,
     );
   } else {

@@ -32,7 +32,7 @@ export function MessageBubble({ message, pendingToolUseIds, toolResults }: Props
     : []
 
   const hasVisibleContent = displayBlocks.some(
-    b => b.type === 'text' || b.type === 'tool_use' || b.type === 'thinking',
+    b => b.type === 'text' || b.type === 'tool_use',
   )
   if (!hasVisibleContent) return null
 
@@ -43,15 +43,6 @@ export function MessageBubble({ message, pendingToolUseIds, toolResults }: Props
           return block.text ? (
             <p key={i} className="whitespace-pre-wrap">{block.text}</p>
           ) : null
-        }
-
-        if (block.type === 'thinking') {
-          return (
-            <details key={i} className="text-xs text-muted-foreground my-1">
-              <summary className="cursor-pointer select-none">Thinking…</summary>
-              <pre className="mt-1 p-2 bg-muted rounded whitespace-pre-wrap">{block.thinking}</pre>
-            </details>
-          )
         }
 
         if (block.type === 'tool_use') {

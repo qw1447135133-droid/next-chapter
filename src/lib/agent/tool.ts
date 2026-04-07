@@ -16,6 +16,7 @@ import type {
 
 export interface ToolUseContextOptions {
   model: string
+  provider?: string
   tools: Tool[]
   apiKey?: string
   baseUrl?: string

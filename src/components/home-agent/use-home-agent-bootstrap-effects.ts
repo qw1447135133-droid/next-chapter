@@ -15,13 +15,13 @@ export function useHomeAgentBootstrapEffects(params: {
   runtime: StudioRuntimeState;
   mode: string;
   metaReady: boolean;
-  messages: Array<{ id: string; role: string; content: string; createdAt: string; status?: string }>;
+  messages: Array<{ id: string; role: string; content: string; createdAt: string; status?: string; streamLabel?: string }>;
   compactedMessageCount: number;
   desktopSidebarCollapsed: boolean;
   dreaminaCapability: DreaminaCapabilityState;
   maintenanceHintTimerRef: React.MutableRefObject<number | null>;
   draftPersistTimerRef: React.MutableRefObject<number | null>;
-  messagesRef: React.MutableRefObject<Array<{ id: string; role: string; content: string; createdAt: string; status?: string }>>;
+  messagesRef: React.MutableRefObject<Array<{ id: string; role: string; content: string; createdAt: string; status?: string; streamLabel?: string }>>;
   compactedMessageCountRef: React.MutableRefObject<number>;
   surfacedTaskIdsRef: React.MutableRefObject<Set<string>>;
   surfacedTaskFollowupIdsRef: React.MutableRefObject<Set<string>>;

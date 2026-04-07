@@ -301,7 +301,6 @@ export function handleHomeAgentChoiceSelection(params: {
     return;
   }
 
-  // Single-option confirm: treat as immediate — no need for a separate confirm step
   if (!question?.multiSelect && question?.submissionMode === "confirm" && question?.options.length === 1) {
     answer(value, label);
     return;

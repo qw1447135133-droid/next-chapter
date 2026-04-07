@@ -77,6 +77,7 @@ export class AgentTool extends ToolBase {
     const subEngine = new QueryEngine({
       apiKey,
       baseUrl,
+      provider: context.options.provider,
       model,
       tools: context.options.tools,
       systemPrompt: [

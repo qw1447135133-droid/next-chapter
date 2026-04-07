@@ -12,9 +12,9 @@ export function getNetworkRetrySettings(): {
   const rawDelay = Number(cfg.retryDelayMs);
   const maxRetries = Number.isFinite(rawCount)
     ? Math.min(5, Math.max(0, Math.floor(rawCount)))
-    : 2;
+    : 1;
   const delayMs = Number.isFinite(rawDelay)
     ? Math.min(30_000, Math.max(500, Math.floor(rawDelay)))
-    : 3000;
+    : 800;
   return { maxRetries, delayMs };
 }

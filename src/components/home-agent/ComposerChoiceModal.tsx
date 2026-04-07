@@ -24,36 +24,33 @@ export default function ComposerChoiceModal({
   canConfirm = false,
   tone = "dark",
 }: ComposerChoiceModalProps) {
-  const open = Boolean(question);
+  if (!question) return null;
 
   return (
-    <DialogPrimitive.Root open={open} modal={false}>
+    <DialogPrimitive.Root open modal={false}>
       <DialogPrimitive.Content
         className={cn(
-          "absolute bottom-[calc(100%+2px)] left-0 z-[60] w-[min(96vw,540px)] overflow-visible border-0 bg-transparent p-0 shadow-none outline-none",
-          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:slide-out-to-bottom-2 data-[state=open]:slide-in-from-bottom-2 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+          "absolute bottom-[calc(100%+6px)] left-0 z-[60] w-[min(96vw,540px)] overflow-visible border-0 bg-transparent p-0 shadow-none outline-none",
         )}
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
       >
-        {question ? (
-          <>
-            <DialogPrimitive.Title className="sr-only">{question.title}</DialogPrimitive.Title>
-            {question.description ? (
-              <DialogPrimitive.Description className="sr-only">{question.description}</DialogPrimitive.Description>
-            ) : (
-              <DialogPrimitive.Description className="sr-only">请选择一项以继续。</DialogPrimitive.Description>
-            )}
-            <ComposerChoicePanel
-              question={question}
-              onSelect={onSelect}
-              onConfirm={onConfirm}
-              onBack={onBack}
-              canConfirm={canConfirm}
-              tone={tone}
-            />
-          </>
-        ) : null}
+        <DialogPrimitive.Title className="sr-only">{question.title}</DialogPrimitive.Title>
+        {question.description ? (
+          <DialogPrimitive.Description className="sr-only">{question.description}</DialogPrimitive.Description>
+        ) : (
+          <DialogPrimitive.Description className="sr-only">请选择一项以继续。</DialogPrimitive.Description>
+        )}
+        <div className="origin-bottom-left">
+          <ComposerChoicePanel
+            question={question}
+            onSelect={onSelect}
+            onConfirm={onConfirm}
+            onBack={onBack}
+            canConfirm={canConfirm}
+            tone={tone}
+          />
+        </div>
       </DialogPrimitive.Content>
     </DialogPrimitive.Root>
   );

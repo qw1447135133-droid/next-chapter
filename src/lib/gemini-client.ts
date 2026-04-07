@@ -11,9 +11,13 @@ import {
 } from "@/lib/upload-base64-to-storage";
 
 export const DEFAULT_GEMINI_BASE_URL = "https://api.tu-zi.com/v1beta";
+export const DEFAULT_GEMINI_RETRY_COUNT = 1;
+export const DEFAULT_GEMINI_RETRY_DELAY_MS = 800;
+export const DEFAULT_ASYNC_IMAGE_POLL_ATTEMPTS = 45;
+export const DEFAULT_ASYNC_IMAGE_POLL_INTERVAL_MS = 2000;
 
 /** 全局 Gemini 并发控制：同一时间最多 N 个请求打到 OneAPI */
-const MAX_CONCURRENT_GEMINI = 2;
+const MAX_CONCURRENT_GEMINI = 4;
 const geminiSem = { count: 0, queue: [] as Array<() => void> };
 
 function waitForGeminiSlot(): Promise<void> {
@@ -1137,8 +1141,8 @@ export async function pollAsyncImageResult(
     .replace(/\/v1beta(\/.*)?$/, "")
     .replace(/\/v1(\/.*)?$/, "");
 
-  const maxAttempts = options.maxAttempts || 60; // 最多轮询 60 次
-  const intervalMs = options.intervalMs || 5000; // 每 5 秒轮询一次
+  const maxAttempts = options.maxAttempts || DEFAULT_ASYNC_IMAGE_POLL_ATTEMPTS; // 默认最多轮询 45 次
+  const intervalMs = options.intervalMs || DEFAULT_ASYNC_IMAGE_POLL_INTERVAL_MS; // 默认每 2 秒轮询一次
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (options.signal?.aborted) {

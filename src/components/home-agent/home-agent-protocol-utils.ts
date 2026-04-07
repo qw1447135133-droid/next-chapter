@@ -2,15 +2,27 @@ import type { Message as QueryMessage } from "@/lib/agent/types";
 import type { AskUserQuestionRequest } from "@/lib/agent/tools/ask-user-question";
 import type { HomeAgentMessage, StudioQuestionState } from "@/lib/home-agent/types";
 
+export function stripHiddenThoughtBlocks(text: string): string {
+  return String(text || "")
+    .replace(/<think>\s*[\s\S]*?\s*<\/think>/gi, "")
+    .replace(/^\s*<\/?think>\s*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function textOf(content: unknown): string {
-  return Array.isArray(content)
-    ? content
-        .filter((block): block is { type: string; text?: string } => !!block && typeof block === "object" && "type" in block)
-        .filter((block) => block.type === "text" && typeof block.text === "string")
-        .map((block) => block.text?.trim() ?? "")
-        .filter(Boolean)
-        .join("\n\n")
-    : "";
+  const text =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content
+            .filter((block): block is { type: string; text?: string } => !!block && typeof block === "object" && "type" in block)
+            .filter((block) => block.type === "text" && typeof block.text === "string")
+            .map((block) => block.text?.trim() ?? "")
+            .filter(Boolean)
+            .join("\n\n")
+        : "";
+  return stripHiddenThoughtBlocks(text);
 }
 
 export function toQuery(messages: HomeAgentMessage[]): QueryMessage[] {

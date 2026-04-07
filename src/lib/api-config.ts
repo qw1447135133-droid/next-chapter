@@ -1,5 +1,7 @@
 export type ApiMode = "builtin";
 export type JimengExecutionMode = "api" | "cli";
+const DEFAULT_NETWORK_RETRY_COUNT = 1;
+const DEFAULT_NETWORK_RETRY_DELAY_MS = 800;
 
 export interface BuiltinApiBundle {
   geminiEndpoint?: string;
@@ -249,8 +251,8 @@ export const DEFAULT_API_CONFIG: ApiConfig = {
   modelMappings: {},
   firstFrameMaxDim: 2048,
   firstFrameMaxKB: 1024,
-  retryCount: 2,
-  retryDelayMs: 3000,
+  retryCount: DEFAULT_NETWORK_RETRY_COUNT,
+  retryDelayMs: DEFAULT_NETWORK_RETRY_DELAY_MS,
   storagePath: "",
 };
 

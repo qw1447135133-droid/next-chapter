@@ -1,5 +1,5 @@
 import type { AskUserQuestionRequest } from "@/lib/agent/tools/ask-user-question";
-import type { StudioQuestionState } from "@/lib/home-agent/types";
+import type { HomeAgentMessage, StudioQuestionState } from "@/lib/home-agent/types";
 import type { DramaSetup } from "@/types/drama";
 import { AUDIENCES, ENDINGS, GENRES, TARGET_MARKETS, TONES } from "@/types/drama";
 
@@ -276,10 +276,11 @@ function buildKickoffQuestionRequest(
             header: "目标受众",
             question: "这次更希望主打哪类受众？",
             multiSelect: false,
+            presentation: "card",
             options: AUDIENCES.map((audience) => ({
               label: audience.label,
               value: audience.value,
-              rationale: undefined,
+              rationale: audience.desc,
             })),
           },
         ],
@@ -296,10 +297,11 @@ function buildKickoffQuestionRequest(
             header: "故事基调",
             question: "先把故事基调定下来，方便 Agent 收口人物和节奏。",
             multiSelect: false,
+            presentation: "card",
             options: TONES.map((tone) => ({
               label: tone.label,
               value: tone.value,
-              rationale: undefined,
+              rationale: tone.desc,
             })),
           },
         ],
@@ -316,10 +318,11 @@ function buildKickoffQuestionRequest(
             header: "结局类型",
             question: "你希望最终落在什么结局上？",
             multiSelect: false,
+            presentation: "card",
             options: ENDINGS.map((ending) => ({
               label: ending.label,
               value: ending.value,
-              rationale: undefined,
+              rationale: ending.desc,
             })),
           },
         ],
@@ -646,6 +649,37 @@ export function rewindOriginalScriptKickoff(qState: StudioQuestionState): Studio
     answers: clearedAnswers,
     displayAnswers: clearedDisplayAnswers,
   };
+}
+
+export function rewindOriginalScriptKickoffMessages(messages: HomeAgentMessage[]): HomeAgentMessage[] {
+  if (messages.length < 2) return messages;
+
+  let trailingAssistantIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === "assistant") {
+      trailingAssistantIndex = i;
+      break;
+    }
+  }
+
+  if (trailingAssistantIndex === -1) return messages;
+
+  let answerIndex = -1;
+  for (let i = trailingAssistantIndex - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === "user") {
+      answerIndex = i;
+      break;
+    }
+    if (messages[i]?.role === "assistant") {
+      break;
+    }
+  }
+
+  if (answerIndex === -1) {
+    return [...messages.slice(0, trailingAssistantIndex), ...messages.slice(trailingAssistantIndex + 1)];
+  }
+
+  return [...messages.slice(0, answerIndex), ...messages.slice(trailingAssistantIndex + 1)];
 }
 
 export function buildOriginalScriptKickoffIntro(): string {

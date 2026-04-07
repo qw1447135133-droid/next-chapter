@@ -138,18 +138,110 @@ export function useHomeAgentRuntimeActions(params: {
   const pendingAutoResearchSelectionsRef = useRef<Record<string, string>>({});
   const streamingMessageIdRef = useRef<string | null>(null);
 
-  const appendStreamingDelta = useCallback((delta: string) => {
+  const updateStreamingMessage = useCallback((updater: (message: HomeAgentMessage | null) => HomeAgentMessage) => {
     setMessages((prev) => {
-      const last = prev[prev.length - 1];
-      if (last?.role === "assistant" && streamingMessageIdRef.current === last.id) {
-        return [...prev.slice(0, -1), { ...last, content: last.content + delta }];
+      const sid = streamingMessageIdRef.current;
+      if (!sid) {
+        const next = updater(null);
+        streamingMessageIdRef.current = next.id;
+        return [...prev, next];
       }
-      // Start a new streaming message
-      const id = `streaming-${Date.now()}`;
-      streamingMessageIdRef.current = id;
-      return [...prev, { id, role: "assistant" as const, content: delta }];
+
+      const index = prev.findIndex((message) => message.id === sid);
+      if (index === -1) {
+        const next = updater(null);
+        streamingMessageIdRef.current = next.id;
+        return [...prev, next];
+      }
+
+      const current = prev[index] ?? null;
+      const next = updater(current);
+      if (next.id !== sid) {
+        streamingMessageIdRef.current = next.id;
+      }
+      return [...prev.slice(0, index), next, ...prev.slice(index + 1)];
     });
   }, [setMessages]);
+
+  const appendStreamingDelta = useCallback((delta: string) => {
+    updateStreamingMessage((message) => {
+      if (message) {
+        return {
+          ...message,
+          content: message.content + delta,
+          status: "pending",
+          streamLabel: "继续分析中",
+        };
+      }
+
+      return {
+        id: `streaming-${Date.now()}`,
+        role: "assistant" as const,
+        content: delta,
+        createdAt: new Date().toISOString(),
+        status: "pending",
+        streamLabel: "继续分析中",
+      };
+    });
+  }, [updateStreamingMessage]);
+
+  const updateStreamingLabel = useCallback((label?: string) => {
+    if (!streamingMessageIdRef.current) return;
+    updateStreamingMessage((message) => ({
+      ...(message ?? {
+        id: `streaming-${Date.now()}`,
+        role: "assistant" as const,
+        content: "",
+        createdAt: new Date().toISOString(),
+      }),
+      status: "pending",
+      streamLabel: label || "继续分析中",
+    }));
+  }, [updateStreamingMessage]);
+
+  const finalizeStreamingMessage = useCallback((finalText?: string) => {
+    if (!streamingMessageIdRef.current) {
+      if (typeof finalText === "string" && finalText.trim()) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: "assistant" as const,
+            content: finalText.trim(),
+            createdAt: new Date().toISOString(),
+            status: "complete",
+          },
+        ]);
+      }
+      return;
+    }
+
+    updateStreamingMessage((message) => ({
+      ...(message ?? {
+        id: `streaming-${Date.now()}`,
+        role: "assistant" as const,
+        content: "",
+        createdAt: new Date().toISOString(),
+      }),
+      content: typeof finalText === "string" && finalText.trim() ? finalText.trim() : message?.content ?? "",
+      status: "complete",
+      streamLabel: undefined,
+    }));
+    streamingMessageIdRef.current = null;
+  }, [updateStreamingMessage]);
+
+  const ensureStreamingMessage = useCallback((label = "正在分析") => {
+    updateStreamingMessage((message) => ({
+      ...(message ?? {
+        id: `streaming-${Date.now()}`,
+        role: "assistant" as const,
+        content: "",
+        createdAt: new Date().toISOString(),
+      }),
+      status: "pending",
+      streamLabel: message?.streamLabel || label,
+    }));
+  }, [updateStreamingMessage]);
 
   const resolveDreaminaCapability = useCallback(async (): Promise<DreaminaCapabilityState> => {
     if (dreaminaCapability.ready) return dreaminaCapability;
@@ -286,6 +378,7 @@ export function useHomeAgentRuntimeActions(params: {
 
       setStreaming(true);
       streamingMessageIdRef.current = null;
+      ensureStreamingMessage();
 
       try {
         const activeEngine = await getEngine();
@@ -294,18 +387,14 @@ export function useHomeAgentRuntimeActions(params: {
           if (sendRunIdRef.current !== runId) break;
           if (engineRef.current !== activeEngine) break;
           if (runtimeRef.current.sessionId !== sendSessionId) break;
-          // When the final assistant message arrives, remove the streaming placeholder first
-          if (event.type === "assistant" && streamingMessageIdRef.current) {
-            const sid = streamingMessageIdRef.current;
-            streamingMessageIdRef.current = null;
-            setMessages((prev) => prev.filter((m) => m.id !== sid));
-          }
           await handleSendEngineEvent({
             event,
             loadStructuredQuestionParser,
             textOf,
             push,
             appendStreamingDelta,
+            updateStreamingLabel,
+            finalizeStreamingMessage,
             setQuestionRequest: (request) => setQState(createQuestionState(request)),
           });
         }
@@ -325,6 +414,8 @@ export function useHomeAgentRuntimeActions(params: {
       createQuestionState,
       dreaminaCapability,
       engineRef,
+      ensureStreamingMessage,
+      finalizeStreamingMessage,
       flashMaintenanceHint,
       getEngine,
       launchAutoResearchTasks,
@@ -343,6 +434,7 @@ export function useHomeAgentRuntimeActions(params: {
       sendRunIdRef,
       surfacedDreaminaHintRef,
       textOf,
+      updateStreamingLabel,
     ],
   );
 

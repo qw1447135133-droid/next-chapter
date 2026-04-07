@@ -55,12 +55,12 @@ export async function* queryLoop(
 
     // Call the model with streaming
     let assistantMsg: AssistantMessage
-    const pendingDeltas: string[] = []
     try {
       const stream = callModelAPIStream({
         messages: apiMessages,
         systemPrompt,
         model,
+        provider: toolUseContext.options.provider,
         tools,
         thinkingConfig: toolUseContext.options.thinkingConfig,
         apiKey,
@@ -70,8 +70,7 @@ export async function* queryLoop(
       for await (const event of stream) {
         if (toolUseContext.abortSignal?.aborted) break
         if (event.type === 'delta') {
-          // Buffer deltas — only yield them if this turns out to be the final turn
-          pendingDeltas.push(event.text)
+          yield { type: 'text_delta', delta: event.text } satisfies TextDeltaEvent
         } else {
           finalMsg = event.message
         }
@@ -101,13 +100,6 @@ export async function* queryLoop(
       Array.isArray(content)
         ? content.filter(b => b.type === 'tool_use')
         : []
-
-    // Only yield streaming deltas for the final turn (no tool calls)
-    if (toolUseBlocks.length === 0) {
-      for (const delta of pendingDeltas) {
-        yield { type: 'text_delta', delta } satisfies TextDeltaEvent
-      }
-    }
 
     yield assistantMsg
 

@@ -908,7 +908,7 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                     min={0}
                     max={5}
                     step={1}
-                    value={config.retryCount ?? 2}
+                    value={config.retryCount ?? 1}
                     onChange={(e) => setConfig((prev) => ({ ...prev, retryCount: Number(e.target.value) || 0 }))}
                     className={cn(compactInputClass, "mt-1")}
                   />
@@ -920,8 +920,8 @@ export default function Settings({ embedded = false, onClose, onSaved }: Setting
                     min={500}
                     max={30000}
                     step={500}
-                    value={config.retryDelayMs ?? 3000}
-                    onChange={(e) => setConfig((prev) => ({ ...prev, retryDelayMs: Number(e.target.value) || 3000 }))}
+                    value={config.retryDelayMs ?? 800}
+                    onChange={(e) => setConfig((prev) => ({ ...prev, retryDelayMs: Number(e.target.value) || 800 }))}
                     className={cn(compactInputClass, "mt-1")}
                   />
                 </div>

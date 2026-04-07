@@ -30,6 +30,7 @@ import {
   IdleLanding,
   MobileTopbar,
 } from "./home-agent-shell";
+import HomeAgentConfirmDialog from "./HomeAgentConfirmDialog";
 import {
   areProjectSnapshotsEquivalent,
   areRecentSessionsEquivalent,
@@ -243,6 +244,8 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
   const [maintenanceHint, setMaintenanceHint] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<{ projectId: string; title: string } | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [pendingDeleteSnapshot, setPendingDeleteSnapshot] = useState<ConversationProjectSnapshot | null>(null);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [jimengExecutionMode, setJimengExecutionMode] = useState<JimengExecutionMode>("api");
   const [launchReadiness, setLaunchReadiness] = useState<HomeAgentLaunchReadiness | null>(null);
   const [suppressedLaunchNoticeKey, setSuppressedLaunchNoticeKey] = useState<string | null>(null);
@@ -884,13 +887,8 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     }
   }, [renameTarget, renameDraft, loadProjectStore, flashMaintenanceHint]);
 
-  const handleDeleteProject = useCallback(
+  const performDeleteProject = useCallback(
     async (snapshot: ConversationProjectSnapshot) => {
-      if (
-        !window.confirm(`确定删除「${snapshot.title}」？本地会话与项目数据将一并移除，且无法恢复。`)
-      ) {
-        return;
-      }
       const others = runtimeRef.current.recentProjects.filter((p) => p.projectId !== snapshot.projectId);
       const wasActive = activeProjectId === snapshot.projectId;
 
@@ -979,6 +977,26 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
       sortConversationSnapshots,
     ],
   );
+
+  const handleDeleteProject = useCallback((snapshot: ConversationProjectSnapshot) => {
+    setPendingDeleteSnapshot(snapshot);
+  }, []);
+
+  const handleDeleteProjectConfirm = useCallback(async () => {
+    if (!pendingDeleteSnapshot || deletingProjectId) return;
+    const snapshot = pendingDeleteSnapshot;
+    setDeletingProjectId(snapshot.projectId);
+    try {
+      await performDeleteProject(snapshot);
+      setPendingDeleteSnapshot((current) =>
+        current?.projectId === snapshot.projectId ? null : current,
+      );
+    } finally {
+      setDeletingProjectId((current) =>
+        current === snapshot.projectId ? null : current,
+      );
+    }
+  }, [deletingProjectId, pendingDeleteSnapshot, performDeleteProject]);
 
   const handleLaunchNoticeAction = useCallback(
     (actionId: string) => {
@@ -1092,7 +1110,9 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
     send,
     setSelectedValues,
     setQState,
+    setMessages,
     setSuggested,
+    resetComposerDraft,
     videoProjectChoiceHandler,
     videoReviewChoiceHandler,
     videoAssetChoiceHandler,
@@ -1125,6 +1145,23 @@ export default function HomeAgentStudio({ initialUtility, onUtilityChange }: Pro
           </div>
         </div>
       ) : null}
+      <HomeAgentConfirmDialog
+        open={pendingDeleteSnapshot !== null}
+        title={pendingDeleteSnapshot ? `删除「${pendingDeleteSnapshot.title}」？` : "删除当前会话？"}
+        meta={
+          pendingDeleteSnapshot
+            ? `${pendingDeleteSnapshot.projectKind === "video" ? "视频工作流" : pendingDeleteSnapshot.projectKind === "adaptation" ? "参考改编" : "原创剧本"} · ${pendingDeleteSnapshot.derivedStage}`
+            : undefined
+        }
+        description="这会同时移除本地会话记录、项目数据和恢复快照。删除后无法恢复，也不会把这次确认动作写入当前主会话。"
+        pending={Boolean(pendingDeleteSnapshot && deletingProjectId === pendingDeleteSnapshot.projectId)}
+        onOpenChange={(open) => {
+          if (!open && !deletingProjectId) {
+            setPendingDeleteSnapshot(null);
+          }
+        }}
+        onConfirm={handleDeleteProjectConfirm}
+      />
       <DesktopSidebar
         idle={idle}
         recentProjects={deferredRecentProjects}

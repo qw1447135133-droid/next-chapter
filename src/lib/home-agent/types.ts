@@ -54,6 +54,7 @@ export interface ComposerQuestion {
   title: string;
   description?: string;
   options: ComposerQuestionOption[];
+  presentation?: "auto" | "chip" | "card";
   allowCustomInput: boolean;
   submissionMode: "immediate" | "confirm";
   multiSelect: boolean;
@@ -152,6 +153,7 @@ export interface HomeAgentMessage {
   content: string;
   createdAt: string;
   status?: "pending" | "complete";
+  streamLabel?: string;
   /** Local thumbs rating for assistant replies; persisted with session. */
   feedback?: "up" | "down";
 }

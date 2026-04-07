@@ -316,6 +316,7 @@ vi.mock("./ComposerChoiceModal", () => ({
   default: ({
     question,
     onSelect,
+    onBack,
     onConfirm,
     canConfirm,
   }: {
@@ -326,12 +327,18 @@ vi.mock("./ComposerChoiceModal", () => ({
       multiSelect?: boolean;
     } | null;
     onSelect: (value: string, label: string) => void;
+    onBack?: () => void;
     onConfirm?: () => void;
     canConfirm?: boolean;
   }) =>
     question ? (
       <div>
         <div>{question.title}</div>
+        {onBack ? (
+          <button type="button" onClick={onBack}>
+            返回上一步
+          </button>
+        ) : null}
         {question.options?.map((option) => (
           <button key={option.id} type="button" onClick={() => onSelect(option.value, option.label)}>
             {option.label}
@@ -3213,9 +3220,161 @@ describe("HomeAgentStudio", () => {
       await Promise.resolve();
     });
 
-    await waitForVisibleText("这次原创剧本主要想打哪个目标市场？");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "国内（中文）" })).toBeInTheDocument();
+    });
     expect(screen.getByRole("button", { name: "国内（中文）" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "日本（日文）" })).toBeInTheDocument();
+  });
+
+  it("rewinds original script kickoff selections by replacing the previous answer instead of appending a duplicate bubble", async () => {
+    await renderStudio();
+
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: /原创剧本/ })[0]!);
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText("这次想从哪种方式开始原创剧本？");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "选题创作" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "国内（中文）" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "国内（中文）" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("目标市场：国内（中文）")).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "返回上一步" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "欧美（英文）" })).toBeInTheDocument();
+    });
+    expect(screen.queryByText("目标市场：国内（中文）")).not.toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "欧美（英文）" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("目标市场：欧美（英文）")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("目标市场：国内（中文）")).not.toBeInTheDocument();
+    expect(screen.getAllByText(/目标市场：/).length).toBe(1);
+  });
+
+  it("rewinds later kickoff steps by replacing the prior word-count bubble instead of appending another one", async () => {
+    await renderStudio();
+
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: /原创剧本/ })[0]!);
+      await Promise.resolve();
+    });
+
+    await waitForVisibleText("这次想从哪种方式开始原创剧本？");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "选题创作" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "国内（中文）" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "国内（中文）" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "都市言情" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "都市言情" }));
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "继续" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "女频" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "女频" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "甜虐" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "甜虐" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "HE（好结局）" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "HE（好结局）" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "40集（紧凑）" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "40集（紧凑）" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("集数规模：40集（紧凑）")).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "返回上一步" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "60集（标准）" })).toBeInTheDocument();
+    });
+    expect(screen.queryByText("集数规模：40集（紧凑）")).not.toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "60集（标准）" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("集数规模：60集（标准）")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("集数规模：40集（紧凑）")).not.toBeInTheDocument();
+    expect(screen.getAllByText(/集数规模：/).length).toBe(1);
   });
 
   it("saves topic-mode original script kickoff as structured setup with market filtering and a two-persona cap", async () => {

@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import type { ComposerQuestion, ConversationProjectSnapshot, StudioQuestionState, StudioRuntimeState } from "@/lib/home-agent/types";
+import type { ComposerQuestion, ConversationProjectSnapshot, HomeAgentMessage, StudioQuestionState, StudioRuntimeState } from "@/lib/home-agent/types";
 import type { HomeAgentTextModelGroup } from "@/lib/home-agent/text-models";
 import { cn } from "@/lib/utils";
 import {
@@ -9,7 +9,12 @@ import {
   type HomeComposerVideoTransportHint,
 } from "./home-agent-shell";
 import { buildConfirmedStructuredAnswer, handleHomeAgentChoiceSelection, submitHomeAgentComposer } from "./home-agent-session-actions";
-import { isOriginalScriptKickoffRequest, rewindOriginalScriptKickoff, canRewindOriginalScriptKickoff } from "@/lib/home-agent/original-script-kickoff";
+import {
+  canRewindOriginalScriptKickoff,
+  isOriginalScriptKickoffRequest,
+  rewindOriginalScriptKickoff,
+  rewindOriginalScriptKickoffMessages,
+} from "@/lib/home-agent/original-script-kickoff";
 
 type ChoiceHandler = (snapshot: ConversationProjectSnapshot, value: string, label: string) => boolean;
 type AutoResearchChoiceHandler = (value: string, label: string) => boolean | Promise<boolean>;
@@ -44,7 +49,9 @@ export function useHomeAgentComposerBindings(params: {
   send: (value: string, shown?: string) => Promise<void>;
   setSelectedValues: React.Dispatch<React.SetStateAction<string[]>>;
   setQState: React.Dispatch<React.SetStateAction<StudioQuestionState | null>>;
+  setMessages: React.Dispatch<React.SetStateAction<HomeAgentMessage[]>>;
   setSuggested: React.Dispatch<React.SetStateAction<ComposerQuestion | null>>;
+  resetComposerDraft: (value?: string) => void;
   videoProjectChoiceHandler: ChoiceHandler;
   videoReviewChoiceHandler: ChoiceHandler;
   videoAssetChoiceHandler: ChoiceHandler;
@@ -84,7 +91,9 @@ export function useHomeAgentComposerBindings(params: {
     send,
     setSelectedValues,
     setQState,
+    setMessages,
     setSuggested,
+    resetComposerDraft,
     videoProjectChoiceHandler,
     videoReviewChoiceHandler,
     videoAssetChoiceHandler,
@@ -156,9 +165,11 @@ export function useHomeAgentComposerBindings(params: {
     if (!qState || !isOriginalScriptKickoffRequest(qState.request)) return;
     const prevQState = rewindOriginalScriptKickoff(qState);
     if (!prevQState) return;
+    setMessages((prev) => rewindOriginalScriptKickoffMessages(prev));
     setQState(prevQState);
     setSelectedValues([]);
-  }, [qState, setQState, setSelectedValues]);
+    resetComposerDraft("");
+  }, [qState, resetComposerDraft, setMessages, setQState, setSelectedValues]);
 
   const submitComposer = useCallback(() => {
     submitHomeAgentComposer({

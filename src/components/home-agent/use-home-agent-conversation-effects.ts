@@ -4,6 +4,7 @@ import { planConversationCompaction } from "@/lib/home-agent/conversation-compac
 import { buildResearchFollowupQuestion } from "@/lib/home-agent/auto-research";
 import { mergeRuntimeWithWorkflowDelta } from "@/lib/home-agent/workflow-shortcut-runner";
 import { resolveHomeAgentTextModelRuntime } from "@/lib/home-agent/text-models";
+import { extractAssistantProjectTitle } from "@/lib/home-agent/project-title";
 import type {
   HomeAgentMessage,
   ComposerQuestion,
@@ -119,6 +120,7 @@ export function useHomeAgentConversationEffects(params: {
     parseTaskHeading,
   } = params;
   const videoRefreshInFlightKeyRef = useRef<string | null>(null);
+  const appliedProjectTitleKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (qState || streaming || popoverOverride) return;
@@ -165,6 +167,61 @@ export function useHomeAgentConversationEffects(params: {
     setSuggested,
     surfacedProjectSuggestionKeysRef,
     restoredProjectSuggestionKeysRef,
+  ]);
+
+  useEffect(() => {
+    const snapshot = runtime.currentProjectSnapshot;
+    if (!snapshot?.projectId) return;
+
+    const latestAssistantMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "assistant" && message.content.trim());
+    if (!latestAssistantMessage) return;
+
+    const nextTitle = extractAssistantProjectTitle(latestAssistantMessage.content);
+    if (!nextTitle || nextTitle === snapshot.title) return;
+
+    const applyKey = `${snapshot.projectId}:${nextTitle}`;
+    if (appliedProjectTitleKeyRef.current === applyKey) return;
+    appliedProjectTitleKeyRef.current = applyKey;
+
+    startTransition(() => {
+      setRuntime((prev) => {
+        if (prev.currentProjectSnapshot?.projectId !== snapshot.projectId) {
+          return prev;
+        }
+
+        const nextProjects = prev.recentProjects.map((project) =>
+          project.projectId === snapshot.projectId ? { ...project, title: nextTitle } : project,
+        );
+
+        return {
+          ...prev,
+          currentProjectSnapshot: prev.currentProjectSnapshot
+            ? { ...prev.currentProjectSnapshot, title: nextTitle }
+            : prev.currentProjectSnapshot,
+          currentDramaProject: prev.currentDramaProject
+            ? { ...prev.currentDramaProject, dramaTitle: nextTitle }
+            : prev.currentDramaProject,
+          currentVideoProject: prev.currentVideoProject
+            ? { ...prev.currentVideoProject, title: nextTitle }
+            : prev.currentVideoProject,
+          recentProjects: nextProjects,
+        };
+      });
+    });
+
+    void loadProjectStore()
+      .then((store) => store.renameConversationProject(snapshot.projectId, nextTitle))
+      .catch(() => {
+        flashMaintenanceHint("项目名称回写失败，请稍后重试。", 2400);
+      });
+  }, [
+    flashMaintenanceHint,
+    loadProjectStore,
+    messages,
+    runtime.currentProjectSnapshot,
+    setRuntime,
   ]);
 
   useEffect(() => {

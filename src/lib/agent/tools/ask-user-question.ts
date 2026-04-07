@@ -20,6 +20,7 @@ export interface AskUserQuestionRequest {
     question: string
     header: string
     multiSelect: boolean
+    presentation?: 'auto' | 'chip' | 'card'
     options: Array<{
       label: string
       value?: string
@@ -94,6 +95,10 @@ export class AskUserQuestionTool extends ToolBase {
               question: { type: 'string' },
               header: { type: 'string', description: 'Short label (max 12 chars)' },
               multiSelect: { type: 'boolean' },
+              presentation: {
+                type: 'string',
+                description: 'Optional UI hint: auto, chip, or card',
+              },
               options: {
                 type: 'array',
                 items: {

@@ -4,6 +4,7 @@ import {
   createVideoSnapshot,
   listRecentConversationSnapshots,
   listStoredDramaProjects,
+  renameConversationProject,
 } from "./project-store";
 import type { PersistedVideoProject } from "@/hooks/use-local-persistence";
 
@@ -196,7 +197,48 @@ describe("project-store legacy compatibility", () => {
     expect(snapshot.memory?.complianceRevisionPackets?.length).toBeGreaterThan(0);
     expect(snapshot.artifacts.some((artifact) => artifact.kind === "character-card")).toBe(true);
     expect(snapshot.artifacts.some((artifact) => artifact.kind === "beat-packet")).toBe(true);
-    expect(snapshot.recommendedActions[0]).toContain("合规修订包");
+    expect(snapshot.recommendedActions[0]).toContain("合规修订");
+  });
+
+  it("recommends character development immediately after the creative plan is generated", () => {
+    const snapshot = createDramaSnapshot({
+      id: "drama-creative-plan-next",
+      mode: "traditional",
+      setup: {
+        genres: ["都市言情"],
+        audience: "女频",
+        tone: "甜虐",
+        ending: "HE",
+        totalEpisodes: 40,
+        targetMarket: "cn",
+        creativeInput: "契约婚姻里逐步反转身份真相。",
+      },
+      creativePlan: "女主与冷面继承人因为契约婚姻捆绑在一起，在互相试探中逐步揭开父辈旧案。",
+      characters: "",
+      directory: [],
+      directoryRaw: "",
+      episodes: [],
+      complianceReport: "",
+      currentStep: "characters",
+      dramaTitle: "契约婚姻反转录",
+      createdAt: "2026-04-01T00:00:00.000Z",
+      updatedAt: "2026-04-02T00:00:00.000Z",
+      referenceScript: "",
+      referenceStructure: "",
+      frameworkStyle: "",
+      structureTransform: "",
+      characterTransform: "",
+      exportDocument: "",
+      styleLock: null,
+      worldModel: null,
+      characterStateCards: [],
+      storyBeatPackets: [],
+      complianceRevisionPackets: [],
+    });
+
+    expect(snapshot.derivedStage).toBe("角色开发");
+    expect(snapshot.recommendedActions[0]).toBe("进入角色开发");
+    expect(snapshot.agentSummary).toContain("建议下一步先进入角色开发");
   });
 
   it("builds video production memory into homepage snapshots", () => {
@@ -419,5 +461,36 @@ describe("project-store legacy compatibility", () => {
     expect(snapshot.recommendedActions).toEqual(
       expect.arrayContaining(["预览生产状态摘要", "打开生产状态目录", "导出生产状态包"]),
     );
+  });
+
+  it("renames the underlying stored drama project and recent snapshot together", async () => {
+    localStorage.setItem(
+      DRAMA_PROJECTS_KEY,
+      JSON.stringify([
+        {
+          id: "drama-rename-1",
+          dramaTitle: "未命名剧本项目",
+          currentStep: "creative-plan",
+          updatedAt: "2026-04-02T00:00:00.000Z",
+          createdAt: "2026-04-01T00:00:00.000Z",
+          setup: {
+            genres: ["美食治愈"],
+            audience: "全龄",
+            tone: "甜",
+            ending: "HE",
+            totalEpisodes: 40,
+            targetMarket: "cn",
+          },
+        },
+      ]),
+    );
+
+    await renameConversationProject("drama-rename-1", "食光深处的告白");
+
+    const [project] = listStoredDramaProjects();
+    expect(project?.dramaTitle).toBe("食光深处的告白");
+
+    const [snapshot] = await listRecentConversationSnapshots();
+    expect(snapshot?.title).toBe("食光深处的告白");
   });
 });

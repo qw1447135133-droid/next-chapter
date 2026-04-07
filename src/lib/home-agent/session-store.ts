@@ -101,6 +101,9 @@ function compactQuestionStateForStorage(
         header: truncateText(question.header, 48) || "问题",
         question: truncateText(question.question, textLimit),
         multiSelect: !!question.multiSelect,
+        ...(question.presentation === "chip" || question.presentation === "card"
+          ? { presentation: question.presentation }
+          : {}),
         options: question.options.slice(0, optionLimit).map((option) => ({
           label: truncateText(option.label, 64) || "选项",
           value: truncateText(option.value || option.label, 120) || truncateText(option.label, 64) || "选项",

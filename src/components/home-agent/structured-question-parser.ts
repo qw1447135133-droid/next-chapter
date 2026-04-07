@@ -73,9 +73,19 @@ function buildToolRequest(
         allowCustomInput?: boolean;
         submissionMode?: "immediate" | "confirm";
         questions?: Array<Record<string, unknown>>;
+        question?: string;
+        options?: Array<Record<string, unknown>>;
+        header?: string;
+        multiSelect?: boolean;
       },
 ): AskUserQuestionRequest | null {
-  const rawQuestions = Array.isArray(parsed) ? parsed : parsed.questions;
+  const rawQuestions = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed.questions)
+      ? parsed.questions
+      : typeof parsed.question === "string" && Array.isArray(parsed.options)
+        ? [parsed]
+        : null;
   if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) {
     return null;
   }
@@ -179,6 +189,181 @@ function extractToolInvocation(text: string): StructuredQuestionExtraction | nul
   }
 }
 
+function buildLegacyAskUserRequest(parsed: Record<string, unknown>): AskUserQuestionRequest | null {
+  const hasLegacyShape =
+    parsed.type === "ask_user" ||
+    ((typeof parsed.question === "string" || typeof parsed.prompt === "string") &&
+      Array.isArray(parsed.options));
+  if (!hasLegacyShape) return null;
+
+  const rawQuestion =
+    typeof parsed.question === "string"
+      ? parsed.question.trim()
+      : typeof parsed.prompt === "string"
+        ? parsed.prompt.trim()
+        : "";
+  const rawOptions = Array.isArray(parsed.options) ? parsed.options : [];
+
+  const options = rawOptions
+    .map((option) => {
+      if (typeof option === "string") {
+        const label = option.trim();
+        return label ? { label, value: label } : null;
+      }
+
+      if (!option || typeof option !== "object") return null;
+      const label = typeof option.label === "string" ? option.label.trim() : "";
+      if (!label) return null;
+
+      return {
+        label,
+        value:
+          typeof option.value === "string" && option.value.trim()
+            ? option.value.trim()
+            : label,
+        description:
+          typeof option.description === "string" ? option.description.trim() : undefined,
+        rationale:
+          typeof option.rationale === "string"
+            ? option.rationale.trim()
+            : typeof option.desc === "string"
+              ? option.desc.trim()
+              : undefined,
+      };
+    })
+    .filter((option): option is NonNullable<typeof option> => Boolean(option));
+
+  if (!rawQuestion || options.length === 0) {
+    return null;
+  }
+
+  const customInputFlag =
+    parsed.allowCustomInput !== false &&
+    (typeof parsed.allowCustomInput === "boolean"
+      ? parsed.allowCustomInput
+      : options.some((option) => /自定义|custom/i.test(option.label)));
+
+  return {
+    id: crypto.randomUUID(),
+    title: typeof parsed.title === "string" ? parsed.title.trim() : undefined,
+    description: typeof parsed.description === "string" ? parsed.description.trim() : undefined,
+    allowCustomInput: customInputFlag,
+    submissionMode: parsed.submissionMode === "confirm" ? "confirm" : "immediate",
+    questions: [
+      {
+        question: rawQuestion,
+        header:
+          typeof parsed.header === "string" && parsed.header.trim()
+            ? parsed.header.trim()
+            : deriveHeaderFromQuestion(rawQuestion),
+        multiSelect: parsed.multiSelect === true,
+        options,
+      },
+    ],
+  };
+}
+
+function extractBalancedJsonObject(text: string, startIndex: number): { json: string; endIndex: number } | null {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = startIndex; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return {
+          json: text.slice(startIndex, index + 1),
+          endIndex: index + 1,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractFirstStructuredJsonPayload(text: string): string | null {
+  const objectStart = text.indexOf("{");
+  if (objectStart >= 0) {
+    return extractBalancedJsonObject(text, objectStart)?.json ?? null;
+  }
+
+  const arrayStart = text.indexOf("[");
+  if (arrayStart >= 0) {
+    const arrayEnd = text.lastIndexOf("]");
+    if (arrayEnd > arrayStart) {
+      return text.slice(arrayStart, arrayEnd + 1);
+    }
+  }
+
+  return null;
+}
+
+function extractLegacyAskUserInvocation(text: string): StructuredQuestionExtraction | null {
+  const trimmed = text.trim();
+  if (!trimmed.includes("\"type\"") || !trimmed.includes("ask_user")) {
+    return null;
+  }
+
+  const askUserMatch = /"type"\s*:\s*"ask_user"/i.exec(trimmed);
+  if (!askUserMatch) {
+    return null;
+  }
+
+  const typeIndex = askUserMatch.index;
+  const objectStart = trimmed.lastIndexOf("{", typeIndex);
+  if (objectStart < 0) {
+    return null;
+  }
+
+  const extracted = extractBalancedJsonObject(trimmed, objectStart);
+  if (!extracted) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(extracted.json) as Record<string, unknown>;
+    const request = buildLegacyAskUserRequest(parsed);
+    if (!request) {
+      return null;
+    }
+
+    return {
+      cleanedText: collapseSpacing(
+        `${trimmed.slice(0, objectStart)}${trimmed.slice(extracted.endIndex)}`,
+      ),
+      request,
+      workflowCall: null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function extractWorkflowInvocation(text: string): StructuredQuestionExtraction | null {
   const trimmed = text.trim();
   if (!trimmed.includes("HomeStudioWorkflow")) {
@@ -190,10 +375,18 @@ function extractWorkflowInvocation(text: string): StructuredQuestionExtraction |
     .map((match) => match[1]?.trim() || "")
     .find((payload) => /HomeStudioWorkflow|\"tool\"\s*:\s*\"HomeStudioWorkflow\"/i.test(payload));
 
+  const rawJsonPayload =
+    toolPayload &&
+    !/"tool"\s*:\s*"HomeStudioWorkflow"/i.test(toolPayload) &&
+    /"action"\s*:\s*".+?"/i.test(toolPayload)
+      ? toolPayload.match(/(\{[\s\S]*\})/i)
+      : null;
+
   const invocationMatch =
     (toolPayload &&
       (toolPayload.match(/HomeStudioWorkflow\s*\(\s*([\s\S]*?)\s*\)\s*$/i) ||
-        toolPayload.match(/(\{[\s\S]*\"tool\"\s*:\s*\"HomeStudioWorkflow\"[\s\S]*\})/i))) ||
+        toolPayload.match(/(\{[\s\S]*\"tool\"\s*:\s*\"HomeStudioWorkflow\"[\s\S]*\})/i) ||
+        rawJsonPayload)) ||
     trimmed.match(/HomeStudioWorkflow\s*\(\s*([\s\S]*?)\s*\)\s*$/i);
 
   const payload = invocationMatch?.[1]?.trim() || invocationMatch?.[0]?.trim();
@@ -224,6 +417,43 @@ function extractWorkflowInvocation(text: string): StructuredQuestionExtraction |
       ),
       request: null,
       workflowCall,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function extractCommentedAskUserInvocation(text: string): StructuredQuestionExtraction | null {
+  const trimmed = text.trim();
+  if (!trimmed.includes("AskUserQuestion")) {
+    return null;
+  }
+
+  const codeBlockMatches = [...trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)];
+  const matchedBlock = codeBlockMatches.find((match) => /AskUserQuestion/i.test(match[1] || ""));
+  const blockContent = matchedBlock?.[1]?.trim();
+  if (!blockContent) {
+    return null;
+  }
+
+  const payload =
+    extractFirstStructuredJsonPayload(blockContent) ||
+    blockContent.match(/AskUserQuestion\s*\(?\s*([\s\S]*?)\s*\)?$/i)?.[1]?.trim();
+  if (!payload) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(payload) as Record<string, unknown>;
+    const request = buildLegacyAskUserRequest(parsed) ?? buildToolRequest(parsed);
+    if (!request) {
+      return null;
+    }
+
+    return {
+      cleanedText: collapseSpacing(text.replace(matchedBlock?.[0] || "", "")),
+      request,
+      workflowCall: null,
     };
   } catch {
     return null;
@@ -523,14 +753,57 @@ function buildInlinePromptRequest(text: string): StructuredQuestionExtraction | 
 }
 
 export function extractStructuredQuestion(text: string): StructuredQuestionExtraction {
-  return (
-    extractToolInvocation(text) ??
-    extractWorkflowInvocation(text) ??
-    buildMarkdownRequest(text) ??
-    buildInlinePromptRequest(text) ?? {
-      cleanedText: text,
-      request: null,
-      workflowCall: null,
+  let workingText = text;
+  let request: AskUserQuestionRequest | null = null;
+  let workflowCall: Record<string, unknown> | null = null;
+
+  const workflowExtraction = extractWorkflowInvocation(workingText);
+  if (workflowExtraction) {
+    workingText = workflowExtraction.cleanedText;
+    workflowCall = workflowExtraction.workflowCall ?? null;
+  }
+
+  const toolExtraction = extractToolInvocation(workingText);
+  if (toolExtraction) {
+    workingText = toolExtraction.cleanedText;
+    request = toolExtraction.request;
+  }
+
+  if (!request) {
+    const commentedToolExtraction = extractCommentedAskUserInvocation(workingText);
+    if (commentedToolExtraction) {
+      workingText = commentedToolExtraction.cleanedText;
+      request = commentedToolExtraction.request;
     }
-  );
+  }
+
+  if (!request) {
+    const legacyExtraction = extractLegacyAskUserInvocation(workingText);
+    if (legacyExtraction) {
+      workingText = legacyExtraction.cleanedText;
+      request = legacyExtraction.request;
+    }
+  }
+
+  if (!request) {
+    const markdownExtraction = buildMarkdownRequest(workingText);
+    if (markdownExtraction) {
+      workingText = markdownExtraction.cleanedText;
+      request = markdownExtraction.request;
+    }
+  }
+
+  if (!request) {
+    const inlineExtraction = buildInlinePromptRequest(workingText);
+    if (inlineExtraction) {
+      workingText = inlineExtraction.cleanedText;
+      request = inlineExtraction.request;
+    }
+  }
+
+  return {
+    cleanedText: collapseSpacing(workingText),
+    request,
+    workflowCall,
+  };
 }
