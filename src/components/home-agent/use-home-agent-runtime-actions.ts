@@ -29,7 +29,7 @@ import {
 } from "./home-agent-engine-runtime";
 import { answerHomeAgentQuestion, launchTemplateConversation, resetHomeAgentConversation, resetRuntimeState } from "./home-agent-session-actions";
 import { recQuestion } from "./home-agent-project-questions";
-import { runWorkflowShortcut } from "@/lib/home-agent/workflow-shortcut-runner";
+import { runWorkflowShortcut, runWorkflowShortcutChain } from "@/lib/home-agent/workflow-shortcut-runner";
 import { buildDreaminaCapabilityOverlay, isVideoIntentPrompt } from "./home-agent-project-questions";
 import type {
   AskUserQuestionModule,
@@ -223,7 +223,10 @@ export function useHomeAgentRuntimeActions(params: {
         content: "",
         createdAt: new Date().toISOString(),
       }),
-      content: typeof finalText === "string" && finalText.trim() ? finalText.trim() : message?.content ?? "",
+      content:
+        typeof finalText === "string"
+          ? finalText.trim()
+          : message?.content ?? "",
       status: "complete",
       streamLabel: undefined,
     }));
@@ -528,12 +531,20 @@ export function useHomeAgentRuntimeActions(params: {
             setSuggested,
           });
 
-          await runWorkflowShortcut({
-            action: "save_setup",
-            input: completion.setupInput,
+          await runWorkflowShortcutChain({
             runtime: runtimeRef.current,
             runAction: (nextAction, nextInput, nextRuntime) =>
               workflow.runWorkflowAction(nextAction, nextInput, nextRuntime),
+            steps: [
+              {
+                action: "save_setup",
+                input: completion.setupInput,
+              },
+              {
+                action: "generate_creative_plan",
+                input: completion.setupInput,
+              },
+            ],
             ui,
             userBubble: completion.userBubble,
           });

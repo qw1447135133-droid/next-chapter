@@ -68,6 +68,8 @@ function buildToolRequest(
   parsed:
     | Array<Record<string, unknown>>
     | {
+        tool?: string;
+        arguments?: Record<string, unknown>;
         title?: string;
         description?: string;
         allowCustomInput?: boolean;
@@ -79,12 +81,21 @@ function buildToolRequest(
         multiSelect?: boolean;
       },
 ): AskUserQuestionRequest | null {
-  const rawQuestions = Array.isArray(parsed)
-    ? parsed
-    : Array.isArray(parsed.questions)
-      ? parsed.questions
-      : typeof parsed.question === "string" && Array.isArray(parsed.options)
-        ? [parsed]
+  const normalizedParsed =
+    !Array.isArray(parsed) &&
+    parsed.tool === "AskUserQuestion" &&
+    parsed.arguments &&
+    typeof parsed.arguments === "object" &&
+    !Array.isArray(parsed.arguments)
+      ? parsed.arguments
+      : parsed;
+
+  const rawQuestions = Array.isArray(normalizedParsed)
+    ? normalizedParsed
+    : Array.isArray(normalizedParsed.questions)
+      ? normalizedParsed.questions
+      : typeof normalizedParsed.question === "string" && Array.isArray(normalizedParsed.options)
+        ? [normalizedParsed]
         : null;
   if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) {
     return null;
@@ -92,15 +103,15 @@ function buildToolRequest(
 
   const request: AskUserQuestionRequest = {
     id: crypto.randomUUID(),
-    title: Array.isArray(parsed) ? undefined : parsed.title,
-    description: Array.isArray(parsed) ? undefined : parsed.description,
-    allowCustomInput: Array.isArray(parsed)
+    title: Array.isArray(normalizedParsed) ? undefined : normalizedParsed.title,
+    description: Array.isArray(normalizedParsed) ? undefined : normalizedParsed.description,
+    allowCustomInput: Array.isArray(normalizedParsed)
       ? rawQuestions.every((question) => question.allowCustomInput !== false)
-      : parsed.allowCustomInput !== false,
+      : normalizedParsed.allowCustomInput !== false,
     submissionMode:
-      (Array.isArray(parsed)
+      (Array.isArray(normalizedParsed)
         ? rawQuestions.some((question) => question.submissionMode === "confirm")
-        : parsed.submissionMode === "confirm")
+        : normalizedParsed.submissionMode === "confirm")
         ? "confirm"
         : "immediate",
     questions: rawQuestions.map((question, index) => {
@@ -398,9 +409,13 @@ function extractWorkflowInvocation(text: string): StructuredQuestionExtraction |
     const parsed = JSON.parse(payload) as Record<string, unknown>;
     const workflowCall =
       parsed.tool === "HomeStudioWorkflow"
-        ? Object.fromEntries(
-            Object.entries(parsed).filter(([key]) => key !== "tool"),
-          )
+        ? parsed.arguments &&
+          typeof parsed.arguments === "object" &&
+          !Array.isArray(parsed.arguments)
+          ? { ...(parsed.arguments as Record<string, unknown>) }
+          : Object.fromEntries(
+              Object.entries(parsed).filter(([key]) => key !== "tool"),
+            )
         : parsed;
 
     if (typeof workflowCall.action !== "string" || !workflowCall.action.trim()) {

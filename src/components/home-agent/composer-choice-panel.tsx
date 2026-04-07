@@ -244,6 +244,10 @@ export function ComposerChoicePanel({
   const useRelaxedCardListHeight = !compactChoiceMode && question.options.length <= 2;
   const useRelaxedPanelSpacing = !compactChoiceMode && question.options.length <= 2;
 
+  useEffect(() => {
+    setCollapsed(false);
+  }, [question.id]);
+
   return (
     <div
       data-choice-mode={compactChoiceMode ? "chip" : "card"}
@@ -251,9 +255,44 @@ export function ComposerChoicePanel({
         dark
           ? "border-white/[0.05] bg-[linear-gradient(180deg,rgba(27,28,31,0.82),rgba(20,21,24,0.93))] shadow-[0_12px_30px_rgba(0,0,0,0.15)] backdrop-blur-xl"
           : "border-slate-200/80 bg-white/96 shadow-[0_10px_20px_rgba(148,163,184,0.11)]"
-      } transition-[border-color,background-color,box-shadow] duration-150 ${isGenreQuestion ? "" : "max-h-[min(64vh,760px)] overflow-y-auto scrollbar-none"}`}
+      } transition-[border-color,background-color,box-shadow] duration-150 ${
+        collapsed ? "" : isGenreQuestion ? "" : "max-h-[min(64vh,760px)] overflow-y-auto scrollbar-none"
+      }`}
     >
-      <div className={`flex items-start gap-2.5 ${collapsed ? "" : "mb-2"}`}>
+      {collapsed ? (
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className={`flex w-full items-center justify-between rounded-[14px] border px-3 py-2.5 text-left transition-colors ${
+            dark
+              ? "border-white/[0.06] bg-white/[0.04] hover:bg-white/[0.07]"
+              : "border-slate-200 bg-slate-50 hover:bg-white"
+          }`}
+          aria-label={`展开选择窗：${question.title}`}
+        >
+          <span className="flex min-w-0 items-center gap-2.5">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[12px] bg-[#0f62fe]/92 text-white shadow-[0_6px_14px_rgba(15,98,254,0.2)]">
+              <Sparkles className="h-2.5 w-2.5" />
+            </span>
+            <span className="min-w-0">
+              <span className={`block truncate text-[12.5px] font-medium ${dark ? "text-slate-100" : "text-slate-900"}`}>
+                {question.title}
+              </span>
+              {question.totalSteps > 1 ? (
+                <span className={`mt-0.5 block text-[10px] ${dark ? "text-slate-500" : "text-slate-500"}`}>
+                  第 {question.stepIndex + 1} / {question.totalSteps} 步
+                </span>
+              ) : null}
+            </span>
+          </span>
+          <span className="ml-3 inline-flex items-center gap-1 text-[10px] font-medium text-slate-400">
+            展开
+            <ChevronDown className="h-3.5 w-3.5" />
+          </span>
+        </button>
+      ) : (
+        <>
+      <div className="mb-2 flex items-start gap-2.5">
         {onBack ? (
           <button
             type="button"
@@ -275,8 +314,8 @@ export function ComposerChoicePanel({
             <div className={`min-h-[18px] text-[12.5px] font-medium ${dark ? "text-slate-100" : "text-slate-900"}`}>
               {question.title}
             </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              {question.totalSteps > 1 ? (
+            {question.totalSteps > 1 ? (
+              <div className="flex shrink-0 items-center gap-1.5">
                 <div
                   className={`rounded-full px-1.5 py-0.5 text-[9.5px] ${
                     dark
@@ -286,37 +325,46 @@ export function ComposerChoicePanel({
                 >
                   第 {question.stepIndex + 1} / {question.totalSteps} 步
                 </div>
-              ) : null}
+                <button
+                  type="button"
+                  onClick={() => setCollapsed(true)}
+                  className={`flex h-5 w-5 items-center justify-center rounded-full transition-colors ${
+                    dark ? "text-slate-500 hover:bg-white/[0.08] hover:text-slate-300" : "text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                  }`}
+                  aria-label="收起选择窗"
+                >
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+              </div>
+            ) : (
               <button
                 type="button"
-                onClick={() => setCollapsed((c) => !c)}
-                className={`flex h-5 w-5 items-center justify-center rounded-full transition-colors ${
+                onClick={() => setCollapsed(true)}
+                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-colors ${
                   dark ? "text-slate-500 hover:bg-white/[0.08] hover:text-slate-300" : "text-slate-400 hover:bg-slate-100 hover:text-slate-600"
                 }`}
-                aria-label={collapsed ? "展开" : "收起"}
+                aria-label="收起选择窗"
               >
-                <ChevronDown className={`h-3 w-3 transition-transform ${collapsed ? "rotate-180" : ""}`} />
+                <ChevronDown className="h-3 w-3" />
               </button>
+            )}
+          </div>
+          <div className="mt-0.5">
+            <div
+              className={`${useRelaxedPanelSpacing ? "min-h-[18px]" : "min-h-[34px]"} text-[11px] leading-[1.55] ${dark ? "text-slate-400" : "text-slate-600"}`}
+            >
+              {question.description ?? ""}
+            </div>
+            <div
+              className={`mt-1 ${useRelaxedPanelSpacing ? "min-h-[12px]" : "min-h-[15px]"} text-[10px] ${dark ? "text-slate-500" : "text-slate-500"}`}
+            >
+              {helperCopy}
             </div>
           </div>
-          {!collapsed ? (
-            <div className="mt-0.5">
-              <div
-                className={`${useRelaxedPanelSpacing ? "min-h-[18px]" : "min-h-[34px]"} text-[11px] leading-[1.55] ${dark ? "text-slate-400" : "text-slate-600"}`}
-              >
-                {question.description ?? ""}
-              </div>
-              <div
-                className={`mt-1 ${useRelaxedPanelSpacing ? "min-h-[12px]" : "min-h-[15px]"} text-[10px] ${dark ? "text-slate-500" : "text-slate-500"}`}
-              >
-                {helperCopy}
-              </div>
-            </div>
-          ) : null}
         </div>
       </div>
 
-      {!collapsed && isGenreQuestion ? (
+      {isGenreQuestion ? (
         <GenreCategoryPicker question={question} onSelect={onSelect} dark={dark} />
       ) : compactChoiceMode ? (
         <div className="flex min-h-[44px] flex-wrap gap-1.5">
@@ -382,30 +430,30 @@ export function ComposerChoicePanel({
         </div>
       )}
 
-      {!collapsed ? (
-        <div
-          className={
-            isSingleActionCard || useRelaxedPanelSpacing ? "mt-1.5" : "mt-2 min-h-[42px]"
-          }
-        >
-          {(question.submissionMode === "confirm" || question.multiSelect) && onConfirm ? (
-            <div className="flex items-center justify-between gap-2.5">
-              <div className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-500"}`}>{bottomHint}</div>
-              <Button
-                type="button"
-                size="sm"
-                className="h-8 rounded-full bg-[#0f62fe] px-3.5 text-[12px] text-white shadow-[0_8px_16px_rgba(15,98,254,0.16)] hover:bg-[#1b6fff]"
-                onClick={onConfirm}
-                disabled={!canConfirm}
-              >
-                {question.options.length === 1 && !question.multiSelect ? "确认执行" : "继续"}
-              </Button>
-            </div>
-          ) : bottomHint ? (
-            <div className={`pt-1 text-[10px] ${dark ? "text-slate-500" : "text-slate-500"}`}>{bottomHint}</div>
-          ) : null}
-        </div>
-      ) : null}
+      <div
+        className={
+          isSingleActionCard || useRelaxedPanelSpacing ? "mt-1.5" : "mt-2 min-h-[42px]"
+        }
+      >
+        {(question.submissionMode === "confirm" || question.multiSelect) && onConfirm ? (
+          <div className="flex items-center justify-between gap-2.5">
+            <div className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-500"}`}>{bottomHint}</div>
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 rounded-full bg-[#0f62fe] px-3.5 text-[12px] text-white shadow-[0_8px_16px_rgba(15,98,254,0.16)] hover:bg-[#1b6fff]"
+              onClick={onConfirm}
+              disabled={!canConfirm}
+            >
+              {question.options.length === 1 && !question.multiSelect ? "确认执行" : "继续"}
+            </Button>
+          </div>
+        ) : bottomHint ? (
+          <div className={`pt-1 text-[10px] ${dark ? "text-slate-500" : "text-slate-500"}`}>{bottomHint}</div>
+        ) : null}
+      </div>
+        </>
+      )}
     </div>
   );
 }

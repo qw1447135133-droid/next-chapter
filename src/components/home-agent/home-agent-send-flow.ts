@@ -206,11 +206,10 @@ export async function handleSendEngineEvent(params: {
     const parser = await loadStructuredQuestionParser();
     const parsed = parser.extractStructuredQuestion(textOf(event.message.message.content));
     const cleanedText = parsed.cleanedText.trim();
-    if (cleanedText) {
-      finalizeStreamingMessage(cleanedText);
-    } else {
-      finalizeStreamingMessage();
-    }
+    const consumedStructuredPayload = Boolean(parsed.request || parsed.workflowCall);
+    finalizeStreamingMessage(
+      consumedStructuredPayload ? cleanedText : cleanedText || undefined,
+    );
     if (parsed.request) setQuestionRequest(parsed.request);
     return;
   }

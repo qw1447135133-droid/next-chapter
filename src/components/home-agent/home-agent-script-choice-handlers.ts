@@ -78,6 +78,74 @@ export function createScriptProjectChoiceHandler(deps: ScriptChoiceHandlerDeps):
       return false;
     }
 
+    if (value === "生成创作方案") {
+      void deps.runWorkflowActionShortcut(
+        "generate_creative_plan",
+        { projectId: snapshot.projectId },
+        label,
+      );
+      return true;
+    }
+
+    if (value === "进入角色开发" || value === "继续角色设定" || value === "补充人物冲突") {
+      void deps.runWorkflowActionShortcut(
+        snapshot.projectKind === "adaptation" ? "generate_character_transform" : "generate_characters",
+        { projectId: snapshot.projectId },
+        label,
+      );
+      return true;
+    }
+
+    if (value.includes("分集目录")) {
+      void deps.runWorkflowActionShortcut(
+        "generate_directory",
+        { projectId: snapshot.projectId },
+        label,
+      );
+      return true;
+    }
+
+    if (value.includes("细纲")) {
+      void deps.runWorkflowActionShortcut(
+        "generate_outlines",
+        { projectId: snapshot.projectId },
+        label,
+      );
+      return true;
+    }
+
+    if (value.includes("合规审查")) {
+      void deps.runWorkflowActionShortcut(
+        "run_compliance_review",
+        { projectId: snapshot.projectId },
+        label,
+      );
+      return true;
+    }
+
+    if (value.includes("导出")) {
+      void deps.runWorkflowActionShortcut(
+        "export_project",
+        { projectId: snapshot.projectId },
+        label,
+      );
+      return true;
+    }
+
+    const episodeMatch = value.match(/第\s*(\d+)\s*集/);
+    if (value.includes("正文") || value.includes("撰写") || episodeMatch) {
+      const episodeNumber = episodeMatch ? Number(episodeMatch[1]) : undefined;
+      void deps.runWorkflowActionShortcut(
+        "generate_episode",
+        {
+          projectId: snapshot.projectId,
+          ...(Number.isFinite(episodeNumber) ? { episodeNumber } : {}),
+        },
+        label,
+      );
+      return true;
+    }
+
     if (value === "script:character-lock-next") {
       const nextCard = deps.listUnlockedCharacterCards(snapshot)[0];
       if (!nextCard) return true;

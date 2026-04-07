@@ -98,6 +98,41 @@ AskUserQuestion {
     ]);
   });
 
+  it("extracts AskUserQuestion payloads wrapped in tool + arguments json", () => {
+    const result = extractStructuredQuestion(`
+由于剧本生产流程已进入创作方案锁定阶段，下一步我们将进入角色开发。
+
+\`\`\`json
+{
+  "tool": "AskUserQuestion",
+  "arguments": {
+    "question": "创作方案已锁定，即将开始【角色开发】。你希望如何开启主角的人设构建？",
+    "options": [
+      { "value": "contrast", "label": "极致反差" },
+      { "value": "growth", "label": "职场进阶" },
+      { "value": "warmth", "label": "治愈陪伴" },
+      { "value": "custom", "label": "我有具体的人设想法，手动输入" }
+    ]
+  }
+}
+\`\`\`
+`);
+
+    expect(result.cleanedText).toBe(
+      "由于剧本生产流程已进入创作方案锁定阶段，下一步我们将进入角色开发。",
+    );
+    expect(result.request?.questions).toHaveLength(1);
+    expect(result.request?.questions[0]?.question).toBe(
+      "创作方案已锁定，即将开始【角色开发】。你希望如何开启主角的人设构建？",
+    );
+    expect(result.request?.questions[0]?.options.map((option) => option.value)).toEqual([
+      "contrast",
+      "growth",
+      "warmth",
+      "custom",
+    ]);
+  });
+
   it("extracts legacy ask_user json payloads into a composer request", () => {
     const result = extractStructuredQuestion(`
 下一步操作
@@ -299,6 +334,38 @@ AskUserQuestion {
     });
   });
 
+  it("extracts HomeStudioWorkflow payloads wrapped in tool + arguments json", () => {
+    const result = extractStructuredQuestion(`
+我已经锁定下一步，准备切到角色开发。
+
+\`\`\`json
+{
+  "tool": "HomeStudioWorkflow",
+  "arguments": {
+    "action": "complete_step",
+    "payload": {
+      "current_step": "创作方案",
+      "next_step": "角色开发",
+      "project_id": "current_project_id"
+    }
+  }
+}
+\`\`\`
+
+接下来我会继续推进。
+`);
+
+    expect(result.cleanedText).toBe("我已经锁定下一步，准备切到角色开发。\n\n接下来我会继续推进。");
+    expect(result.workflowCall).toEqual({
+      action: "complete_step",
+      payload: {
+        current_step: "创作方案",
+        next_step: "角色开发",
+        project_id: "current_project_id",
+      },
+    });
+  });
+
   it("strips raw workflow json blocks that are preceded by HomeStudioWorkflow comments", () => {
     const result = extractStructuredQuestion(`
 下一步操作
@@ -326,6 +393,59 @@ AskUserQuestion {
         current_stage: "creative_proposal",
         target_stage: "character_development",
         project_id: "current_script_001",
+      },
+    });
+  });
+
+  it("strips tool + arguments workflow and question blocks from the same assistant message", () => {
+    const result = extractStructuredQuestion(`
+由于剧本生产流程已进入创作方案锁定阶段，下一步我们将进入角色开发。
+
+\`\`\`json
+{
+  "tool": "AskUserQuestion",
+  "arguments": {
+    "question": "创作方案已锁定，即将开始【角色开发】。你希望如何开启主角的人设构建？",
+    "options": [
+      { "value": "contrast", "label": "极致反差" },
+      { "value": "growth", "label": "职场进阶" },
+      { "value": "warmth", "label": "治愈陪伴" },
+      { "value": "custom", "label": "我有具体的人设想法，手动输入" }
+    ]
+  }
+}
+\`\`\`
+
+\`\`\`json
+{
+  "tool": "HomeStudioWorkflow",
+  "arguments": {
+    "action": "complete_step",
+    "payload": {
+      "current_step": "创作方案",
+      "next_step": "角色开发",
+      "project_id": "current_project_id"
+    }
+  }
+}
+\`\`\`
+`);
+
+    expect(result.cleanedText).toBe(
+      "由于剧本生产流程已进入创作方案锁定阶段，下一步我们将进入角色开发。",
+    );
+    expect(result.request?.questions[0]?.options.map((option) => option.label)).toEqual([
+      "极致反差",
+      "职场进阶",
+      "治愈陪伴",
+      "我有具体的人设想法，手动输入",
+    ]);
+    expect(result.workflowCall).toEqual({
+      action: "complete_step",
+      payload: {
+        current_step: "创作方案",
+        next_step: "角色开发",
+        project_id: "current_project_id",
       },
     });
   });
